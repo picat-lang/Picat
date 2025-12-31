@@ -30,7 +30,6 @@ pattern-matching facilitates indexing of rules.
 The Picat system is written in both C and Picat. The
 package has the following folders and files:
 - Picat/README  --   this file
-- Picat/picat   --   the executable (picat.exe for Windows)
 - Picat/doc     --   documentation
 - Picat/exs     --   program examples
 - Picat/emu     --   the C/C++ source code of the engine
