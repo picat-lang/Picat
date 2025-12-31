@@ -1,0 +1,273 @@
+%import sat.
+
+% built-ins and constraints on bit-vectors
+%
+new_bv(N) = BV, integer(N), N >= 0 =>
+    BV = new_array(N),
+    BV :: 0..1.
+new_bv(N) = _BV =>
+    handle_exception($nonnegative_integer_expected(N), new_bv).
+
+int_to_bv(C) = V, integer(C), C >= 0 =>
+    bp.sat_dec_to_bin(C,V).
+int_to_bv(C) = _V =>
+    handle_exception($nonnegative_integer_expected(C), int_to_bv).
+
+bv_to_int(V) = X, integer(V) => X = V.
+bv_to_int(V) = X, array(V) =>
+    (ground(V) ->
+        bp.eval_bv(V,X)
+    ;
+        handle_exception($ground_expected(V), bv_to_int)
+    ).
+bv_to_int(V) = _C =>
+    handle_exception($bv_expected(V), bv_to_int).
+
+% take the lowest K bits, a.k.a., mod 2**K
+bv_take(V,K) = V1 =>
+    check_bv(V,bv_take,BV),
+    N = len(BV),
+    (K =< 0 -> 
+        V1 = {}
+    ;K >= N ->
+        V1 = BV
+    ;
+        V1 = new_array(K),
+        foreach (I in 1..K)
+            V1[I] = BV[I]
+        end
+    ).
+    
+bv_drop(V,K) = V1 =>
+    check_bv(V,bv_drop,BV),
+    N = len(BV),
+    (K >= N -> 
+        V1 = {}
+    ;K =< 0 ->
+        V1 = BV
+    ;
+        N1 = N-K,
+        V1 = new_array(N1),
+        foreach (I in 1..N1)
+            V1[I] = BV[I+K]
+        end
+    ).
+    
+bv_add(V1,V2,V3) =>
+    check_bv(V1,bv_add,BV1),
+    check_bv(V2,bv_add,BV2),
+    N = max(len(BV1),len(BV2))+1,
+    check_create_bv(V3,N,bv_add,BV3),
+    bp.ic_add_unsigned(BV1,BV2,BV3).
+
+bv_sum([],Sum) => bv_eq(Sum,0).
+bv_sum([V],Sum) => bv_eq(Sum,V).
+bv_sum([V1,V2],Sum) => bv_add(V1,V2,Sum).
+bv_sum([V1,V2|Vs],Sum) => 
+    bv_add(V1,V2,V),
+    bv_sum_aux(Vs,[V],Sum).
+bv_sum(Vs,Sum) => 
+    handle_exception($list_expected(Vs), bv_sum).
+
+bv_sum_aux([],Vs1,Sum) => bv_sum(Vs1,Sum).
+bv_sum_aux([V],Vs1,Sum) => bv_sum([V|Vs1],Sum).
+bv_sum_aux([V1,V2|Vs],Vs1,Sum) => 
+    bv_add(V1,V2,V),
+    bv_sum_aux(Vs,[V|Vs1],Sum).
+
+bv_mul(V1,V2,V3), integer(V1), V1 >= 0, V1 /\ (V1-1) =:= 0 =>
+    bv_mul_p2(V1,V2,V3).
+bv_mul(V1,V2,V3), integer(V2), V2 >= 0, V2 /\ (V2-1) =:= 0 =>
+    bv_mul_p2(V2,V1,V3).
+bv_mul(V1,V2,V3) =>
+    check_bv(V1,bv_mul,BV1),
+    check_bv(V2,bv_mul,BV2),
+    N = len(BV1) + len(BV2),
+    check_create_bv(V3,N,bv_mul,BV3),
+    bp.ic_mul_unsigned(BV1,BV2,BV3).
+
+% C is power of 2
+bv_mul_p2(0,V1,V2) =>
+    bv_eq(V2,{0}).
+bv_mul_p2(C,V1,V2) =>
+    Len = floor(log(2,C)),
+    check_bv(V1,bv_mul,BV1),
+    N1 = len(BV1),
+    N is Len+N1,
+    check_create_bv(V2,N,bv_mul,BV2),
+    bv_eq(to_array([0 : _ in 1..Len] ++ to_list(BV1)), BV2).
+
+bv_div(V1,V2,V3), integer(V2), V2 >= 0, V2 /\ (V2-1) =:= 0 =>
+    Len = floor(log(2,V2)),
+    V = bv_drop(V1,Len),
+    bv_eq(V,V3).
+bv_div(V1,V2,V3) =>
+    check_bv(V1,bv_div,BV1),
+    check_bv(V2,bv_div,BV2),
+    N1 is len(BV1),
+    N2 is len(BV2),
+    check_create_bv(V3,N1,bv_div,BV3),
+    R = new_bv(N2),        % remainder, V1 div V2 = V3 -> V1 = V2*V3+R, R < V2, V2 != 0
+    bv_gt(BV2,R),
+    bv_neq(BV2,0),
+    bv_mul(BV2,BV3,BV4),
+    bv_add(BV4,R,BV1).    
+
+bv_mod(V1,V2,V3) =>
+    check_bv(V1,bv_mod,BV1),
+    check_bv(V2,bv_mod,BV2),
+    N1 is len(BV1),
+    N2 is len(BV2),
+    check_create_bv(V3,N2,bv_mod,BV3),
+    bv_gt(BV2,BV3),
+    bv_neq(BV2,0),
+    Q = new_bv(N1),
+    bv_mul(BV2,Q,BV4),
+    bv_add(BV4,BV3,BV1).     
+
+% V1**V2 = V3
+bv_pow(V1,V2,V3) =>
+    check_bv(V1,bv_pow,BV1),
+    check_bv(V2,bv_pow,BV2),
+    N1 = len(BV1),
+    N2 = len(BV2),
+    N is N1*(2**N2-1),
+    check_create_bv(V3,N,bv_pow,BV3),
+    bv_pow_aux(BV1,N1,BV2,N2,BV3).
+
+bv_pow_aux(BV1,_,BV2,1,BV3) =>
+    BV2 = {B},
+    B1 :: 0..1,
+    B+B1 #= 1,
+    bv_mul(BV2,BV1,T),
+    bv_add({B1},T,BV3).    % V1**{B} = V3 -> V1*B+(1-B)=V3
+bv_pow_aux(BV1,N1,BV2,N2,BV3) =>
+    bp.sub_array(BV2,2,N2,BV4),    % BV2 = {B1,B2,...,Bn}, BV4 = {B2,...,Bn}
+    bv_pow(BV1,BV4,T1),
+    T2 = new_bv(N1),
+    bv_pow_aux(BV1,N1,{BV2[1]},1,T2),  % X**Y = T*T if Y is even, and X**Y = T*T*X if Y is odd, where T = X**(Y/2)
+    bv_mul(T1,T1,T3),
+    bv_mul(T2,T3,BV3).
+
+bv_neq(V1,V2) =>
+    check_bv(V1,bv_eq,BV1),
+    check_bv(V2,bv_eq,BV2),
+    bp.ic_neq_unsigned(BV1,BV2).
+
+bv_eq(V1,V2), var(V1), not dvar(V1) =>
+    V1 = V2.
+bv_eq(V1,V2), var(V2), not dvar(V2) =>
+    V1 = V2.
+bv_eq(V1,V2) =>
+    check_bv(V1,bv_eq,BV1),
+    check_bv(V2,bv_eq,BV2),
+    N1 = len(BV1),
+    N2 = len(BV2),
+    N = max(N1,N2),
+    foreach (I in 1..N)
+        A1 = cond(I =< N1, BV1[I], 0),
+        A2 = cond(I =< N2, BV2[I], 0),
+        bp.sat_propagate_equiv(A1,A2)
+    end.
+
+bv_ge(V1,V2) =>
+    check_bv(V1,bv_ge,BV1),
+    check_bv(V2,bv_ge,BV2),
+    bp.ic_ge_unsigned(BV1,BV2).
+
+bv_gt(V1,V2) =>
+    check_bv(V1,bv_ge,BV1),
+    check_bv(V2,bv_ge,BV2),
+    bp.ic_gt_unsigned(BV1,BV2).
+
+bv_and(V1,V2,V3) =>
+    check_bv(V1,bv_and,BV1),
+    check_bv(V2,bv_and,BV2),
+    N1 = len(BV1),
+    N2 = len(BV2),
+    Min12 = min(N1,N2),
+    check_create_bv(V3,Min12,bv_and,BV3),
+    N3 = len(BV3),
+    N is max(N1, max(N2,N3)),
+    foreach (I in 1..N)
+        A1 = cond(I =< N1, BV1[I], 0),
+        A2 = cond(I =< N2, BV2[I], 0),
+        A3 = cond(I =< N3, BV3[I], 0),
+        A3 #= (A1 #/\ A2)
+    end.
+
+bv_or(V1,V2,V3) =>
+    check_bv(V1,bv_or,BV1),
+    check_bv(V2,bv_or,BV2),
+    N1 = len(BV1),
+    N2 = len(BV2),
+    Max12 = max(N1,N2),
+    check_create_bv(V3,Max12,bv_or,BV3),
+    N3 = len(BV3),
+    N is max(Max12,N3),
+    foreach (I in 1..N)
+        A1 = cond(I =< N1, BV1[I], 0),
+        A2 = cond(I =< N2, BV2[I], 0),
+        A3 = cond(I =< N3, BV3[I], 0),
+        A3 #= (A1 #\/ A2)
+    end.
+
+bv_xor(V1,V2,V3) =>
+    check_bv(V1,bv_xor,BV1),
+    check_bv(V2,bv_xor,BV2),
+    N1 = len(BV1),
+    N2 = len(BV2),
+    Max12 = max(N1,N2),
+    check_create_bv(V3,Max12,bv_xor,BV3),
+    N3 = len(BV3),
+    N is max(Max12,N3),
+    foreach (I in 1..N)
+        A1 = cond(I =< N1, BV1[I], 0),
+        A2 = cond(I =< N2, BV2[I], 0),
+        A3 = cond(I =< N3, BV3[I], 0),
+        A3 #= (A1 #^ A2)
+    end.
+
+check_create_bv(V,N,Source,BV), dvar(V) => 
+    handle_exception($bv_expected(V), Source).
+check_create_bv(V,N,Source,BV), var(V) =>
+    V = new_bv(N),
+    BV = V,
+    BV :: 0..1.
+check_create_bv(V,N,Source,BV) =>
+    check_bv(V,Source,BV).
+
+check_bv(V,Source,BV), integer(V) =>
+    (V < 0 ->
+        handle_exception($nonnegative_integer_expected(V), Source)
+    ;
+        bp.sat_dec_to_bin(V,BV)
+    ).
+check_bv(V,Source,BV), dvar(V) =>
+    handle_exception($bv_expected(V), Source).
+check_bv(V,Source,BV) =>
+    (array(V) ->
+        BV = V,
+        N = len(V),
+        foreach (I in 1..N)
+            check_bv_arg(V[I],Source)
+        end
+    ;
+        handle_exception($bv_expected(V), Source)
+    ).
+
+check_bv_arg(A,Source), integer(A) =>
+    (A >= 0, A =< 1 ->
+        true
+    ;
+        handle_exception($bit_value_expected(A), Source)
+    ).
+check_bv_arg(A,Source), var(A) =>
+    A :: 0..1.
+check_bv_arg(A,Source) =>
+    handle_exception($bvar_expected(A), Source).
+
+    
+    
+
+    

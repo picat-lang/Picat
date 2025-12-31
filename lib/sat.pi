@@ -1,0 +1,163 @@
+module sat.
+import common_constr.
+
+% X #!= Y
+% X #/\ Y
+% X #< Y
+% X #<= Y
+% X #<=> Y
+% X #= Y
+% X #=< Y
+% X #=> Y
+% X #> Y
+% X #>= Y
+% X #\/ Y
+% X #^ Y
+%  #~ X
+% Vars::Exp
+% Vars notin Exp
+% acyclic(Vs,Es)
+% acyclic_d(Vs,Es)
+% all_different(FDVars)
+% all_different_except_0(FDVars)
+% all_distinct(FDVars)
+% assignment(FDVars1,FDVars2)
+% at_least(N,L,V)
+% at_most(N,L,V)
+% circuit(FDVars)
+% count(V,FDVars,N)
+% count(V,FDVars,Rel,N)
+% cumulative(Ss,Ds,Rs,Limit)
+% decreasing(L)
+% decreasing_strict(L)
+% diffn(RectangleList)
+% element(I,List,V)
+% element0(I,List,V)
+% exactly(N,L,V):
+% fd_disjoint(DVar1,DVar2)
+% fd_dom(FDVar) = List
+% fd_false(FDVar,Elm)
+% fd_max(FDVar) = Max
+% fd_min(FDVar) = Min
+% fd_min_max(FDVar,Min,Max)
+% fd_next(FDVar,Elm) = NextElm
+% fd_prev(FDVar,Elm) = PrevElm
+% fd_size(FDVar) = Size
+% fd_true(FDVar,Elm)
+% fd_vector_min_max(Min,Max)
+% global_cardinality(List,Pairs)
+% hcp(Vs,Es)
+% hcp(Vs,Es,K)
+% hcp_grid(A)
+% hcp_grid(A,Es)
+% hcp_grid(A,Es,K)
+% increasing(L)
+% increasing_strict(L)
+% lex_le(L_1,L_2)
+% lex_lt(L_1,L_2)
+% matrix_element(Matrix,I,J,V)
+% matrix_element0(Matrix,I,J,V)
+% new_dvar() = FDVar
+% new_fd_var() = FDVar
+% path(Vs,Es,Src,Dest)
+% path_d(Vs,Es,Src,Dest)
+% regular(X,Q,S,D,Q0,F)
+% scalar_product(A,X,Product)
+% scalar_product(A,X,Rel,Product)
+% scc(Vs,Es)
+% scc(Vs,Es,K)
+% scc_d(Vs,Es)
+% scc_d(Vs,Es,K)
+% scc_grid(A)
+% scc_grid(A,K)
+% serialized(Starts,Durations)
+% solve(Opts,Vars)(nondet)
+% solve(Vars)(nondet)
+% solve_all(Opts,Vars) = List
+% solve_all(Vars) = List
+% subcircuit(FDVars)
+% subcircuit_grid(A)
+% subcircuit_grid(A,K)
+% table_in(DVars,R)
+% table_notin(DVars,R)
+% tree(Vs,Es)
+% tree(Vs,Es,K)
+
+include "cp_sat_mip_smt.pi". % common built-ins for cp, sat, mip, and smt
+include "sat_mip_smt.pi".
+include "sat_bv.pi".
+
+'::'(Vars,Domain) =>
+    bp.'_$_picat_in'(sat,Vars,Domain).
+
+% element(I,FDVars,V) => element(I,FDVars,V).
+element(I,FDVars,V) =>
+    (array(FDVars) -> to_list(FDVars) = List; List = FDVars),
+    (bp.dvar_or_int_list(List) -> true; handle_exception($dvar_or_int_list_expected(List), element)),
+    bp.'$element'(I,List,V,sat).
+
+% 0-based indexing
+%element0(I,FDVars,V) => element0(I,FDVars,V).
+element0(I,FDVars,V) =>
+    (array(FDVars) -> to_list(FDVars) = List; List = FDVars),
+    (bp.dvar_or_int_list(List) -> true; handle_exception($dvar_or_int_list_expected(List), element)),
+    bp.'$element0'(I,List,V,sat).
+
+% all_different(FDVars) => all_different(FDVars).
+all_different(FDVars) =>
+    (array(FDVars) -> to_list(FDVars) = List; List = FDVars),
+    bp.'$alldifferent'(List).
+
+% all_distinct(FDVars) => all_distinct(FDVars).
+all_distinct(FDVars) =>
+    all_different(FDVars).
+
+%
+% Requires that all non-zero values in Xs are distinct.
+%
+alldifferent_except_0(Xs) =>
+    all_different_except_0(Xs).
+
+all_different_except_0(Xs) =>
+    (list(Xs) ->
+        L = Xs
+    ;array(Xs) ->
+        L = to_list(Xs)
+    ;
+        handle_exception($dvar_or_int_collection_expected(Xs), all_different_except_0)
+    ),
+    bp.'$alldifferent_except_0'(L).
+
+% solve(Vars) => solve(Vars).
+solve(Vars) => solve([],Vars).
+
+% solve(Options,Vars) => solve(Options,Vars)
+solve(Options,Vars) =>
+    (bp.dvar_or_int_list(Vars) ->
+        VList = Vars
+    ;
+        VList = vars(Vars),
+        (bp.dvar_or_int_list(VList) ->
+            true
+        ;
+            handle_exception($free_var_not_allowed(Vars), solve)
+        )
+    ),
+    (select($report(Call), Options,Options1) ->
+        Options2 = [$report('$dyna_eval_pred'(['$picat_top_level'],Call))|Options1]
+    ;
+        Options2 = Options
+    ),
+    (select($dump(File), Options2,Options3) ->
+        AtomFile = to_atom(File),
+        Options4 = [$dump(AtomFile)|Options3]
+    ;         
+        Options4 = Options2
+    ),        
+    bp.sat_solve(Options4,VList).    
+
+solve_all(Vars) = solve_all([],Vars).
+
+solve_all(Options,Vars) =
+    findall(Vars, solve(Options,Vars)).
+

@@ -1,0 +1,26 @@
+hcp_simple_check_vs([]) => true.
+hcp_simple_check_vs([{V,B}|Vs]) =>
+    hcp_scc_check_vertex(V,hcp),
+    hcp_scc_check_b(B,hcp),
+    hcp_simple_check_vs(Vs).
+hcp_simple_check_vs([VB|_Vs]) =>
+    handle_exception($invalid_pair(VB), hcp).
+hcp_simple_check_vs(Vs) =>
+    handle_exception($list_expected(Vs), hcp).
+
+hcp_simple_check_es([],Es1) => Es1 = [].
+hcp_simple_check_es([T@{V1,V2,B}|Es],Es1) =>
+    hcp_scc_check_vertex(V1,hcp),
+    hcp_scc_check_vertex(V2,hcp),
+    (V1 == V2 ->
+        Es1R = Es1
+    ;
+        Es1 = [T|Es1R]
+    ),
+    hcp_scc_check_b(B,hcp),
+    hcp_simple_check_es(Es,Es1R).
+hcp_simple_check_es([E|_Es],Es1) =>
+    handle_exception($invalid_triplet(E), hcp).
+hcp_simple_check_es(Es,Es1) =>
+    handle_exception($list_expected(Es), hcp).
+

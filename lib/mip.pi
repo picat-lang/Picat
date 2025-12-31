@@ -1,0 +1,101 @@
+module mip.
+import common_constr, mip_aux.
+
+% X #!= Y
+% X #/\ Y
+% X #< Y
+% X #<= Y
+% X #<=> Y
+% X #= Y
+% X #=< Y
+% X #=> Y
+% X #> Y
+% X #>= Y
+% X #\/ Y
+% X #^ Y
+%  #~ X
+% Vars::Exp
+% Vars notin Exp
+% acyclic(Vs,Es)
+% acyclic_d(Vs,Es)
+% all_different(FDVars)
+% all_different_except_0(FDVars)
+% all_distinct(FDVars)
+% assignment(FDVars1,FDVars2)
+% at_least(N,L,V)
+% at_most(N,L,V)
+% circuit(FDVars)
+% count(V,FDVars,N)
+% count(V,FDVars,Rel,N)
+% cumulative(Ss,Ds,Rs,Limit)
+% decreasing(L)
+% decreasing_strict(L)
+% diffn(RectangleList)
+% element(I,List,V)
+% element0(I,List,V)
+% exactly(N,L,V):
+% fd_disjoint(DVar1,DVar2)
+% fd_dom(FDVar) = List
+% fd_false(FDVar,Elm)
+% fd_max(FDVar) = Max
+% fd_min(FDVar) = Min
+% fd_min_max(FDVar,Min,Max)
+% fd_next(FDVar,Elm) = NextElm
+% fd_prev(FDVar,Elm) = PrevElm
+% fd_size(FDVar) = Size
+% fd_true(FDVar,Elm)
+% fd_vector_min_max(Min,Max)
+% global_cardinality(List,Pairs)
+% hcp(Vs,Es)
+% hcp(Vs,Es,K)
+% hcp_grid(A)
+% hcp_grid(A,Es)
+% hcp_grid(A,Es,K)
+% increasing(L)
+% increasing_strict(L)
+% lex_le(L_1,L_2)
+% lex_lt(L_1,L_2)
+% matrix_element(Matrix,I,J,V)
+% matrix_element0(Matrix,I,J,V)
+% new_dvar() = FDVar
+% new_fd_var() = FDVar
+% path(Vs,Es,Src,Dest)
+% path_d(Vs,Es,Src,Dest)
+% regular(X,Q,S,D,Q0,F)
+% scalar_product(A,X,Product)
+% scalar_product(A,X,Rel,Product)
+% scc(Vs,Es)
+% scc(Vs,Es,K)
+% scc_d(Vs,Es)
+% scc_d(Vs,Es,K)
+% scc_grid(A)
+% scc_grid(A,K)
+% serialized(Starts,Durations)
+% solve(Opts,Vars)(nondet)
+% solve(Vars)(nondet)
+% solve_all(Opts,Vars) = List
+% solve_all(Vars) = List
+% subcircuit(FDVars)
+% subcircuit_grid(A)
+% subcircuit_grid(A,K)
+% table_in(DVars,R)
+% table_notin(DVars,R)
+% tree(Vs,Es)
+% tree(Vs,Es,K)
+
+include "cp_sat_mip_smt.pi". % common built-ins for cp, sat, mip, and smt
+include "sat_mip_smt.pi".    % common decomposers used for sat, mip, and smt
+include "mip_smt.pi".        % common decomposers used for mip and smt
+
+% solve(Vars) => solve(Vars).
+solve(Vars) => solve([],Vars).
+
+% solve(Options,Vars) => solve(Options,Vars)
+solve(Options,Vars) =>
+    mip_solve(Options, vars(Vars)).
+
+solve_all(Vars) = solve_all([],Vars).
+
+solve_all(Options,Vars) =
+    findall(Vars, solve(Options,Vars)).
+
