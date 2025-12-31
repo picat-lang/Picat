@@ -1,0 +1,101 @@
+\documentclass[11pt]{report}
+\textwidth 13.7cm
+\textheight 21.5cm
+
+\RequirePackage[T1]{fontenc}
+\usepackage{chngpage}
+\usepackage{makeidx}
+\usepackage{multicol}
+\usepackage{sectsty}
+\usepackage{setspace}
+\usepackage{times}
+\usepackage{url}
+\usepackage{vmargin}
+
+\newcommand{\ignore}[1]{}
+
+\sectionfont{\normalsize\bf}
+\subsectionfont{\normalsize\bf}
+
+\newcommand{\myimp}{\verb+ :- +}
+\def\definitionname{Definition}
+
+\makeindex
+
+\usepackage[bookmarks=true,hidelinks]{hyperref}
+\hypersetup{pdfstartview={XYZ null null 1.00}}
+
+\begin{document}
+\vspace*{4cm}
+\begin{center}
+{\Huge\bf A User's Guide to Picat} \\
+{\large\bf Version 3.9 \#4} \\
+
+
+\vspace*{1cm}
+%\vspace*{8cm}
+
+{\large\bf Neng-Fa Zhou and Jonathan Fruhman} \\
+\vspace*{1cm}
+{\bf Copyright \copyright \url{picat-lang.org}, 2013-2025.} \\
+%{\bf Under construction}
+{\bf Last updated November 28, 2025} \\
+\end{center}
+\thispagestyle{empty}
+\clearpage
+
+\pagestyle{plain}
+\pagenumbering{roman}
+
+\section*{Preface}
+\input{preface.tex}
+
+\clearpage
+\section*{License}
+The copyright of Picat is owned by \url{picat-lang.org}. Picat is provided, free of charge, for any purposes, including commercial ones. The C source files of Picat are covered by the Mozilla Public License, v. 2.0 (\url{http://mozilla.org/MPL/2.0/}). In essence, anyone is allowed to build works, including proprietary ones, based on Picat, as long as the Source Code Form is retained. The copyright holders, developers, and distributors will not be held liable for any direct or indirect damages.
+
+ 
+\section*{Acknowledgements}
+The initial design of Picat was published in December 2012, and the first alpha version was released in May 2013.  Many people have contributed to the project by reviewing the ideas, the design, the implementation, and/or the documentation, including Roman Bart\'{a}k, Nikhil Barthwal, Mike Bionchik, Lei Chen, Veronica Dahl, Claudio Cesar de S\'{a}, Agostino Dovier, Sergii Dymchenko, Julio Di Egidio, Christian Theil Have, H{\aa}kan Kjellerstrand,  Annie Liu, Nuno Lopes, Marcio Minicz, Richard O'Keefe, Lorenz Schiffmann, Paul Tarau, and Jan Wielemaker.  Special thanks to H{\aa}kan Kjellerstrand, who has been programming in Picat and blogging about Picat since May 2013. The system wouldn't have matured so quickly without H{\aa}kan's hundreds of programs (\url{http://hakank.org/}). Thanks also go to Bo Yuan (Bobby) Zhou, who designed the \url{picat-lang.org} web page, Sanders Hernandez, who implemented the interface to the FANN neural network library, and Domingo Alvarez Duarte, who ported Picat to MinGW (\url{https://github.com/mingodad/picat}). The Picat project was supported in part by the NSF under grant numbers CCF1018006 and CCF1618046.
+
+The Picat implementation is based on the B-Prolog engine. It uses the following public domain modules: \ignore{\texttt{prism} by Taisuke Sato and Yoshitaka Kameya; }\texttt{token.c} by Richard O'Keefe; \texttt{getline.c} by Chris Thewalt; \texttt{bigint.c} by Matt McCutchen; \texttt{Espresso} (by Berkeley); \texttt{FANN} by Steffen Nissen. In addition, Picat also provides interfaces to the SAT solver Kissat (\url{https://github.com/arminbiere/kissat}), \texttt{Gurobi} by Gurobi Optimization, Inc, \texttt{CBC} by John Forrest, \texttt{GLPK} by Andrew Makhorin, \texttt{SCIP} by the Zuse Institute, and \texttt{Z3} by Microsoft.
+
+\tableofcontents
+
+\cleardoublepage
+\pagestyle{plain}
+\setcounter{page}{1}
+\pagenumbering{arabic}
+
+\input{overview.tex}
+\input{intro_sys.tex}
+\input{data_types.tex}
+\input{predfunc.tex}
+\input{loops.tex}
+\input{exception.tex}
+\input{tabling.tex}
+\input{planner.tex}
+\input{module.tex}
+\input{io.tex}
+\input{ar.tex}
+\input{constraints.tex}
+\input{neuralnets.tex}
+\input{os.tex}
+\input{math.tex}
+\input{sys.tex}
+\input{util.tex}
+\input{ordset.tex}
+\input{datetime.tex}
+\input{format.tex}
+\input{cinterface.tex}
+\input{lex_grammar.tex}
+\input{syntax_grammar.tex}
+\input{appendix_operators.tex}
+\begin{adjustwidth}{-2cm}{-1cm}
+\input{builtin.tex}
+\end{adjustwidth}
+\clearpage
+\phantomsection
+\addcontentsline{toc}{chapter}{Index}
+\printindex
+\end{document}

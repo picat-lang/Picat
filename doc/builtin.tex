@@ -1,0 +1,907 @@
+\ignore{
+\documentclass[10pt]{article}
+\usepackage{fancyhdr}
+\usepackage{graphicx}
+\usepackage{wrapfig}
+\usepackage{multicol}
+\usepackage{setspace}
+\usepackage{makeidx}
+\newcommand{\ignore}[1]{}
+\usepackage{vmargin}
+\setpapersize{USletter}
+\setmarginsrb{19mm}{19mm}{19mm}{19mm}{12pt}{5mm}{0pt}{0mm}
+\usepackage{url}
+\usepackage{times}
+\usepackage{sectsty}
+\sectionfont{\normalsize\bf}
+\subsectionfont{\normalsize\bf}
+\graphicspath{{figs/}}
+\parindent 20pt
+%\parskip 4pt
+\newcommand{\mainfont}{ }
+\newcommand{\headfont}{\itshape}
+%
+%\newcommand{\mainfont}{\sffamily}
+%\pagestyle{fancy}
+\lhead{{\bfseries\headfont Picat}}
+%\rhead{{\bfseries\headfont Page~{\protect\thepage~of~\pageref{LastPage}}}}
+\rhead{{\bfseries\headfont Page~{\protect\thepage}}}
+%\chead{Google Faculty Research Awards Program}
+\cfoot{}
+\begin{document}
+\begin{center}
+\noindent {\bf The Library Modules of Picat} \\ 
+\vspace*{5mm}
+Neng-Fa Zhou and Jonathan Fruhman \\
+\vspace*{5mm}
+January 14, 2013 \\
+\vspace*{5mm}
+\end{center}
+}
+\chapter{Appendix: The Library Modules}
+\setstretch{0.5}
+\begin{multicols}{2}
+\section*{ Module \texttt{basic} (imported by default)}
+\begin{scriptsize}
+\begin{itemize}
+    \item {\tt \verb-\+- $Call$} 
+    \item {\tt $X$ \verb+!=+ $Y$} 
+    \item {\tt $X$ \verb+!==+ $Y$}
+    \item {\tt $X$ \verb+:=+ $Y$} 
+    \item {\tt $X$ \verb+<+ $Y$} 
+    \item {\tt $X$ \verb+<=+ $Y$} 
+    \item {\tt $X$ \verb+=+ $Y$} 
+    \item {\tt $X$ \verb+=<+ $Y$} 
+    \item {\tt $X$ \verb+=:=+ $Y$}
+    \item {\tt $X$ \verb+=\=+ $Y$}    
+    \item {\tt $X$ \verb+==+ $Y$} 
+    \item {\tt $X$ \verb+>+ $Y$} 
+    \item {\tt $X$ \verb+>=+ $Y$} 
+    \item {\tt $X$ @< $Y$} 
+    \item {\tt $X$ @<= $Y$} 
+    \item {\tt $X$ @=< $Y$} 
+    \item {\tt $X$ @> $Y$} 
+    \item {\tt $X$ @>= $Y$}
+    \item {\tt $X$\ =..\ $Y$} 
+    \item {\tt $Term_1$ \verb-++- $Term_2$ = $List$} 
+    \item {\tt \verb+[+$X$ : $I$ in $D$,$\ldots$ \verb+]+ = $List$}
+    \item {\tt $L$ \verb+..+ $U$ = $List$} 
+    \item {\tt $L$ \verb+..+ $Step$ \verb+..+ $U$ = $List$} 
+    \item {\tt \verb+-+$X$ = $Y$}
+    \item {\tt \verb-+-$X$ = $Y$}
+    \item {\tt $X$ \verb-+- $Y$ = $Z$} 
+    \item {\tt $X$ \verb+-+ $Y$ = $Z$} 
+    \item {\tt $X$ \verb+*+ $Y$ = $Z$} 
+    \item {\tt $X$ \verb+/+ $Y$ = $Z$} 
+    \item {\tt $X$ \verb+//+ $Y$ = $Z$} 
+    \item \texttt{$X$ div $Y$ = $Z$} 
+    \item {\tt $X$ \verb+/<+ $Y$ = $Z$} 
+    \item {\tt $X$ \verb+/>+ $Y$ = $Z$} 
+    \item {\tt $X$ \verb+**+ $Y$ = $Z$} 
+    \item \texttt{$X$ mod $Y$ = $Z$} 
+    \item \texttt{$X$ rem $Y$ = $Z$} 
+    \item {\tt \verb+~+$X$ = $Y$} 
+    \item {\tt $X$ \verb+\/+ $Y$ = $Z$} 
+    \item {\tt $X$ \verb+/\+ $Y$ = $Z$} 
+    \item {\tt $X$ \verb+^+ $Y$ = $Z$} 
+    \item {\tt $X$ \verb+<<+ $Y$ = $Z$} 
+    \item {\tt $X$ \verb+>>+ $Y$ = $Z$} 
+    \item {\tt $Var$\verb+[+$Index_1$,$\ldots$,$Index_n$\verb+]+}
+    \item \texttt{$Goal_1$,$Goal_2$}
+    \item \texttt{$Goal_1$ \&\& $Goal_2$}
+    \item \texttt{$Goal_1$;$Goal_2$}
+    \item \texttt{$Goal_1$ || $Goal_2$}
+    \item \texttt{acyclic\_term($Term$)}
+    \item \texttt{and\_to\_list($Conj$) = $List$}
+    \item \texttt{append($X$,$Y$,$Z$)}  (nondet)
+    \item \texttt{append($X$,$Y$,$Z$,$T$)}  (nondet)
+    \item \texttt{apply($S$,$Arg_1$,$\ldots$,$Arg_n$) = $Val$}
+    \item \texttt{arg($I$,$T$,$A$)}    
+    \item \texttt{arity($Struct$) = $Arity$}
+    \item \texttt{array($Term$)}
+    \item \texttt{ascii\_alpha($Term$)}
+    \item \texttt{ascii\_alpha\_digit($Term$)}
+    \item \texttt{ascii\_digit($Term$)}
+    \item \texttt{ascii\_lowercase($Term$)}
+    \item \texttt{ascii\_uppercase($Term$)}
+    \item \texttt{atom($Term$)} 
+    \item \texttt{atom\_chars($Atm$) = $String$}
+    \item \texttt{atom\_codes($Atm$) = $List$} 
+    \item \texttt{atomic($Term$)} 
+    \item \texttt{attr\_var($Term$)} 
+    \item \texttt{avg($ListOrArray$) = $Val$}
+    \item \texttt{between($From$,$To$,$X$)} (nondet)
+    \item \texttt{between($From$,$Step$,$To$,$X$)} (nondet)    
+    \item \texttt{bigint($Term$)}
+    \item \texttt{bind\_vars($Term$,$Val$)}
+    \item \texttt{call($S$,$Arg_1$,$\ldots$,$Arg_n$)} 
+    \item \texttt{call\_cleanup($S$,$Cleanup$)} 
+    \item \texttt{catch($S$,$Exception$,$Handler$)} 
+    \item \texttt{char($Term$)} 
+    \item \texttt{chr($Code$) = $Char$} 
+    \item \texttt{clear($Map$)} 
+    \item \texttt{compare\_terms($Term_1$,$Term_2$) = $Res$} 
+    \item \texttt{compound($Term$)} 
+    \item \texttt{copy\_term($Term_1$) = $Term_2$}
+    \item \texttt{count\_all($Call$) = $Int$}
+    \item \texttt{del($Map$,$Key$)}    
+    \item \texttt{delete($List$,$X$) = $ResList$}
+    \item \texttt{delete\_all($List$,$X$) = $ResList$}
+    \item \texttt{different\_terms($Term_1$,$Term_2$)}
+    \item \texttt{digit($Char$)}
+    \item \texttt{dvar($Term$)}
+    \item \texttt{dvar\_or\_int($Term$)}
+    \item \texttt{fail}
+    \item \texttt{false}
+    \item \texttt{find\_all($Template$,$Call$) = $List$}
+    \item \texttt{findall($Template$,$Call$) = $List$}
+    \item \texttt{first($Compound$) = $Term$} 
+    \item \texttt{flatten($List1$) = $List2$} 
+    \item \texttt{float($Term$)} 
+    \item \texttt{fold($F$,$ACC$,$List$) = $Res$} 
+    \item \texttt{freeze($X$,$Goal$)}
+    \item \texttt{functor($T$,$F$,$N$)}
+    \item \texttt{get($Map$,$Key$) = $Val$}
+    \item \texttt{get($Map$,$Key$,$DefaultVal$)=$Val$} 
+    \item \texttt{get\_attr($AttrVar$,$Key$) = $Val$}
+    \item \texttt{get\_attr($AttrVar$,$Key$,$DefaultVal$)=$Val$} 
+    \item \texttt{get\_global\_map($ID$) = $Map$}
+    \item \texttt{get\_global\_map() = $Map$}
+    \item \texttt{get\_heap\_map($ID$) = $Map$} 
+    \item \texttt{get\_heap\_map() = $Map$} 
+    \item \texttt{get\_table\_map($ID$) = $Map$} 
+    \item \texttt{get\_table\_map() = $Map$} 
+    \item \texttt{ground($Term$)} 
+    \item \texttt{handle\_exception($Term$,$Term$)} 
+    \item \texttt{has\_key($Map$,$Key$)} 
+    \item \texttt{hash\_code($Term$) = $Int$} 
+    \item \texttt{head($List$) = $Term$} 
+    \item \texttt{heap\_is\_empty($Heap$)}
+    \item \texttt{heap\_pop($Heap$) = $Elm$}
+    \item \texttt{heap\_push($Heap$,$Elm$)}
+    \item \texttt{heap\_size($Heap$) = $Size$}
+    \item \texttt{heap\_to\_list($Heap$) = $List$}
+    \item \texttt{heap\_top($Heap$) = $Elm$}
+    \item \texttt{insert($List$,$Index$,$Elm$) = $ResList$} 
+    \item \texttt{insert\_all($List$,$Index$,$AList$) = $ResList$} 
+    \item \texttt{insert\_ordered($List$,$Term$) = $R$} 
+    \item \texttt{insert\_ordered\_down($List$,$Term$) = $R$} 
+    \item \texttt{int($Term$)} 
+    \item \texttt{integer($Term$)} 
+    \item \texttt{is($T_1$,$T_2$)} 
+    \item \texttt{keys($Map$) = $List$} 
+    \item \texttt{last($Compound$) = $Term$} 
+    \item \texttt{len($Term$) = $Len$} 
+    \item \texttt{length($Term$) = $Len$} 
+    \item \texttt{list($Term$)} 
+    \item \texttt{list\_to\_and($List$) = $Conj$}
+    \item \texttt{lowercase($Char$)} 
+    \item \texttt{map($Func$,$List1$,$List2$) = $ResList$} 
+    \item \texttt{map($FuncOrList$,$ListOrFunc$) = $ResList$} 
+    \item \texttt{map($Term$)} 
+    \item \texttt{map\_to\_list($Map$) = $List$} 
+    \item \texttt{max($ListOrArray$) = $Val$} 
+    \item \texttt{max($X$,$Y$) = $Val$} 
+    \item \texttt{maxint\_small() = $Int$}
+    \item \texttt{maxof($Call$,$Objective$)} 
+    \item \texttt{maxof($Call$,$Objective$,$ReportCall$)} 
+    \item \texttt{maxof\_inc($Call$,$Objective$)} 
+    \item \texttt{maxof\_inc($Call$,$Objective$,$ReportCall$)} 
+    \item \texttt{membchk($Term$,$List$)} 
+    \item \texttt{member($Term$,$List$)} (nondet)
+    \item \texttt{min($ListOrArray$) = $Val$} 
+    \item \texttt{min($X$,$Y$) = $Val$} 
+    \item \texttt{minint\_small() = $Int$}
+    \item \texttt{minof($Call$,$Objective$)} 
+    \item \texttt{minof($Call$,$Objective$,$ReportCall$)} 
+    \item \texttt{minof\_inc($Call$,$Objective$)} 
+    \item \texttt{minof\_inc($Call$,$Objective$,$ReportCall$)} 
+    \item \texttt{name($Struct$) = $Name$} 
+    \item \texttt{new\_array($D_1$,$\ldots$,$D_n$) = $Arr$} 
+    \item \texttt{new\_list($N$) = $List$} 
+    \item \texttt{new\_list($N$,$InitVal$) = $List$} 
+    \item \texttt{new\_map($Int$,$PairsList$) = $Map$} 
+    \item \texttt{new\_map($IntOrPairsList$) = $Map$} 
+    \item \texttt{new\_max\_heap($IntOrList$) = $Heap$}
+    \item \texttt{new\_min\_heap($IntOrList$) = $Heap$}
+    \item \texttt{new\_set($Int$,$ElmsList$) = $Map$} 
+    \item \texttt{new\_set($IntOrElmsList$) = $Map$} 
+    \item \texttt{new\_struct($Name$,$IntOrList$) = $Struct$} 
+    \item \texttt{nonvar($Term$)} 
+    \item \texttt{not $Call$}
+    \item \texttt{nth($I$,$ListOrArray$,$Val$)} (nondet)
+    \item \texttt{number($Term$)} 
+    \item \texttt{number\_chars($Num$) = $String$} 
+    \item \texttt{number\_codes($Num$) = $List$} 
+    \item \texttt{number\_vars($Term$)}
+    \item \texttt{number\_vars($Term$,$N_0$) = $N_1$}
+    \item \texttt{once $Call$}
+    \item \texttt{ord($Char$) = $Int$} 
+    \item \texttt{parse\_radix\_string($String$,$Base$) = $Int$}
+    \item \texttt{parse\_term($String$) = $Term$}
+    \item \texttt{parse\_term($String$,$Term$,$Vars$)}
+    \item \texttt{post\_event($X$,$Event$)}
+    \item \texttt{post\_event\_any($X$,$Event$)}
+    \item \texttt{post\_event\_bound($X$)}
+    \item \texttt{post\_event\_dom($X$,$Event$)}
+    \item \texttt{post\_event\_ins($X$)}
+    \item \texttt{prod($Collection$) = $Val$}
+    \item \texttt{put($Map$,$Key$)} 
+    \item \texttt{put($Map$,$Key$,$Val$)} 
+    \item \texttt{put\_attr($Var$,$Key$)} 
+    \item \texttt{put\_attr($Var$,$Key$,$Val$)} 
+    \item \texttt{real($Term$)} 
+    \item \texttt{reduce($Func$,$List$) = $Res$} 
+    \item \texttt{reduce($Func$,$List$,$InitVal$) = $Res$} 
+    \item \texttt{remove\_dups($ListOrArray$) = $ResList$} 
+    \item \texttt{repeat} (nondet)
+    \item \texttt{reverse($ListOrArray$) = $Res$} 
+    \item \texttt{second($Compound$) = $Term$} 
+    \item \texttt{select($X$,$List$,$ResList$)} (nondet)
+    \item \texttt{size($Map$) = $Size$}
+    \item \texttt{slice($ListOrArray$,$From$)}
+    \item \texttt{slice($ListOrArray$,$From$,$To$)}
+    \item \texttt{sort($ListOrArray$) = $Sorted$} 
+    \item \texttt{sort($ListOrArray$,$KeyIndex$) = $Sorted$} 
+    \item \texttt{sort\_down($ListOrArray$) = $Sorted$} 
+    \item \texttt{sort\_down($ListOrArray$,$KeyIndex$) = $Sorted$} 
+    \item \texttt{sort\_down\_remove\_dups($ListOrArray$) = $Sorted$} 
+    \item \texttt{sort\_down\_remove\_dups($ListOrArray$,$KeyIndex$) = $Sorted$} 
+    \item \texttt{sort\_remove\_dups($ListOrArray$) = $Sorted$} 
+    \item \texttt{sort\_remove\_dups($ListOrArray$,$KeyIndex$) = $Sorted$} 
+    \item \texttt{sorted($ListOrArray$)} 
+    \item \texttt{sorted\_down($ListOrArray$)} 
+    \item \texttt{string($Term$)} 
+    \item \texttt{struct($Term$)} 
+    \item \texttt{subsumes($Term_1$,$Term_2$)}
+    \item \texttt{sum($Collection$) = $Val$}
+    \item \texttt{tail($List$) = $Term$} 
+    \item \texttt{throw($E$)}    
+    \item \texttt{to\_array($List$) = $Array$} 
+    \item \texttt{to\_atom($String$) = $Atom$} 
+    \item \texttt{to\_binary\_string($Int$) = $String$}
+    \item \texttt{to\_codes($Term$) = $List$}        
+    \item \texttt{to\_fstring($Format$,$Args\ldots$) = $String$}
+    \item \texttt{to\_hex\_string($Int$) = $String$}    
+    \item \texttt{to\_int($NumOrCharOrStr$) = $Int$} 
+    \item \texttt{to\_integer($NumOrCharOrStr$) = $Int$} 
+    \item \texttt{to\_list($Struct$) = $List$} 
+    \item \texttt{to\_lowercase($String$) = $LString$}
+    \item \texttt{to\_number($NumOrCharOrStr$) = $Number$}
+    \item \texttt{to\_oct\_string($Int$) = $String$}    
+    \item \texttt{to\_radix\_string($Int$,$Base$) = $String$}
+    \item \texttt{to\_real($NumOrStr$) = $Real$} 
+    \item \texttt{to\_string($Term$) = $String$}        
+    \item \texttt{to\_uppercase($String$) = $UString$}
+    \item \texttt{true}
+    \item \texttt{uppercase($Char$)} 
+    \item \texttt{values($Map$) = $List$} 
+    \item \texttt{var($Term$)} 
+    \item \texttt{variant($Term_1$,$Term_2$)}
+    \item \texttt{vars($Term$) = $Vars$}
+    \item \texttt{zip($List_1$,$List_2$) = $List$} 
+    \item \texttt{zip($List_1$,$List_2$,$List_3$) = $List$} 
+    \item \texttt{zip($List_1$,$List_2$,$List_3$,$List_4$) = $List$} 
+%    \item \texttt{unnumber\_vars($Term_1$) = $Term_2$}
+\end{itemize}
+\end{scriptsize}
+%
+\section*{Module \texttt{math} (imported by default)}
+\begin{scriptsize}
+\begin{itemize}
+   \item \texttt{abs($X$) = $Val$} 
+   \item \texttt{acos($X$) = $Val$}
+   \item \texttt{acosh($X$) = $Val$} 
+   \item \texttt{acot($X$) = $Val$}
+   \item \texttt{acoth($X$) = $Val$} 
+   \item \texttt{acsc($X$) = $Val$} 
+   \item \texttt{acsch($X$) = $Val$} 
+   \item \texttt{asec($X$) = $Val$}
+   \item \texttt{asech($X$) = $Val$} 
+   \item \texttt{asin($X$) = $Val$}
+   \item \texttt{asinh($X$) = $Val$} 
+   \item \texttt{atan($X$) = $Val$}
+   \item \texttt{atan2($X$,$Y$) = $Val$}
+   \item \texttt{atanh($X$) = $Val$} 
+   \item \texttt{ceiling($X$) = $Val$} 
+   \item \texttt{cos($X$) = $Val$} 
+   \item \texttt{cosh($X$)  = $Val$} 
+   \item \texttt{cot($X$) = $Val$}
+   \item \texttt{coth($X$)  = $Val$} 
+   \item \texttt{csc($X$) = $Val$}
+   \item \texttt{csch($X$)  = $Val$} 
+   \item \texttt{e() = 2.71828182845904523536} 
+   \item \texttt{even($Int$)} 
+   \item \texttt{exp($X$) = $Val$} 
+   \item \texttt{floor($X$) = $Val$} 
+   \item \texttt{frand() = $Val$}
+   \item \texttt{frand($Low$,$High$) = $Val$}    
+   \item \texttt{gcd($A$,$B$) = $Val$} 
+   \item \texttt{log($X$) = $Val$}
+   \item \texttt{log(B,$X$) = $Val$} 
+   \item \texttt{log10($X$) = $Val$} 
+   \item \texttt{log2($X$) = $Val$} 
+   \item \texttt{modf($X$) = ($IntVal$,$FractVal$)} 
+   \item \texttt{odd($Int$)} 
+   \item \texttt{pi() = 3.14159265358979323846} 
+   \item \texttt{pow($X$,$Y$) = $Val$}
+   \item \texttt{pow\_mod($X$,$Y$,$Z$) = $Val$}
+   \item \texttt{prime($Int$)} 
+   \item \texttt{primes($Int$) = $List$} 
+   \item \texttt{rand\_max() = $Val$} 
+   \item \texttt{random = $Val$} 
+   \item \texttt{random($Low$,$High$) = $Val$} 
+   \item \texttt{random($Seed$) = $Val$} 
+   \item \texttt{random2() = $Int$} 
+   \item \texttt{round($X$) = $Val$}
+   \item \texttt{sec($X$) = $Val$}
+   \item \texttt{sech($X$) = $Val$} 
+   \item \texttt{sign($X$) = $Val$}  
+   \item \texttt{sin($X$) = $Val$} 
+   \item \texttt{sinh($X$) = $Val$} 
+   \item \texttt{sqrt($X$) = $Val$} 
+   \item \texttt{tan($X$) = $Val$}
+   \item \texttt{tanh($X$) = $Val$} 
+   \item \texttt{to\_degrees($Radian$) = $Degree$} 
+   \item \texttt{to\_radians($Degree$) = $Radian$}
+   \item \texttt{truncate($X$) = $Val$}  
+%   \item \texttt{inf}
+%   \item \texttt{acosh($X$) = $Val$}
+%   \item \texttt{asinh($X$) = $Val$}
+%   \item \texttt{atanh($X$) = $Val$} 
+%   \item \texttt{cbrt($X$) = $Val$}
+%   \item \texttt{cosh($X$) = $Val$} 
+%   \item \texttt{coth($X$) = $Val$}
+%   \item \texttt{ninf}
+%   \item \texttt{nthrt($N$,$X$) = $Val$}
+%   \item \texttt{randrange($From$,$Step$,$To$) = $Val$}  
+%   \item \texttt{randrange($From$,$To$) = $Val$}  
+%   \item \texttt{sech($X$) = $Val$} 
+%   \item \texttt{sinh($X$) = $Val$} 
+%   \item \texttt{tanh($X$) = $Val$}
+%   \item \texttt{csch($X$) = $Val$}
+\end{itemize}
+\end{scriptsize}
+\section*{Module \texttt{io} (imported by default)}
+\begin{scriptsize}
+\begin{itemize}
+   \item \texttt{at\_end\_of\_stream($FD$)}
+   \item \texttt{close($FD$)}
+   \item \texttt{flush($FD$)}
+   \item \texttt{flush()}
+   \item \texttt{nl($FD$)}
+   \item \texttt{nl()}
+   \item \texttt{open($Name$) = $FD$}
+   \item \texttt{open($Name$,$Mode$) = $FD$}
+   \item \texttt{peek\_byte($FD$) = $Val$}
+   \item \texttt{peek\_char($FD$) = $Val$}
+   \item \texttt{print($FD$,$Term$)}
+   \item \texttt{print($Term$)}
+   \item \texttt{printf($FD$,$Format$,$Args\ldots$)}
+   \item \texttt{println($FD$,$Term$)}
+   \item \texttt{println($Term$)}
+   \item \texttt{read\_atom($FD$) = $Atom$}
+   \item \texttt{read\_atom() = $Atom$}
+   \item \texttt{read\_byte($FD$) = $Val$}
+   \item \texttt{read\_byte($FD$,$N$) = $List$}
+   \item \texttt{read\_byte() = $Val$}
+   \item \texttt{read\_char($FD$) = $Val$}
+   \item \texttt{read\_char($FD$,$N$) = $String$}
+   \item \texttt{read\_char() = $Val$}
+   \item \texttt{read\_char\_code($FD$) = $Val$}
+   \item \texttt{read\_char\_code($FD$,$N$) = $List$}
+   \item \texttt{read\_char\_code() = $Val$}
+   \item \texttt{read\_file\_bytes($File$) = $List$}
+   \item \texttt{read\_file\_bytes() = $List$}
+   \item \texttt{read\_file\_chars($File$) = $String$}
+   \item \texttt{read\_file\_chars() = $String$}
+   \item \texttt{read\_file\_codes($File$) = $List$}
+   \item \texttt{read\_file\_codes() = $List$}
+   \item \texttt{read\_file\_lines($File$) = $List$}
+   \item \texttt{read\_file\_lines() = $List$}
+   \item \texttt{read\_file\_terms($File$) = $List$}
+   \item \texttt{read\_file\_terms() = $List$}
+   \item \texttt{read\_int($FD$) = $Int$}
+   \item \texttt{read\_int() = $Int$}
+   \item \texttt{read\_line($FD$) = $String$}
+   \item \texttt{read\_line() = $String$}
+   \item \texttt{read\_number($FD$) = $Number$}
+   \item \texttt{read\_number() = $Number$}
+   \item \texttt{read\_picat\_token($FD$) = $TokenValue$}
+   \item \texttt{read\_picat\_token($FD$,$TokenType$,$TokenValue$)}
+   \item \texttt{read\_picat\_token($TokenType$,$TokenValue$)}
+   \item \texttt{read\_picat\_token() = $TokenValue$}
+   \item \texttt{read\_real($FD$) = $Real$}
+   \item \texttt{read\_real() = $Real$}
+   \item \texttt{read\_term($FD$) = $Term$}
+   \item \texttt{read\_term() = $Term$}
+   \item \texttt{readln($FD$) = $String$}
+   \item \texttt{readln() = $String$}
+   \item \texttt{write($FD$,$Term$)}
+   \item \texttt{write($Term$)}
+   \item \texttt{write\_byte($Bytes$)}
+   \item \texttt{write\_byte($FD$,$Bytes$)}
+   \item \texttt{write\_char($Chars$)}
+   \item \texttt{write\_char($FD$,$Chars$)}
+   \item \texttt{write\_char\_code($Codes$)}
+   \item \texttt{write\_char\_code($FD$,$Codes$)}
+   \item \texttt{writef($FD$,$Format$,$Args\ldots$)}
+   \item \texttt{writeln($FD$,$Term$)}
+   \item \texttt{writeln($Term$)}
+\end{itemize}
+\end{scriptsize}
+\section*{Module \texttt{ordset}}
+\begin{scriptsize}
+\begin{itemize}
+\item \texttt{delete($OSet$,$Elm$) = $OSet1$}
+\item \texttt{disjoint($OSet1$,$OSet2$)}
+\item \texttt{insert($OSet$,$Elm$) = $OSet1$}
+\item \texttt{intersection($OSet1$,$OSet2$)=$OSet3$}
+\item \texttt{new\_ordset($List$)}
+\item \texttt{ordset($Term$)}
+\item \texttt{subset($OSet1$,$OSet2$)}
+\item \texttt{subtract($OSet1$,$OSet2$)=$OSet3$}
+\item \texttt{union($OSet1$,$OSet2$)=$OSet3$}
+\end{itemize}
+\end{scriptsize}
+\section*{Module \texttt{os}}
+\begin{scriptsize}
+\begin{itemize}
+\item \texttt{cd($Path$)}
+\item \texttt{chdir($Path$)}
+\item \texttt{cp($FromPath$,$ToPath$)}
+\item \texttt{cwd() = $Path$}
+\item \texttt{directory($Path$)}
+\item \texttt{dir}
+\item \texttt{env\_exists($Name$)}
+\item \texttt{executable($Path$)}
+\item \texttt{exists($Path$)}
+\item \texttt{file($Path$)}
+\item \texttt{file\_base\_name($Path$) = $String$}
+\item \texttt{file\_directory\_name($Path$) = $String$}
+\item \texttt{file\_exists($Path$)}
+\item \texttt{getenv($EnvString$) = $String$}
+\item \texttt{listdir($Path$) = $List$}
+\item \texttt{ls}
+\item \texttt{mkdir($Path$)}
+\item \texttt{pwd() = $Path$}
+\item \texttt{readable($Path$)}
+\item \texttt{rename($Old$,$New$)}
+\item \texttt{rm($Path$)}
+\item \texttt{rmdir($Path$)}
+\item \texttt{separator() = $Val$}
+\item \texttt{size($Path$) = $Int$}
+\item \texttt{writable($Path$)}
+\ignore{
+\item \texttt{atime($Path$) = $DateTime$}
+\item \texttt{block\_special($Path$)}
+\item \texttt{char\_special($Path$)}
+\item \texttt{chmod($Path$,$Mode$)}
+\item \texttt{create($Path$)}
+\item \texttt{create($Path$,$Mode$)}
+\item \texttt{ctime($Path$) = $DateTime$}
+\item \texttt{dev\_id($Path$) = $Int$}
+\item \texttt{directory\_exists($Path$)}
+\item \texttt{fifo($Path$)}
+\item \texttt{file\_type($Path$) = $Term$}
+\item \texttt{gid($Path$) = $Int$}
+\item \texttt{ino($Path$) = $Int$}
+\item \texttt{link($Path$)}
+\item \texttt{link($Path1$,$Path2$)}
+\item \texttt{listdir($Path$,$REPattern$) = $List$}
+\item \texttt{message\_queue($Path$)}
+\item \texttt{mkdir($Path$,$Mode$)}
+\item \texttt{mkdirs($Path$)}
+\item \texttt{mkdirs($Path$,$Mode$)}
+\item \texttt{mode($Path$) = $String$}
+\item \texttt{mode($Path$,$Value$)}
+\item \texttt{mtime($Path$) = $DateTime$}
+\item \texttt{mv($Path1$,$Path2$)}
+\item \texttt{nlink($Path$) = $Int$}
+\item \texttt{root() = $Path$}
+\item \texttt{semaphore($Path$)}
+\item \texttt{shared\_memory($Path$)}
+\item \texttt{shortcut($Path$)}
+\item \texttt{shortcut($Path1$,$Path2$)}
+\item \texttt{socket($Path$)}
+\item \texttt{uid($Path$) = $Int$}
+\item \texttt{unlink($Path$)}
+}
+\end{itemize}
+\end{scriptsize}
+\section*{Modules \texttt{cp}, \texttt{mip}, \texttt{sat}, and \texttt{smt}}
+\begin{scriptsize}
+\begin{itemize}
+    \item {\tt \verb+#~+$X$}
+    \item {\tt $X$ \verb+#!=+ $Y$} 
+    \item {\tt $X$ \verb+#/\+ $Y$}
+    \item {\tt $X$ \verb+#<+ $Y$} 
+    \item {\tt $X$ \verb+#<=+ $Y$}
+    \item {\tt $X$ \verb+#<=>+ $Y$}
+    \item {\tt $X$ \verb+#=+ $Y$} 
+    \item {\tt $X$ \verb+#=<+ $Y$} 
+    \item {\tt $X$ \verb+#=>+ $Y$}
+    \item {\tt $X$ \verb+#>+ $Y$} 
+    \item {\tt $X$ \verb+#>=+ $Y$} 
+    \item {\tt $X$ \verb+#\/+ $Y$}
+    \item {\tt $X$ \verb+#^+ $Y$}
+\item \texttt{$Vars$ :: $Exp$}
+\item \texttt{$Vars$ notin $Exp$}
+\item \texttt{acyclic($Vs$,$Es$)}
+\item \texttt{acyclic\_d($Vs$,$Es$)}
+\item \texttt{all\_different($FDVars$)}
+\item \texttt{all\_different\_except\_0($FDVars$)}
+\item \texttt{all\_distinct($FDVars$)}
+\item \texttt{assignment($FDVars1$,$FDVars2$)}
+\item \texttt{at\_least($N$,$L$,$V$)}
+\item \texttt{at\_most($N$,$L$,$V$)} 
+\item \texttt{bv\_add($A$,$B$,$C$)} (sat only)
+\item \texttt{bv\_and($A$,$B$,$C$)} (sat only)
+\item \texttt{bv\_div($A$,$B$,$C$)} (sat only)
+\item \texttt{bv\_drop($A$,$N$)} (sat only)
+\item \texttt{bv\_eq($A$,$B$)} (sat only)
+\item \texttt{bv\_ge($A$,$B$)} (sat only)
+\item \texttt{bv\_gt($A$,$B$)} (sat only)
+\item \texttt{bv\_mod($A$,$B$,$C$)} (sat only)
+\item \texttt{bv\_mul($A$,$B$,$C$)} (sat only)
+\item \texttt{bv\_neq($A$,$B$)} (sat only)
+\item \texttt{bv\_or($A$,$B$,$C$)} (sat only)
+\item \texttt{bv\_pow($A$,$B$,$C$)} (sat only)
+\item \texttt{bv\_sum($As$,$B$)} (sat only)
+\item \texttt{bv\_take($A$,$N$)} (sat only)
+\item \texttt{bv\_to\_int($A$)} (sat only)
+\item \texttt{bv\_xor($A$,$B$,$C$)} (sat only)
+\item \texttt{circuit($FDVars$)}
+\item \texttt{count($V$,$FDVars$,$N$)}
+\item \texttt{count($V$,$FDVars$,$Rel$,$N$)}
+\item \texttt{cumulative($Ss$,$Ds$,$Rs$,$Limit$)}
+\item \texttt{decreasing($L$)}
+\item \texttt{decreasing\_strict($L$)}
+\item \texttt{diffn($RectangleList$)}
+\item \texttt{disjunctive\_tasks($Tasks$)} (cp only)
+\item \texttt{element($I$,$List$,$V$)}
+\item \texttt{element0($I$,$List$,$V$)}
+\item \texttt{exactly($N$,$L$,$V$)}
+\item \texttt{fd\_degree($FDVar$) = $Degree$} (cp only)
+\item \texttt{fd\_disjoint($DVar1$,$DVar2$)} 
+\item \texttt{fd\_dom($FDVar$) = $List$}
+\item \texttt{fd\_false($FDVar$,$Elm$)}
+\item \texttt{fd\_max($FDVar$) = $Max$}
+\item \texttt{fd\_min($FDVar$) = $Min$}
+\item \texttt{fd\_min\_max($FDVar$,$Min$,$Max$)}
+\item \texttt{fd\_next($FDVar$,$Elm$) = $NextElm$}
+\item \texttt{fd\_prev($FDVar$,$Elm$) = $PrevElm$}
+\item \texttt{fd\_set\_false($FDVar$,$Elm$)} (cp only)
+\item \texttt{fd\_size($FDVar$) = $Size$}
+\item \texttt{fd\_true($FDVar$,$Elm$)}
+\item \texttt{fd\_vector\_min\_max($Min$,$Max$)}
+\item \texttt{global\_cardinality($List$,$Pairs$)}
+\item \texttt{hcp($Vs$,$Es$)}
+\item \texttt{hcp($Vs$,$Es$,$K$)}
+\item \texttt{hcp\_grid($A$)}
+\item \texttt{hcp\_grid($A$,$Es$)}
+\item \texttt{hcp\_grid($A$,$Es$,$K$)}
+\item \texttt{increasing($L$)}
+\item \texttt{increasing\_strict($L$)}
+\item \texttt{indomain($Var$)} (nondet) (cp only)
+\item \texttt{indomain\_down($Var$)} (nondet) (cp only)
+\item \texttt{int\_to\_bv($C$)} (sat only)
+\item \texttt{lex\_le($L_1$,$L_2$)}
+\item \texttt{lex\_lt($L_1$,$L_2$)}
+\item \texttt{matrix\_element($Matrix$,$I$,$J$,$V$)}
+\item \texttt{matrix\_element0($Matrix$,$I$,$J$,$V$)}
+\item \texttt{neqs($NeqList$)} (cp only)
+\item \texttt{new\_bv($N$)} (sat only)
+\item \texttt{new\_dvar() = $FDVar$}
+\item \texttt{new\_fd\_var() = $FDVar$}
+\item \texttt{path($Vs$,$Es$,$Src$,$Dest$)}
+\item \texttt{path\_d($Vs$,$Es$,$Src$,$Dest$)}
+\item \texttt{regular$(X,Q,S,D,Q0,F)$}
+\item \texttt{scalar\_product($A$,$X$,$Product$)} 
+\item \texttt{scalar\_product($A$,$X$,$Rel$,$Product$)}
+\item \texttt{scc($Vs$,$Es$)}
+\item \texttt{scc($Vs$,$Es$,$K$)}
+\item \texttt{scc\_d($Vs$,$Es$)}
+\item \texttt{scc\_d($Vs$,$Es$,$K$)}
+\item \texttt{scc\_grid($A$)}
+\item \texttt{scc\_grid($A$,$K$)}
+\item \texttt{serialized($Starts$,$Durations$)}
+\item \texttt{solve($Opts$,$Vars$)} (nondet)
+\item \texttt{solve($Vars$)} (nondet)
+\item \texttt{solve\_all($Opts$,$Vars$) = $List$}
+\item \texttt{solve\_all($Vars$) = $List$}
+\item \texttt{solve\_suspended($Opt$)} (cp only)
+\item \texttt{solve\_suspended} (cp only)
+\item \texttt{subcircuit($FDVars$)}
+\item \texttt{subcircuit\_grid($A$)}
+\item \texttt{subcircuit\_grid($A$,$K$)}
+\item \texttt{table\_in($DVars$,$R$)}
+\item \texttt{table\_notin($DVars$,$R$)}
+\item \texttt{tree($Vs$,$Es$)}
+\item \texttt{tree($Vs$,$Es$,$K$)}
+
+\end{itemize}
+\end{scriptsize}
+\section*{Module \texttt{planner}}  
+\begin{scriptsize}
+\begin{itemize}
+\item \texttt{best\_plan($S$,$Limit$,$Plan$)}
+\item \texttt{best\_plan($S$,$Limit$,$Plan$,$Cost$)}
+\item \texttt{best\_plan($S$,$Plan$)}
+\item \texttt{best\_plan($S$,$Plan$,$Cost$)}
+\item \texttt{best\_plan\_bb($S$,$Limit$,$Plan$)}
+\item \texttt{best\_plan\_bb($S$,$Limit$,$Plan$,$Cost$)}
+\item \texttt{best\_plan\_bb($S$,$Plan$)}
+\item \texttt{best\_plan\_bb($S$,$Plan$,$Cost$)}
+\item \texttt{best\_plan\_bin($S$,$Limit$,$Plan$)}
+\item \texttt{best\_plan\_bin($S$,$Limit$,$Plan$,$Cost$)}
+\item \texttt{best\_plan\_bin($S$,$Plan$)}
+\item \texttt{best\_plan\_bin($S$,$Plan$,$Cost$)}
+\item \texttt{best\_plan\_nondet($S$,$Limit$,$Plan$)} (nondet)
+\item \texttt{best\_plan\_nondet($S$,$Limit$,$Plan$,$Cost$)} (nondet)
+\item \texttt{best\_plan\_nondet($S$,$Plan$)} (nondet)
+\item \texttt{best\_plan\_nondet($S$,$Plan$,$Cost$)} (nondet)
+\item \texttt{best\_plan\_unbounded($S$,$Limit$,$Plan$)}
+\item \texttt{best\_plan\_unbounded($S$,$Limit$,$Plan$,$Cost$)}
+\item \texttt{best\_plan\_unbounded($S$,$Plan$)}
+\item \texttt{best\_plan\_unbounded($S$,$Plan$,$Cost$)}
+\item \texttt{current\_plan()=$Plan$}
+\item \texttt{current\_resource()=$Amount$}
+\item \texttt{current\_resource\_plan\_cost($Amount$,$Plan$,$Cost$)}
+\item \texttt{is\_tabled\_state($S$)}
+\item \texttt{plan($S$,$Limit$,$Plan$)}
+\item \texttt{plan($S$,$Limit$,$Plan$,$Cost$)}
+\item \texttt{plan($S$,$Plan$)}
+\item \texttt{plan($S$,$Plan$,$Cost$)}
+\item \texttt{plan\_unbounded($S$,$Limit$,$Plan$)}
+\item \texttt{plan\_unbounded($S$,$Limit$,$Plan$,$Cost$)}
+\item \texttt{plan\_unbounded($S$,$Plan$)}
+\item \texttt{plan\_unbounded($S$,$Plan$,$Cost$)}
+\end{itemize}
+\end{scriptsize}
+\section*{Module \texttt{nn} (Neural Networks)}
+\begin{scriptsize}
+\begin{itemize}
+\item \texttt{new\_nn($Layers$) = $NN$}
+\item \texttt{new\_sparse\_nn($Layers$) = $NN$}
+\item \texttt{new\_sparse\_nn($Layers$,$Rate$) = $NN$}
+\item \texttt{new\_standard\_nn($Layers$) = $NN$}
+\item \texttt{nn\_destroy($NN$)}
+\item \texttt{nn\_destroy\_all}
+\item \texttt{nn\_load($File$) = $NN$}
+\item \texttt{nn\_print($NN$)}
+\item \texttt{nn\_run($NN$,$Input$) = $Output$}
+\item \texttt{nn\_run($NN$,$Input$,$Opts$) = $Output$}
+\item \texttt{nn\_save($NN$,$File$)}
+\item \texttt{nn\_set\_activation\_function\_hidden($NN$,$Func$)}
+\item \texttt{nn\_set\_activation\_function\_layer($NN$,$Func$,$Layer$)}
+\item \texttt{nn\_set\_activation\_function\_output($NN$,$Func$)}
+\item \texttt{nn\_set\_activation\_steepness\_hidden($NN$,$Steepness$)}
+\item \texttt{nn\_set\_activation\_steepness\_layer($NN$,$Steepness$,$Layer$)}
+\item \texttt{nn\_set\_activation\_steepness\_output($NN$,$Steepness$)}
+\item \texttt{nn\_train($NN$,$Data$)}
+\item \texttt{nn\_train($NN$,$Data$,$Opts$)}
+\item \texttt{nn\_train\_data\_get($Data$,$I$) = $Pair$}
+\item \texttt{nn\_train\_data\_load($File$) = $Data$}
+\item \texttt{nn\_train\_data\_save($Data$,$File$)}
+\item \texttt{nn\_train\_data\_size($Data$) = $Size$}
+\end{itemize}
+\end{scriptsize}
+\section*{Module \texttt{datetime}}  
+\begin{scriptsize}
+\begin{itemize}
+\item \texttt{current\_datetime() = $DateTime$}
+\item \texttt{current\_day() = $WDay$}
+\item \texttt{current\_date() = $Date$}
+\item \texttt{current\_time() = $Time$}
+\end{itemize}
+\end{scriptsize}
+\ignore{
+\section*{Module \texttt{thread}}
+\begin{scriptsize}
+\begin{itemize}
+    \item \texttt{acquire\_mutex($Mutex$)}
+    \item \texttt{broadcast\_cv($CV$)}
+    \item \texttt{join($Thread$)}
+    \item \texttt{new\_cv() = $CV$}
+    \item \texttt{new\_mutex() = $Mutex$}
+    \item \texttt{new\_rwlock() = $RWLock$}
+    \item \texttt{new\_semaphore() = $Semaphore$}
+    \item \texttt{new\_semaphore($N$) = $Semaphore$}
+    \item \texttt{new\_thread($S$,$Arg_1$,$\ldots$,$Arg_n$) = $Thread$}
+    \item \texttt{p\_semaphore($Semaphore$)}
+    \item \texttt{rdlock($RWLock$)}
+    \item \texttt{release\_mutex($Mutex$)}
+    \item \texttt{rwunlock($RWLock$)}
+    \item \texttt{signal\_cv($CV$)}
+    \item \texttt{sleep($Milliseconds$)}
+    \item \texttt{start($Thread$)}
+    \item \texttt{this\_thread() = $Thread$}
+    \item \texttt{v\_semaphore($Semaphore$)}
+    \item \texttt{wait\_cv($CV$,$Mutex$)}
+    \item \texttt{wrlock($RWLock$)}
+\end{itemize}
+\end{scriptsize}
+\section*{Module \texttt{timer}}
+\begin{scriptsize}
+\begin{itemize}
+    \item \texttt{get\_interval($Timer$) = $Milliseconds$}
+    \item \texttt{kill($Timer$)}
+    \item \texttt{new\_timer($Milliseconds$) = $Timer$}
+    \item \texttt{set\_interval($Timer$,$Milliseconds$)}
+    \item \texttt{start($Timer$)}
+    \item \texttt{stop($Timer$)}
+\end{itemize}
+\end{scriptsize}
+\section*{Module \texttt{process}}
+\begin{scriptsize}
+\begin{itemize}
+    \item \texttt{exec($S$,$Arg_1$,$\ldots$,$Arg_n$)}
+    \item \texttt{execl($S$,$ArgList$)}
+    \item \texttt{fork() = $ID$}
+    \item \texttt{new\_process($S$,$Arg_1$,$\ldots$,$Arg_n$) = $ID$}
+    \item \texttt{pid() = $ID$}
+    \item \texttt{ppid() = $ID$}
+    \item \texttt{wait() = $StatMap$}
+    \item \texttt{waitpid($ID$) = $StatMap$}
+\end{itemize}
+\end{scriptsize}
+\section*{Module \texttt{socket}}
+\begin{scriptsize}
+\begin{itemize}
+    \item \texttt{accept($FD$) = $Client$}
+    \item \texttt{bind($FD$,$INet$,$Address$,$Port$)}
+    \item \texttt{bind($FD$,$Unix$,$Name$)}
+    \item \texttt{close($FD$)}
+    \item \texttt{connect($FD$,$INet$,$Address$,$Port$)}
+    \item \texttt{connect($FD$,$Unix$,$Name$)}
+    \item \texttt{getaddr($Name$) = $Addr$}
+    \item \texttt{getcanonicalname($Addr$) = $Name$}
+    \item \texttt{gethostbyaddr($Addr$) = $Host$}
+    \item \texttt{gethostbyname($Name$) = $Host$}
+    \item \texttt{getservbyname($Name$) = $Service$}
+    \item \texttt{getservbyname($Name$,$Type$) = $Service$}
+    \item \texttt{getservport($Name$) = $Port$}
+    \item \texttt{getsockopt($FD$,$Level$,$Option$) = $Value$}
+    \item \texttt{joingroup($GroupAddress$)}
+    \item \texttt{leavegroup($GroupAddress$)}
+    \item \texttt{listen($FD$)}
+    \item \texttt{listen($FD$,$Backlog$)}
+    \item \texttt{recv($FD$) = $Message$}
+    \item \texttt{recv($FD$,$Flags$) = $Message$}
+    \item \texttt{recvfrom($FD$,$Domain$) = $Message$}
+    \item \texttt{recvfrom($FD$,$Flags$,$Domain$) = $Message$}
+    \item \texttt{send($FD$,$Message$) = $NBytes$}
+    \item \texttt{send($FD$,$Message$,$Flags$) = $NBytes$}
+    \item \texttt{sendto($FD$,$Message$,$Domain$,$Address$,$Port$) = $NBytes$}
+    \item \texttt{sendto($FD$,$Message$,$Flags$,\\        $Domain$,$Address$,$Port$) = $NBytes$}
+    \item \texttt{sendto($FD$,$Message$,$Flags$,$Name$) = $NBytes$}
+    \item \texttt{sendto($FD$,$Message$,$Name$) = $NBytes$}
+    \item \texttt{setsockopt($FD$,$Level$,$Option$,$Value$)}
+    \item \texttt{socket($Domain$,$Type$) = $FD$}
+    \item \texttt{tcp\_bind($FD$,$Address$,$Port$)}
+    \item \texttt{tcp\_connect($FD$,$Address$,$Port$)}
+    \item \texttt{tcp\_socket() = $FD$}
+    \item \texttt{udp\_bind($FD$,$Address$,$Port$)}
+    \item \texttt{udp\_socket() = $FD$}
+    \item \texttt{unix\_bind($FD$,$Name$)}
+    \item \texttt{unix\_connect($FD$,$Name$)}
+    \item \texttt{unix\_socket() = $FD$}
+\end{itemize}
+\end{scriptsize}
+}
+\section*{Module \texttt{sys} (imported by default)}
+\begin{scriptsize}
+\begin{itemize}
+    \item \texttt{abort}
+    \item \texttt{cl}
+    \item \texttt{cl($File$)}
+    \item \texttt{cl\_facts($Facts$)}
+    \item \texttt{cl\_facts($Facts$,$IndexInfo$)}    
+    \item \texttt{cl\_facts\_table($Facts$)}
+    \item \texttt{cl\_facts\_table($Facts$,$IndexInfo$)}
+    \item \texttt{command($String$)}
+    \item \texttt{compile($File$)}
+    \item \texttt{debug}
+    \item \texttt{exit} 
+    \item \texttt{garbage\_collect} 
+    \item \texttt{garbage\_collect(Size)} 
+    \item \texttt{halt} 
+    \item \texttt{initialize\_table}
+    \item \texttt{load($File$)}
+    \item \texttt{loaded\_modules()}
+    \item \texttt{nodebug}
+    \item \texttt{nospy}
+    \item \texttt{notrace}
+    \item \texttt{spy $Functor$}
+    \item \texttt{statistics}
+    \item \texttt{statistics($Name$,$Value$)} (nondet)
+    \item \texttt{statistics\_all() = $List$}    
+    \item \texttt{time($Goal$)}
+    \item \texttt{time2($Goal$)} 
+    \item \texttt{time\_out($Goal$,$Limit$,$Res$)}
+    \item \texttt{trace}
+%    \item \texttt{execute($CommandString$) = $Status$}
+%    \item \texttt{exit}
+%    \item \texttt{help}
+%    \item \texttt{modules() = $List$}
+%    \item \texttt{profile($Goal$)}
+%    \item \texttt{profile\_src($File$)}
+%    \item \texttt{prompt($NewPrompt$)}
+%    \item \texttt{table\_get\_all($Goal$) = $List$}
+%    \item \texttt{table\_get\_one($Goal$)}
+\end{itemize}
+\end{scriptsize}
+\section*{Module \texttt{util}}
+\begin{scriptsize}
+\begin{itemize}
+%    \item \texttt{ = } 
+    \item \texttt{array\_matrix\_to\_list($Matrix$) = $List$}
+    \item \texttt{array\_matrix\_to\_list\_matrix($AMatrix$) = $LMatrix$}
+    \item \texttt{chunks\_of($List$,$K$) = $ListOfLists$}
+    \item \texttt{find($String$,$SubString$,$From$,$To$)} (nondet)
+    \item \texttt{find\_first\_of($Term$,$Pattern$) = $Index$}
+    \item \texttt{find\_ignore\_case($String$,$SubString$,$From$,$To$)} (nondet)
+    \item \texttt{find\_last\_of($Term$,$Pattern$) = $Index$}
+    \item \texttt{join($Words$) = $String$}
+    \item \texttt{join($Words$,$Separator$) = $String$}
+    \item \texttt{list\_matrix\_to\_array\_matrix($LMatrix$) = $AMatrix$} 
+    \item \texttt{lstrip($List$) = $List$ }
+    \item \texttt{lstrip($List$,$Elms$) = $List$ }
+    \item \texttt{matrix\_multi($MatrixA$,$MatrixB$) = $MatrixC$}
+    \item \texttt{permutation($List$,$Perm$)} (nondet)
+    \item \texttt{permutations($List$) = $Lists$}
+    \item \texttt{power\_set($List$) = $Lists$}
+    \item \texttt{replace($Term$,$Old$,$New$) = $NewTerm$}
+    \item \texttt{replace\_at($Term$,$Index$,$New$) = $NewTerm$}
+    \item \texttt{rstrip($List$) = $List$ } 
+    \item \texttt{rstrip($List$,$Elms$) = $List$ }
+    \item \texttt{split($List$) = $Words$ } 
+    \item \texttt{split($List$,$Separators$) = $Words$ }
+    \item \texttt{strip($List$) = $List$ }
+    \item \texttt{strip($List$,$Elms$) = $List$ } 
+    \item \texttt{take($List$,$K$) = $List$} 
+    \item \texttt{transpose($Matrix$) = $Transposed$}
+\end{itemize}
+\end{scriptsize}
+\ignore{
+\section*{Module \texttt{datetime}}
+\begin{scriptsize}
+\begin{itemize}
+    \item \texttt{add\_days($DateTime$,$Days$) = $DateTime$}
+    \item \texttt{add\_hours($DateTime$,$Hours$) = $DateTime$}
+    \item \texttt{add\_milliseconds($DateTime$,$MilliSeconds$) = $DateTime$}
+    \item \texttt{add\_minutes($DateTime$,$Minutes$) = $DateTime$}
+    \item \texttt{add\_months($DateTime$,$Months$) = $DateTime$}
+    \item \texttt{add\_seconds($DateTime$,$Seconds$) = $DateTime$}
+    \item \texttt{add\_years($DateTime$,$Years$) = $DateTime$}
+    \item \texttt{compare($DateTime$,$DateTime$) = $Res$}
+    \item \texttt{current\_datetime() = $DateTime$}
+    \item \texttt{day($DateTime$) = $Day$}
+    \item \texttt{day\_of\_week($DateTime$) = $Atom$}
+    \item \texttt{day\_of\_year($DateTime$) = $Int$}
+    \item \texttt{day\_string($DateTime$) = $String$}
+    \item \texttt{dt\_to\_fstring($Format$,$DateTime$) = $String$}
+    \item \texttt{hour($DateTime$) = $Hour$}
+    \item \texttt{is\_leap\_year($DateTime$)}
+    \item \texttt{millisecond($DateTime$) = $MilliSecond$}
+    \item \texttt{minute($DateTime$) = $Minute$}
+    \item \texttt{month($DateTime$) = $Month$}
+    \item \texttt{month\_string($DateTime$) = $String$}
+    \item \texttt{second($DateTime$) = $Second$}
+    \item \texttt{set\_day($DateTime$,$Day$)}
+    \item \texttt{set\_hour($DateTime$,$Hour$)}
+    \item \texttt{set\_millisecond($DateTime$,$MilliSecond$)}
+    \item \texttt{set\_minute($DateTime$,$Minute$)}
+    \item \texttt{set\_month($DateTime$,$Month$)}
+    \item \texttt{set\_second($DateTime$,$Second$)}
+    \item \texttt{set\_year($DateTime$,$Year$)}
+    \item \texttt{time\_string($DateTime$) = $String$}
+    \item \texttt{year($DateTime$) = $Year$}
+\end{itemize}
+\end{scriptsize}
+}
+\end{multicols}
+\ignore{
+\end{document}
+}
