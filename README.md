@@ -62,7 +62,8 @@ modules. No setting of the environment variable PICATPATH is
 required. This type includes: "cp.pi", "mip.pi", "nn.pi",
 "os.pi", "planner.pi", "sat.pi", "smt.pi", and "util.pi".
 
-- not pre-loaded, and not pre-imported: 
+not pre-loaded, and not pre-imported: 
+-------------------------------------
 These modules, which are mainly developed by third parties,
 are not included in the executable. In order to import any
 of these modules, applications must set the environment
@@ -70,5 +71,5 @@ variable PICATPATH to include the folder, in which the module
 resides, or start picat with the option "-path" set.
 
 Please contact:
-    picat@picat-lang.org
-    picat-lang@googlegroups.com 
+- picat@picat-lang.org
+- picat-lang@googlegroups.com 
