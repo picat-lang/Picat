@@ -49,18 +49,18 @@ pcube *cofactor(pset *T, register pset c)
 	if (p != c) {
 
 #ifdef NO_INLINE
-	if (! cdist0(p, c)) goto false;
+	if (! cdist0(p, c)) goto disjoint;
 #else
     {register int w,last;register unsigned int x;if((last=cube.inword)!=-1)
-    {x=p[last]&c[last];if(~(x|x>>1)&cube.inmask)goto false;for(w=1;w<last;w++)
-    {x=p[w]&c[w];if(~(x|x>>1)&DISJOINT)goto false;}}}{register int w,var,last;
+    {x=p[last]&c[last];if(~(x|x>>1)&cube.inmask)goto disjoint;for(w=1;w<last;w++)
+    {x=p[w]&c[w];if(~(x|x>>1)&DISJOINT)goto disjoint;}}}{register int w,var,last;
     register pcube mask;for(var=cube.num_binary_vars;var<cube.num_vars;var++){
     mask=cube.var_mask[var];last=cube.last_word[var];for(w=cube.first_word[var
-    ];w<=last;w++)if(p[w]&c[w]&mask[w])goto nextvar;goto false;nextvar:;}}
+    ];w<=last;w++)if(p[w]&c[w]&mask[w])goto nextvar;goto disjoint;nextvar:;}}
 #endif
 
 	    *Tc++ = p;
-	false: ;
+	disjoint: ;
 	}
     }
 

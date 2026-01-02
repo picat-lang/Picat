@@ -12,7 +12,7 @@
 #include "event.h"
 #include "frame.h"
 
-BPLONG true;
+BPLONG true_sym;
 
 BPLONG build_delayed_call_on_the_heap(BPLONG_PTR frame)
 {
@@ -85,7 +85,7 @@ int c_frozen_cf() {
 
         return unify(return_goal, goal);
     }
-    else return unify(return_goal, true);
+    else return unify(return_goal, true_sym);
 }
 
 BPLONG_PTR frozen_cs(BPLONG_PTR cs, BPLONG_PTR Plist)
@@ -239,7 +239,7 @@ void Cboot_delay()
 
     insert_cpred("c_frozen_cf", 2, c_frozen_cf);
     insert_cpred("c_frozen_f", 1, c_frozen_f);
-    true = ADDTAG(BP_NEW_SYM("true", 0), ATM);
+    true_sym = ADDTAG(BP_NEW_SYM("true", 0), ATM);
 }
 
 

@@ -183,7 +183,7 @@ int c_test_bigint() {
 
 
 /* decrease the size if the leading digit is zero */
-INLINE void zap_leading_zeros(BPLONG_PTR xsize_ptr, UBIGINT x) {
+static INLINE void zap_leading_zeros(BPLONG_PTR xsize_ptr, UBIGINT x) {
     BPLONG size = *xsize_ptr;
     while (size > 0 && x[size-1] == 0) size--;
     *xsize_ptr = size;
@@ -280,7 +280,7 @@ double bp_bigint_to_double(BPLONG op) {
 
 
 BPLONG bp_double_to_bigint(double a) {
-    double f, modf();
+    double f, modf(double, double *);
     int sign, i, size;
     BPLONG op;
     UBIGINT x;
@@ -396,7 +396,7 @@ void bp_sub_ubig_ubig(BPLONG ysize, UBIGINT y, BPLONG xsize, UBIGINT x, BPLONG_P
 /* returns the ith digit of x << y,
    (0 =< y <= 27) and (0 =< i <= xsize)
 */
-INLINE BPLONG get_shifted_digit(BPLONG xsize, UBIGINT x, BPLONG i, BPLONG y) {
+static INLINE BPLONG get_shifted_digit(BPLONG xsize, UBIGINT x, BPLONG i, BPLONG y) {
     BPLONG part1, part2;
     part1 = (i == 0 || y == 0) ? 0 : (x[i - 1] >> (28 - y));
     part2 = (i == xsize) ? 0 : ((x[i] << y) & MASK_LOW28);

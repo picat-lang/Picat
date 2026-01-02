@@ -40,7 +40,7 @@ signature(pset_family F1, pset_family D1, pset_family R1)
 	R = sf_contain(R);
 
 #if !(defined(WIN32) && defined(__MINGW32__))
-	xcpu_action.sa_handler = (void (*)()) cleanup;
+	xcpu_action.sa_handler = cleanup;
 	sigemptyset (&xcpu_action.sa_mask);
 	xcpu_action.sa_flags = 0;
 	sigaction (SIGXCPU, &xcpu_action, NULL);
@@ -149,9 +149,10 @@ generate_primes(pset_family F, pset_family R)
 }
 
 void
-cleanup(void)
+cleanup(int signo)
 {
 	s_runtime(ptime() - start_time);	
 	printf("CPU Limit Exceeded\n");
 	exit(1);
+	(void) signo;
 }

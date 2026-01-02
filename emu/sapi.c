@@ -549,7 +549,7 @@ void * SP_malloc(BPULONG size) {
 }
 
 void * SP_calloc(BPULONG nmemb, BPULONG size) {
-    void * calloc();
+    void * calloc(size_t, size_t);
     return calloc(nmemb, size);
 }
 

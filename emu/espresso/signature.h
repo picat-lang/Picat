@@ -49,7 +49,7 @@ typedef struct {
 /* util_signature.c */ extern void s_runtime (long total);
 /* sigma.c */ extern pset get_sigma (pset_family R, register pset c);
 /* sigma.c */ extern void set_not (pset c);
-/* signature.c */ extern void cleanup (void);
+/* signature.c */ extern void cleanup (int signo);
 /* signature.c */ extern pset_family signature (pset_family F1, pset_family D1, pset_family R1);
 /* signature.c */ extern pset_family generate_primes (pset_family F, pset_family R);
 /* signature_exact.c */ extern pset_family signature_minimize_exact (pset_family ESCubes, pset_family ESSet);
