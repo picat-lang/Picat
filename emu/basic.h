@@ -229,7 +229,6 @@ typedef struct {
 
 typedef MAP_RECORD *MAP_RECORD_PTR;
 
-#ifdef BUILTIN_PROTO_CHECK
 typedef union {
     int (*func0)(void);
     int (*func1)(BPLONG w);
@@ -238,6 +237,7 @@ typedef union {
     int (*func4)(BPLONG w, BPLONG x, BPLONG y, BPLONG z);
 } Builtin_funcs;
 
+#ifdef BUILTIN_PROTO_CHECK
 typedef struct {
     int argcount;
     Builtin_funcs func;
@@ -270,18 +270,20 @@ typedef struct {
             printf("builtin[%d] called with 4 args, expected %d\n", tempindex, builtins[tempindex].argcount); \
         res = (*builtins[tempindex].func.func4)(op1, op2, op3, op4);}
 #else
-typedef int (*Builtins)();
+typedef struct {
+    Builtin_funcs func;
+} Builtins;
 
-#define INITIALIZE_BUILTIN0(index, function) builtins[index] = function
-#define INITIALIZE_BUILTIN1(index, function) builtins[index] = function
-#define INITIALIZE_BUILTIN2(index, function) builtins[index] = function
-#define INITIALIZE_BUILTIN3(index, function) builtins[index] = function
-#define INITIALIZE_BUILTIN4(index, function) builtins[index] = function
-#define EXECUTE_BUILTIN0(res, index) res = (*builtins[index])()
-#define EXECUTE_BUILTIN1(res, index, op) res = (*builtins[index])(op)
-#define EXECUTE_BUILTIN2(res, index, op1, op2) res = (*builtins[index])(op1, op2)
-#define EXECUTE_BUILTIN3(res, index, op1, op2, op3) res = (*builtins[index])(op1, op2, op3)
-#define EXECUTE_BUILTIN4(res, index, op1, op2, op3, op4) res = (*builtins[index])(op1, op2, op3, op4)
+#define INITIALIZE_BUILTIN0(index, function) builtins[index].func.func0 = function
+#define INITIALIZE_BUILTIN1(index, function) builtins[index].func.func1 = function
+#define INITIALIZE_BUILTIN2(index, function) builtins[index].func.func2 = function
+#define INITIALIZE_BUILTIN3(index, function) builtins[index].func.func3 = function
+#define INITIALIZE_BUILTIN4(index, function) builtins[index].func.func4 = function
+#define EXECUTE_BUILTIN0(res, index) res = (*builtins[index].func.func0)()
+#define EXECUTE_BUILTIN1(res, index, op) res = (*builtins[index].func.func1)(op)
+#define EXECUTE_BUILTIN2(res, index, op1, op2) res = (*builtins[index].func.func2)(op1, op2)
+#define EXECUTE_BUILTIN3(res, index, op1, op2, op3) res = (*builtins[index].func.func3)(op1, op2, op3)
+#define EXECUTE_BUILTIN4(res, index, op1, op2, op3, op4) res = (*builtins[index].func.func4)(op1, op2, op3, op4)
 #endif
 
 extern int curr_toam_status;

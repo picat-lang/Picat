@@ -281,11 +281,11 @@ void elim_lowering(pset_family BB, pset_family CC, pset RAISE, pset FREESET)
 	if (! cdist0(p, r))
 #else
  {register int w,lastw;register unsigned int x;if((lastw=cube.inword)!=-1){x=p[
-lastw]&r[lastw];if(~(x|x>>1)&cube.inmask)goto false;for(w=1;w<lastw;w++){x=p[w]
-&r[w];if(~(x|x>>1)&DISJOINT)goto false;}}}{register int w,var,lastw;register
+lastw]&r[lastw];if(~(x|x>>1)&cube.inmask)goto disjoint;for(w=1;w<lastw;w++){x=p[w]
+&r[w];if(~(x|x>>1)&DISJOINT)goto disjoint;}}}{register int w,var,lastw;register
 pcube mask;for(var=cube.num_binary_vars;var<cube.num_vars;var++){mask=cube.
 var_mask[var];lastw=cube.last_word[var];for(w=cube.first_word[var];w<=lastw;w++)
-if(p[w]&r[w]&mask[w])goto nextvar;goto false;nextvar:;}}continue;false:
+if(p[w]&r[w]&mask[w])goto nextvar;goto disjoint;nextvar:;}}continue;disjoint:
 #endif
 	    BB->active_count--, RESET(p, ACTIVE);
     }

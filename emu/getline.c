@@ -51,13 +51,13 @@ static int gl_tab(char *buf, int offset, int *loc);  /* forward reference needed
 
 /********************* exported interface ********************************/
 
-void gl_setwidth();  /* specify width of screen */
-void gl_histadd();  /* adds entries to hist */
-void gl_strwidth();  /* to bind gl_strlen */
+void gl_setwidth(int);  /* specify width of screen */
+void gl_histadd(char *);  /* adds entries to hist */
+void gl_strwidth(size_t (*)(const char *));  /* to bind gl_strlen */
 
-int (*gl_in_hook)() = 0;
-int (*gl_out_hook)() = 0;
-int (*gl_tab_hook)() = gl_tab;
+int (*gl_in_hook)(char *) = 0;
+int (*gl_out_hook)(char *) = 0;
+int (*gl_tab_hook)(char *, int, int *) = gl_tab;
 
 /******************** internal interface *********************************/
 
@@ -83,32 +83,32 @@ static void gl_init();  /* prepare to edit a line */
 static void gl_cleanup();  /* to undo gl_init */
 static void gl_char_init();  /* get ready for no echo input */
 static void gl_char_cleanup();  /* undo gl_char_init */
-static size_t (*gl_strlen)() = (size_t(*)())strlen;
+static size_t (*gl_strlen)(const char *) = strlen;
 /* returns printable prompt width */
 
-static void gl_addchar();  /* install specified char */
-static void gl_del();  /* del, either left (-1) or cur (0) */
-static void gl_error();  /* write error msg and die */
-static void gl_fixup();  /* fixup state variables and screen */
+static void gl_addchar(int);  /* install specified char */
+static void gl_del(int);  /* del, either left (-1) or cur (0) */
+static void gl_error(char *);  /* write error msg and die */
+static void gl_fixup(char *, int, int);  /* fixup state variables and screen */
 static int gl_getc();  /* read one char from terminal */
-static void gl_kill();  /* delete to EOL */
+static void gl_kill(int);  /* delete to EOL */
 static void gl_newline();  /* handle \n or \r */
-static void gl_putc();  /* write one char to terminal */
-static void gl_puts();  /* write a line to terminal */
+static void gl_putc(int);  /* write one char to terminal */
+static void gl_puts(char *);  /* write a line to terminal */
 static void gl_redraw();  /* issue \n and redraw all */
 static void gl_transpose();  /* transpose two chars */
 static void gl_yank();  /* yank killed text */
-static void gl_word();  /* move a word */
+static void gl_word(int);  /* move a word */
 
 static void hist_init();  /* initializes hist pointers */
 static char *hist_next();  /* return ptr to next item */
 static char *hist_prev();  /* return ptr to prev item */
-static char *hist_save();  /* makes copy of a string, without NL */
+static char *hist_save(char *);  /* makes copy of a string, without NL */
 
-static void search_addchar();  /* increment search string */
+static void search_addchar(int);  /* increment search string */
 static void search_term();  /* reset with current contents */
-static void search_back();  /* look back for current string */
-static void search_forw();  /* look forw for current string */
+static void search_back(int);  /* look back for current string */
+static void search_forw(int);  /* look forw for current string */
 
 /************************ nonportable part *********************************/
 
@@ -895,7 +895,7 @@ gl_tab(buf, offset, loc)
 /******************* strlen stuff **************************************/
 
 void gl_strwidth(func)
-    size_t (*func)();
+    size_t (*func)(const char *);
 {
     if (func != 0) {
         gl_strlen = func;
