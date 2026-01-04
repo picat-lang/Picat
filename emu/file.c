@@ -1843,10 +1843,15 @@ int get_socket_fd(int index) {
     printf("get_socket_fd not supported for non-Linux platforms\n");
     return 0;
 #else
+#ifdef __OpenBSD__
+    printf("get_socket_fd not supported for non-Linux platforms\n");
+    return 0;
+#else
 #if defined ANDROID || defined FREEBSD
     return(file_table[index].fdes->_file);
 #else
     return(file_table[index].fdes->_fileno);
+#endif
 #endif
 #endif
 #endif
