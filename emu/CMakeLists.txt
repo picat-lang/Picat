@@ -2,7 +2,7 @@
 set(HEADERS
         bapi.h bprolog_cg_cgevent.h build.h dynamic.h extern_decl.h gc.h kapi.h load_inst.h picat.h sapi.h basicd.h
         bprolog.h clpfd.h emu_inst.h frame.h getline.h load_inst_frombplist.h maple_interface.h picat_utilities.h
-        term.h basic.h bprolog_plc_plc.h dis_inst.h event.h fzn_picat_smt_bc.h inst.h load_inst_fromcarray.h picat_bc.h
+        term.h basic.h bprolog_plc_plc.h dis_inst.h event.h inst.h load_inst_fromcarray.h picat_bc.h
         reasonls_interface.h toam.h
 )
 
