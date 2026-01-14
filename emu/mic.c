@@ -1,6 +1,6 @@
 /********************************************************************
  *   File   : mic.c
- *   Author : Neng-Fa ZHOU Copyright (C) 1994-2025
+ *   Author : Neng-Fa ZHOU Copyright (C) 1994-2026
  *   Purpose: miscellaneous functions
  *            Includes MurmurHash by Austin Appleby
 

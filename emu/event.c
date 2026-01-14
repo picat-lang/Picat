@@ -1,6 +1,6 @@
 /********************************************************************
  *   File   : event.c
- *   Author : Neng-Fa ZHOU Copyright (C) 1994-2025
+ *   Author : Neng-Fa ZHOU Copyright (C) 1994-2026
  *   Purpose: event handling functions
 
  * This Source Code Form is subject to the terms of the Mozilla Public

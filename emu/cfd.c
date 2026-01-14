@@ -1,6 +1,6 @@
 /********************************************************************
  *   File   : cfd.c
- *   Author : Neng-Fa ZHOU Copyright (C) 1994-2025
+ *   Author : Neng-Fa ZHOU Copyright (C) 1994-2026
  *   Purpose: Primitives on composite finite domains (tuples)
 
  * This Source Code Form is subject to the terms of the Mozilla Public

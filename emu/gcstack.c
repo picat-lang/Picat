@@ -1,6 +1,6 @@
 /********************************************************************
  *   File   : gcStack.c
- *   Author : Neng-Fa ZHOU Copyright (C) 1994-2025
+ *   Author : Neng-Fa ZHOU Copyright (C) 1994-2026
  *   Purpose: stack garbage collector
 
  * This Source Code Form is subject to the terms of the Mozilla Public

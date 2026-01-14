@@ -1,6 +1,6 @@
 /********************************************************************
  *   File   : sat_bp.c
- *   Author : Neng-Fa ZHOU Copyright (C) 1994-2025
+ *   Author : Neng-Fa ZHOU Copyright (C) 1994-2026
  *   Purpose: interface between B-Prolog and GLPK
 
  * This Source Code Form is subject to the terms of the Mozilla Public

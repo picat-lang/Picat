@@ -1,6 +1,6 @@
 /********************************************************************
  *   File   : file.c
- *   Author : Neng-Fa ZHOU Copyright (C) 1994-2025
+ *   Author : Neng-Fa ZHOU Copyright (C) 1994-2026
 
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -1843,15 +1843,10 @@ int get_socket_fd(int index) {
     printf("get_socket_fd not supported for non-Linux platforms\n");
     return 0;
 #else
-#ifdef __OpenBSD__
-    printf("get_socket_fd not supported for non-Linux platforms\n");
-    return 0;
-#else
 #if defined ANDROID || defined FREEBSD
     return(file_table[index].fdes->_file);
 #else
     return(file_table[index].fdes->_fileno);
-#endif
 #endif
 #endif
 #endif

@@ -1,6 +1,6 @@
 /********************************************************************
  *   File   : sat_bp.c
- *   Author : Neng-Fa ZHOU Copyright (C) 1994-2025
+ *   Author : Neng-Fa ZHOU Copyright (C) 1994-2026
  *   Purpose: SAT interface for B-Prolog and Picat
 
  * This Source Code Form is subject to the terms of the Mozilla Public
