@@ -8685,11 +8685,7 @@ lab_table_produce:
     if ((BPLONG)answer_table & 0x1) {  // has one answer 
         answer = (BPLONG_PTR)UNTAGGED_ADDR(answer_table);
         if (opt_arg_index == 0) {
-            answer_table = allocateAnswerTable(answer, arity);
-            if ((BPLONG)answer_table == BP_ERROR) goto table_error;
-            GT_ANSWER_TABLE(subgoal_entry) = (BPLONG)answer_table;
-            if (addTableAnswer(stack_arg_ptr, arity, subgoal_entry) == BP_ERROR)
-                goto table_error;
+            CREATE_ANSWER_TABLE_ADD_ANSWER(stack_arg_ptr, answer, arity, subgoal_entry);
             BACKTRACK;
         } else {
             int res;
@@ -8720,11 +8716,7 @@ lab_table_produce:
                 BACKTRACK;
             } 
             // come here if the obt mode is mmin or mmax
-            answer_table = allocateAnswerTable(answer, arity);
-            if ((BPLONG)answer_table == BP_ERROR) goto table_error;
-            GT_ANSWER_TABLE(subgoal_entry) = (BPLONG)answer_table;
-            if (addTableAnswer(stack_arg_ptr, arity, subgoal_entry) == BP_ERROR)
-                goto table_error;
+            CREATE_ANSWER_TABLE_ADD_ANSWER(stack_arg_ptr, answer, arity, subgoal_entry);
             BACKTRACK;
         }
     }
@@ -8754,10 +8746,13 @@ lab_table_produce:
         }
         if (res != 0){  // better objective value, replace
             PREPARE_NUMBER_TERM(0);
-            if (numberVarCopyAnswerArgsToTableArea(stack_arg_ptr, ANSWER_ARG_ADDR(answer), arity, &hcode) == BP_ERROR)  // replace 
+            if (numberVarCopyAnswerArgsToTableArea(stack_arg_ptr, ANSWER_ARG_ADDR(answer), arity, &hcode) == BP_ERROR)  
+// replace 
                 goto table_error;
-            ANSWERTABLE_LAST(answer_table) = (BPLONG)answer;
+            ANSWERTABLE_FIRST(answer_table) = (BPLONG)answer;
+            ANSWER_NEXT_IN_CHAIN(answer) = (BPLONG)NULL;
             ANSWER_NEXT_IN_TABLE(answer) = (BPLONG)NULL;
+            ANSWERTABLE_COUNT(answer_table) = 1;
             SET_SUBGOAL_ANS_REVISED(subgoal_entry);
             BACKTRACK;
         }
@@ -8908,8 +8903,8 @@ lab_table_eager_consume:
       SET_AR_EAGER_CONSUMER(AR);
       AR_CPF(AR) = (BPLONG)(P-1);
       sreg = (BPLONG_PTR)AR_CURR_ANSWER(AR);
-      if (sreg==NULL) CONTCASE;
-      if ((BPLONG_PTR)ANSWER_NEXT_IN_TABLE(sreg)==NULL) CONTCASE;
+      if (sreg == NULL) CONTCASE;
+      if ((BPLONG_PTR)ANSWER_NEXT_IN_TABLE(sreg) == NULL) CONTCASE;
       goto lab_table_consume;
     */
     CONTCASE;

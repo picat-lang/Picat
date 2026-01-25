@@ -1139,6 +1139,7 @@ BPLONG_PTR allocateAnswerTable(BPLONG_PTR first_answer, int arity) {
     }
 
     index = hashval_of_tabled_answer(first_answer, arity)%InitAnswerTableBucketSize;
+    BPLONG_PTR table_arg_ptr = ANSWER_ARG_ADDR(first_answer);
     FOLLOW(bucket_ptr+index) = (BPLONG)first_answer;
     /*
       {
@@ -1197,20 +1198,9 @@ int addTableAnswer(BPLONG_PTR stack_arg_ptr, int arity, BPLONG_PTR subgoal_entry
         answer = (BPLONG_PTR)ANSWER_NEXT_IN_CHAIN(answer);
     }
     //  trail_top0 = (BPLONG_PTR)((BPULONG)trail_up_addr-initial_diff0);
-    //  UNDO_TRAILING;
-    /*
-      printf("produce %s\n",GET_NAME((SYM_REC_PTR)GT_SYM(subgoal_entry)));
-      printAnswer(ANSWER_ARG_ADDR(answer),arity);
-    */
-    insertAnswerIntoTable(answer_table, entryPtr, this_answer, arity);
-
-    SET_SUBGOAL_ANS_REVISED(subgoal_entry);
-    return BP_TRUE;
-}
-
-void insertAnswerIntoTable(BPLONG_PTR answer_table, BPLONG_PTR entryPtr, BPLONG_PTR this_answer, int arity) {
-    BPLONG_PTR last_answer;
-
+    //  UNDO_TRAILING;    
+    
+    table_arg_ptr = ANSWER_ARG_ADDR(this_answer);
     ANSWER_NEXT_IN_CHAIN(this_answer) = FOLLOW(entryPtr);
     FOLLOW(entryPtr) = (BPLONG)this_answer;
     ANSWER_NEXT_IN_TABLE(this_answer) = (BPLONG)NULL;
@@ -1222,6 +1212,9 @@ void insertAnswerIntoTable(BPLONG_PTR answer_table, BPLONG_PTR entryPtr, BPLONG_
     if (2*ANSWERTABLE_COUNT(answer_table) > ANSWERTABLE_BUCKET_SIZE(answer_table)) {
         expandAnswerTable(answer_table, arity);
     }
+
+    SET_SUBGOAL_ANS_REVISED(subgoal_entry);
+    return BP_TRUE;
 }
 
 void expandAnswerTable(BPLONG_PTR answer_table, int arity) {
@@ -2096,6 +2089,8 @@ int b_PICAT_TABLE_MAP_LIST_cf(BPLONG map_num, BPLONG pairs) {
     }
     return unify(lst, pairs);
 }
+
+/* for debugging */
 /*
   void myWriteTerm();
   void myWriteList();
@@ -2143,7 +2138,7 @@ int b_PICAT_TABLE_MAP_LIST_cf(BPLONG map_num, BPLONG pairs) {
   answerTable = (BPLONG_PTR)GT_ANSWER_TABLE(ptr);
   if (answerTable==NULL) return;
   if ((BPLONG)answerTable & 0x1) {  
-  answer = UNTAGGED_ADDR((BPLONG)answerTable);
+  answer = (BPLONG_PTR)UNTAGGED_ADDR((BPLONG)answerTable);
   fprintf(curr_out,"%x     (",answer);printAnswer(ANSWER_ARG_ADDR(answer),arity);
   } else {
   answer = (BPLONG_PTR)ANSWERTABLE_FIRST(answerTable);
@@ -2164,7 +2159,7 @@ int b_PICAT_TABLE_MAP_LIST_cf(BPLONG map_num, BPLONG pairs) {
   BPLONG i;
   BPLONG term;
 
-  for (i=0;i<arity;i++){
+  for (i=0; i<arity; i++){
   term = FOLLOW(ptr+i);
   myWriteTerm(term);
   if (i!=arity-1) fprintf(curr_out,",");
@@ -2221,6 +2216,4 @@ int b_PICAT_TABLE_MAP_LIST_cf(BPLONG map_num, BPLONG pairs) {
   myWriteList(cdr);
   }
   }
-
-
 */

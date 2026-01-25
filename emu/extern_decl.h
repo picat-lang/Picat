@@ -1282,7 +1282,6 @@ extern BPLONG_PTR allocateAnswerTable(BPLONG_PTR first_answer, int arity);
 extern int addTableAnswer(BPLONG_PTR stack_arg_ptr, int arity, BPLONG_PTR subgoal_entry);
 extern void expandAnswerTable(BPLONG_PTR answer_table, int arity);
 extern void copyTabledAnswerArgs(BPLONG_PTR src_ans, BPLONG_PTR des_ans, int arity);
-extern void insertAnswerIntoTable(BPLONG_PTR answer_table, BPLONG_PTR entryPtr, BPLONG_PTR this_answer, int arity);
 extern int c_VARIANT();
 extern int b_VARIANT_cc(BPLONG op1, BPLONG op2);
 extern int term_subsume_numberedterm(BPLONG t1, BPLONG t2);

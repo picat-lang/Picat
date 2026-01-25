@@ -305,17 +305,6 @@ extern int curr_toam_status;
 #define TOAM_STARTED 2
 #define TOAM_DONE 3
 
-/* t1 is less than t2 */
-#define TABLE_ANS_IS_LT(t1, t2) ((ISINT(t1) && ISINT(t2)) ? (INTVAL(t1) < INTVAL(t2)) : bp_compare(t1, t2) < 0)
-
-/* t1 is equal to  t2 */
-#define TABLE_ANS_IS_EQ(t1, t2) ((ISINT(t1) && ISINT(t2)) ? (t1 == t2) : bp_compare(t1, t2) == 0)
-
-/* t1 is greater than t2 */
-#define TABLE_ANS_IS_GT(t1, t2) ((ISINT(t1) && ISINT(t2)) ? (INTVAL(t1) > INTVAL(t2)) : bp_compare(t1, t2) > 0)
-
-#define TABLE_ANS_COMPARE(t1, t2, r) r = ((ISINT(t1) && ISINT(t2)) ? (INTVAL(t1)-INTVAL(t2)) : bp_compare(t1, t2))
-
 extern int bp_gc;
 extern int old_bp_gc;
 extern int redefine_warning;
