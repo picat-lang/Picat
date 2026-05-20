@@ -1,0 +1,5 @@
+#define VERSION "4.0.0"
+#define COMPILER "Apple clang version 15.0.0 (clang-1500.3.9.4) -W -Wall -O3 -DNDEBUG"
+#define ID "unknown"
+#define BUILD "Wed Sep 11 20:17:22 EDT 2024 Darwin Neng-Fas-MBP 23.5.0 arm64"
+#define DIR "/Users/nzhou/kissat-master/build"
