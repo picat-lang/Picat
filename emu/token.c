@@ -1374,7 +1374,7 @@ START:
             *s = 0;
             lastc = ' ';
             return ENDCL;
-#ifndef BPSOLVER
+#ifndef XCSP_PICAT
         } else if (eolcom_flag == 1 && c == intab.eolcom) {
             c = com0plain(card, intab.endeol);
             goto START;
@@ -1395,7 +1395,7 @@ START:
             *s = 0;
             lastc = ' ';
             return ENDCL;
-#ifndef BPSOLVER
+#ifndef XCSP_PICAT
         } else if (eolcom_flag == 1 && c == intab.eolcom) {
             c = com0plain(card, intab.endeol);
             goto START;
@@ -1790,7 +1790,7 @@ START:
         if (c == intab.termin) {
             *s = 0;
             goto end_of_clause;
-#ifndef BPSOLVER
+#ifndef XCSP_PICAT
         } else if (eolcom_flag == 1 && c == intab.eolcom) {
             c = com0plain_string(intab.endeol);
             goto START;
@@ -1810,7 +1810,7 @@ START:
         if (c == intab.termin) {
             *s = 0;
             goto end_of_clause;
-#ifndef BPSOLVER
+#ifndef XCSP_PICAT
         } else if (eolcom_flag == 1 && c == intab.eolcom) {
             c = com0plain_string(intab.endeol);
             goto START;

@@ -114,7 +114,7 @@ void init_toam(int argc, char *argv[])
                     print_picat_usage();
                     exit(0);
                 } else if (*(str+2) == 'v' || strcmp(str+2, "version") == 0) {
-                    printf("Picat version 3.9#6\n");
+                    printf("Picat version 3.9#8.1\n");
                     exit(0);
                 }
                 /*

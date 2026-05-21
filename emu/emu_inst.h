@@ -8750,6 +8750,7 @@ lab_table_produce:
 // replace 
                 goto table_error;
             ANSWERTABLE_FIRST(answer_table) = (BPLONG)answer;
+            ANSWERTABLE_LAST(answer_table) = (BPLONG)answer;
             ANSWER_NEXT_IN_CHAIN(answer) = (BPLONG)NULL;
             ANSWER_NEXT_IN_TABLE(answer) = (BPLONG)NULL;
             ANSWERTABLE_COUNT(answer_table) = 1;
