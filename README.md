@@ -1,4 +1,4 @@
-__Current version 3.9#8.1.__
+__Current version 3.9#8.2.__
 
 Picat is a simple, and yet powerful, logic-based
 multi-paradigm programming language aimed for
