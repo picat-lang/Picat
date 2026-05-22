@@ -8745,11 +8745,20 @@ lab_table_produce:
             BACKTRACK;
         }
         if (res != 0){  // better objective value, replace
+            BPLONG_PTR bucket_ptr, entryPtr;
+            BPLONG bucket_size;
+
             PREPARE_NUMBER_TERM(0);
             if (numberVarCopyAnswerArgsToTableArea(stack_arg_ptr, ANSWER_ARG_ADDR(answer), arity, &hcode) == BP_ERROR)  
 // replace 
                 goto table_error;
-            ANSWERTABLE_FIRST(answer_table) = (BPLONG)answer;
+            bucket_size = ANSWERTABLE_BUCKET_SIZE(answer_table);
+            bucket_ptr = (BPLONG_PTR)ANSWERTABLE_BUCKET_PTR(answer_table);
+            for (int i = 0; i < bucket_size; i++){
+                FOLLOW(bucket_ptr+i) = (BPLONG)NULL;
+            }
+            entryPtr = bucket_ptr+hcode%bucket_size;
+            FOLLOW(entryPtr) = (BPLONG)answer;
             ANSWERTABLE_LAST(answer_table) = (BPLONG)answer;
             ANSWER_NEXT_IN_CHAIN(answer) = (BPLONG)NULL;
             ANSWER_NEXT_IN_TABLE(answer) = (BPLONG)NULL;

@@ -1200,7 +1200,7 @@ int addTableAnswer(BPLONG_PTR stack_arg_ptr, int arity, BPLONG_PTR subgoal_entry
     //  trail_top0 = (BPLONG_PTR)((BPULONG)trail_up_addr-initial_diff0);
     //  UNDO_TRAILING;    
     
-    table_arg_ptr = ANSWER_ARG_ADDR(this_answer);
+    // table_arg_ptr = ANSWER_ARG_ADDR(this_answer);
     ANSWER_NEXT_IN_CHAIN(this_answer) = FOLLOW(entryPtr);
     FOLLOW(entryPtr) = (BPLONG)this_answer;
     ANSWER_NEXT_IN_TABLE(this_answer) = (BPLONG)NULL;
@@ -1212,6 +1212,42 @@ int addTableAnswer(BPLONG_PTR stack_arg_ptr, int arity, BPLONG_PTR subgoal_entry
     if (2*ANSWERTABLE_COUNT(answer_table) > ANSWERTABLE_BUCKET_SIZE(answer_table)) {
         expandAnswerTable(answer_table, arity);
     }
+
+    SET_SUBGOAL_ANS_REVISED(subgoal_entry);
+    return BP_TRUE;
+}
+
+/* same as addTableAnswer, but the answer table has been cleaned */
+int addTableAnswer0(BPLONG_PTR stack_arg_ptr, int arity, BPLONG_PTR subgoal_entry) {
+    BPLONG_PTR answer_table, this_answer, answer, last_answer, bucket_ptr, this_table_arg_ptr, table_arg_ptr, entryPtr;
+    BPLONG i, answer_record_size, bucket_size, hcode;
+
+    answer_table = (BPLONG_PTR)GT_ANSWER_TABLE(subgoal_entry);
+    //  initial_diff0 = (BPULONG)trail_up_addr-(BPULONG)trail_top;
+    PREPARE_NUMBER_TERM(0);
+
+    bucket_ptr = (BPLONG_PTR)ANSWERTABLE_BUCKET_PTR(answer_table);
+    bucket_size = ANSWERTABLE_BUCKET_SIZE(answer_table);
+
+    answer_record_size = arity+2;
+    ALLOCATE_FROM_NUMBERED_TERM_AREA(ta_record_ptr, this_answer, answer_record_size);
+    if (this_answer == NULL) {
+        bp_exception = et_OUT_OF_MEMORY;
+        return BP_ERROR;
+    }
+
+    this_table_arg_ptr = ANSWER_ARG_ADDR(this_answer);
+
+    if (numberVarCopyAnswerArgsToTableArea(stack_arg_ptr, this_table_arg_ptr, arity, &hcode) == BP_ERROR)
+        return BP_ERROR;
+
+    entryPtr = bucket_ptr+hcode%bucket_size;
+    FOLLOW(entryPtr) = (BPLONG)this_answer;
+    ANSWER_NEXT_IN_CHAIN(this_answer) = (BPLONG)NULL;
+    ANSWER_NEXT_IN_TABLE(this_answer) = (BPLONG)NULL;
+    ANSWERTABLE_FIRST(answer_table) = (BPLONG)this_answer;
+    ANSWERTABLE_LAST(answer_table) = (BPLONG)this_answer;
+    ANSWERTABLE_COUNT(answer_table) = 1;
 
     SET_SUBGOAL_ANS_REVISED(subgoal_entry);
     return BP_TRUE;

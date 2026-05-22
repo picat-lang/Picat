@@ -1280,6 +1280,7 @@ extern void print_scc(BPLONG_PTR scc_root);
 extern BPLONG_PTR addFirstTableAnswer(BPLONG_PTR stack_arg_ptr, int arity);
 extern BPLONG_PTR allocateAnswerTable(BPLONG_PTR first_answer, int arity);
 extern int addTableAnswer(BPLONG_PTR stack_arg_ptr, int arity, BPLONG_PTR subgoal_entry);
+extern int addTableAnswer0(BPLONG_PTR stack_arg_ptr, int arity, BPLONG_PTR subgoal_entry);
 extern void expandAnswerTable(BPLONG_PTR answer_table, int arity);
 extern void copyTabledAnswerArgs(BPLONG_PTR src_ans, BPLONG_PTR des_ans, int arity);
 extern int c_VARIANT();
