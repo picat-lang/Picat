@@ -1845,6 +1845,8 @@ int get_socket_fd(int index) {
 #else
 #if defined ANDROID || defined FREEBSD
     return(file_table[index].fdes->_file);
+#elif defined __EMSCRIPTEN__
+    return fileno(file_table[index].fdes);
 #else
     return(file_table[index].fdes->_fileno);
 #endif

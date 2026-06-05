@@ -1,0 +1,19 @@
+EXT = .js
+CPP    = em++ -DGC -DGCC -DPICAT -DSAT -DFANN_NO_DLL -DFANN
+CC     = emcc -DGC -DGCC -DPICAT -DSAT -DFANN_NO_DLL -DFANN
+CCC=$(CC) -c
+CPPC=$(CPP) -c
+
+CFLAGS = -O2 -fno-strict-aliasing -finline-functions -fomit-frame-pointer -Dunix -DLINUX -DPOSIX -Wno-error=unused-label
+
+LFLAGS = -lm \
+	-sALLOW_MEMORY_GROWTH=1 \
+	-sINITIAL_MEMORY=128MB \
+	-sSTACK_SIZE=8MB \
+	-sEXIT_RUNTIME=1 \
+	-sENVIRONMENT=web,worker,node \
+	-sEXPORTED_RUNTIME_METHODS=FS,callMain \
+	-sAUTO_NATIVE_LIBRARIES=0 \
+	-sNO_DISABLE_EXCEPTION_CATCHING
+
+include common.mak
