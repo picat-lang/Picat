@@ -1792,8 +1792,9 @@ int b_GLOBAL_HEAP_GET_cf(BPLONG key, BPLONG value)
 {
     int res;
     BPLONG table = FOLLOW(breg0+NUM_CG_GLOBALS+1);
+//    printf("global_heap_get"); write_term(key); printf("\n");
     res = b_HASHTABLE_GET_ccf(table, key, value);
-    //  printf("global_heap_get res=%x",res); write_term(key); printf("\n");
+//    printf("<=global_heap_get res=%x",res); write_term(key); printf("\n");
     if (res == BP_ERROR) return BP_FALSE;
     return res;
 }

@@ -151,24 +151,8 @@ void init_arith_sym() {
     xor2 = insert_sym("xor", 3, 2);
 }
 
-BPLONG bp_math_add(BPLONG op1, BPLONG op2)
+BPLONG bp_math_add_num_num(BPLONG op1, BPLONG op2)
 {
-    BPLONG_PTR top;
-
-    DEREF(op1); DEREF(op2);
-    if (!ISNUM(op1)) {
-        op1 = eval_arith(op1);
-        if (op1 == BP_ERROR) {
-            return BP_ERROR;
-        }
-    }
-    if (!ISNUM(op2)) {
-        op2 = eval_arith(op2);
-        if (op2 == BP_ERROR) {
-            return BP_ERROR;
-        }
-    }
-
     if (ISINT(op1)) {
         if (ISINT(op2)) {
             op1 = INTVAL(op1) + INTVAL(op2);
@@ -201,6 +185,54 @@ BPLONG bp_math_add(BPLONG op1, BPLONG op2)
     }
 }
 
+/* prevent c-stack overflow by using goto */
+BPLONG bp_math_add(BPLONG op1, BPLONG op2)
+{
+    BPLONG elm, sum;
+    BPLONG_PTR top;
+    BPLONG_PTR ptr;
+    SYM_REC_PTR sym_ptr;
+
+    sum = BP_ZERO;
+loop1:
+    DEREF(op1); 
+    if (!ISNUM(op1)) {
+        if (ISSTRUCT(op1)){
+            ptr = (BPLONG_PTR)UNTAGGED_ADDR(op1);
+            sym_ptr = (SYM_REC_PTR)FOLLOW(ptr);
+            if (sym_ptr == add2) {   // nested additions
+                elm = eval_arith(FOLLOW(ptr+1));
+                if (elm == BP_ERROR) {return BP_ERROR;}
+                sum = bp_math_add_num_num(sum, elm);
+                if (sum == BP_ERROR) { return BP_ERROR;}
+                op1 = FOLLOW(ptr+2);
+                goto loop1;
+            } 
+        }
+        op1 = eval_arith(op1);
+        if (op1 == BP_ERROR) { return BP_ERROR;}
+    }
+    sum = bp_math_add_num_num(sum, op1);
+loop2:
+    DEREF(op2);
+    if (!ISNUM(op2)) {
+        if (ISSTRUCT(op2)){
+            ptr = (BPLONG_PTR)UNTAGGED_ADDR(op2);
+            sym_ptr = (SYM_REC_PTR)FOLLOW(ptr);
+            if (sym_ptr == add2) {   // nested additions
+                elm = eval_arith(FOLLOW(ptr+1));
+                if (elm == BP_ERROR) {return BP_ERROR;}
+                sum = bp_math_add_num_num(sum, elm);
+                if (sum == BP_ERROR) { return BP_ERROR;}
+                op2 = FOLLOW(ptr+2);
+                goto loop2;
+            } 
+        }
+        op2 = eval_arith(op2);
+        if (op2 == BP_ERROR) { return BP_ERROR;}
+    }
+    return bp_math_add_num_num(sum, op2);
+}
 
 BPLONG bp_math_sub(BPLONG op1, BPLONG op2)
 {
