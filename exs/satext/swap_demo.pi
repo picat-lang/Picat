@@ -2,7 +2,10 @@
 %
 % The program below never changes -- the solver is selected at the
 % solve call through one of:
-%   SATEXT_SOLVER=<solver>      environment variable
+%   SATEXT_SOLVER=<argv>        environment variable; whitespace-
+%                               separated solver argv (first token =
+%                               executable, the rest = extra args,
+%                               "@file" token supported)
 %   bp.c_satext_set_solver(S)   in the program (atom/string, or a list
 %                               of strings forming the solver argv)
 % With none of them set, the embedded solver is used.
@@ -10,6 +13,8 @@
 % Run:  picat exs/satext/swap_demo.pi
 %       SATEXT_SOLVER=kissat picat exs/satext/swap_demo.pi
 %       SATEXT_SOLVER=cryptominisat picat exs/satext/swap_demo.pi
+%       SATEXT_SOLVER="kissat -q" picat exs/satext/swap_demo.pi
+%       SATEXT_SOLVER="cryptominisat @file" picat exs/satext/swap_demo.pi
 % (PICATPATH is not needed for this demo.)
 
 import sat.

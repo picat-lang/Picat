@@ -3,6 +3,9 @@
 %
 %   N=200 SATEXT_SOLVER=kissat picat exs/satext/queens_ps.pi
 %   N=200 SATEXT_SOLVER=/usr/bin/cryptominisat picat exs/satext/queens_ps.pi
+%   N=200 SATEXT_SOLVER="kissat -q" picat exs/satext/queens_ps.pi
+%       (SATEXT_SOLVER is whitespace-separated solver argv: first
+%        token = executable, the rest = extra arguments)
 %   N=200 picat exs/satext/queens_ps.pi            % built-in solver
 %
 % While it runs in one terminal, in another:
