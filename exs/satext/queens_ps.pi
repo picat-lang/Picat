@@ -1,0 +1,55 @@
+% queens_ps: N-queens sized by an environment variable, for watching
+% the external solver's child process in `ps` while it runs.
+%
+%   N=200 SATEXT_SOLVER=kissat picat exs/satext/queens_ps.pi
+%   N=200 SATEXT_SOLVER=/usr/bin/cryptominisat picat exs/satext/queens_ps.pi
+%   N=200 picat exs/satext/queens_ps.pi            % built-in solver
+%
+% While it runs in one terminal, in another:
+%   ps -ef | grep -E "kissat|cryptominisat"
+%   (SATEXT_SOLVER set => you should see the solver's process;
+%    unset => you should NOT see one)
+%
+% N defaults to 200 when the N env var is absent.
+
+import sat.
+
+main =>
+    n_from_env(N),
+    bp.c_wall_ms(T0),
+    writef("=== N-queens, N=%d, starting at %d ms%%%n", N, T0),
+    queens(N, Qs),
+    solve(Qs),
+    check_queens(N, Qs),
+    bp.c_wall_ms(T1),
+    writef("solution (%d ms): %s%%%n", T1 - T0, to_string(to_list(Qs))),
+    halt.
+
+n_from_env(N) =>
+    ((bp.picat_getenv("N", S)) -> N = to_int(S) ; N = 200),
+    (N >= 4),
+    (N <= 600).
+
+queens(N, Qs) =>
+    Qs = new_array(N),
+    Qs :: 1..N,
+    foreach (I in 1..N-1, J in I+1..N)
+        Qs[I] #!= Qs[J],
+        Qs[I]-Qs[J] #!= J-I,
+        Qs[J]-Qs[I] #!= J-I
+    end.
+
+check_queens(N, Qs) =>
+    bad(N, to_list(Qs), Bad),
+    (Bad == 0) -> true ; handle_exception($bad_queens(Bad), check_queens).
+
+bad(N, Qs, Bad) =>
+    B1 = [1 : I in 1..N-1, J in I+1..N, same_col(I, J, Qs)],
+    B2 = [1 : I in 1..N-1, J in I+1..N, same_diag(I, J, Qs)],
+    Bad = len(B1) + len(B2).
+
+same_col(I, J, Qs) =>
+    Qs[I] == Qs[J].
+
+same_diag(I, J, Qs) =>
+    abs(Qs[I]-Qs[J]) == J-I.
