@@ -1167,6 +1167,7 @@ void Cboot() {
 #ifdef SAT
     insert_cpred("c_sat_propagate_dom_bits", 2, c_sat_propagate_dom_bits);
     Cboot_sat();
+    Cboot_satext();
     insert_cpred("c_call_espresso", 5, c_call_espresso);
     insert_cpred("c_call_espresso_pb", 6, c_call_espresso_pb);
 #endif

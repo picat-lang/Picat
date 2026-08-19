@@ -1,0 +1,32 @@
+% Exchangeable external SAT solver, module satext.
+%
+% Runs an external CNF SAT solver (kissat, cadical, minisat, ...;
+% IPASIR 2.0 or DIMACS protocol, auto-detected) on a formula and
+% returns the status and the model.
+%
+%   solve(Spec, Clauses, Status, Model)
+%     Spec    : list of atoms or strings -- the solver's argv; first
+%               element is the executable (PATH-resolved if no '/').
+%               A "@file" token is replaced by a generated CNF file
+%               (for solvers that take the input file as an argument).
+%     Clauses : list of clauses (each a list of integer literals),
+%               or a flat list of literals with 0 clause separators.
+%     Status  : sat / unsat / unknown
+%     Model   : list of 0/1 for variables 1..maxvar, [] if none
+%               (index i-1 is variable i).
+%
+%   cnf_info(Clauses, Nvar, Ncl, Nlits)
+%   write_dimacs(Clauses, Path)     % write DIMACS file (utility)
+%
+% Use with:  PICATPATH=<picat>/lib2  picat yourfile.pi
+
+module satext.
+
+solve(Spec, Clauses, Status, Model) =>
+    bp.c_satext_solve(Spec, Clauses, Status, Model).
+
+cnf_info(Clauses, Nvar, Ncl, Nlits) =>
+    bp.c_satext_cnf_info(Clauses, Nvar, Ncl, Nlits).
+
+write_dimacs(Clauses, Path) =>
+    bp.c_satext_write_dimacs(Clauses, Path).

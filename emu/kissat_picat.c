@@ -9,6 +9,8 @@
  ********************************************************************/
 
 #include "bprolog.h"
+#include <stdio.h>
+#include <stdlib.h>
 
 #ifdef SAT
 #include "kissat/src/kissat.h"
@@ -24,6 +26,17 @@ int sat_nvars;
 int sat_nvars_limit;  /* used by plglib, the size of the dynamic arrays */
 // static int num_threads = 0;
 
+static long sat_dbg_addcl = 0;
+static long sat_dbg_init = 0;
+static long sat_dbg_start = 0;
+static int sat_dbg_enabled(void)
+{
+    static int e = -1;
+    if (e < 0) e = (getenv("SATDBG") != NULL);
+    return e;
+}
+#define SAT_DBG_MSG(...) do { if (sat_dbg_enabled()) fprintf(stderr, __VA_ARGS__); } while (0)
+
 int b_SAT_GET_INC_VAR_NUM_f(BPLONG Num){
     ASSIGN_f_atom(Num,MAKEINT(sat_nvars));
     sat_nvars++;
@@ -37,6 +50,7 @@ int b_SAT_ADD_CL_c(BPLONG cl) {
 
     lit_ptr = local_top;  /* reuse Picat't local stack , asumming that the gap is big enough for holding the literals */
     DEREF_NONVAR(cl);
+    sat_dbg_addcl++;
 
     //  printf(" => add_cl "); write_term(cl); printf("\n");
 
@@ -56,11 +70,17 @@ int b_SAT_ADD_CL_c(BPLONG cl) {
         cl = FOLLOW(lst_ptr+1); DEREF_NONVAR(cl);
     }
 
-    for (ptr = local_top; ptr != lit_ptr; ptr--) {
-        SAT_ADD_LIT(INTVAL(*ptr));
+    {
+        int mirr = satext_ext_mirroring();
+        for (ptr = local_top; ptr != lit_ptr; ptr--) {
+            BPLONG v = INTVAL(*ptr);
+            SAT_ADD_LIT(v);
+            if (mirr) ext_cnf_push_lit((int32_t)v);
+        }
+        SAT_ADD_LIT(0);
+        if (mirr) ext_cnf_end_clause();
     }
-    SAT_ADD_LIT(0);
-        
+
     return BP_TRUE;
 }
 
@@ -69,26 +89,49 @@ int c_sat_init(){
 
     //    NThreads = ARG(1,2);  DEREF_NONVAR(NThreads);
     //    num_threads = (int)INTVAL(NThreads);
-    NVars = ARG(2,2);  DEREF_NONVAR(NVars);  
+    NVars = ARG(2,2);  DEREF_NONVAR(NVars);
     sat_nvars =  sat_nvars_limit = (int)INTVAL(NVars);
-  
+    ext_cnf_reset();
+    ext_cnf_set_mirroring(satext_ext_prepare());
+    sat_dbg_init++;
+    SAT_DBG_MSG("[dbg] c_sat_init #%ld nvars=%ld addcl_so_far=%ld ext=%d\n", sat_dbg_init, (long)INTVAL(NVars), sat_dbg_addcl, satext_ext_mirroring());
+
     SAT_INIT;
     return BP_TRUE;
 }
 
 int c_sat_start(){
     BPLONG lst,res;
-    BPLONG_PTR top;
+    int use_ext;
+
     lst = ARG(1,1);
-    DEREF_NONVAR(lst); 
+    DEREF_NONVAR(lst);
 
     //  printf("=>sat_start "); write_term(lst); printf("\n");
-    //    printf("in c nvars = %d\n", sat_nvars);        
-    SAT_START_SOLVER;
+    //    printf("in c nvars = %d\n", sat_nvars);
+    use_ext = satext_ext_prepare();
+    if (use_ext) {
+        int rc = satext_ext_run();
+        if (rc != 0) {
+            fprintf(stderr,
+                    "satext: external solver run failed; "
+                    "falling back to the built-in solver\n");
+            use_ext = 0;
+        } else if (satext_ext_status() == 0) {
+            res = 0;
+            fprintf(stderr, "satext: solver returned unknown\n");
+        } else {
+            res = (satext_ext_status() == 1) ? 10 : 20;
+        }
+    }
+    if (!use_ext)
+        SAT_START_SOLVER;
 
     //  printf("<= solver\n");
-        
-    if (SAT_SATISFIABLE){
+    sat_dbg_start++;
+    SAT_DBG_MSG("[dbg] c_sat_start #%ld addcl=%ld nvars=%d res=%d ext=%d\n", sat_dbg_start, sat_dbg_addcl, sat_nvars, (int)res, use_ext);
+
+    if (use_ext ? (res == 10) : SAT_SATISFIABLE){
         BPLONG_PTR ptr;
         BPLONG var, varNum, bit;
 
@@ -97,21 +140,28 @@ int c_sat_start(){
             ptr = (BPLONG_PTR)UNTAGGED_ADDR(lst);
             var = FOLLOW(ptr); DEREF(var);
             if (IS_SUSP_VAR(var)){
+                int val;
                 sv_ptr = (BPLONG_PTR)UNTAGGED_TOPON_ADDR(var);
                 varNum = fast_get_attr(sv_ptr,et_NUMBER);
                 DEREF(varNum);
                 varNum = INTVAL(varNum);
-                if (varNum > 0){
-                    bit = (kissat_value(sat_solver, varNum) > 0) ? BP_ONE : BP_ZERO;
+                if (use_ext){
+                    val = satext_ext_model_value((int)varNum);
+                    if (val == 0) val = -1;
                 } else {
-                    bit = (kissat_value(sat_solver, -varNum) > 0) ? BP_ZERO : BP_ONE;
+                    val = kissat_value(sat_solver, varNum);
+                }
+                if (varNum > 0){
+                    bit = (val > 0) ? BP_ONE : BP_ZERO;
+                } else {
+                    bit = (val > 0) ? BP_ZERO : BP_ONE;
                 }
                 unify(var, bit);
             }
             lst = FOLLOW(ptr+1); DEREF(lst);
         }
         return BP_TRUE;
-    } 
+    }
     return BP_FALSE;
 }
 #else

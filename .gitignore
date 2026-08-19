@@ -6,3 +6,4 @@ emu/picat*
 
 # compiled module caches
 *.qi
+emu/satshim

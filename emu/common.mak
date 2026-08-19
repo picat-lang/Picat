@@ -3,7 +3,7 @@ OBJ = dis.o init.o init_sym.o loader.o inst_inf.o main.o toam.o unify.o \
 	builtins.o mic.o numbervars.o cpreds.o univ.o assert_bp.o findall.o clause.o \
     delay.o clpfd.o clpfd_libs.o event.o toamprofile.o \
     kapi.o getline.o table.o gcstack.o gcheap.o gcqueue.o debug.o \
-    par.o thread.o expand_bp.o bigint.o sapi.o kissat_picat.o espresso_bp.o \
+    par.o thread.o satext.o expand_bp.o bigint.o sapi.o kissat_picat.o espresso_bp.o \
 	picat_utilities.o fann.o fann_cascade.o fann_error.o fann_io.o fann_train.o fann_train_data.o fann_interface.o
 
 ESPRESSO_FLAGS = -O3 -I. -Iespresso
@@ -37,7 +37,7 @@ KISSAT_OBJ =  kis_allocate.o kis_analyze.o kis_ands.o kis_application.o\
 picat$(EXT) : $(OBJ) $(ESPRESSO_OBJ) $(KISSAT_OBJ)
 	$(CPP) -o picat$(EXT) $(CFLAGS) $(OBJ) $(ESPRESSO_OBJ)  $(KISSAT_OBJ) $(LFLAGS)
 clean :
-	rm -f *.o picat$(EXT)
+	rm -f *.o picat$(EXT) satshim
 dis.o   : dis.c term.h inst.h basic.h
 	$(CCC) $(CFLAGS) dis.c
 init.o  : init.c term.h inst.h basic.h
@@ -102,6 +102,10 @@ event.o : event.c term.h basic.h bapi.h kapi.h event.h
 	$(CCC) $(CFLAGS) event.c
 par.o : par.c term.h basic.h bapi.h extern_decl.h
 	$(CCC) $(CFLAGS) par.c
+satext.o : satext.c term.h basic.h bapi.h extern_decl.h
+	$(CCC) $(CFLAGS) satext.c
+satshim : satshim.c
+	gcc -O2 -static satshim.c -o satshim
 thread.o : thread.c term.h basic.h bapi.h extern_decl.h
 	$(CCC) $(CFLAGS) thread.c
 table.o : table.c term.h basic.h bapi.h frame.h

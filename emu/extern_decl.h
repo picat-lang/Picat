@@ -1437,4 +1437,17 @@ extern void plc_sup();
 // others
 //[]
 extern void Cboot_sat();
+#include <stdint.h>
+/* satext.c: exchangeable external solver for the built-in SAT flow */
+extern void ext_cnf_reset(void);
+extern void ext_cnf_set_mirroring(int on);
+extern int satext_ext_mirroring(void);
+extern void ext_cnf_push_lit(int32_t v);
+extern void ext_cnf_end_clause(void);
+extern void satext_solver_clear(void);
+extern int satext_ext_prepare(void);
+extern int satext_ext_run(void);      /* 0 ok, -1 spawn/transfer failed */
+extern int satext_ext_status(void);   /* 0 unknown, 1 sat, 2 unsat */
+extern int satext_ext_model_value(int varnum);  /* +1 true, -1 false, 0 none */
+extern void Cboot_satext(void);
 

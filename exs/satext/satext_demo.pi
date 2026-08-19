@@ -1,0 +1,96 @@
+% satext_demo: end-to-end checks for the low-level external solver API
+% (module satext, lib2/satext.pi, cpred bp.c_satext_solve/4).
+%
+% Requires at least one of: kissat / cryptominisat on PATH.
+% Run:  PICATPATH=<picat>/lib2 picat exs/satext/satext_demo.pi
+%       (or exs/satext/bench_satext.sh)
+
+import satext.
+
+% model is a list of 0/1; element A holds the value of variable A.
+verify(Clauses, Model) =>
+    foreach (Cc in Clauses)
+        cl_true(Cc, Model)
+    end.
+
+cl_true(Cc, Model) =>
+    Ms = [M : L in Cc, lit_val(L, Model, M)],
+    (len(Ms) > 0) -> member(1, Ms)
+    ;
+        handle_exception($empty_clause(Cc), cl_true)
+    ,
+    true.
+
+
+lit_val(L, Model, M) =>
+    A = abs(L),
+    V = Model[A],
+    ((L < 0) -> M = 1 - V
+    ;
+        M = V
+    ).
+
+chk_sat(St, Name) =>
+    ((St == sat) -> writef("%s: ok%n", Name)
+    ;
+        writef("%s: FAIL (not sat)%n", Name)
+    ).
+
+chk_unsat(St, Name) =>
+    ((St == unsat) -> writef("%s: ok%n", Name)
+    ;
+        writef("%s: FAIL (not unsat)%n", Name)
+    ).
+
+main =>
+    X1 = 1, X2 = 2, X3 = 3,
+    Nx1 = -(1), Nx2 = -(2), Nx3 = -(3),
+
+    % (1) SAT: (x1 v x2) & (~x1 v x2)  =>  x2 = true forced
+    C1 = [[X1,X2],[Nx1,X2]],
+    solve(["kissat"], C1, St1, M1),
+    chk_sat(St1, "sat1"),
+    verify(C1, M1),
+    ((M1[2] == 1) -> writef("sat1 model verified: ok%n")
+    ;
+        writef("sat1 model verified: FAIL%n")),
+
+    % (2) UNSAT: (x1) & (~x1)
+    C2 = [[X1],[Nx1]],
+    solve(["kissat"], C2, St2, M2),
+    chk_unsat(St2, "unsat2"),
+
+    % (3) SAT, 3 vars
+    C3 = [[X1,X2],[Nx1,X3],[Nx1,Nx2]],
+    solve(["kissat"], C3, St3, M3),
+    chk_sat(St3, "sat3"),
+    verify(C3, M3),
+
+    % (4) @file solver: cryptominisat takes the CNF path as argv
+    C4 = [[X1,X2],[Nx1,X2],[X2]],
+    solve(["cryptominisat", "@file"], C4, St4, M4),
+    chk_sat(St4, "cmsat4"),
+    verify(C4, M4),
+
+    % (5) cnf_info: 3 vars, 3 clauses
+    C5 = [[X1,X2],[Nx1,X2],[X3]],
+    cnf_info(C5, Nv, Nc, Nl),
+    ((Nv + Nc == 6) -> writef("cnf_info: ok%n")
+    ;
+        writef("cnf_info: FAIL (nv=%s nc=%s)%n", to_string(Nv), to_string(Nc))),
+
+    % (6) flat list form: literals with 0 separators
+    Cf = [X1, X2, 0, Nx1, X2, 0],
+    solve(["kissat"], Cf, St5, M5),
+    chk_sat(St5, "flat6"),
+    verify(C1, M5),
+
+    % (7) UNSAT on a real formula: pigeonhole PH(3,2)
+    Cph = [[1,2],[3,4],[5,6],
+           [-(1),-(3)],[-(2),-(4)],[-(1),-(5)],[-(2),-(6)],
+           [-(3),-(5)],[-(4),-(6)]],
+    solve(["kissat"], Cph, St7, M7),
+    chk_unsat(St7, "ph32 unsat"),
+
+    writef("ALL SAT EXT DEMO TESTS PASSED%n"),
+    halt.

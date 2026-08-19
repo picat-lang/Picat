@@ -131,6 +131,22 @@ all_different_except_0(Xs) =>
 % solve(Vars) => solve(Vars).
 solve(Vars) => solve([],Vars).
 
+/* Running an external SAT solver instead of the embedded one:
+   bp.c_satext_set_solver(Spec) can be called from the program (for
+   example in main, before the constraints/solve), or the environment
+   variable SATEXT_SOLVER can be set; Options may additionally contain
+   $solver(Spec) which sets Spec for the duration of the program.
+     Spec is an atom or string ("kissat", "cadical", a path, ...)
+         resolved via PATH; the input protocol (DIMACS/IPASIR) is
+         detected automatically.
+     Spec is a list of atoms/strings: solver argv; the token "@file"
+         makes picat generate a DIMACS file and pass its path as that
+         argument (for solvers that only read a file).
+     Spec = nil/false: select the built-in solver again.
+   The model is handed back to the search exactly as with the built-in
+   solver, so solve/solve_all/findall and blocking of enumerated
+   solutions work unchanged. */
+
 % solve(Options,Vars) => solve(Options,Vars)
 solve(Options,Vars) =>
     (bp.dvar_or_int_list(Vars) ->
@@ -151,10 +167,15 @@ solve(Options,Vars) =>
     (select($dump(File), Options2,Options3) ->
         AtomFile = to_atom(File),
         Options4 = [$dump(AtomFile)|Options3]
-    ;         
+    ;
         Options4 = Options2
-    ),        
-    bp.sat_solve(Options4,VList).    
+    ),
+    (select($solver(Spec), Options4,Options5) ->
+        bp.c_satext_set_solver(Spec)
+    ;
+        Options5 = Options4
+    ),
+    bp.sat_solve(Options5,VList).
 
 solve_all(Vars) = solve_all([],Vars).
 
