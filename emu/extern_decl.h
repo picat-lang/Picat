@@ -1194,6 +1194,7 @@ extern int b_is_picat_public_name(BPLONG term);
 
 extern void Cboot_mic(void);
 extern void Cboot_par(void);
+extern void Cboot_thread(void);
 extern UW32 MurmurHash3_x86_32_uint32( const UW32 key, UW32 seed);
 extern int c_bp_exit();
 extern int b_PICAT_ARG_ccf(BPLONG Index, BPLONG Comp, BPLONG Arg);

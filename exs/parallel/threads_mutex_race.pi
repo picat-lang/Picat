@@ -1,0 +1,48 @@
+% threads_mutex_race: shared-counter race vs. mutex-protected update.
+%
+% A shared C counter is bumped by NT worker threads, K times each:
+%   (1) unprotected: each bump is a non-atomic read-modify-write, so
+%       under contention updates are lost -> final value < NT*K
+%   (2) mutex-guarded: every bump takes a pthread mutex -> exactly NT*K
+%
+% The unprotected run is inherently racy (a demo, not a test): it is
+% only checked for <= NT*K. The guarded run must be exact.
+%
+% Run:  PICATPATH=<picat>/lib2  picat exs/parallel/threads_mutex_race.pi
+
+import thread.
+
+nt()  = 8.
+bump_k() = 200000.   % increments per thread
+
+race() = race_core(nt(), bump_k(), 0).
+
+race_core(NT, K, M) = Total =>
+    C  = new_counter(),
+    Ts = [X : T in 1..NT,
+          X = new_thread(bump, [C, K, M]),
+          X.start()],
+    foreach(X in Ts)
+        join(X)
+    end,
+    Total = counter_get(C).
+
+main =>
+    writef("race: %d threads x %d increments each (max %w)%n",
+           nt(), bump_k(), nt()*bump_k()),
+    R1 = race(),
+    writef("  unprotected: %w  (lost %w updates)%n",
+           R1, nt()*bump_k() - R1),
+    if (R1 <= nt()*bump_k())
+        writef("  unprotected: ok (<= max)%n")
+    else
+        writef("  unprotected: FAIL (> max)%n")
+    end,
+    M  = new_mutex(),
+    R2 = race_core(nt(), bump_k(), M),
+    if (R2 == nt()*bump_k())
+        writef("  mutex-guarded: %w  ok (exact)%n", R2)
+    else
+        writef("  mutex-guarded: FAIL (got %w, want %w)%n", R2, nt()*bump_k())
+    end,
+    writef("mutex race ok%n").

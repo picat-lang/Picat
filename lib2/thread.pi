@@ -1,0 +1,47 @@
+% Real-OS-thread module for Picat 3.9, module thread.
+%
+% The VM is single-threaded (only the toam-loop thread may execute
+% Picat code), so a "thread" here is a pthread that runs a *registered
+% C worker task* on plain C data -- it never touches the heap, which
+% is what makes it safe without GC interlocks (same pattern as the
+% timer threads in event.c). A worker's result is read from its
+% mailbox with result(T) after join(T).
+%
+% Syntax:
+%   T = new_thread(Task, Args)    % Task is an atom, Args a list of ints
+%   T.start()                     % spawn the worker
+%   join(T)                       % block until the worker finishes
+%   R = result(T)                 % worker result (after join)
+%   this_thread() = T             % the main thread (id 0)
+%   M = new_mutex(); acquire_mutex(M); release_mutex(M)
+%   S = new_sem(N); p_sem(S); v_sem(S)
+%   C = new_counter(); V = counter_get(C)
+%   sleep_ms(Ms)                  % builtin sleep (wall clock)
+%
+% Worker tasks and arguments (all integers, mod 2^64 unsigned results):
+%   sum_range(Lo, Hi)   -> sum of Lo..Hi
+%   prod_range(Lo, Hi)  -> product Lo..Hi
+%   bump(C, K, M)       -> counters[C] += 1, K times,
+%                          under mutex M if M > 0
+%   sleep_ms(Ms)        -> sleep Ms milliseconds
+%
+% Use with:  PICATPATH=<picat>/lib2  picat yourfile.pi
+
+module thread.
+
+new_thread(Task, Args) = T => bp.thread_new(Task, Args, T).
+start(T) => bp.thread_start(T).
+join(T) => bp.thread_join(T).
+this_thread() = T => bp.thread_this_thread(T).
+result(T) = R => bp.thread_result(T, R).
+
+new_mutex() = M => bp.thread_new_mutex(M).
+acquire_mutex(M) => bp.thread_acquire_mutex(M).
+release_mutex(M) => bp.thread_release_mutex(M).
+
+new_sem(N) = S => bp.thread_new_sem(N, S).
+p_sem(S) => bp.thread_p_sem(S).
+v_sem(S) => bp.thread_v_sem(S).
+
+new_counter() = C => bp.thread_new_counter(C).
+counter_get(C) = V => bp.thread_counter_get(C, V).

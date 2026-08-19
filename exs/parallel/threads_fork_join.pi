@@ -1,0 +1,38 @@
+% threads_fork_join: the thread module fork-join pattern.
+%
+% Splits 1..N into NT contiguous ranges. Each of NT real OS
+% threads (pthreads running the C worker task sum_range) sums its
+% sub-range on its own core; the main thread joins all workers and
+% reads their mailboxes. Verifies the total against the closed form
+% and times NT=1 vs NT=8 to show the wall-clock speedup.
+%
+% Run:  PICATPATH=<picat>/lib2  picat exs/parallel/threads_fork_join.pi
+
+import par.
+import thread.
+
+main =>
+    benchmark(100000000, 1),
+    benchmark(100000000, 8),
+    writef("fork-join ok%n").
+
+benchmark(N, NT) =>
+    C   = N div NT,
+    T0  = wall_ms(),
+    Ts  = [X : T in 1..NT,
+           Lo = (T-1)*C + 1,
+           Hi = cond(T == NT, N, T*C),
+           X  = new_thread(sum_range, [Lo, Hi]),
+           X.start()],
+    Tot = 0,
+    foreach(X in Ts)
+        join(X),
+        Tot := Tot + result(X)
+    end,
+    T1 = wall_ms(),
+    Expect = N*(N+1) div 2,
+    if (Tot == Expect)
+        writef("N=%d threads=%d: ok  (%d ms)%n", N, NT, T1 - T0)
+    else
+        writef("N=%d threads=%d: FAIL (got %w, want %w)%n", N, NT, Tot, Expect)
+    end.

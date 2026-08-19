@@ -3,3 +3,6 @@ emu/*.o
 emu/picat
 emu/picat*
 *.log
+
+# compiled module caches
+*.qi

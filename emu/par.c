@@ -94,7 +94,13 @@ static int term_to_i64(BPLONG t, BPLONG *s)
     return 1;
 }
 
-/* Build a term for a signed 64-bit value (inline int if representable). */
+/*
+ * Build a term for a signed 64-bit value. 1-word ints (inline range
+ * +/- (2^56-1)) are a distinct term type from bigints and are what
+ * integer literals in that range are, so return a 1-word int whenever
+ * possible and only fall back to a signed bigint beyond it.
+ * (writef %d prints 1-word ints truncated to 32 bits -- use %w.)
+ */
 static BPLONG i64_to_term(BPLONG s)
 {
     if (BP_IN_1W_INT_RANGE(s)) return MAKEINT(s);
