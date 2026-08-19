@@ -56,6 +56,14 @@
  *              c_satext_write_dimacs(Clauses, Path)
  *
  *            Environment:
+ *              SATEXT_SOLVER   solver argv for the `import sat` flow:
+ *                              whitespace-separated tokens, first =
+ *                              executable (name or path), the rest
+ *                              arbitrary extra arguments; the token
+ *                              "@file" may appear anywhere (a
+ *                              generated CNF file is substituted at
+ *                              its position). A single token with no
+ *                              spaces is exactly the solver name.
  *              SATEXT_SHIM     path of the satshim helper
  *              SATEXT_TMPDIR   directory for generated CNF files
  *                              (default: /dev/shm, else /tmp)
@@ -66,6 +74,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <ctype.h>
 #include <unistd.h>
 #include <errno.h>
 #include <stdint.h>
@@ -1142,19 +1151,55 @@ static spec_t env_spec;
 static int env_spec_valid = 0;
 static int env_proto = PROTO_NONE;
 
+/* Build a spec from a C string (the SATEXT_SOLVER value): the
+   whitespace-separated tokens form the solver argv; the first is the
+   executable (name or path), the rest are arbitrary extra arguments.
+   A "@file" token may appear anywhere and is replaced at run time by
+   a generated CNF file. */
 static int spec_from_cstr(const char *str, spec_t *s)
 {
-    char *cs = str_dup(str);
-    if (cs == NULL) return 0;
-    s->argv = (char **)malloc(2 * sizeof(char *));
-    if (s->argv == NULL) { free(cs); return 0; }
-    s->argv[0] = cs;
-    s->argv[1] = NULL;
-    s->argc = 1;
+    const char *p = str;
+    size_t cap = 8;
+
+    s->argv = (char **)malloc(cap * sizeof(char *));
+    if (s->argv == NULL) return 0;
+    s->argc = 0;
     s->atfile = -1;
-    s->exe = cs;                     /* alias, freed with argv */
-    s->base = str_dup(base_name(cs));
-    return (s->base != NULL);
+    s->exe = NULL;
+    s->base = NULL;
+
+    while (*p != 0) {
+        const char *q;
+        char *tok;
+        size_t len;
+        while (isspace((unsigned char)*p)) p++;
+        if (*p == 0) break;
+        q = p;
+        while (*q != 0 && !isspace((unsigned char)*q)) q++;
+        len = (size_t)(q - p);
+        tok = (char *)malloc(len + 1);
+        if (tok == NULL) { spec_free(s); return 0; }
+        memcpy(tok, p, len);
+        tok[len] = 0;
+        p = q;
+        if (s->argc == (int)cap) {
+            cap *= 2;
+            s->argv = (char **)realloc(s->argv, cap * sizeof(char *));
+            if (s->argv == NULL) { free(tok); spec_free(s); return 0; }
+        }
+        s->argv[s->argc] = tok;
+        if (s->argc == 0) {
+            s->base = str_dup(base_name(tok));
+            if (s->base == NULL) { spec_free(s); return 0; }
+        } else if (strcmp(tok, "@file") == 0) {
+            s->atfile = s->argc;
+        }
+        s->argc++;
+    }
+    if (s->argc == 0) { spec_free(s); return 0; }
+    s->argv[s->argc] = NULL;
+    s->exe = s->argv[0];  /* alias: freed with argv */
+    return 1;
 }
 
 void satext_solver_clear(void)

@@ -101,7 +101,7 @@ int c_sat_init(){
 }
 
 int c_sat_start(){
-    BPLONG lst,res;
+    BPLONG lst, res = 0;
     int use_ext;
 
     lst = ARG(1,1);
@@ -118,8 +118,10 @@ int c_sat_start(){
                     "falling back to the built-in solver\n");
             use_ext = 0;
         } else if (satext_ext_status() == 0) {
-            res = 0;
-            fprintf(stderr, "satext: solver returned unknown\n");
+            fprintf(stderr,
+                    "satext: solver returned unknown; "
+                    "falling back to the built-in solver\n");
+            use_ext = 0;
         } else {
             res = (satext_ext_status() == 1) ? 10 : 20;
         }

@@ -134,8 +134,11 @@ solve(Vars) => solve([],Vars).
 /* Running an external SAT solver instead of the embedded one:
    bp.c_satext_set_solver(Spec) can be called from the program (for
    example in main, before the constraints/solve), or the environment
-   variable SATEXT_SOLVER can be set; Options may additionally contain
-   $solver(Spec) which sets Spec for the duration of the program.
+   variable SATEXT_SOLVER can be set (its value is whitespace-
+   separated solver argv: first token = executable, the rest =
+   extra arguments, e.g. SATEXT_SOLVER="kissat -t 4"); Options may
+   additionally contain $solver(Spec) which sets Spec for the duration
+   of the program.
      Spec is an atom or string ("kissat", "cadical", a path, ...)
          resolved via PATH; the input protocol (DIMACS/IPASIR) is
          detected automatically.
