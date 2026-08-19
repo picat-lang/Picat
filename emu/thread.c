@@ -25,7 +25,7 @@
  *              sum_range(Lo, Hi)     -> sum of Lo..Hi       (mod 2^64)
  *              prod_range(Lo, Hi)    -> product Lo..Hi      (mod 2^64)
  *              bump(C, K, M)         -> C += 1, K times,
- *                                       under mutex M if M >= 0
+ *                                       under mutex M if M > 0
  *              sleep_ms(Ms)          -> sleep
  *
  *            A worker that finishes updates its mailbox and signals
