@@ -215,6 +215,41 @@ BPLONG bp_int_to_bigint(BPLONG a) {
     return op;
 }
 
+/* Build the (non-negative) bigint represented by v. */
+BPLONG bp_uint64_to_bigint(unsigned long long v) {
+    int i, size;
+    BPLONG op;
+    UBIGINT x;
+
+    LOCAL_OVERFLOW_CHECK_WITH_MARGIN("bigint", 8);
+    x = local_top - 8;  /* enough room for the digits */
+    size = 0;
+    do {
+        x[size++] = v % BP_BIGINT_BASE;
+        v /= BP_BIGINT_BASE;
+    } while (v != 0);
+    BP_MAKE_BIGINT_FROM_UBIG(1, size, x, op);
+
+    return op;
+}
+
+/* Build the bigint -2^63 (the signed 64-bit minimum), which cannot be
+   obtained from bp_int_to_bigint because -INT64_MIN overflows. */
+BPLONG bp_int64_min_to_bigint(void) {
+    int size = 3;
+    BPLONG op;
+    UBIGINT x;
+
+    LOCAL_OVERFLOW_CHECK_WITH_MARGIN("bigint", 4);
+    x = local_top - 3;
+    x[0] = 0;  /* 2^63 = 128 * (2^28)^2 */
+    x[1] = 0;
+    x[2] = 128;
+    BP_MAKE_BIGINT_FROM_UBIG(-1, size, x, op);
+
+    return op;
+}
+
 // size > 0, overflow not checked
 BPLONG bp_ubig_to_int(BPLONG size, UBIGINT x)
 {

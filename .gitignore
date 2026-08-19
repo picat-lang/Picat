@@ -1,0 +1,5 @@
+# build products
+emu/*.o
+emu/picat
+emu/picat*
+*.log

@@ -1,0 +1,41 @@
+% par_reduce: sanity + stress checks for the par module
+import par.
+
+chk(Name, V, E) =>
+    if (V == E)
+        writef("%s: ok%n", Name)
+    else
+        writef("%s: FAIL (got %w, want %w)%n", Name, V, E)
+    end.
+
+main =>
+    % small correctness checks
+    S1 = par_sum([1, 2, 3, 4, 5]),
+    chk("sum small", S1, 15),
+    P1 = par_prod([1, 2, 3, 4, 5]),
+    chk("prod small", P1, 120),
+    M1 = par_min([3, -7, 5, 9]),
+    chk("min small", M1, -7),
+    X1 = par_max([3, -7, 5, 9]),
+    chk("max small", X1, 9),
+    E1 = par_sum([]),
+    chk("sum empty", E1, 0),
+    E2 = par_prod([]),
+    chk("prod empty", E2, 1),
+    % array input
+    A = {2, 4, 6},
+    chk("sum array", par_sum(A), 12),
+    % i64 wrapping: (2^63-1) + 1 = 2^63, i.e. -2^63 as signed i64
+    S2 = par_sum([9223372036854775807, 1]),
+    chk("sum wraps mod 2^64", S2, -9223372036854775808),
+    % exact big sum: 1..10^6 -> 500000500000
+    N = 1000000,
+    L = [I : I in 1..N],
+    S3 = par_sum(L),
+    chk("sum 1..10^6 exact", S3, 500000500000),
+    % big values as bignints
+    Big = 1234567890123456789,
+    L2 = [Big, Big, Big],
+    chk("sum bigints", par_sum(L2), Big * 3),
+    writef("all done%n"),
+    halt.

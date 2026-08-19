@@ -1138,6 +1138,7 @@ void Cboot() {
 
     Cboot_numbervars();
     Cboot_mic();
+    Cboot_par();
     Cboot_debug();
     Cboot_assert();
     Cboot_delay();

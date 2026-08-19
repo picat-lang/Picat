@@ -1,0 +1,16 @@
+% Data-parallel builtins (C, pthread fork-join), module par.
+%
+% All arithmetic is 64-bit two's-complement, wrapping mod 2^64
+% (Futhark i64 convention). Input may be a list or an array of
+% integers (inline or bignints within the 64-bit signed range);
+% non-numeric input makes the call fail.
+%
+% Use with:  PICATPATH=<picat>/lib2  picat yourfile.pi
+
+module par.
+
+par_sum(X) = S => bp.c_par_sum(X, S).
+par_prod(X) = P => bp.c_par_prod(X, P).
+par_min(X) = M => bp.c_par_min(X, M).
+par_max(X) = M => bp.c_par_max(X, M).
+wall_ms() = T => bp.c_wall_ms(T).

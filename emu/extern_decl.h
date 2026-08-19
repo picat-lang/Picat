@@ -209,6 +209,8 @@ extern int c_test_bigint(void);
 extern BPLONG bp_ubig_to_int(BPLONG size, UBIGINT x);
 extern BPLONG bp_bigint_to_int(BPLONG op);
 extern BPLONG bp_int_to_bigint(BPLONG a);
+extern BPLONG bp_uint64_to_bigint(unsigned long long v);
+extern BPLONG bp_int64_min_to_bigint(void);
 extern double bp_ubig_to_double(BPLONG size, UBIGINT x);
 extern double bp_bigint_to_double(BPLONG op);
 extern BPLONG bp_double_to_bigint(double a);
@@ -1191,6 +1193,7 @@ extern int b_is_picat_public_name(BPLONG term);
 /**/
 
 extern void Cboot_mic(void);
+extern void Cboot_par(void);
 extern UW32 MurmurHash3_x86_32_uint32( const UW32 key, UW32 seed);
 extern int c_bp_exit();
 extern int b_PICAT_ARG_ccf(BPLONG Index, BPLONG Comp, BPLONG Arg);
