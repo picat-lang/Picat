@@ -13,4 +13,7 @@ par_sum(X) = S => bp.c_par_sum(X, S).
 par_prod(X) = P => bp.c_par_prod(X, P).
 par_min(X) = M => bp.c_par_min(X, M).
 par_max(X) = M => bp.c_par_max(X, M).
+par_scan(X) = R => bp.c_par_scan(X, R).
+par_scale(X, S) = R => bp.c_par_scale(X, S, R).
+par_fib_fast(N) = R => bp.c_par_fib_fast(N, R).
 wall_ms() = T => bp.c_wall_ms(T).
