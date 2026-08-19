@@ -1,0 +1,37 @@
+% pp_layer: exercises the high-level pp module.
+%
+% Run:  PICATPATH=<picat>/lib2  picat exs/parallel/pp_layer.pi
+
+import pp.
+
+main =>
+    % small correctness checks
+    check("psum small",  cond(psum([1, 2, 3, 4, 5]) == 15, 1, 0), 1),
+    check("pmin small",  cond(pmin([3, -7, 9]) == -7, 1, 0), 1),
+    check("pmax small",  cond(pmax([3, -7, 9]) == 9, 1, 0), 1),
+    check("pscan small", cond(pscan([1, 2, 3, 4]) == [1, 3, 6, 10], 1, 0), 1),
+    check("pfib 1..10",  cond(pfib(10) == [1, 1, 2, 3, 5, 8, 13, 21, 34, 55], 1, 0), 1),
+    % three independent fib implementations must agree
+    check("fib(90) par == doubling", cond(pfib_at(90) == fib_doubling(90), 1, 0), 1),
+    check("fib(90) doubling == linear", cond(fib_doubling(90) == fib_linear(90), 1, 0), 1),
+    check("fib(90) exact", cond(pfib_at(90) == 2880067194370816120, 1, 0), 1),
+    % real fork-join through the pp layer
+    F = fanout_sum(1, 100000000, 8),
+    check("fanout_sum 1..10^8 / 8 threads", cond(F == 5000000050000000, 1, 0), 1),
+    % timing: pure-Picat sequential vs C parallel engine
+    T0 = wall_ms(),
+    _  = fib_linear(1000000),
+    T1 = wall_ms(),
+    writef("fib_linear(10^6)   [pure Picat, seq]:  %d ms%n", T1 - T0),
+    T2 = wall_ms(),
+    _  = pfib(1000000),
+    T3 = wall_ms(),
+    writef("pfib(10^6)          [C engine, par]:    %d ms%n", T3 - T2),
+    writef("pp layer ok%n").
+
+check(Name, V, E) =>
+    if (V == E)
+        writef("%s: ok%n", Name)
+    else
+        writef("%s: FAIL%n", Name)
+    end.

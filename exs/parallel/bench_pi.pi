@@ -1,0 +1,23 @@
+% bench_pi: size sweep for the parallel fib array (and sequential
+% baseline), self-timed with wall_ms.
+%
+% Run:  PICATPATH=<picat>/lib2  picat exs/parallel/bench_pi.pi
+
+import pp.
+
+main =>
+    foreach(N in [100000, 1000000, 10000000, 100000000])
+        T0 = wall_ms(),
+        _  = pfib(N),
+        T1 = wall_ms(),
+        writef("par_fib_fast: N=%d  %d ms%n", N, T1 - T0)
+    end,
+    T0 = wall_ms(),
+    _  = fib_linear(1000000),
+    T1 = wall_ms(),
+    writef("fib_linear:   N=10^6  %d ms (pure Picat, sequential)%n", T1 - T0),
+    T2 = wall_ms(),
+    _  = fib_linear(10000000),
+    T3 = wall_ms(),
+    writef("fib_linear:   N=10^7  %d ms (pure Picat, sequential)%n", T3 - T2),
+    writef("bench done%n").

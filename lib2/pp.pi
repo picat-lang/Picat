@@ -1,0 +1,87 @@
+% pp: a clean parallel API for Picat 3.9, module pp.
+%
+% This is a thin, pure-Picat layer over the C data-parallel engine
+% (lib2/par) and the real-OS-thread module (lib2/thread). It gives a
+% functional-style front end (psum, pprod, ...) and a couple of
+% sequential Picat reference implementations for baseline timing.
+%
+% All reduce/scan arithmetic is 64-bit two's-complement mod 2^64
+% (Futhark i64 convention). Large results that do not fit a 1-word
+% int are returned as exact bigints.
+%
+% Sequential baselines (pure Picat, single core):
+%   fib_linear(N)    O(n) iterative
+%   fib_doubling(N)  O(log n) fast doubling
+%
+% Run any example with:  PICATPATH=<picat>/lib2  picat yourfile.pi
+
+import par.
+import thread.
+
+% ---------- data-parallel reductions / maps (C engine) ----------
+
+psum(X)   = S => par_sum(X) = S.
+pprod(X)  = P => par_prod(X) = P.
+pmin(X)   = M => par_min(X) = M.
+pmax(X)   = M => par_max(X) = M.
+pscan(X)  = R => par_scan(X) = R.
+pscale(X, S) = R => par_scale(X, S) = R.
+
+% pfib(N) = [fib(1), ..., fib(N)] mod 2^64 (parallel fast doubling).
+pfib(N) = R => par_fib_fast(N) = R.
+wall_ms() = T => par.wall_ms() = T.
+
+% pfib_at(N) = fib(N) mod 2^64.
+pfib_at(N) = F =>
+    L = pfib(N),
+    F = L[N].
+
+% ---------- parallel fork-join over registered worker tasks ----------
+
+% fanout_sum(Lo, Hi, NT) = S: split [Lo,Hi] into NT contiguous
+% ranges, one pthread per range (C task sum_range), join all, sum the
+% mailboxes. A real fork-join in the language frontend.
+fanout_sum(Lo, Hi, NT) = S =>
+    Span = Hi - Lo + 1,
+    C   = Span div NT,
+    Ts  = [X : T in 1..NT,
+           LoT = Lo + (T-1)*C,
+           HiT = cond(T == NT, Hi, Lo + T*C - 1),
+           X   = new_thread(sum_range, [LoT, HiT]),
+           X.start()],
+    S   = fanjoin(Ts, 0).
+
+fanjoin(Ts, S0) = S =>
+    S = S0,
+    foreach(H in Ts)
+        join(H),
+        S := S + result(H)
+    end.
+
+% ---------- sequential Picat baselines (single core) ----------
+
+fib_linear(0) = 0.
+fib_linear(1) = 1.
+fib_linear(N) = F =>
+    A = 0, B = 1,
+    foreach (I in 2..N)
+        T = (A + B) mod 18446744073709551616,
+        A := B,
+        B := T
+    end,
+    F = B.
+
+% fast doubling, all arithmetic mod 2^64
+fib_doubling(0) = 0.
+fib_doubling(N) = F =>
+    A = 0, B = 1,
+    foreach (I in 63..-1..0)
+        D = A * (B * 2 - A) mod 18446744073709551616,
+        E = (A * A + B * B) mod 18446744073709551616,
+        if ((N >> I) mod 2) == 0 then
+            A := D, B := E
+        else
+            A := E, B := (D + E) mod 18446744073709551616
+        end
+    end,
+    F = A.
