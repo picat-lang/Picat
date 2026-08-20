@@ -59,6 +59,13 @@
  *                           none available)
  *              c_satext_cnf_info(Clauses, Nvar, Ncl, Nlits)
  *              c_satext_write_dimacs(Clauses, Path)
+ *              c_satext_last_status(St)  how the most recent
+ *                              solve(Vars) call resolved: 1 = SAT,
+ *                              2 = UNSAT, 0 = unknown/abandoned
+ *                              (external no-decisive-answer with
+ *                              SATEXT_NO_FALLBACK set; the solve
+ *                              failed WITHOUT a verdict - this is
+ *                              not an UNSAT result)
  *
  *            Environment:
  *              SATEXT_SOLVER   solver selection for the `import sat`
@@ -111,6 +118,7 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <sys/wait.h>
+#include <sys/prctl.h>
 
 #include "term.h"
 #include "basic.h"
@@ -124,6 +132,18 @@
 #define SATEXT_PRT_MAX         8      /* max solvers raced per solve */
 #define SATEXT_PRT_BUDGET_MS   60000  /* default wall budget per solve */
 #define SATEXT_PRT_MIN_BYTES   (64L << 10) /* race only above this size */
+
+/* Every child of this process (and of the shim, which is itself such
+   a child) must die when its direct parent dies, however it dies
+   (Ctrl-C on picat, kill -9, crash): otherwise a killed picat leaves
+   its racing solvers orphaned, spinning on full CPUs. PR_SET_PDEATHSIG
+   makes the kernel deliver SIGKILL at the parent's death, and the
+   flag survives exec, so the chain picat -> runner -> [shim ->]
+   solver is covered hop by hop. */
+static void child_dies_with_parent(void)
+{
+    (void)prctl(PR_SET_PDEATHSIG, SIGKILL);
+}
 
 /* ------------------------------------------------------------------
  * number <-> term (same conventions as par.c)
@@ -521,6 +541,7 @@ static int probe_one(const char *exe, int guess)
     pid = fork();
     if (pid < 0) { free(out); return PROTO_NONE; }
     if (pid == 0) {
+        child_dies_with_parent();
         char *prog = str_dup(exe);
         int n = open("/dev/null", 0);
         dup2(p[0], 0);
@@ -1259,6 +1280,7 @@ static int run_solver(spec_t *s, const cnf_t *c, int proto, int mode,
     pid = fork();
     if (pid < 0) goto done;
     if (pid == 0) {
+        child_dies_with_parent();
         int i;
         int ndev = -1;
         if (mode == 1) {
@@ -1554,6 +1576,7 @@ static pid_t prt_fork_runner(spec_list_t *sl, int i, const int *rfd)
         int j;
         int wfd = rfd[2 * i + 1];
 
+        child_dies_with_parent();
         for (j = 0; j < sl->n; j++)
             if (j != i) { close(rfd[2 * j]); close(rfd[2 * j + 1]); }
         close(rfd[2 * i]);
@@ -1783,6 +1806,29 @@ int satext_no_fallback(void)
     return (e != NULL && *e != 0) ? 1 : 0;
 }
 
+/* How the most recent solve(Vars) call was resolved, readable from
+   the Picat level via c_satext_last_status(St):
+     1 = answered SAT (by the external solver or the built-in)
+     2 = answered UNSAT (by the external solver or the built-in)
+     0 = unknown/abandoned: the external solver(s) produced no
+         decisive answer (e.g. the wall budget elapsed) and
+         SATEXT_NO_FALLBACK suppressed the built-in fallback, so the
+         solve failed WITHOUT a verdict (it is NOT an UNSAT result).
+   c_sat_start records the outcome; the value is stable afterwards. */
+static int ext_last_status = 0;
+
+void satext_record_result(int st)
+{
+    ext_last_status = st;
+}
+
+int c_satext_last_status(void)
+{
+    BPLONG St = ARG(1, 1);
+
+    return unify(St, MAKEINT((BPLONG)ext_last_status));
+}
+
 int satext_ext_model_value(int varnum)
 {
     int a = varnum > 0 ? varnum : -varnum;
@@ -1923,4 +1969,5 @@ void Cboot_satext(void)
     insert_cpred("c_satext_cnf_info", 4, c_satext_cnf_info);
     insert_cpred("c_satext_write_dimacs", 2, c_satext_write_dimacs);
     insert_cpred("c_satext_set_solver", 1, c_satext_set_solver);
+    insert_cpred("c_satext_last_status", 1, c_satext_last_status);
 }

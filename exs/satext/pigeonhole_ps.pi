@@ -59,7 +59,13 @@ main =>
 
 ph_check(X, T0) =>
     try_solve(X, Solved),
-    ((Solved == 1) -> sat_found() ; unsat_ok(T0)).
+    ((Solved == 1) -> sat_found()
+    ;
+     (bp.c_satext_last_status(St),
+      (St == 2 ->
+          unsat_ok(T0)
+      ;
+          unknown_note(T0, St)))).
 
 sat_found() =>
     writef("UNEXPECTED: SAT found%n"),
@@ -68,6 +74,16 @@ sat_found() =>
 unsat_ok(T0) =>
     bp.c_wall_ms(T1),
     writef("UNSAT detected (%d ms), as expected%n", T1 - T0).
+
+% the solve failed for a reason that is NOT an UNSAT verdict
+unknown_note(T0, St) =>
+    bp.c_wall_ms(T1),
+    writef("*** WARNING: NOT a decisive result -- the external solver(s) produced%n"),
+    writef("*** no verdict (wall budget elapsed / unparseable output) and the built-in%n"),
+    writef("*** solver was not run (SATEXT_NO_FALLBACK); status code: %d.%n", St),
+    writef("*** This is NOT a pigeonhole-principle UNSAT proof: no conclusion may be%n"),
+    writef("*** drawn for this run (%d ms elapsed).%n", T1 - T0),
+    handle_exception($ext_solver_unknown(St), ph_check).
 
 n_from_env(H) =>
     ((bp.picat_getenv("N", S)) -> H = to_int(S) ; H = 8).

@@ -1449,6 +1449,7 @@ extern int satext_ext_prepare(void);
 extern int satext_ext_run(void);      /* 0 ok, -1 spawn/transfer failed */
 extern int satext_ext_status(void);   /* 0 unknown, 1 sat, 2 unsat */
 extern int satext_no_fallback(void);  /* 1 iff SATEXT_NO_FALLBACK is set */
+extern void satext_record_result(int st); /* 1 sat, 2 unsat, 0 unknown */
 extern int satext_ext_model_value(int varnum);  /* +1 true, -1 false, 0 none */
 extern void Cboot_satext(void);
 

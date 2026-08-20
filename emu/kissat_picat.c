@@ -138,6 +138,15 @@ int c_sat_start(){
     if (!use_ext)
         SAT_START_SOLVER;
 
+    /* how this solve call resolved (see satext_record_result): with
+       use_ext, res is 10 (sat) / 20 (unsat) for a decisive external
+       answer and 0 when no one answered (no-fallback unknown);
+       without use_ext, res is the built-in's own verdict */
+    if (use_ext)
+        satext_record_result(res == 10 ? 1 : (res == 20) ? 2 : 0);
+    else
+        satext_record_result(SAT_SATISFIABLE ? 1 : 2);
+
     //  printf("<= solver\n");
     sat_dbg_start++;
     SAT_DBG_MSG("[dbg] c_sat_start #%ld addcl=%ld nvars=%d res=%d ext=%d\n", sat_dbg_start, sat_dbg_addcl, sat_nvars, (int)res, use_ext);

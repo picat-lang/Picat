@@ -106,7 +106,11 @@ main =>
     ->
         sat_found(K, N, M, AllSets, E, D, T0)
     ;
-        unsat_ok(K, N, T0)
+        (bp.c_satext_last_status(St),
+         (St == 2 ->
+             unsat_ok(K, N, T0)
+         ;
+             unknown_note(K, N, T0, St)))
     ),
     halt.
 
@@ -182,6 +186,16 @@ unsat_ok(K, N, T0) =>
         T1 - T0, N, K, K, K, K, N),
     writef("    (together with a SAT run on N-1 vertices this proves R(%d,%d) = %d)%n",
         K, K, N).
+
+% the solve failed for a reason that is NOT an UNSAT verdict
+unknown_note(K, N, T0, St) =>
+    bp.c_wall_ms(T1),
+    writef("*** WARNING: NOT a (K,K)-Ramsey result -- the external solver(s) produced%n"),
+    writef("*** no verdict (wall budget elapsed / unparseable output) and the built-in%n"),
+    writef("*** solver was not run (SATEXT_NO_FALLBACK); status code: %d.%n", St),
+    writef("*** In particular, R(%d,%d) is NOT shown to be <= %d: no conclusion may be%n", K, K, N),
+    writef("*** drawn for this run (%d ms elapsed).%n", T1 - T0),
+    handle_exception($ramsey_solver_unknown(St), main).
 
 % independent re-check: no K-subset is all-edges (clique) or
 % all-no-edges (independent)

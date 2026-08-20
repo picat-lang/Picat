@@ -39,12 +39,21 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/socket.h>
+#include <sys/prctl.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
 #define SHIM_BUF_SZ (1u << 20)
 #define MAGIC (int32_t)0x46415049
+
+/* Same contract as in satext.c: the shim's solver child must die if
+   the shim dies (the shim itself dies when picat dies, see
+   child_dies_with_parent there). */
+static void child_dies_with_parent(void)
+{
+    (void)prctl(PR_SET_PDEATHSIG, SIGKILL);
+}
 
 static int recv_fd(int sd)
 {
@@ -254,6 +263,7 @@ int main(int argc, char **argv)
         if (pid < 0) { close(cnf[0]); close(cnf[1]); munmap(img, len); return 77; }
         if (pid == 0) {
             /* solver child of the shim: stdin <- read end of the CNF pipe */
+            child_dies_with_parent();
             dup2(cnf[0], 0);
             dup2(outfd, 1);
             close(cnf[0]); close(cnf[1]); close(outfd);
@@ -273,6 +283,7 @@ int main(int argc, char **argv)
         pid = fork();
         if (pid < 0) { close(cnf[0]); close(cnf[1]); return 77; }
         if (pid == 0) {
+            child_dies_with_parent();
             dup2(cnf[0], 0);
             dup2(outfd, 1);
             close(cnf[0]); close(cnf[1]); close(outfd);

@@ -45,7 +45,11 @@ main =>
     bp.c_wall_ms(T0),
     writef("=== N-queens, N=%d, starting at %d ms%n", N, T0),
     queens(N, Qs),
-    solve(Qs),
+    ((solve(Qs)) -> true
+    ;
+     (bp.c_satext_last_status(St),
+      solve_failed(St, T0))
+    ),
     check_queens(N, Qs),
     bp.c_wall_ms(T1),
     writef("solution (%d ms): %s%n", T1 - T0, to_string(to_list(Qs))),
@@ -68,6 +72,26 @@ queens(N, Qs) =>
 check_queens(N, Qs) =>
     bad(N, to_list(Qs), Bad),
     (Bad == 0) -> true ; handle_exception($bad_queens(Bad), check_queens).
+
+% the solve failed; separate a real (though odd for queens) UNSAT
+% from an abandoned attempt with SATEXT_NO_FALLBACK set
+solve_failed(St, T0) =>
+    bp.c_wall_ms(T1),
+    (St == 0 -> fail_unknown(T1 - T0, St)
+    ;
+     fail_unexpected(T1 - T0, St)).
+
+fail_unknown(Dt, St) =>
+    writef("*** WARNING: no decisive answer -- the external solver(s) produced%n"),
+    writef("*** no verdict (wall budget elapsed / unparseable output) and the built-in%n"),
+    writef("*** solver was not run (SATEXT_NO_FALLBACK); status code: %d.%n", St),
+    writef("*** This is neither a solution nor an UNSAT verdict; no conclusion may be%n"),
+    writef("*** drawn for this run (%d ms elapsed).%n", Dt),
+    handle_exception($ext_solver_unknown(St), queens).
+
+fail_unexpected(Dt, St) =>
+    writef("UNEXPECTED: solver reported UNSAT for N-queens (status code %d, %d ms elapsed)%n", St, Dt),
+    handle_exception($queens_unexpected_unsat(St), queens).
 
 bad(N, Qs, Bad) =>
     B1 = [1 : I in 1..N-1, J in I+1..N, same_col(I, J, Qs)],
