@@ -1,0 +1,116 @@
+% backpack_ps: 0/1 (back)pack aka knapsack with explicit
+% branch-and-bound, sized by an environment variable. Tests
+% OPTIMIZATION as a sequence of plain SAT solves through the external
+% solver(s) -- the flow not covered by queens_ps (plain SAT) and
+% pigeonhole_ps (plain UNSAT).
+%
+% IMPORTANT (measured on this build): the sat module's $max/$min
+% "optimization" options are a facade -- solve([$max(P)], Vars)
+% performs a single SAT solve and reports the objective value of the
+% FIRST model found (proven: trivial 2-item instance returns 3 instead
+% of 5; SATDBG=1 shows exactly one c_sat_start; $min returns the same
+% value as $max). This example therefore implements the search
+% explicitly: lift the objective bound, solve, repeat.
+%
+% Problem: N items, item i has weight w(i) = ((i-1) mod 5)+1 and value
+% v(i) = ((2i) mod 5)+1 (deterministic pattern, 1..5 each); the
+% capacity is N (average weight is 3). Objective: maximize total value
+% under the weight budget. The instance is always feasible (the empty
+% pack is a solution, value 0).
+%
+% Search: branch-and-bound by objective lifting. lo starts at 0; each
+% iteration solves the plain SAT instance with the extra bound
+% P #>= lo+1. If a model is found, lo jumps to its (better) value and
+% the loop continues; when the bounded instance becomes UNSAT, lo is
+% the proven optimum, and one final solve with P #= lo recovers a
+% model achieving it. Every iteration is a full solve through the
+% swap point, so with a portfolio each iteration is re-raced.
+%
+% Note on encoding: this sat module accepts constant*dvar products in
+% constraint statements (e.g. 2*X[1] #= Y) but not inside list
+% comprehensions or via value-list indexing (W[I] inside a constraint
+% is rejected), so the weighted sums are materialized per item:
+% Wd[I] #= ((I-1) mod 5 + 1) * X[I],  Vd[I] #= ((2*I) mod 5 + 1) * X[I].
+%
+% Run modes (the program never changes):
+%   N=20 picat exs/satext/backpack_ps.pi                         built-in
+%   N=20 SATEXT_SOLVER=kissat picat exs/satext/backpack_ps.pi
+%   N=20 SATEXT_SOLVER=cadical picat exs/satext/backpack_ps.pi
+%   N=20 SATEXT_SOLVER="kissat|cadical" SATEXT_PRT_MIN=1 \
+%       SATEXT_PRT_STATS=1 picat exs/satext/backpack_ps.pi       portfolio
+%   N=20 SATEXT_SOLVER="kissat|kissat -q|cadical" SATEXT_PRT_MIN=1 \
+%       picat exs/satext/backpack_ps.pi
+%       (the same solver repeated with different CLI parameters is a
+%        perfectly legal portfolio: two kissat processes plus
+%        cadical race every OPTIMIZATION ITERATION)
+% In-program: bp.c_satext_set_solver([["kissat"],["cadical"]]), etc.
+% SATEXT_PRT_BUDGET_MS / SATEXT_PRT_MIN / SATEXT_PRT_STATS apply per
+% optimization iteration exactly like for plain solves.
+%
+% Reference optima (0/1-knapsack DP): N=10 -> 20, N=20 -> 40,
+% N=40 -> 80. The demo verifies the final answer (weight budget and
+% value recomputed from X alone) and prints the iteration trace.
+%
+% N defaults to 20 when the N env var is absent.
+
+import sat.
+
+main =>
+    n_from_env(N),
+    bp.c_wall_ms(T0),
+    writef("=== backpack: %d items, capacity %d (branch-and-bound maximize value), starting at %d ms%%%n", N, N, T0),
+    optima(N, 0),
+    bp.c_wall_ms(T1),
+    writef("done in %d ms%%%n", T1 - T0),
+    halt.
+
+n_from_env(N) =>
+    ((bp.picat_getenv("N", S)) -> N = to_int(S) ; N = 20),
+    (N >= 3),
+    (N <= 100).
+
+% one B&B iteration: a model with value >= LO+1, if one exists
+step(N, LO, NewP) =>
+    feasible(N, LO+1, X, Wd, P),
+    solve([X, Wd, P]),
+    writef("  lift: P=%d (>= %d) X=%s W=%d%%%n",
+           P, LO+1, to_string(to_list(X)), sum(Wd)),
+    NewP = P.
+
+optima(N, LO) =>
+    ((step(N, LO, NP)) -> optima(N, NP)
+    ;
+     final(N, LO)).
+
+final(N, LO) =>
+    feasible(N, LO, X, Wd, P),
+    P #= LO,
+    solve([X, Wd, P]),
+    check_final(N, X, Wd, P),
+    writef("optimal value: P=%d, weight used=%d, items=%s%%%n",
+           P, sum(Wd), to_string(to_list(X))).
+
+check_final(N, X, Wd, P) =>
+    Wused = sum(Wd),
+    (Wused <= N) -> true ; handle_exception($weight_over(Wused), check_final),
+    Vsum = recompute_value(N, X),
+    (Vsum == P) -> true ; handle_exception($value_mismatch(P, Vsum), check_final).
+
+% the problem with the objective lower bound MinP
+feasible(N, MinP, X, Wd, P) =>
+    X = new_array(N),
+    X :: 0..1,
+    Wd = new_array(N),
+    Vd = new_array(N),
+    foreach (I in 1..N)
+        Wd[I] #= ((I-1) mod 5 + 1) * X[I],
+        Vd[I] #= ((2*I) mod 5 + 1) * X[I]
+    end,
+    sum(Wd) #<= N,
+    P #= sum(Vd),
+    P #>= MinP.
+
+% independent recomputation of the objective from X alone
+recompute_value(N, X, Vsum) =>
+    L = [T : I in 1..N, X[I] == 1, T = ((2*I) mod 5 + 1)],
+    Vsum = sum(L).
