@@ -14,9 +14,10 @@
 #   (whitespace-separated extra solver args), (d)
 #   SATEXT_SOLVER="kissat|cryptominisat" (first-wins portfolio)
 #   -- plus in-program bp.c_satext_set_solver() calls which work in
-#   every mode. backpack_ps (explicit branch-and-bound optimization)
-#   is run with the built-in solver, kissat, and a kissat|cadical
-#   portfolio; needs /usr/bin/cadical for the portfolio row.
+#   every mode. optim_pi (the 2-item $max demo) and backpack_ps (the
+#   $max objective option on an env-sized knapsack) are run with the
+#   built-in solver, kissat, and a kissat|cadical portfolio; needs
+#   /usr/bin/cadical for the portfolio rows.
 
 set -e
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
@@ -52,15 +53,28 @@ SATEXT_SOLVER="kissat|cryptominisat" SATEXT_PRT_MIN=1 \
     "$ROOT/emu/picat" "$ROOT/exs/satext/swap_demo.pi"
 
 echo
-echo "== backpack_ps (B&B optimization, built-in solver, N=20) =="
+echo "== optim (\$max on 2 items, true optimum 5; built-in solver) =="
+"$ROOT/emu/picat" "$ROOT/exs/satext/optim.pi"
+
+echo
+echo "== optim (\$max on 2 items; SATEXT_SOLVER=kissat) =="
+SATEXT_SOLVER=kissat "$ROOT/emu/picat" "$ROOT/exs/satext/optim.pi"
+
+echo
+echo "== optim (\$max on 2 items; SATEXT_SOLVER='kissat|cadical' portfolio) =="
+SATEXT_SOLVER="kissat|cadical" SATEXT_PRT_MIN=1 \
+    "$ROOT/emu/picat" "$ROOT/exs/satext/optim.pi"
+
+echo
+echo "== backpack_ps (\$max on env-sized knapsack, built-in solver, N=20 DP optimum 40) =="
 N=20 "$ROOT/emu/picat" "$ROOT/exs/satext/backpack_ps.pi"
 
 echo
-echo "== backpack_ps (B&B optimization, SATEXT_SOLVER=kissat, N=20) =="
+echo "== backpack_ps (\$max knapsack; SATEXT_SOLVER=kissat, N=20) =="
 N=20 SATEXT_SOLVER=kissat "$ROOT/emu/picat" "$ROOT/exs/satext/backpack_ps.pi"
 
 echo
-echo "== backpack_ps (B&B optimization, SATEXT_SOLVER='kissat|cadical': portfolio, N=20) =="
+echo "== backpack_ps (\$max knapsack; SATEXT_SOLVER='kissat|cadical' portfolio, N=20) =="
 N=20 SATEXT_SOLVER="kissat|cadical" SATEXT_PRT_MIN=1 \
     "$ROOT/emu/picat" "$ROOT/exs/satext/backpack_ps.pi"
 

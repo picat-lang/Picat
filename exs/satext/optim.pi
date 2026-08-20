@@ -1,0 +1,48 @@
+% optim: the sat module's objective options $max/$min, on the
+% smallest instance that can tell. Demonstrates that the compiled
+% branch-and-bound engine inside the built-in library is active for
+% solve([$max(P)], [Vars]) (and symmetrically $min), and works
+% unchanged through external solvers and portfolios.
+%
+% Problem: 2 items, capacity 2.
+%   item 1: weight 1, value 3
+%   item 2: weight 2, value 5
+% Every feasible pack: value 0 (neither), 3 (item 1), 5 (item 2).
+% The optimum is 5 (take item 2; weight 2 <= 2).
+%
+% Verified result on the current binary: P = 5 on the built-in
+% solver, kissat and cadical. With SATDBG=1 the run shows three
+% engine solves (first model, lifted bound, retrieval of the best
+% model) instead of one -- this is the optimization loop working,
+% and the objective value no longer depends on which model the
+% engine happens to find first.
+%
+% Gotcha: the objective option belongs to the OPTIONS list of
+% solve/2. Passing it as a member of the VARIABLES list of solve/1,
+% e.g. solve([$max(P), [X1, X2, P]]), is a plain SAT solve (the
+% objective is simply ignored) -- that is how $max first appeared
+% to do nothing, until the call was written as solve([$max(P)], ...).
+%
+% Run:
+%   picat exs/satext/optim.pi
+%   SATEXT_SOLVER=kissat picat exs/satext/optim.pi
+%   SATEXT_SOLVER=cadical picat exs/satext/optim.pi
+%   SATDBG=1 picat exs/satext/optim.pi            (show the 3 solves)
+%   SATEXT_SOLVER="kissat|cadical" SATEXT_PRT_MIN=1 SATEXT_PRT_STATS=1 \
+%       picat exs/satext/optim.pi                 (portfolio races each)
+
+import sat.
+
+main =>
+    X1 :: 0..1,
+    X2 :: 0..1,
+    1 * X1 + 2 * X2 #<= 2,        % weight budget (capacity 2)
+    P #= 3 * X1 + 5 * X2,         % objective as a constraint
+    writef("objective: $max(P)  --  true optimum of this instance is 5%%%n"),
+    solve([$max(P)], [X1, X2, P]),
+    writef("result: X1=%d X2=%d P=%d%%%n", X1, X2, P),
+    ((P == 5) -> writef("OK: optimum 5 found%%%n")
+    ;
+     writef("UNEXPECTED: $max reported P=%d, but the optimum is 5%%%n", P),
+     writef("(check the call form: it must be solve([$max(P)], [Vars]))%%%n"),
+     halt).
