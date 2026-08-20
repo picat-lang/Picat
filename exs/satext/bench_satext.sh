@@ -14,10 +14,11 @@
 #   (whitespace-separated extra solver args), (d)
 #   SATEXT_SOLVER="kissat|cryptominisat" (first-wins portfolio)
 #   -- plus in-program bp.c_satext_set_solver() calls which work in
-#   every mode. optim_pi (the 2-item $max demo) and backpack_ps (the
-#   $max objective option on an env-sized knapsack) are run with the
-#   built-in solver, kissat, and a kissat|cadical portfolio; needs
-#   /usr/bin/cadical for the portfolio rows.
+#   every mode. optim_pi (the 2-item $max demo), backpack_ps (the $max
+#   objective option on an env-sized knapsack) and ramsey_ps ((K,K)-
+#   Ramsey graphs, incl. the R(3,3)=6 UNSAT proof and the 17-vertex
+#   (4,4) instance) are run with the built-in solver, kissat, and a
+#   portfolio; needs /usr/bin/cadical for the portfolio rows.
 
 set -e
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
@@ -77,6 +78,28 @@ echo
 echo "== backpack_ps (\$max knapsack; SATEXT_SOLVER='kissat|cadical' portfolio, N=20) =="
 N=20 SATEXT_SOLVER="kissat|cadical" SATEXT_PRT_MIN=1 \
     "$ROOT/emu/picat" "$ROOT/exs/satext/backpack_ps.pi"
+
+echo
+echo "== ramsey ((3,3) on 6 = UNSAT, proves R(3,3)<=6; built-in) =="
+K=3 N=6 "$ROOT/emu/picat" "$ROOT/exs/satext/ramsey_ps.pi"
+
+echo
+echo "== ramsey ((3,3) on 6 = UNSAT; SATEXT_SOLVER='kissat|cadical' portfolio) =="
+K=3 N=6 SATEXT_SOLVER="kissat|cadical" SATEXT_PRT_MIN=1 \
+    "$ROOT/emu/picat" "$ROOT/exs/satext/ramsey_ps.pi"
+
+echo
+echo "== ramsey ((4,4) on 17, SAT; built-in) =="
+K=4 N=17 "$ROOT/emu/picat" "$ROOT/exs/satext/ramsey_ps.pi"
+
+echo
+echo "== ramsey ((4,4) on 17, SAT; SATEXT_SOLVER=kissat) =="
+K=4 N=17 SATEXT_SOLVER=kissat "$ROOT/emu/picat" "$ROOT/exs/satext/ramsey_ps.pi"
+
+echo
+echo "== ramsey ((4,4) on 17, SAT; SATEXT_SOLVER='kissat|kissat -q|cadical' portfolio) =="
+K=4 N=17 SATEXT_SOLVER="kissat|kissat -q|cadical" SATEXT_PRT_MIN=1 \
+    "$ROOT/emu/picat" "$ROOT/exs/satext/ramsey_ps.pi"
 
 echo
 echo "ALL SATEXT BENCHES PASSED"
