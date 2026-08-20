@@ -1,0 +1,40 @@
+% not_optimized: minimal proof that the current binary does NOT
+% optimize: the sat module's $max option claims to maximize P, but on
+% this instance the optimum is 5 and the program reports a smaller
+% (or zero) value.
+%
+% Problem: 2 items, capacity 2.
+%   item 1: weight 1, value 3
+%   item 2: weight 2, value 5
+% Every feasible pack: value 0 (neither), 3 (item 1), 5 (item 2).
+% The optimum is 5 (take item 2; weight 2 <= 2).
+%
+% Result on the current binary: solve([$max(P)], ...) performs a
+% single SAT solve and reports the value of the FIRST model found.
+%   built-in solver        -> P = 3  (first model is item 1)
+%   SATEXT_SOLVER=kissat   -> P = 0  (first model is the empty pack)
+%   SATEXT_SOLVER=cadical  -> P = 0  (first model is the empty pack)
+% In both cases the answer depends on the solver's first-model
+% preference, not on optimization. SATDBG=1 shows exactly one
+% c_sat_start for the whole "optimization".
+%
+% Run:
+%   picat exs/satext/not_optimized.pi
+%   SATEXT_SOLVER=kissat picat exs/satext/not_optimized.pi
+
+import sat.
+
+main =>
+    X1 :: 0..1,
+    X2 :: 0..1,
+    1 * X1 + 2 * X2 #<= 2,        % weight budget (capacity 2)
+    P #= 3 * X1 + 5 * X2,         % objective as a constraint
+    writef("claim: $max(P)  --  true optimum of this instance is 5%%%n"),
+    solve([$max(P), [X1, X2, P]]),
+    writef("reported: X1=%d X2=%d P=%d%%%n", X1, X2, P),
+    ((P == 5) -> writef("OK: optimum 5 found%%%n")
+    ;
+     writef("NOT OPTIMIZED: $max reported P=%d, but the optimum is 5%%%n", P),
+     writef("($max ran a single SAT solve; P is the objective value of%%%n"),
+     writef(" the first model the solver happened to find)%%%n"),
+     halt).
