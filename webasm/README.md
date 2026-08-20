@@ -13,7 +13,7 @@ tree:
 ## Build and run
 
 ```sh
-make            # build dist/ (first run stages + compiles ~100 files)
+make            # build dist/ (first run stages + compiles ~165 files)
 make serve      # serve dist/ on http://localhost:8000  -> open index.html
 make clean
 ```
@@ -52,7 +52,9 @@ preloaded directory at page load.
 
 Verified headlessly under node (same calls the page makes): `hello.pi`
 and `queens.pi` (8-queens, 92 solutions) both produce the same output
-as the native interpreter, and the runtime survives a program with a
+as the native interpreter, an `import sat.` program (3 solutions of
+`X+Y#=4`) and an `import cp.` program (6) solve like the native
+interpreter does, and the runtime survives a program with a
 syntax error and keeps running afterwards.
 
 ## What is built and what is excluded
@@ -63,17 +65,25 @@ that cannot work in a browser or that are not in the standard build:
 | excluded | why |
 | --- | --- |
 | `thread.c` | pthreads; `Cboot_thread()` is stubbed in `browser_stub.c` (thread() predicates are simply not registered) |
-| `satext.c`, `satshim.c`, `sapi.c`, `kissat/` | external-solver support (fork/exec, shared memory) |
-| `kissat_picat.c`, built without `-DSAT` | SAT built-ins degrade to the "sat_not_supported" stubs |
+| `satext.c`, `satshim.c`, `sapi.c` | external-solver support (fork/exec, shared memory); the ~12 symbols `kissat_picat.c` references are stubbed in `browser_stub.c` (`satext_ext_prepare() -> 0`, so the built-in solver path is taken) |
 | `glpk_bp.c`, `scip_picat.c`, `qc.c`, `kissat24_picat.c`, `sat_bp.c`, `plc_java.c`, `maple_interface.cpp` | LP/Java back-ends, not part of the standard build at all |
 | `jmp_table.c`, `assert.c`, `expand.c`, `load_inst.c`, `temp.c`, `satshim.c` | `#include`d helpers or dead sources (not separate objects natively; `jmp_table.c` is still *staged*, since `toam.c` includes it) |
 
 Notes:
 
 * Compiles as **wasm32** (no `-DM64BITS`), with the same defines as the
-  native linux64 build otherwise (`-DGC -DGCC -DPICAT -Dunix -DPOSIX
-  -DFANN_NO_DLL -DFANN`), plus the fann sources (`emu/fann/`, with
-  `fann_interface.cpp` via `em++`).
+  native linux64 build otherwise (`-DGC -DGCC -DPICAT -DSAT -Dunix
+  -DPOSIX -DFANN_NO_DLL -DFANN`), plus the fann sources (`emu/fann/`,
+  with `fann_interface.cpp` via `em++`).
+* **SAT is built in**: `-DSAT` registers the `c_sat_*` built-ins and
+  links the built-in kissat solver (`kissat/src/kis_*.c`, the native
+  `KISSAT_OBJ` list, `-DNEMBEDDED` so its `main()` is compiled out).
+  `import sat.` therefore works; external solvers (satext) do not, and
+  are silently off.  kissat's headers use `UINT_MAX`/`INT_MIN` without
+  including `<stdint.h>`/`<limits.h>` (glibc drags that in implicitly),
+  so the Makefile force-includes the emscripten sysroot `limits.h` by
+  absolute path (a bare `-include limits.h` would resolve to kissat's
+  own `limits.h` through the `-I` search path).
 * Linking uses emscripten's libc++ (`-lc++ -lc++abi`).
 * `get_socket_fd` is neutered (patch 0002) because emscripten's `FILE`
   does not expose glibc's `_fileno`.
@@ -94,7 +104,8 @@ inputs to it change).
 
 ## Limitations
 
-* no SAT/kissat built-ins, no concurrent predicates (`thread/...`),
-  no socket file descriptors,
+* no *external* SAT solvers (satext, fork/exec), no MIP/SMT/LP
+  back-ends (they need external binaries), no concurrent predicates
+  (`thread/...`), no socket file descriptors,
 * memory grows on demand (`ALLOW_MEMORY_GROWTH`), initial 16 MB,
   growth capped at 2 GB (wasm32).
