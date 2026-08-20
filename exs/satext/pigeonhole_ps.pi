@@ -33,11 +33,12 @@
 % can watch in another terminal with
 %   ps -ef | grep -E "kissat|cryptominisat"
 % (with a portfolio, the solvers run CONCURRENTLY and all but the
-% winner are killed). Note: modern solvers with symmetry handling
-% (kissat, cryptominisat) settle these instances in milliseconds even
-% for large N, so the process may disappear between polls -- use
-% SATEXT_PRT_STATS=1 for a per-racer timing line, or N=12 for the
-% largest instance in the default range.
+ % winner are killed). Note: modern solvers with symmetry handling
+ % (kissat, cryptominisat) settle these instances in milliseconds even
+ % for large N, so the process may disappear between polls -- use
+ % SATEXT_PRT_STATS=1 for a per-racer timing line, or raise N (e.g.
+ % N=15) for a bigger instance; a portfolio runs N racers' worth of
+ % CPU per solve.
 %
 % N defaults to 8 when the N env var is absent (N = number of holes,
 % i.e. N+1 pigeons). UNSAT is the expected outcome; the program errors
