@@ -8,6 +8,10 @@
 %                               "@file" token supported)
 %   bp.c_satext_set_solver(S)   in the program (atom/string, or a list
 %                               of strings forming the solver argv)
+% A portfolio races several solvers on the same CNF; the first
+% decisive answer wins (SATEXT_SOLVER="kissat|cryptominisat", or in-
+% program bp.c_satext_set_solver([[...argv...], [...argv...]]) -- see
+% the SATEXT_PRT_* variables in emu/satext.c for budget/stats).
 % With none of them set, the embedded solver is used.
 %
 % Run:  picat exs/satext/swap_demo.pi
@@ -15,6 +19,8 @@
 %       SATEXT_SOLVER=cryptominisat picat exs/satext/swap_demo.pi
 %       SATEXT_SOLVER="kissat -q" picat exs/satext/swap_demo.pi
 %       SATEXT_SOLVER="cryptominisat @file" picat exs/satext/swap_demo.pi
+%       SATEXT_SOLVER="kissat|cryptominisat" SATEXT_PRT_MIN=1 \
+%           SATEXT_PRT_STATS=1 picat exs/satext/swap_demo.pi
 % (PICATPATH is not needed for this demo.)
 
 import sat.

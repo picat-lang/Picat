@@ -8,11 +8,13 @@
 # Needs kissat on $HOME/bin or PATH; cryptominisat is exercised via
 # the "@file" transfer mode if present.
 #
-# swap_demo runs in four solver-selection modes:
+# swap_demo runs in five solver-selection modes:
 #   (built-in) SATEXT_SOLVER unset, (a) SATEXT_SOLVER=kissat,
 #   (b) SATEXT_SOLVER=cryptominisat, (c) SATEXT_SOLVER="kissat -q"
-#   (whitespace-separated extra solver args) -- plus in-program
-#   bp.c_satext_set_solver() calls which work in every mode.
+#   (whitespace-separated extra solver args), (d)
+#   SATEXT_SOLVER="kissat|cryptominisat" (first-wins portfolio)
+#   -- plus in-program bp.c_satext_set_solver() calls which work in
+#   every mode.
 
 set -e
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
@@ -41,6 +43,11 @@ SATEXT_SOLVER=cryptominisat "$ROOT/emu/picat" "$ROOT/exs/satext/swap_demo.pi"
 echo
 echo "== swap_demo (SATEXT_SOLVER='kissat -q': extra solver args) =="
 SATEXT_SOLVER="kissat -q" "$ROOT/emu/picat" "$ROOT/exs/satext/swap_demo.pi"
+
+echo
+echo "== swap_demo (SATEXT_SOLVER='kissat|cryptominisat': portfolio) =="
+SATEXT_SOLVER="kissat|cryptominisat" SATEXT_PRT_MIN=1 \
+    "$ROOT/emu/picat" "$ROOT/exs/satext/swap_demo.pi"
 
 echo
 echo "ALL SATEXT BENCHES PASSED"
