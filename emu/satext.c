@@ -469,7 +469,6 @@ enum { PROTO_NONE = -1, PROTO_DIMACS = 0, PROTO_IPASIR = 1 };
 
 static int proto_by_name(const char *base)
 {
-    if (strncmp(base, "cadical", 7) == 0) return PROTO_IPASIR;
     if (strncmp(base, "kissat", 6) == 0 ||
         strncmp(base, "minisat", 7) == 0 ||
         strncmp(base, "picosat", 7) == 0 ||
@@ -478,6 +477,10 @@ static int proto_by_name(const char *base)
         strncmp(base, "maplechrono", 11) == 0 ||
         strncmp(base, "lingeling", 9) == 0)
         return PROTO_DIMACS;
+    /* CaDiCaL: the 1.x/2.1-era binaries read DIMACS only; modern
+       CaDiCaL auto-detects the protocol from the "p" header, so
+       DIMACS is the safe choice for the whole family */
+    if (strncmp(base, "cadical", 7) == 0) return PROTO_DIMACS;
     return PROTO_NONE;
 }
 
@@ -498,7 +501,7 @@ static int probe_one(const char *exe, int guess)
     int p[2], q[2];
     pid_t pid;
     static const char probe_ipasir[] =
-        "s 3 3\n1 2 0\n-1 3 0\n-1 -2 0\nsolve\n";
+        "p ipasir-2 3 3\nc 1 2 0\nc -1 3 0\nc -1 -2 0\nsolve\n";
     static const char probe_dimacs[] =
         "p cnf 3 3\n1 2 0\n-1 3 0\n-1 -2 0\n";
     const char *text = (guess == PROTO_IPASIR) ? probe_ipasir : probe_dimacs;
@@ -512,8 +515,10 @@ static int probe_one(const char *exe, int guess)
     if (pid < 0) { free(out); return PROTO_NONE; }
     if (pid == 0) {
         char *prog = str_dup(exe);
+        int n = open("/dev/null", 0);
         dup2(p[0], 0);
         dup2(q[1], 1);
+        if (n >= 0) dup2(n, 2);      /* probe noise stays invisible */
         signal(SIGPIPE, SIG_IGN);
         {
             int i;
@@ -1051,10 +1056,15 @@ static int sb_int(sb_t *b, int64_t v)
     return sb_put(b, t, k);
 }
 
-static int render_clauses(const cnf_t *c, sb_t *b)
+/* pfx: "" for DIMACS, "c" for IPASIR-2 clause lines
+   ("c <lits> 0"), emitted before the first literal of each clause */
+static int render_clauses(const cnf_t *c, sb_t *b, const char *pfx)
 {
     uint64_t off;
     for (off = 0; off < c->nlits; off++) {
+        if ((off == 0 || c->lits[off - 1] == 0) &&
+            !sb_put(b, pfx, strlen(pfx)))
+            return 0;
         if (!sb_int(b, (int64_t)c->lits[off])) return 0;
         if (!sb_put(b, " ", 1)) return 0;
         if (c->lits[off] == 0 && !sb_put(b, "\n", 1)) return 0;
@@ -1070,18 +1080,18 @@ static int render_dimacs(const cnf_t *c, sb_t *b)
                       (unsigned long long)c->nclauses);
     if (hl < 0) return 0;
     if (!sb_put(b, h, (size_t)hl)) return 0;
-    return render_clauses(c, b);
+    return render_clauses(c, b, "");
 }
 
 static int render_ipasir(const cnf_t *c, sb_t *b)
 {
     char h[64];
-    int hl = snprintf(h, sizeof(h), "s %llu %llu\n",
+    int hl = snprintf(h, sizeof(h), "p ipasir-2 %llu %llu\n",
                       (unsigned long long)c->maxvar,
                       (unsigned long long)c->nclauses);
     if (hl < 0) return 0;
     if (!sb_put(b, h, (size_t)hl)) return 0;
-    if (!render_clauses(c, b)) return 0;
+    if (!render_clauses(c, b, "c ")) return 0;
     return sb_put(b, "solve\n", 6);
 }
 
