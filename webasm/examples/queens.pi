@@ -1,0 +1,41 @@
+module queens.
+
+nqueens(N) = Ss =>
+    N = 8,
+    L = [1,2,3,4,5,6,7,8],
+    Ss = findall(P, is_q(P, L)).
+
+is_q(P, L) :-
+    perms(P, L),
+    is_nq(P).
+
+perms(P, L) :-
+    perm(P, L).
+
+perm([], []).
+perm([H|Ps], P) :-
+    pick(H, Qs, P),
+    perm(Ps, Qs).
+
+pick(H, T, [H|T]).
+pick(X, [H|T1], [H|T2]) :- pick(X, T1, T2).
+
+is_nq([C1,C2,C3,C4,C5,C6,C7,C8]) :-
+    nq2([C2,C3,C4,C5,C6,C7,C8], C1, 1),
+    nq2([C3,C4,C5,C6,C7,C8],   C2, 1),
+    nq2([C4,C5,C6,C7,C8],      C3, 1),
+    nq2([C5,C6,C7,C8],         C4, 1),
+    nq2([C6,C7,C8],            C5, 1),
+    nq2([C7,C8],               C6, 1),
+    nq2([C8],                  C7, 1).
+
+nq2([], _, _) .
+nq2([H|T], C, R) :-
+    H != C + R,
+    H != C - R,
+    nq2(T, C, R + 1).
+
+main =>
+    Ss = nqueens(8),
+    writef("8-queens: %d solutions\n", Ss.len),
+    writeln(Ss[1..3]).

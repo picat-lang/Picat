@@ -1,0 +1,6 @@
+module hello.
+main =>
+    writeln("Hello from Picat, running in WebAssembly!"),
+    writeln([X*X : X in 1..10]),
+    N = 42,
+    writef("the answer is %d\n", N).

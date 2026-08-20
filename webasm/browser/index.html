@@ -1,0 +1,46 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Picat in the browser (wasm)</title>
+<style>
+  body { font: 14px monospace; margin: 2em; }
+  pre  { background: #111; color: #ddd; padding: 1em; height: 60vh;
+         overflow: auto; }
+  button { font: 14px monospace; }
+</style>
+</head>
+<body>
+<h3>Picat (WebAssembly)</h3>
+<p>
+  <select id="prog" onchange="if (started) location.reload()">
+    <option value="/examples/hello.pi">examples/hello.pi</option>
+    <option value="/examples/queens.pi">examples/queens.pi</option>
+  </select>
+  <button id="run" onclick="run()">run</button>
+</p>
+<pre id="out"></pre>
+<script src="picat.js"></script>
+<script>
+var started = false;
+function run() {
+  if (started) return;
+  started = true;
+  var out = document.getElementById('out');
+  out.textContent = '';
+  var prog = document.getElementById('prog').value;
+  PicatWasm({
+    arguments: ['-p', '/lib2', prog],
+    print: function (s) { out.textContent += s + '\n'; },
+    printErr: function (s) { out.textContent += s + '\n'; }
+  }).then(function () {
+    out.textContent += '\n[finished]\n';
+    var b = document.getElementById('run');
+    b.disabled = true;
+    b.textContent = 'reloaded';
+  });
+}
+run();
+</script>
+</body>
+</html>

@@ -13,3 +13,7 @@ emu/satshim
 
 # environment snapshots
 .snapshots/
+
+# webasm build products
+webasm/dist/
+webasm/build/

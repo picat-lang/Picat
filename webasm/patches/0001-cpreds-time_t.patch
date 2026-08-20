@@ -1,0 +1,11 @@
+--- emu/cpreds.c	2026-08-20 17:48:38.727354306 +0200
++++ emu/cpreds.c	2026-08-20 17:48:38.732354294 +0200
+@@ -900,7 +900,7 @@
+ #if (defined(WIN32) && defined(__MINGW32__))
+     BPLONG t;
+ #else
+-    long t;
++    time_t t;
+ #endif
+     struct tm *ct;
+     BPLONG Year, Month, Day, Hour, Min, Sec;
