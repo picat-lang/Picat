@@ -118,10 +118,19 @@ int c_sat_start(){
                     "falling back to the built-in solver\n");
             use_ext = 0;
         } else if (satext_ext_status() == 0) {
-            fprintf(stderr,
-                    "satext: solver returned unknown; "
-                    "falling back to the built-in solver\n");
-            use_ext = 0;
+            if (satext_no_fallback()) {
+                fprintf(stderr,
+                        "satext: solver returned unknown; "
+                        "SATEXT_NO_FALLBACK set, not running the "
+                        "built-in solver, the solve fails\n");
+                /* use_ext stays 1, res stays 0: no built-in run,
+                   no SAT branch, c_sat_start returns BP_FALSE */
+            } else {
+                fprintf(stderr,
+                        "satext: solver returned unknown; "
+                        "falling back to the built-in solver\n");
+                use_ext = 0;
+            }
         } else {
             res = (satext_ext_status() == 1) ? 10 : 20;
         }

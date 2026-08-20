@@ -45,7 +45,9 @@
 %                      progress in 25 s) -- the "watch the solvers
 %                      at work" frontier; SATEXT_PRT_BUDGET_MS stops
 %                      a portfolio race and falls back to the
-%                      built-in after the given wall time.
+%                      built-in after the given wall time
+%                      (SATEXT_NO_FALLBACK=1: the solve fails
+%                      instead of running the built-in).
 %   K>=5      C(N,K) subset constraints each touch K(K-1)/2 variables
 %                      -- the encoding blows up fast.
 %
@@ -74,8 +76,12 @@
 % argv lists: bp.c_satext_set_solver([["kissat"],["cadical"]]).
 % Controls: SATEXT_PRT_BUDGET_MS (wall budget per solve, 0 = none),
 % SATEXT_PRT_STATS (one stderr line per solve with each racer's time
-% and the winner). Like the other satext examples you can watch the
-% child solver processes with ps -ef | grep -E "kissat|cadical".
+% and the winner), SATEXT_NO_FALLBACK (non-empty: on unknown/timeout
+% the built-in solver is NOT run, the solve fails instead -- with a
+% budget such a timed-out instance then takes the UNSAT branch
+% below, a FALSE UNSAT; the stderr line marks the timeout). Like the
+% other satext examples you can watch the child solver processes with
+% ps -ef | grep -E "kissat|cadical".
 %
 % K defaults to 3 and N defaults to 6 (the classical R(3,3) case)
 % when the env vars are absent; N must be set explicitly for K != 3.

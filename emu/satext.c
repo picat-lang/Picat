@@ -75,6 +75,13 @@
  *                              (default 60000, 0 = no budget); on
  *                              expiry the race is killed and the
  *                              built-in solver answers.
+ *              SATEXT_NO_FALLBACK
+ *                              non-empty: when the external solver(s)
+ *                              return unknown (e.g. the wall budget
+ *                              elapsed) the built-in solver is NOT
+ *                              run and the solve fails instead of
+ *                              answering from it; default: the
+ *                              built-in solver answers.
  *              SATEXT_PRT_MIN  estimated CNF size in bytes below which
  *                              a portfolio collapses to its first
  *                              solver (default 64 KiB).
@@ -1763,6 +1770,17 @@ int satext_ext_run(void)
 int satext_ext_status(void)
 {
     return ext_res_status;
+}
+
+/* 1 iff SATEXT_NO_FALLBACK is set non-empty: when the external
+   solver(s) return "unknown" (e.g. the portfolio wall budget
+   elapsed), the caller must not run the built-in solver; the solve
+   then fails. Spawn/transfer failures (satext_ext_run returning -1)
+   always fall back, whatever this is. */
+int satext_no_fallback(void)
+{
+    const char *e = getenv("SATEXT_NO_FALLBACK");
+    return (e != NULL && *e != 0) ? 1 : 0;
 }
 
 int satext_ext_model_value(int varnum)

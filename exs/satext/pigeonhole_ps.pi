@@ -26,6 +26,8 @@
 % selections are lists (of argv lists):
 %   bp.c_satext_set_solver([["kissat"],["kissat","-q"],["cryptominisat"]])
 % Controls: SATEXT_PRT_BUDGET_MS (wall budget per solve, 0 = none),
+% SATEXT_NO_FALLBACK (non-empty: on unknown/timeout the built-in
+% solver is NOT run, the solve fails instead),
 % SATEXT_PRT_MIN (race only above this CNF size), SATEXT_PRT_STATS
 % (one stderr line per solve with each racer's time and the winner).
 %
