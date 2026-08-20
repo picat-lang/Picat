@@ -76,7 +76,8 @@ def lineof(s, p):
 
 
 def colof(s, p):
-    return p - (s.rfind("\n", 0, p) + 1)
+    # 1-based column of character p
+    return p - s.rfind("\n", 0, p)
 
 
 def mask(raw):
