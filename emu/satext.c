@@ -41,7 +41,12 @@
  *              c_satext_set_solver(Spec)
  *                 Spec: atom/string (name, PATH-resolved) or a list
  *                       of atoms/strings forming the solver argv
- *                       ("@file" token supported); nil/false clears
+ *                       ("@file" token supported); nil/false clears.
+ *                       A list of argv lists is a first-wins
+ *                       portfolio: the solvers are raced on the same
+ *                       CNF, the first decisive answer wins, the
+ *                       rest are killed (max 8 solvers; see the
+ *                       SATEXT_PRT_* variables below).
  *              c_satext_solve(Spec, Clauses, Status, Model)
  *                 Spec    : list of atoms or char-list strings, the
  *                           solver argv (first element = executable,
@@ -56,14 +61,26 @@
  *              c_satext_write_dimacs(Clauses, Path)
  *
  *            Environment:
- *              SATEXT_SOLVER   solver argv for the `import sat` flow:
- *                              whitespace-separated tokens, first =
- *                              executable (name or path), the rest
- *                              arbitrary extra arguments; the token
- *                              "@file" may appear anywhere (a
- *                              generated CNF file is substituted at
- *                              its position). A single token with no
- *                              spaces is exactly the solver name.
+ *              SATEXT_SOLVER   solver selection for the `import sat`
+ *                              flow. One solver: whitespace-separated
+ *                              argv (first = executable, name or
+ *                              path; the rest = extra arguments; a
+ *                              "@file" token is replaced by a
+ *                              generated CNF file). A portfolio:
+ *                              '|' separates several such argv
+ *                              strings; the solvers are raced and the
+ *                              first decisive answer wins (max 8).
+ *              SATEXT_PRT_BUDGET_MS
+ *                              portfolio wall budget in ms per solve
+ *                              (default 60000, 0 = no budget); on
+ *                              expiry the race is killed and the
+ *                              built-in solver answers.
+ *              SATEXT_PRT_MIN  estimated CNF size in bytes below which
+ *                              a portfolio collapses to its first
+ *                              solver (default 64 KiB).
+ *              SATEXT_PRT_STATS  non-empty: print a per-solve line
+ *                              with each racer's wall time and the
+ *                              winner to stderr.
  *              SATEXT_SHIM     path of the satshim helper
  *              SATEXT_TMPDIR   directory for generated CNF files
  *                              (default: /dev/shm, else /tmp)
@@ -83,7 +100,9 @@
 #include <sys/socket.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <sys/wait.h>
 
 #include "term.h"
@@ -94,6 +113,10 @@
 #define SATEXT_SHIM_FD    3    /* fd carrying the memfd in the shim child */
 #define SATEXT_OUT_FD     7    /* fd the solver's stdout is dup'd onto */
 #define SATEXT_SHIM_MIN_BYTES (4L << 20)
+/* portfolio (first-wins race of several external solvers) */
+#define SATEXT_PRT_MAX         8      /* max solvers raced per solve */
+#define SATEXT_PRT_BUDGET_MS   60000  /* default wall budget per solve */
+#define SATEXT_PRT_MIN_BYTES   (64L << 10) /* race only above this size */
 
 /* ------------------------------------------------------------------
  * number <-> term (same conventions as par.c)
@@ -717,6 +740,118 @@ static void spec_free(spec_t *s)
     s->base = NULL;
 }
 
+/* An ordered selection of one or more solver specs. n == 1 is a plain
+   single-solver selection; n > 1 is a first-wins portfolio (the
+   solvers are raced and the first decisive answer wins). */
+typedef struct {
+    int n;
+    spec_t specs[SATEXT_PRT_MAX];
+    int proto[SATEXT_PRT_MAX];
+} spec_list_t;
+
+static void spec_list_fin(spec_list_t *sl)
+{
+    int i;
+    for (i = 0; i < sl->n; i++) spec_free(&sl->specs[i]);
+    sl->n = 0;
+}
+
+static int spec_list_empty(spec_list_t *sl)
+{
+    sl->n = 0;
+    return 1;
+}
+
+/* Parse one whitespace-separated argv string into s. */
+static int spec_from_cstr(const char *str, spec_t *s)
+{
+    const char *p = str;
+    size_t cap = 8;
+
+    s->argv = (char **)malloc(cap * sizeof(char *));
+    if (s->argv == NULL) return 0;
+    s->argc = 0;
+    s->atfile = -1;
+    s->exe = NULL;
+    s->base = NULL;
+
+    while (*p != 0) {
+        const char *q;
+        char *tok;
+        size_t len;
+        while (isspace((unsigned char)*p)) p++;
+        if (*p == 0) break;
+        q = p;
+        while (*q != 0 && !isspace((unsigned char)*q)) q++;
+        len = (size_t)(q - p);
+        tok = (char *)malloc(len + 1);
+        if (tok == NULL) { spec_free(s); return 0; }
+        memcpy(tok, p, len);
+        tok[len] = 0;
+        p = q;
+        if (s->argc == (int)cap) {
+            cap *= 2;
+            s->argv = (char **)realloc(s->argv, cap * sizeof(char *));
+            if (s->argv == NULL) { free(tok); spec_free(s); return 0; }
+        }
+        s->argv[s->argc] = tok;
+        if (s->argc == 0) {
+            s->base = str_dup(base_name(tok));
+            if (s->base == NULL) { spec_free(s); return 0; }
+        } else if (strcmp(tok, "@file") == 0) {
+            s->atfile = s->argc;
+        }
+        s->argc++;
+    }
+    if (s->argc == 0) { spec_free(s); return 0; }
+    s->argv[s->argc] = NULL;
+    s->exe = s->argv[0];  /* alias: freed with argv */
+    return 1;
+}
+
+/* Parse a selection string (the SATEXT_SOLVER value): several
+   whitespace-separated argv strings joined by '|'. One part without
+   '|' is a single-solver selection; more parts form a portfolio. */
+static int spec_list_from_cstr(const char *str, spec_list_t *sl)
+{
+    const char *p = str;
+
+    spec_list_empty(sl);
+    for (;;) {
+        const char *bar = strchr(p, '|');
+        char part[1024];
+        size_t len = (bar != NULL) ? (size_t)(bar - p) : strlen(p);
+
+        if (len >= sizeof(part)) break;    /* absurd; treat as invalid */
+        memcpy(part, p, len);
+        part[len] = 0;
+        if (len > 0 && sl->n < SATEXT_PRT_MAX) {
+            int pr;
+            if (!spec_from_cstr(part, &sl->specs[sl->n])) break;
+            pr = detect_protocol(sl->specs[sl->n].exe,
+                                 sl->specs[sl->n].base);
+            if (pr == PROTO_NONE) {
+                fprintf(stderr,
+                        "satext: cannot detect the protocol of \"%s\"; "
+                        "ignoring it\n", sl->specs[sl->n].exe);
+                spec_free(&sl->specs[sl->n]);
+            } else {
+                sl->proto[sl->n] = pr;
+                sl->n++;
+            }
+        }
+        if (bar == NULL) break;
+        p = bar + 1;
+        if (sl->n >= SATEXT_PRT_MAX) {
+            fprintf(stderr,
+                    "satext: at most %d portfolio solvers are supported; "
+                    "ignoring the rest\n", SATEXT_PRT_MAX);
+            break;
+        }
+    }
+    return (sl->n >= 1);
+}
+
 static int parse_spec(BPLONG x, spec_t *s)
 {
     BPLONG t;
@@ -779,6 +914,107 @@ static int parse_spec_term(BPLONG x, spec_t *s)
         return (s->base != NULL);
     }
     return parse_spec(x, s);
+}
+
+/* 1 if x is a Picat string: [] or a list of one-character atoms
+   (strings and one-arg argv lists are term-identical; the selection
+   grammar uses this to tell them apart) */
+static int is_string(BPLONG x)
+{
+    BPLONG t = x;
+
+    DEREF(t);
+    if (t == nil_sym) return 1;
+    if (!ISLIST(t)) return 0;
+    for (;;) {
+        BPLONG_PTR p = (BPLONG_PTR)UNTAGGED_ADDR(t);
+        BPLONG e = FOLLOW(p);
+        DEREF(e);
+        if (TAG(e) != ATM) return 0;
+        if (strlen(GET_NAME((SYM_REC_PTR)UNTAGGED_ADDR(e))) != 1) return 0;
+        {
+            BPLONG tl = FOLLOW(p + 1);
+            DEREF(tl);
+            if (tl == nil_sym) return 1;
+            if (!ISLIST(tl)) return 0;
+            t = tl;
+        }
+    }
+}
+
+/* Parse a Picat term as a solver selection:
+       atom / string             -> one solver (name or path)
+       [A1, ..., An]             -> one solver, full argv
+       [[A1, ...], [B1, ...]]    -> portfolio: several solvers, each
+                                     with its own argv (first-wins);
+                                     recognized only when every element
+                                     is a list that is not a string
+   Protocols are detected; a solver whose protocol cannot be detected
+   is skipped (with a warning) if it has companions, or the call fails
+   if it is the only one. */
+static int parse_spec_list(BPLONG x, spec_list_t *sl)
+{
+    spec_list_empty(sl);
+    DEREF(x);
+
+    if (ISLIST(x)) {
+        BPLONG_PTR p0 = (BPLONG_PTR)UNTAGGED_ADDR(x);
+        BPLONG e0 = FOLLOW(p0);
+        DEREF(e0);
+        if (ISLIST(e0) && !is_string(e0)) {   /* a list of argv lists */
+            BPLONG t2 = x;
+            while (ISLIST(t2)) {
+                BPLONG_PTR p = (BPLONG_PTR)UNTAGGED_ADDR(t2);
+                BPLONG e = FOLLOW(p);
+                BPLONG pe;
+                DEREF(e);
+                if (!ISLIST(e) || is_string(e)) {
+                    spec_list_fin(sl);
+                    return 0;
+                }
+                if (sl->n >= SATEXT_PRT_MAX) { spec_list_fin(sl); return 0; }
+                if (!parse_spec(e, &sl->specs[sl->n])) {
+                    spec_list_fin(sl);
+                    return 0;
+                }
+                {
+                    int pr = detect_protocol(sl->specs[sl->n].exe,
+                                              sl->specs[sl->n].base);
+                    if (pr == PROTO_NONE) {
+                        fprintf(stderr,
+                                "satext: cannot detect the protocol of "
+                                "\"%s\"; ignoring it\n",
+                                sl->specs[sl->n].exe);
+                        spec_free(&sl->specs[sl->n]);
+                    } else {
+                        sl->proto[sl->n] = pr;
+                        sl->n++;
+                    }
+                }
+                pe = FOLLOW(p + 1);
+                DEREF(pe);
+                t2 = pe;
+            }
+            return (sl->n >= 1);
+        }
+    }
+    {
+        spec_t tmp;
+        int pr;
+        if (!parse_spec_term(x, &tmp)) return 0;
+        pr = detect_protocol(tmp.exe, tmp.base);
+        if (pr == PROTO_NONE) {
+            fprintf(stderr,
+                    "satext: cannot detect the protocol of \"%s\"; "
+                    "ignoring it\n", tmp.exe);
+            spec_free(&tmp);
+            return 0;
+        }
+        sl->specs[0] = tmp;
+        sl->proto[0] = pr;
+        sl->n = 1;
+        return 1;
+    }
 }
 
 /* ------------------------------------------------------------------
@@ -1141,97 +1377,41 @@ done:
  * (set via $solver(Spec) in solve(Options,Vars) or SATEXT_SOLVER)
  * ---------------------------------------------------------------- */
 
-static spec_t g_spec;
-static int g_spec_valid = 0;
-static int g_proto = PROTO_NONE;
+static spec_list_t g_sl;
+static int g_sl_valid = 0;
 
-/* env-var fallback, cached per value */
+/* env-var selection, cached per value; the in-program selection (g_sl)
+   takes precedence over it */
 static char *env_key = NULL;
-static spec_t env_spec;
-static int env_spec_valid = 0;
-static int env_proto = PROTO_NONE;
-
-/* Build a spec from a C string (the SATEXT_SOLVER value): the
-   whitespace-separated tokens form the solver argv; the first is the
-   executable (name or path), the rest are arbitrary extra arguments.
-   A "@file" token may appear anywhere and is replaced at run time by
-   a generated CNF file. */
-static int spec_from_cstr(const char *str, spec_t *s)
-{
-    const char *p = str;
-    size_t cap = 8;
-
-    s->argv = (char **)malloc(cap * sizeof(char *));
-    if (s->argv == NULL) return 0;
-    s->argc = 0;
-    s->atfile = -1;
-    s->exe = NULL;
-    s->base = NULL;
-
-    while (*p != 0) {
-        const char *q;
-        char *tok;
-        size_t len;
-        while (isspace((unsigned char)*p)) p++;
-        if (*p == 0) break;
-        q = p;
-        while (*q != 0 && !isspace((unsigned char)*q)) q++;
-        len = (size_t)(q - p);
-        tok = (char *)malloc(len + 1);
-        if (tok == NULL) { spec_free(s); return 0; }
-        memcpy(tok, p, len);
-        tok[len] = 0;
-        p = q;
-        if (s->argc == (int)cap) {
-            cap *= 2;
-            s->argv = (char **)realloc(s->argv, cap * sizeof(char *));
-            if (s->argv == NULL) { free(tok); spec_free(s); return 0; }
-        }
-        s->argv[s->argc] = tok;
-        if (s->argc == 0) {
-            s->base = str_dup(base_name(tok));
-            if (s->base == NULL) { spec_free(s); return 0; }
-        } else if (strcmp(tok, "@file") == 0) {
-            s->atfile = s->argc;
-        }
-        s->argc++;
-    }
-    if (s->argc == 0) { spec_free(s); return 0; }
-    s->argv[s->argc] = NULL;
-    s->exe = s->argv[0];  /* alias: freed with argv */
-    return 1;
-}
+static spec_list_t env_sl;
+static int env_sl_valid = 0;
 
 void satext_solver_clear(void)
 {
-    if (g_spec_valid) spec_free(&g_spec);
-    g_spec_valid = 0;
-    g_proto = PROTO_NONE;
+    if (g_sl_valid) spec_list_fin(&g_sl);
+    g_sl_valid = 0;
 }
 
-static int satext_active_spec(spec_t **sp, int *proto)
+static int satext_active_list(spec_list_t **slp)
 {
-    if (g_spec_valid) {
-        *sp = &g_spec;
-        *proto = g_proto;
+    if (g_sl_valid) {
+        *slp = &g_sl;
         return 1;
     }
     {
         const char *e = getenv("SATEXT_SOLVER");
         if (e && *e) {
-            if (!env_spec_valid || env_key == NULL || strcmp(env_key, e) != 0) {
-                if (spec_from_cstr(e, &env_spec)) {
+            if (!env_sl_valid || env_key == NULL || strcmp(env_key, e) != 0) {
+                spec_list_fin(&env_sl);
+                env_sl_valid = 0;
+                if (spec_list_from_cstr(e, &env_sl)) {
                     if (env_key != NULL) free(env_key);
                     env_key = str_dup(e);
-                    env_spec_valid = (env_key != NULL) ? 1 : 0;
-                    env_proto = env_spec_valid
-                        ? detect_protocol(env_spec.exe, env_spec.base)
-                        : PROTO_NONE;
+                    env_sl_valid = (env_key != NULL) ? 1 : 0;
                 }
             }
-            if (env_spec_valid) {
-                *sp = &env_spec;
-                *proto = env_proto;
+            if (env_sl_valid) {
+                *slp = &env_sl;
                 return 1;
             }
         }
@@ -1242,21 +1422,10 @@ static int satext_active_spec(spec_t **sp, int *proto)
 /* 1 if an external solver is selected and usable */
 int satext_ext_prepare(void)
 {
-    spec_t *sp;
-    int proto;
+    spec_list_t *sl;
 
-    if (!satext_active_spec(&sp, &proto)) return 0;
-    if (proto == PROTO_NONE) {
-        static int warned = 0;
-        if (!warned) {
-            warned = 1;
-            fprintf(stderr,
-                    "satext: cannot detect the protocol of \"%s\"; "
-                    "using the built-in solver\n", sp->exe);
-        }
-        return 0;
-    }
-    return 1;
+    if (!satext_active_list(&sl)) return 0;
+    return (sl->n >= 1) ? 1 : 0;
 }
 
 static int pick_mode(spec_t *s, const cnf_t *c, int proto)
@@ -1289,22 +1458,296 @@ static void ext_res_free(void)
     ext_res_status = 0;
 }
 
-/* Run the selected external solver on the mirrored g_cnf. */
-int satext_ext_run(void)
+static uint64_t now_ms(void)
 {
-    spec_t *sp;
-    int proto, mode;
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (uint64_t)tv.tv_sec * 1000ULL + (uint64_t)tv.tv_usec / 1000ULL;
+}
+
+static long long prt_budget_ms(void)
+{
+    const char *e = getenv("SATEXT_PRT_BUDGET_MS");
+    long long v = SATEXT_PRT_BUDGET_MS;
+    if (e && *e) {
+        v = strtoll(e, NULL, 10);
+        if (v < 0) v = 0;
+    }
+    return v;
+}
+
+static unsigned long long prt_min_bytes(void)
+{
+    const char *e = getenv("SATEXT_PRT_MIN");
+    unsigned long long v = SATEXT_PRT_MIN_BYTES;
+    if (e && *e) {
+        long long t = strtoll(e, NULL, 10);
+        if (t >= 0) v = (unsigned long long)t;
+    }
+    return v;
+}
+
+static int prt_stats(void)
+{
+    const char *e = getenv("SATEXT_PRT_STATS");
+    return (e != NULL && *e != 0) ? 1 : 0;
+}
+
+static void prt_solver_name(spec_t *s, char *buf, size_t cap)
+{
+    int i;
+    size_t l = 0;
+    buf[0] = 0;
+    for (i = 0; i < s->argc && l + (size_t)s->argc < cap; i++) {
+        size_t tl = strlen(s->argv[i]);
+        if (l + tl + 2 >= cap) break;
+        if (i > 0) buf[l++] = ' ';
+        memcpy(buf + l, s->argv[i], tl);
+        l += tl;
+    }
+    buf[l] = 0;
+}
+
+/* Run one solver spec on the mirrored g_cnf; store the result in
+   ext_res_*. 0 on any completed run (status may still be "unknown"),
+   -1 if the run itself failed (caller must fall back). */
+static int run_single(spec_t *sp, int proto)
+{
+    int mode;
     solve_out_t o;
 
-    ext_res_free();
-    if (!satext_active_spec(&sp, &proto)) return -1;
-    if (g_cnf.nclauses == 0) { ext_res_status = 1; return 0; }
     mode = pick_mode(sp, &g_cnf, proto);
     if (run_solver(sp, &g_cnf, proto, mode, &o) == -1) return -1;
     ext_res_status = o.status;
     ext_res_model = o.model;
     ext_res_model_len = (int64_t)o.model_len;
     return 0;
+}
+
+/* Run spec i of sl as a child process; the child reports
+   [kind i32, nvar i32, model i32[nvar]] on the pipe (kind: 0 no
+   decisive result, 2 unsat, 3 sat). The child starts a new session so
+   the supervisor can kill the child plus its solver descendant as one
+   process group. */
+static pid_t prt_fork_runner(spec_list_t *sl, int i, const int *rfd)
+{
+    pid_t pid = fork();
+    if (pid < 0) return -1;
+    if (pid == 0) {
+        int j;
+        int wfd = rfd[2 * i + 1];
+
+        for (j = 0; j < sl->n; j++)
+            if (j != i) { close(rfd[2 * j]); close(rfd[2 * j + 1]); }
+        close(rfd[2 * i]);
+        if (setsid() == (pid_t)-1) _exit(126);
+        signal(SIGPIPE, SIG_IGN);
+        {
+            spec_t *sp = &sl->specs[i];
+            solve_out_t o;
+            int kind, rc;
+            int32_t kind32, nv = (int32_t)g_cnf.maxvar;
+
+            memset(&o, 0, sizeof(o));
+            rc = run_solver(sp, &g_cnf, sl->proto[i],
+                            pick_mode(sp, &g_cnf, sl->proto[i]), &o);
+            /* rc is the solver's exit status (10 = sat, 20 = unsat by
+               SAT convention); only -1 (fork/exec failure) is fatal,
+               the status is authoritative from the parsed output */
+            if (rc == -1)
+                kind = 0;
+            else if (o.status == 2)
+                kind = 2;
+            else if (o.status == 1 && o.model != NULL &&
+                     o.model_len == g_cnf.maxvar)
+                kind = 3;
+            else
+                kind = 0;
+            kind32 = (int32_t)kind;
+            if (kind == 3)
+                (void)(write_all(wfd, &kind32, 4) == 0 &&
+                       write_all(wfd, &nv, 4) == 0 &&
+                       write_all(wfd, o.model,
+                                 (size_t)nv * sizeof(int32_t)) == 0);
+            else
+                (void)(write_all(wfd, &kind32, 4) == 0 &&
+                       write_all(wfd, &nv, 4) == 0);
+        }
+        _exit(0);
+    }
+    return pid;
+}
+
+/* First-wins portfolio: race sl->specs[0..n-1] on the mirrored g_cnf.
+   Stores the winner's result in ext_res_*; if no decisive answer
+   arrives within the wall budget, leaves ext_res_status = 0 so the
+   caller falls back to the built-in solver. */
+static int run_portfolio(spec_list_t *sl)
+{
+    int n = sl->n;
+    int rfd[SATEXT_PRT_MAX * 2];
+    pid_t pid[SATEXT_PRT_MAX] = { 0 };
+    uint64_t t0[SATEXT_PRT_MAX] = { 0 }, tw;
+    int done[SATEXT_PRT_MAX] = { 0 };
+    int i, alive;
+    long long budget = prt_budget_ms();
+    int stats = prt_stats();
+    int32_t *model = NULL;
+    int win_kind = 0, win_i = -1;
+    int have = 0, rc = 0;
+
+    for (i = 0; i < n; i++) {
+        if (pipe(&rfd[2 * i]) != 0) { rc = -1; break; }
+        pid[i] = prt_fork_runner(sl, i, rfd);
+        t0[i] = now_ms();
+        close(rfd[2 * i + 1]);
+        if (pid[i] < 0) {
+            close(rfd[2 * i]);
+            rc = -1;
+            break;
+        }
+    }
+    if (rc == -1) {
+        for (i = 0; i < n; i++)
+            if (pid[i] > 0) {
+                kill(-pid[i], SIGKILL);
+                (void)waitpid(pid[i], NULL, 0);
+            }
+        return -1;
+    }
+
+    memset(done, 0, sizeof(done));
+    alive = n;
+    for (;;) {
+        struct pollfd pf[SATEXT_PRT_MAX];
+        int nrf = 0, pr;
+        int timeout = -1;
+
+        if (budget > 0) {
+            long long rem = (long long)(t0[0] + budget - now_ms());
+            if (rem <= 0) break;
+            timeout = (rem > 1000000000LL) ? 1000000000 : (int)rem;
+        }
+        for (i = 0; i < n; i++) {
+            if (done[i]) continue;
+            pf[nrf].fd = rfd[2 * i];
+            pf[nrf].events = POLLIN;
+            pf[nrf].revents = 0;
+            nrf++;
+        }
+        if (nrf == 0) break;
+        pr = poll(pf, nrf, timeout);
+        if (pr < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+        if (pr == 0) break;          /* budget elapse */
+        for (i = 0; i < n && !have; i++) {
+            int prf = -1, k;
+            for (k = 0; k < nrf; k++)
+                if (pf[k].fd == rfd[2 * i]) prf = k;
+            if (prf < 0 || (pf[prf].revents & (POLLIN | POLLHUP)) == 0)
+                continue;
+            {
+                uint8_t hdr[8];             /* kind i32, nvar i32 */
+                int32_t kind, nv;
+                size_t got = 0;
+
+                while (got < 8) {
+                    ssize_t r = read(rfd[2 * i], hdr + got, 8 - got);
+                    if (r < 0) {
+                        if (errno == EINTR) continue;
+                        r = 0;
+                    }
+                    if (r == 0) break;      /* runner died, no result */
+                    got += (size_t)r;
+                }
+                if (got < 8) {
+                    done[i] = 1; alive--;
+                    continue;
+                }
+                memcpy(&kind, hdr, 4);
+                memcpy(&nv, hdr + 4, 4);
+                if (kind == 3) {
+                    model = (int32_t *)malloc((size_t)nv * sizeof(int32_t));
+                    got = 0;
+                    while (model != NULL &&
+                           got < (size_t)nv * sizeof(int32_t)) {
+                        ssize_t r = read(rfd[2 * i],
+                                          model + got / sizeof(int32_t),
+                                          (size_t)nv * sizeof(int32_t) - got);
+                        if (r < 0) {
+                            if (errno == EINTR) continue;
+                            r = 0;
+                        }
+                        if (r == 0) { model = NULL; break; }
+                        got += (size_t)r;
+                    }
+                    if (model != NULL && (uint64_t)nv == g_cnf.maxvar) {
+                        win_kind = 3;
+                        win_i = i;
+                        have = 1;
+                        done[i] = 1;
+                    } else {
+                        if (model != NULL) free(model);
+                        model = NULL;
+                        done[i] = 1; alive--;
+                    }
+                } else if (kind == 2) {
+                    win_kind = 2;
+                    win_i = i;
+                    have = 1;
+                    done[i] = 1;
+                } else {
+                    done[i] = 1; alive--;
+                }
+            }
+        }
+        if (have || alive == 0) break;
+    }
+    for (i = 0; i < n; i++)
+        close(rfd[2 * i]);
+    tw = now_ms();
+
+    for (i = 0; i < n; i++) {
+        if (!done[i]) kill(-pid[i], SIGKILL);
+        (void)waitpid(pid[i], NULL, 0);
+    }
+
+    if (stats) {
+        char nm[SATEXT_PRT_MAX][160];
+        fprintf(stderr, "satext: portfolio (%s):",
+                (have ? (win_kind == 3) ? "sat" : "unsat" : "no result"));
+        for (i = 0; i < n; i++) {
+            prt_solver_name(&sl->specs[i], nm[i], sizeof(nm[i]));
+            fprintf(stderr, " %s %llums%s", nm[i],
+                    (unsigned long long)(tw - t0[i]),
+                    (have && i == win_i) ? " WIN" : "");
+        }
+        fprintf(stderr, "\n");
+    }
+
+    if (!have) return 0;   /* ext_res_status stays 0: built-in takes over */
+    ext_res_status = (win_kind == 3) ? 1 : 2;
+    ext_res_model = model;
+    ext_res_model_len = (model != NULL) ? (int64_t)g_cnf.maxvar : 0;
+    return 0;
+}
+
+/* Run the selected external solver (or portfolio) on the mirrored
+   g_cnf. */
+int satext_ext_run(void)
+{
+    spec_list_t *sl;
+    unsigned long long est;
+
+    ext_res_free();
+    if (!satext_active_list(&sl)) return -1;
+    if (g_cnf.nclauses == 0) { ext_res_status = 1; return 0; }
+    est = (unsigned long long)g_cnf.nlits * 8ULL + 64ULL;
+    if (sl->n == 1 || est <= prt_min_bytes())
+        return run_single(&sl->specs[0], sl->proto[0]);
+    return run_portfolio(sl);
 }
 
 int satext_ext_status(void)
@@ -1334,15 +1777,12 @@ int c_satext_set_solver()
         return BP_TRUE;
     }
     {
-        spec_t ns;
-        int pr;
+        spec_list_t ns;
 
-        if (!parse_spec_term(t, &ns)) return BP_FALSE;
-        pr = detect_protocol(ns.exe, ns.base);
+        if (!parse_spec_list(t, &ns)) return BP_FALSE;
         satext_solver_clear();
-        g_spec = ns;
-        g_spec_valid = 1;
-        g_proto = pr;
+        g_sl = ns;
+        g_sl_valid = 1;
         return BP_TRUE;
     }
 }
