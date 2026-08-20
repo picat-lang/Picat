@@ -67,9 +67,7 @@ unsat_ok(T0) =>
     writef("UNSAT detected (%d ms), as expected%%%n", T1 - T0).
 
 n_from_env(H) =>
-    ((bp.picat_getenv("N", S)) -> H = to_int(S) ; H = 8),
-    (H >= 2),
-    (H <= 12).
+    ((bp.picat_getenv("N", S)) -> H = to_int(S) ; H = 8).
 
 ph(P, H, X) =>
     X = new_array(P * H),
