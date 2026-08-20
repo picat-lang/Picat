@@ -8,10 +8,31 @@
 %        token = executable, the rest = extra arguments)
 %   N=200 picat exs/satext/queens_ps.pi            % built-in solver
 %
+% Several solvers at once -- first-wins portfolio: '|' separates
+% several solver argv strings. All solvers are forked and RACED on
+% the same CNF; the first decisive answer (sat model or unsat) wins
+% and the remaining solvers' process groups are killed:
+%   N=100 SATEXT_SOLVER="kissat|cryptominisat" picat exs/satext/queens_ps.pi
+% The same solver may appear several times with different CLI
+% parameters -- every '|' part is a full argv, e.g.
+%   N=100 SATEXT_SOLVER="kissat|kissat -q|/home/jovyan/bin/kissat" \
+%       picat exs/satext/queens_ps.pi
+% (two kissat processes race, one quiet, one launched by absolute
+% path; all of them are visible in `ps` concurrently with
+% cryptominisat when it is listed). In-program, the same selections
+% are lists of argv lists:
+%   bp.c_satext_set_solver([["kissat"],["kissat","-q"],["cryptominisat"]])
+% Controls: SATEXT_PRT_BUDGET_MS (per-solve wall budget in ms,
+% default 60000, 0 = none; on expiry the built-in solver answers),
+% SATEXT_PRT_MIN (race only above this estimated CNF size, default
+% 64 KiB), SATEXT_PRT_STATS (one stderr line per solve with each
+% racer's wall time and the winner).
+%
 % While it runs in one terminal, in another:
 %   ps -ef | grep -E "kissat|cryptominisat"
-%   (SATEXT_SOLVER set => you should see the solver's process;
-%    unset => you should NOT see one)
+%   (SATEXT_SOLVER set => you should see the solver's process(es); a
+%    portfolio => all racers CONCURRENTLY, all gone after the winner
+%    answers; unset => you should NOT see any)
 %
 % N defaults to 200 when the N env var is absent.
 
