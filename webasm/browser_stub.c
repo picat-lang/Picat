@@ -43,5 +43,74 @@ void browser_boot(const char *picatpath)
 int browser_rerun(void)
 {
     use_gl_getline = 0;
-    return bp_call_term(ADDTAG(insert_sym("$bp_first_call", 14, 0), ATM));
+    return bp_call_term(ADDTAG(insert_sym("$bp_first_call", 14, 0),
+                               ATM));
 }
+
+#ifdef SAT
+/*
+ * satext (the fork/exec external-solver layer, emu/satext.c) cannot
+ * exist in a browser.  These stubs keep the built-in kissat path
+ * (satext_ext_prepare() == 0 means "no external solver") and silence
+ * the mirroring of clauses to an external CNF file.  The real
+ * declarations are in emu/extern_decl.h.
+ */
+int satext_ext_prepare(void)
+{
+    return 0;   /* no external solver available */
+}
+
+int satext_ext_mirroring(void)
+{
+    return 0;
+}
+
+int satext_ext_run(void)
+{
+    return -1;  /* never reached: prepare says off */
+}
+
+int satext_ext_status(void)
+{
+    return 0;   /* unknown */
+}
+
+int satext_no_fallback(void)
+{
+    return 0;
+}
+
+int satext_ext_model_value(int varnum)
+{
+    (void)varnum;
+    return 0;
+}
+
+void satext_record_result(int st)
+{
+    (void)st;
+}
+
+void ext_cnf_reset(void)
+{
+}
+
+void ext_cnf_set_mirroring(int on)
+{
+    (void)on;
+}
+
+void ext_cnf_push_lit(int32_t v)
+{
+    (void)v;
+}
+
+void ext_cnf_end_clause(void)
+{
+}
+
+void Cboot_satext(void)
+{
+    /* external-solver predicates are not registered */
+}
+#endif

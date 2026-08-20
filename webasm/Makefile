@@ -31,24 +31,53 @@ DIST    := dist
 
 # Compile exactly the object list of the native build (emu/common.mak),
 # minus the pieces that cannot run in a browser:
-#   thread.c, satext.c, sapi.c : pthreads / fork-exec external solvers
-#   kissat_picat.c             : SAT built-in (needs -DSAT + external
-#                                solvers); without it the SAT stub
-#                                predicates report "sat_not_supported"
-#   kissat/ (kis_*.c)          : the kissat solver, no longer referenced
+#   thread.c, satext.c, sapi.c, satshim.c : pthreads / fork-exec external
+#                                           solver support.  SAT itself is
+#                                           still IN: -DSAT is passed, and
+#                                           the satext symbols that
+#                                           kissat_picat.c references are
+#                                           stubbed in browser_stub.c
+#                                           (external solvers stay off)
 #   glpk_bp.c scip_picat.c qc.c maple_interface.cpp : LP back-ends and
 #   kissat24_picat.c sat_bp.c plc_java.c            : not in the
 #                                                      standard build at all
 #   jmp_table.c assert.c expand.c load_inst.c temp.c : helpers that are
-#   satshim.c                                 : not compiled separately
 #                                                      (or unused) in the
 #                                                      native build
 CORE_O := dis init init_sym loader inst_inf main toam unify file domain \
           cfd float1 arith token global builtins mic numbervars cpreds \
           univ assert_bp findall clause delay clpfd clpfd_libs event \
           toamprofile kapi getline table gcstack gcheap gcqueue debug par \
-          expand_bp bigint picat_utilities
+          expand_bp bigint picat_utilities kissat_picat espresso_bp
+# the native KISSAT_OBJ (emu/common.mak): kis_<name>.o <- kissat/src/<name>.c
+KISSAT_O := kis_allocate.o kis_analyze.o kis_ands.o kis_application.o \
+            kis_arena.o kis_assign.o kis_autarky.o kis_averages.o \
+            kis_backtrack.o kis_backward.o kis_build.o kis_bump.o \
+            kis_check.o kis_clause.o kis_clueue.o kis_collect.o \
+            kis_colors.o kis_compact.o kis_config.o kis_decide.o \
+            kis_deduce.o kis_dense.o kis_dominate.o kis_dump.o \
+            kis_eliminate.o kis_equivalences.o kis_error.o kis_extend.o \
+            kis_failed.o kis_file.o kis_flags.o kis_format.o \
+            kis_forward.o kis_frames.o kis_gates.o kis_handle.o \
+            kis_heap.o kis_ifthenelse.o kis_import.o kis_internal.o \
+            kis_learn.o kis_limits.o kis_logging.o kis_main.o \
+            kis_minimize.o kis_mode.o kis_options.o kis_parse.o \
+            kis_phases.o kis_print.o kis_probe.o kis_profile.o \
+            kis_promote.o kis_proof.o kis_propdense.o kis_prophyper.o \
+            kis_proprobe.o kis_propsearch.o kis_queue.o kis_reduce.o \
+            kis_reluctant.o kis_rephase.o kis_report.o kis_resize.o \
+            kis_resolve.o kis_resources.o kis_restart.o kis_search.o \
+            kis_smooth.o kis_sort.o kis_stack.o kis_statistics.o \
+            kis_strengthen.o kis_substitute.o kis_terminate.o \
+            kis_ternary.o kis_trail.o kis_transitive.o kis_utilities.o \
+            kis_vector.o kis_vivify.o kis_walk.o kis_watch.o \
+            kis_weaken.o kis_witness.o kis_xors.o
 CORE_C := $(addprefix $(EMU)/,$(addsuffix .c,$(CORE_O)))
+# kis_<name>.o comes from kissat/src/<name>.c (as in emu/common.mak):
+KISSAT_SRC := $(addprefix $(EMU)/kissat/src/,$(KISSAT_O:kis_%.o=%.c))
+STAGE_K_O  := $(addprefix $(STAGE)/kissat/,$(KISSAT_O))
+STAGE_K_C  := $(KISSAT_SRC:$(EMU)/kissat/src/%.c=$(STAGE)/kissat/src/%.c)
+
 FANN_C := $(EMU)/fann/src/fann.c $(EMU)/fann/src/fann_cascade.c \
           $(EMU)/fann/src/fann_error.c $(EMU)/fann/src/fann_io.c \
           $(EMU)/fann/src/fann_train.c $(EMU)/fann/src/fann_train_data.c
@@ -60,8 +89,19 @@ STAGE_E  := $(ESP_C:$(EMU)/%=$(STAGE)/%)
 STAGE_F  := $(FANN_C:$(EMU)/%=$(STAGE)/%)
 FANN_CPP_O := $(STAGE)/fann/fann_interface.o
 
-CFLAGS := -O2 -DGC -DGCC -DPICAT -Dunix -DPOSIX -DFANN_NO_DLL -DFANN \
+# -DSAT: the SAT built-ins register themselves (cpreds.c Cboot) and the
+# built-in kissat solver links in; the satext (fork/exec) layer is
+# stubbed out in browser_stub.c.
+CFLAGS := -O2 -DGC -DGCC -DPICAT -DSAT -Dunix -DPOSIX -DFANN_NO_DLL -DFANN \
           -I$(STAGE) -I$(STAGE)/espresso -I$(STAGE)/fann/src/include
+# glibc drags UINT_MAX/INT_MIN in implicitly (kissat's headers use them
+# without including <stdint.h>/<limits.h>); force the sysroot limits.h
+# by ABSOLUTE path, since a bare -include limits.h would resolve to
+# kissat's own limits.h through the -I search path.
+SYSROOT_INC := $(abspath $(dir $(EMCC))/cache/sysroot/include)
+KISSAT_FLAGS := -O2 -include $(SYSROOT_INC)/limits.h -DNEMBEDDED -DNDEBUG \
+                -DNMETRICS -DQUIET -DNSTATISTICS -DNPROOFS \
+                -I$(STAGE)/kissat/src
 
 GLUE_O := $(STAGE)/browser_stub.o
 
@@ -76,7 +116,7 @@ EMFLAGS := -sMODULARIZE=1 -sEXPORT_NAME=PicatWasm \
            -lc++ -lc++abi
 
 OBJS := $(STAGE_C:$(STAGE)/%.c=$(STAGE)/%.o) $(STAGE_E:$(STAGE)/%.c=$(STAGE)/%.o) \
-        $(STAGE_F:$(STAGE)/%.c=$(STAGE)/%.o) $(FANN_CPP_O) $(GLUE_O)
+        $(STAGE_F:$(STAGE)/%.c=$(STAGE)/%.o) $(FANN_CPP_O) $(GLUE_O) $(STAGE_K_O)
 
 # Two passes: make resolves the pattern rules for build/stage/*.o only
 # once the staged .c files exist, so the first pass stages the sources
@@ -89,10 +129,10 @@ all:
 # (add .patch files to patches/ -- they are applied to the staged
 #  copy in lexicographic order, never to the tree itself; after
 #  adding/removing a patch run `make clean` first)
-$(STAGE)/stamp: $(CORE_C) $(ESP_C) $(FANN_C) $(FANN_CPP) browser_stub.c \
-                $(wildcard patches/*.patch)
+$(STAGE)/stamp: $(CORE_C) $(ESP_C) $(FANN_C) $(FANN_CPP) $(KISSAT_SRC) \
+                browser_stub.c $(wildcard patches/*.patch)
 	rm -rf $(STAGE)
-	mkdir -p $(STAGE)/espresso $(STAGE)/fann/src/include
+	mkdir -p $(STAGE)/espresso $(STAGE)/fann/src/include $(STAGE)/kissat/src
 	cp $(CORE_C) $(STAGE)/
 	# included (not compiled) by toam.c:
 	cp $(EMU)/jmp_table.c $(STAGE)/
@@ -104,6 +144,9 @@ $(STAGE)/stamp: $(CORE_C) $(ESP_C) $(FANN_C) $(FANN_CPP) browser_stub.c \
 	cp $(FANN_C) $(STAGE)/fann/src/
 	cp $(FANN_CPP) $(STAGE)/fann/
 	cp $(wildcard $(EMU)/fann/src/include/*.h) $(STAGE)/fann/src/include/
+	cp $(KISSAT_SRC) $(STAGE)/kissat/src/
+	cp $(wildcard $(EMU)/kissat/src/*.h) $(STAGE)/kissat/src/ \
+	    2>/dev/null || true
 	@for p in $(wildcard patches/*.patch); do \
 	  echo "applying $$p to staged copy"; \
 	  patch -p1 -d $(STAGE) --batch < $$p || exit 1; \
@@ -119,6 +162,9 @@ $(STAGE)/espresso/%.o: $(STAGE)/espresso/%.c
 
 $(FANN_CPP_O): $(STAGE)/fann/fann_interface.cpp
 	$(EMCXX) $(CFLAGS) -c $< -o $@
+
+$(STAGE)/kissat/kis_%.o: $(STAGE)/kissat/src/%.c
+	$(EMCC) $(KISSAT_FLAGS) -c $< -o $@
 
 # ---- link -------------------------------------------------------------
 $(DIST)/picat.js: $(STAGE)/stamp $(OBJS) browser/index.html examples
