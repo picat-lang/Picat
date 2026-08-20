@@ -90,7 +90,7 @@ main =>
     subsets(K, N, AllSets),
     NSets = length(AllSets),
     bp.c_wall_ms(T0),
-    writef("=== ramsey: looking for a (%d,%d)-Ramsey graph on %d vertices (R(%d,%d) candidate), %d edge vars, %d K-subsets, starting at %d ms%%%n",
+    writef("=== ramsey: looking for a (%d,%d)-Ramsey graph on %d vertices (R(%d,%d) candidate), %d edge vars, %d K-subsets, starting at %d ms%n",
         K, K, N, K, K, NPairs, NSets, T0),
     E = new_array(NPairs),
     ((E :: 0..1,
@@ -167,14 +167,14 @@ sat_found(K, N, M, Sets, E, D, T0) =>
     bp.c_wall_ms(T1),
     check_graph(K, N, M, Sets, E),
     print_graph(N, E, D),
-    writef("SAT: (K,K)-Ramsey/critical graph on %d vertices found in %d ms -- witnesses R(%d,%d) >= %d%%%n",
+    writef("SAT: (K,K)-Ramsey/critical graph on %d vertices found in %d ms -- witnesses R(%d,%d) >= %d%n",
         N, T1 - T0, K, K, N + 1).
 
 unsat_ok(K, N, T0) =>
     bp.c_wall_ms(T1),
-    writef("UNSAT in %d ms: every graph on %d vertices has a %d-clique or an independent %d-set, i.e. R(%d,%d) <= %d%%%n",
+    writef("UNSAT in %d ms: every graph on %d vertices has a %d-clique or an independent %d-set, i.e. R(%d,%d) <= %d%n",
         T1 - T0, N, K, K, K, K, N),
-    writef("    (together with a SAT run on N-1 vertices this proves R(%d,%d) = %d)%%%n",
+    writef("    (together with a SAT run on N-1 vertices this proves R(%d,%d) = %d)%n",
         K, K, N).
 
 % independent re-check: no K-subset is all-edges (clique) or
@@ -187,7 +187,7 @@ check_graph(K, N, M, Sets, E) =>
         (
             writef("CHECK FAILED: %d-subset ", K),
             write(S),
-            writef(" has %d edges%%%n", Cnt),
+            writef(" has %d edges%n", Cnt),
             handle_exception($ramsey_check_failed(S, K, N), main)
         ))
     end.
@@ -196,7 +196,7 @@ print_graph(N, E, D) =>
     DegList = to_list(D),
     writef("degrees (non-increasing): "),
     write(DegList),
-    writef("%%%n"),
+    writef("%n"),
     writef("edges:"),
     foreach (I in 0..(N - 1), J in (I + 1)..(N - 1)),
         (E[pair_idx(I, J, N)] == 1 ->
@@ -205,14 +205,14 @@ print_graph(N, E, D) =>
             true
         )
     end,
-    writef("%%%n"),
-    writef("matrix (row = vertex):%%%n"),
+    writef("%n"),
+    writef("matrix (row = vertex):%n"),
     foreach (I in 0..(N - 1))
-        writef("%%%n  %d: ", I),
+        writef("%n  %d: ", I),
         foreach (J in 0..(N - 1)),
             ((I < J) -> V = E[pair_idx(I, J, N)] ;
             ((I == J) -> V = -1 ; V = E[pair_idx(J, I, N)])),
             ((V == -1) -> writef("  ") ; writef("%d ", V))
         end
     end,
-    writef("%%%n").
+    writef("%n").

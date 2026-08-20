@@ -49,7 +49,7 @@ import sat.
 main =>
     n_from_env(N),
     bp.c_wall_ms(T0),
-    writef("=== backpack: %d items, capacity %d, maximize value with $max, starting at %d ms%%%n", N, N, T0),
+    writef("=== backpack: %d items, capacity %d, maximize value with $max, starting at %d ms%n", N, N, T0),
     X = new_array(N),
     X :: 0..1,
     Wd = new_array(N),
@@ -63,7 +63,7 @@ main =>
     solve([$max(P)], [X, Wd, Vd, P]),
     check_final(N, X, Wd, P),
     bp.c_wall_ms(T1),
-    writef("$max optimum: P=%d, weight used=%d, items=%s, done in %d ms%%%n",
+    writef("$max optimum: P=%d, weight used=%d, items=%s, done in %d ms%n",
            P, sum(Wd), to_string(to_list(X)), T1 - T0),
     halt.
 

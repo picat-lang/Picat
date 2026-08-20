@@ -38,11 +38,11 @@ main =>
     X2 :: 0..1,
     1 * X1 + 2 * X2 #<= 2,        % weight budget (capacity 2)
     P #= 3 * X1 + 5 * X2,         % objective as a constraint
-    writef("objective: $max(P)  --  true optimum of this instance is 5%%%n"),
+    writef("objective: $max(P)  --  true optimum of this instance is 5%n"),
     solve([$max(P)], [X1, X2, P]),
-    writef("result: X1=%d X2=%d P=%d%%%n", X1, X2, P),
-    ((P == 5) -> writef("OK: optimum 5 found%%%n")
+    writef("result: X1=%d X2=%d P=%d%n", X1, X2, P),
+    ((P == 5) -> writef("OK: optimum 5 found%n")
     ;
-     writef("UNEXPECTED: $max reported P=%d, but the optimum is 5%%%n", P),
-     writef("(check the call form: it must be solve([$max(P)], [Vars]))%%%n"),
+     writef("UNEXPECTED: $max reported P=%d, but the optimum is 5%n", P),
+     writef("(check the call form: it must be solve([$max(P)], [Vars]))%n"),
      halt).

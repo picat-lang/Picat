@@ -50,7 +50,7 @@ main =>
     n_from_env(H),
     P = H + 1,
     bp.c_wall_ms(T0),
-    writef("=== pigeonhole: %d pigeons into %d holes (UNSAT expected), starting at %d ms%%%n", P, H, T0),
+    writef("=== pigeonhole: %d pigeons into %d holes (UNSAT expected), starting at %d ms%n", P, H, T0),
     ph(P, H, X),
     ph_check(X, T0),
     halt.
@@ -60,12 +60,12 @@ ph_check(X, T0) =>
     ((Solved == 1) -> sat_found() ; unsat_ok(T0)).
 
 sat_found() =>
-    writef("UNEXPECTED: SAT found%%%n"),
+    writef("UNEXPECTED: SAT found%n"),
     handle_exception($unexpected_sat, main).
 
 unsat_ok(T0) =>
     bp.c_wall_ms(T1),
-    writef("UNSAT detected (%d ms), as expected%%%n", T1 - T0).
+    writef("UNSAT detected (%d ms), as expected%n", T1 - T0).
 
 n_from_env(H) =>
     ((bp.picat_getenv("N", S)) -> H = to_int(S) ; H = 8).

@@ -41,12 +41,12 @@ import sat.
 main =>
     n_from_env(N),
     bp.c_wall_ms(T0),
-    writef("=== N-queens, N=%d, starting at %d ms%%%n", N, T0),
+    writef("=== N-queens, N=%d, starting at %d ms%n", N, T0),
     queens(N, Qs),
     solve(Qs),
     check_queens(N, Qs),
     bp.c_wall_ms(T1),
-    writef("solution (%d ms): %s%%%n", T1 - T0, to_string(to_list(Qs))),
+    writef("solution (%d ms): %s%n", T1 - T0, to_string(to_list(Qs))),
     halt.
 
 n_from_env(N) =>
