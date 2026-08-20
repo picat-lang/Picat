@@ -30,7 +30,7 @@ main =>
     1 * X1 + 2 * X2 #<= 2,        % weight budget (capacity 2)
     P #= 3 * X1 + 5 * X2,         % objective as a constraint
     writef("claim: $max(P)  --  true optimum of this instance is 5%%%n"),
-    solve([$max(P), [X1, X2, P]]),
+    solve([$max(P)], [X1, X2, P]),
     writef("reported: X1=%d X2=%d P=%d%%%n", X1, X2, P),
     ((P == 5) -> writef("OK: optimum 5 found%%%n")
     ;
