@@ -7,3 +7,9 @@ emu/picat*
 # compiled module caches
 *.qi
 emu/satshim
+
+# editor backups
+*~
+
+# environment snapshots
+.snapshots/
