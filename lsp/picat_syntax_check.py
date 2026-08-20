@@ -289,10 +289,13 @@ def check(path):
             prev = i - 1
             while prev >= 0 and code[prev] in " \t\r":
                 prev -= 1
-            # start-of-line, or right after , ; > : ? / else / elseif
+            # start-of-line, or right after , ; > : ? ) / else / elseif
             # on the same line ('else if ...' is a goal in the else
-            # branch, hence a statement position)
-            if prev < 0 or code[prev] in "\n,;>:?":
+            # branch, and 'if (C) if (C2) ...' follows the ')'; a
+            # reserved keyword can only ever occur in term position
+            # as part of a larger identifier or a quoted atom, both
+            # masked, so these contexts are unambiguous)
+            if prev < 0 or code[prev] in "\n,;>:?)":
                 boundary = True
             else:
                 j = prev
