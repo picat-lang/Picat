@@ -67,7 +67,10 @@ GLUE_O := $(STAGE)/browser_stub.o
 
 EMFLAGS := -sMODULARIZE=1 -sEXPORT_NAME=PicatWasm \
            -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=16777216 \
-           -sINVOKE_RUN=1 \
+           -sNO_EXIT_RUNTIME=1 \
+           -sINVOKE_RUN=0 \
+           -sEXPORTED_FUNCTIONS='["_browser_boot","_browser_rerun"]' \
+           -sEXPORTED_RUNTIME_METHODS='["FS","ccall"]' \
            --preload-file $(LIB2)@/lib2 \
            --preload-file examples@/examples \
            -lc++ -lc++abi

@@ -26,13 +26,34 @@ Prerequisites:
   build) -- they are preloaded into the wasm filesystem at `/lib2`,
 * `examples/` (preloaded at `/examples`).
 
-The page runs a program with `picat -p /lib2 /examples/hello.pi`.
-To add an example, drop a `.pi` file into `examples/` (module name must
-match the file name), add an `<option>` in `browser/index.html`, and
-rebuild.
+The page is a split editor/terminal:
 
-Verified headlessly under node: `hello.pi` and `queens.pi` (8-queens,
-92 solutions) both produce the same output as the native interpreter.
+* the **editor** (left) holds the source; **Run** (or Ctrl/Cmd-Enter)
+  executes exactly what is in the editor,
+* the **example** select loads a preloaded program into the editor
+  (it does not run it),
+* the **File** menu opens a local `.pi` file into the editor, or saves
+  the editor contents as a download,
+* the **terminal** (right) shows the program's stdout/stderr.
+
+How a Run works: the page writes the editor text to the virtual file
+system as `/user_code.pi` (rewriting a `module foo.` line to
+`module user_code.`, since picat requires the module name to match the
+file name), and calls `browser_rerun()`, which makes the interpreter
+compile/load that file and call its `main` via `$bp_first_call`.
+The runtime is bootstrapped once (`browser_boot("-p /lib2")`) on the
+first Run. Uncaught picat errors make the interpreter call
+`exit(1)`; the build links with `-sNO_EXIT_RUNTIME`, so the runtime
+survives and the next Run works again.
+
+To add an example, drop a `.pi` file into `examples/` (module name must
+match the file name) and rebuild; the select is populated from the
+preloaded directory at page load.
+
+Verified headlessly under node (same calls the page makes): `hello.pi`
+and `queens.pi` (8-queens, 92 solutions) both produce the same output
+as the native interpreter, and the runtime survives a program with a
+syntax error and keeps running afterwards.
 
 ## What is built and what is excluded
 

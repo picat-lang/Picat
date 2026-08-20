@@ -1,46 +1,368 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Picat in the browser (wasm)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Picat — WebAssembly</title>
 <style>
-  body { font: 14px monospace; margin: 2em; }
-  pre  { background: #111; color: #ddd; padding: 1em; height: 60vh;
-         overflow: auto; }
-  button { font: 14px monospace; }
+  :root {
+    --bg:      #0d1117;
+    --pane:    #151b26;
+    --pane2:   #10151f;
+    --border:  #263042;
+    --text:    #d8dee9;
+    --dim:     #8b98ab;
+    --accent:  #4fc3f7;
+    --ok:      #7ee787;
+    --err:     #ff7b72;
+    --mono:    ui-monospace, "Cascadia Code", "JetBrains Mono", Menlo,
+               Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.5 -apple-system, "Segoe UI", Roboto, Helvetica, Arial,
+          sans-serif;
+  }
+
+  /* ---- header ----------------------------------------------------- */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 16px;
+    background: var(--pane);
+    border-bottom: 1px solid var(--border);
+  }
+  .brand {
+    font-weight: 700;
+    font-size: 16px;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+  }
+  .brand em {
+    font-style: normal;
+    color: var(--accent);
+    font-weight: 500;
+    font-size: 12px;
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    padding: 1px 8px;
+    margin-left: 8px;
+  }
+  .spacer { flex: 1; }
+  select, button {
+    font: 13px var(--mono);
+    color: var(--text);
+    background: var(--pane2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 10px;
+  }
+  select { cursor: pointer; }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button:disabled { opacity: 0.45; cursor: default; }
+  button.run {
+    background: #1c5d38;
+    border-color: #2ea05a;
+    color: #eafff0;
+    font-weight: 700;
+    padding: 6px 18px;
+  }
+  button.run:hover:not(:disabled) { background: #23734a; }
+
+  /* ---- file dropdown menu ------------------------------------------ */
+  .menu { position: relative; }
+  .menu-items {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: calc(100% + 6px);
+    z-index: 10;
+    min-width: 190px;
+    background: var(--pane);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    padding: 4px;
+  }
+  .menu.open .menu-items { display: block; }
+  .menu-items button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    border: 0;
+    background: none;
+    border-radius: 6px;
+    padding: 7px 10px;
+  }
+  .menu-items button:hover {
+    background: rgba(79,195,247,0.12);
+    border-color: transparent;
+  }
+  .caret { color: var(--dim); font-size: 11px; }
+
+  /* ---- main split --------------------------------------------------- */
+  main {
+    flex: 1;
+    display: flex;
+    gap: 10px;
+    padding: 10px;
+    min-height: 0;
+  }
+  section {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--pane);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .pane-title {
+    padding: 6px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--dim);
+    background: var(--pane2);
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #editor {
+    flex: 1;
+    resize: none;
+    border: 0;
+    outline: none;
+    background: var(--pane);
+    color: #e6edf7;
+    font: 13.5px/1.55 var(--mono);
+    padding: 12px 14px;
+    tab-size: 4;
+  }
+  #terminal {
+    flex: 1;
+    margin: 0;
+    overflow: auto;
+    background: var(--pane2);
+    color: #c9d4e5;
+    font: 13.5px/1.55 var(--mono);
+    padding: 12px 14px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  #terminal .stamp { color: var(--dim); }
+
+  /* ---- status bar ---------------------------------------------------- */
+  footer {
+    display: flex;
+    gap: 16px;
+    padding: 5px 16px;
+    font-size: 12px;
+    color: var(--dim);
+    background: var(--pane);
+    border-top: 1px solid var(--border);
+  }
+  footer .ok  { color: var(--ok); }
+  footer .err { color: var(--err); }
 </style>
 </head>
 <body>
-<h3>Picat (WebAssembly)</h3>
-<p>
-  <select id="prog" onchange="if (started) location.reload()">
-    <option value="/examples/hello.pi">examples/hello.pi</option>
-    <option value="/examples/queens.pi">examples/queens.pi</option>
-  </select>
-  <button id="run" onclick="run()">run</button>
-</p>
-<pre id="out"></pre>
+
+<header>
+  <div class="brand">Picat<em>WebAssembly</em></div>
+  <div class="spacer"></div>
+  <label style="color:var(--dim);font-size:13px">example&nbsp;
+    <select id="examples"><option>Loading&hellip;</option></select>
+  </label>
+  <div class="menu" id="filemenu">
+    <button type="button" id="filemenu-btn">File <span class="caret">&#9662;</span></button>
+    <div class="menu-items">
+      <button type="button" id="open-file">Open file&hellip;</button>
+      <button type="button" id="save-file">Save as file&hellip;</button>
+    </div>
+  </div>
+  <button type="button" class="run" id="run" disabled>&#9654; Run</button>
+</header>
+
+<main>
+  <section>
+    <div class="pane-title" id="srcname">source</div>
+    <textarea id="editor" spellcheck="false"></textarea>
+  </section>
+  <section>
+    <div class="pane-title">terminal</div>
+    <pre id="terminal"></pre>
+  </section>
+</main>
+
+<footer>
+  <span id="state">loading runtime&hellip;</span>
+  <span class="spacer"></span>
+  <span id="lastrun"></span>
+</footer>
+
+<input type="file" id="file-input" accept=".pi,.txt,text/plain" hidden>
+
 <script src="picat.js"></script>
 <script>
-var started = false;
-function run() {
-  if (started) return;
-  started = true;
-  var out = document.getElementById('out');
-  out.textContent = '';
-  var prog = document.getElementById('prog').value;
-  PicatWasm({
-    arguments: ['-p', '/lib2', prog],
-    print: function (s) { out.textContent += s + '\n'; },
-    printErr: function (s) { out.textContent += s + '\n'; }
-  }).then(function () {
-    out.textContent += '\n[finished]\n';
-    var b = document.getElementById('run');
-    b.disabled = true;
-    b.textContent = 'reloaded';
-  });
+var M = null;
+var booted = false;
+var running = false;
+var $ = function (id) { return document.getElementById(id); };
+var editor = $('editor'), terminal = $('terminal'),
+    state = $('state'), lastrun = $('lastrun');
+
+function appendOut(s) {
+  terminal.textContent += s.replace(/\x1b\[[0-9;]*m/g, '') + '\n';
+  terminal.scrollTop = terminal.scrollHeight;
 }
-run();
+
+function setState(txt, cls) {
+  state.innerHTML = '';
+  var span = document.createElement('span');
+  if (cls) span.className = cls;
+  span.textContent = txt;
+  state.appendChild(span);
+}
+
+function srcName() {
+  var m = editor.value.match(/^\s*module\s+([A-Za-z_]\w*)\s*\./m);
+  return (m ? m[1] : 'user_code') + '.pi';
+}
+function setSrcName() { $('srcname').textContent = 'source — ' + srcName(); }
+editor.addEventListener('input', setSrcName);
+
+/* Tab inserts four spaces instead of leaving the textarea. */
+editor.addEventListener('keydown', function (e) {
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    var s = editor.selectionStart, t = editor.selectionEnd;
+    editor.value = editor.value.slice(0, s) + '    ' + editor.value.slice(t);
+    editor.selectionStart = editor.selectionEnd = s + 4;
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); run(); }
+});
+
+/* ---- examples: populates the editor, never runs ------------------- */
+function loadExample() {
+  var sel = $('examples');
+  if (!M || !sel.value || sel.value === 'Loading…') return;
+  try {
+    editor.value = M.FS.readFile('/examples/' + sel.value,
+                                 {encoding: 'utf8'});
+  } catch (e) {
+    appendOut('cannot read example ' + sel.value + ': ' + e);
+  }
+  setSrcName();
+}
+$('examples').addEventListener('change', loadExample);
+
+/* ---- run ------------------------------------------------------------ */
+function run() {
+  if (!M || running) return;
+  running = true;
+  $('run').disabled = true;
+  setState('running…');
+  terminal.textContent = '';
+  var t0 = performance.now();
+  /* picat requires the module line to match the file name: the file
+     is always /user_code.pi, so retarget the module name if present */
+  var code = editor.value.replace(
+    /^\s*module\s+[A-Za-z_]\w*\s*\./m, 'module user_code.');
+  M.FS.writeFile('/user_code.pi', code);
+  var rc = -1, failed = false;
+  try {
+    if (!booted) {
+      M.ccall('browser_boot', 'null', ['string'], '/lib2');
+      booted = true;
+    }
+    rc = M.ccall('browser_rerun', 'number');
+  } catch (e) {
+    /* picat calls exit(1) on uncaught errors; with NO_EXIT_RUNTIME the
+       runtime survives, so we only mark the run as failed */
+    failed = true;
+  }
+  var ms = Math.round(performance.now() - t0);
+  appendOut('\n[finished in ' + ms + ' ms, status ' + rc + ']');
+  lastrun.textContent = 'last run: ' + ms + ' ms';
+  var ok = rc === 10 && !failed;
+  setState(ok ? 'idle — last run ok' : 'idle — last run failed',
+           ok ? 'ok' : 'err');
+  running = false;
+  $('run').disabled = false;
+}
+$('run').addEventListener('click', run);
+
+/* ---- file menu ------------------------------------------------------- */
+var menu = $('filemenu');
+$('filemenu-btn').addEventListener('click', function (e) {
+  e.stopPropagation();
+  menu.classList.toggle('open');
+});
+document.addEventListener('click', function () {
+  menu.classList.remove('open');
+});
+$('save-file').addEventListener('click', function () {
+  var blob = new Blob([editor.value], {type: 'text/plain'});
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = srcName();
+  a.click();
+  setTimeout(function () { URL.revokeObjectURL(a.href); }, 5000);
+});
+$('open-file').addEventListener('click', function () {
+  $('file-input').click();
+});
+$('file-input').addEventListener('change', function () {
+  var f = this.files[0];
+  if (!f) return;
+  var r = new FileReader();
+  r.onload = function () {
+    editor.value = r.result;
+    setSrcName();
+  };
+  r.readAsText(f);
+  this.value = '';
+});
+
+/* ---- boot -------------------------------------------------------------- */
+PicatWasm({
+  print:  function (s) { appendOut(s); },
+  printErr: function (s) { appendOut(s); },
+}).then(function (mod) {
+  M = mod;
+  var files = M.FS.readdir('/examples')
+                 .filter(function (f) { return /\.pi$/.test(f); })
+                 .sort();
+  var sel = $('examples');
+  sel.innerHTML = '';
+  files.forEach(function (f) {
+    var o = document.createElement('option');
+    o.value = f;
+    o.textContent = f;
+    sel.appendChild(o);
+  });
+  if (files.length) {
+    sel.value = files[0];
+    loadExample();
+  }
+  $('run').disabled = false;
+  setState('ready');
+  setSrcName();
+}).catch(function (e) {
+  setState('failed to load the runtime: ' + e.message, 'err');
+});
 </script>
 </body>
 </html>
