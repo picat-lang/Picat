@@ -105,6 +105,32 @@ KISSAT_FLAGS := -O2 -include $(SYSROOT_INC)/limits.h -DNEMBEDDED -DNDEBUG \
 
 GLUE_O := $(STAGE)/browser_stub.o
 
+# The packed examples in examples/ that read data files do so with
+# relative names; the wasm CWD is "/", so the data files are preloaded
+# at the filesystem root (no program changes needed).
+DATA_SRC := \
+  ../exs/euler/names.txt ../exs/euler/words.txt ../exs/euler/triangle.txt \
+  ../exs/euler/base_exp.txt \
+  ../exs/nn/xor/xor.data ../exs/nn/xor/xor.net \
+  ../exs/nn/lang_classify/english1.txt ../exs/nn/lang_classify/english2.txt \
+  ../exs/nn/lang_classify/english3.txt ../exs/nn/lang_classify/french1.txt \
+  ../exs/nn/lang_classify/french2.txt ../exs/nn/lang_classify/french3.txt \
+  ../exs/nn/lang_classify/spanish1.txt ../exs/nn/lang_classify/spanish2.txt \
+  ../exs/nn/lang_classify/spanish3.txt ../exs/nn/lang_classify/frequencies.data \
+  ../exs/nn/scaling/scaling.data ../exs/nn/scaling/scaling.net \
+  ../exs/nn/spam_detector/Train.txt ../exs/nn/spam_detector/TestX.csv \
+  ../exs/nn/spam_detector/spam.net \
+  ../exs/nn/author_classify/chesterton1.txt ../exs/nn/author_classify/chesterton2.txt \
+  ../exs/nn/author_classify/chesterton3.txt ../exs/nn/author_classify/melville1.txt \
+  ../exs/nn/author_classify/melville2.txt ../exs/nn/author_classify/melville3.txt \
+  ../exs/nn/author_classify/processed_chesterton1.txt \
+  ../exs/nn/author_classify/processed_chesterton2.txt \
+  ../exs/nn/author_classify/processed_chesterton3.txt \
+  ../exs/nn/author_classify/processed_melville1.txt \
+  ../exs/nn/author_classify/processed_melville2.txt \
+  ../exs/nn/author_classify/processed_melville3.txt
+DATA_PRELOADS := $(foreach s,$(DATA_SRC),--preload-file $(s)@/$(notdir $(s)))
+
 EMFLAGS := -sMODULARIZE=1 -sEXPORT_NAME=PicatWasm \
            -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=16777216 \
            -sNO_EXIT_RUNTIME=1 \
@@ -113,6 +139,7 @@ EMFLAGS := -sMODULARIZE=1 -sEXPORT_NAME=PicatWasm \
            -sEXPORTED_RUNTIME_METHODS='["FS","ccall"]' \
            --preload-file $(LIB2)@/lib2 \
            --preload-file examples@/examples \
+           $(DATA_PRELOADS) \
            -lc++ -lc++abi
 
 OBJS := $(STAGE_C:$(STAGE)/%.c=$(STAGE)/%.o) $(STAGE_E:$(STAGE)/%.c=$(STAGE)/%.o) \
@@ -130,6 +157,7 @@ all:
 #  copy in lexicographic order, never to the tree itself; after
 #  adding/removing a patch run `make clean` first)
 $(STAGE)/stamp: $(CORE_C) $(ESP_C) $(FANN_C) $(FANN_CPP) $(KISSAT_SRC) \
+                $(DATA_SRC) \
                 browser_stub.c $(wildcard patches/*.patch)
 	rm -rf $(STAGE)
 	mkdir -p $(STAGE)/espresso $(STAGE)/fann/src/include $(STAGE)/kissat/src
@@ -167,7 +195,8 @@ $(STAGE)/kissat/kis_%.o: $(STAGE)/kissat/src/%.c
 	$(EMCC) $(KISSAT_FLAGS) -c $< -o $@
 
 # ---- link -------------------------------------------------------------
-$(DIST)/picat.js: $(STAGE)/stamp $(OBJS) browser/index.html examples
+$(DIST)/picat.js: $(STAGE)/stamp $(OBJS) browser/index.html \
+                  $(wildcard examples/*) $(DATA_SRC)
 	mkdir -p $(DIST)
 	$(EMCC) $(CFLAGS) $(OBJS) $(EMFLAGS) -o $@
 	cp browser/index.html $(DIST)/

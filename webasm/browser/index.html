@@ -78,11 +78,25 @@
   button.run:hover:not(:disabled) { background: #23734a; }
 
   /* ---- file dropdown menu ------------------------------------------ */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 10px;
+    background: var(--pane2);
+    border-bottom: 1px solid var(--border);
+  }
+  .toolbar .pane-title.grow {
+    flex: 1;
+    padding: 6px 2px;
+    border: 0;
+    background: none;
+  }
   .menu { position: relative; }
   .menu-items {
     display: none;
     position: absolute;
-    right: 0;
+    left: 0;
     top: calc(100% + 6px);
     z-index: 10;
     min-width: 190px;
@@ -185,19 +199,21 @@
   <label style="color:var(--dim);font-size:13px">example&nbsp;
     <select id="examples"><option>Loading&hellip;</option></select>
   </label>
-  <div class="menu" id="filemenu">
-    <button type="button" id="filemenu-btn">File <span class="caret">&#9662;</span></button>
-    <div class="menu-items">
-      <button type="button" id="open-file">Open file&hellip;</button>
-      <button type="button" id="save-file">Save as file&hellip;</button>
-    </div>
-  </div>
-  <button type="button" class="run" id="run" disabled>&#9654; Run</button>
 </header>
 
 <main>
   <section>
-    <div class="pane-title" id="srcname">source</div>
+    <div class="toolbar">
+      <div class="menu" id="filemenu">
+        <button type="button" id="filemenu-btn">File <span class="caret">&#9662;</span></button>
+        <div class="menu-items">
+          <button type="button" id="open-file">Open file&hellip;</button>
+          <button type="button" id="save-file">Save as file&hellip;</button>
+        </div>
+      </div>
+      <div class="pane-title grow" id="srcname">source</div>
+      <button type="button" class="run" id="run" disabled>&#9654; Run</button>
+    </div>
     <textarea id="editor" spellcheck="false"></textarea>
   </section>
   <section>
@@ -276,8 +292,12 @@ function run() {
   setState('running…');
   terminal.textContent = '';
   var t0 = performance.now();
-  /* picat requires the module line to match the file name: the file
-     is always /user_code.pi, so retarget the module name if present */
+  /* picat requires the module name to match the file name, and the file
+     is always /user_code.pi: retarget an existing module line.  A
+     module line is NOT added when absent -- programs may omit it, and
+     for some libraries (e.g. the planner's plan/plan_unbounded, which
+     look up final//action/ in the global module) a module line would
+     break the program */
   var code = editor.value.replace(
     /^\s*module\s+[A-Za-z_]\w*\s*\./m, 'module user_code.');
   M.FS.writeFile('/user_code.pi', code);
