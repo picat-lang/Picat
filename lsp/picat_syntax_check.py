@@ -11,6 +11,11 @@ reports, at the actual line and column:
   - unbalanced ( ) [ ] { }: a closer with no opener open (names the
     still-open delimiter), or an opener never closed
   - unterminated string literal / quoted atom / block comment
+  - a string literal that spans more than one line: because picat
+    'allows' multi-line strings, a missing closing quote usually
+    shows up as a silent multi-line string that swallows the rest of
+    the file -- the diagnostic points at the string's start (and
+    therefore at the real cause, not the last stray quote)
   - clause header that uses '->' where '=>' is meant (and the
     construct right before looks like the end of the previous rule)
   - stray ',' or ';' right before the clause-ending '.'
@@ -96,6 +101,17 @@ def mask(raw):
                                   "unterminated string literal"))
                 i = n
                 continue
+            if lineof(raw, j) > lineof(raw, i):
+                # picat's strings may span lines, so this 'parsing' quietly
+                # swallows everything until a later stray quote -- the
+                # usual cause is a missing closing quote at the START.
+                diags.append(Diag(None, lineof(raw, i), colof(raw, i),
+                                  "string literal spans from line %d to "
+                                  "line %d: a closing '\"' is most "
+                                  "likely missing at (or just after) "
+                                  "this line; everything in between is "
+                                  "string content, not code"
+                                  % (lineof(raw, i), lineof(raw, j))))
             for k in range(i, j + 1):
                 if out[k] != "\n":
                     out[k] = " "
