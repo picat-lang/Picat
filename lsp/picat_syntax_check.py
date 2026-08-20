@@ -272,11 +272,16 @@ def check(path):
             prev = i - 1
             while prev >= 0 and code[prev] in " \t\r":
                 prev -= 1
-            # start-of-line (or right after , ; > : ? on the same line)
+            # start-of-line, or right after , ; > : ? / else / elseif
+            # on the same line ('else if ...' is a goal in the else
+            # branch, hence a statement position)
             if prev < 0 or code[prev] in "\n,;>:?":
                 boundary = True
             else:
-                boundary = False
+                j = prev
+                while j >= 0 and (code[j].isalnum() or code[j] in "_$"):
+                    j -= 1
+                boundary = code[j + 1: prev + 1] in ("else", "elseif")
             if name in ("foreach", "while", "if", "do"):
                 if name == "while" and ops and ops[-1][0] == "do":
                     ops.pop()          # do-while terminator (also mid-line:
