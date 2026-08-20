@@ -296,7 +296,9 @@ function run() {
   var ms = Math.round(performance.now() - t0);
   appendOut('\n[finished in ' + ms + ' ms, status ' + rc + ']');
   lastrun.textContent = 'last run: ' + ms + ' ms';
-  var ok = rc === 10 && !failed;
+  /* $bp_first_call (via bp_call_term) returns 1 when the program ran
+     to a successful end; anything else means the run failed */
+  var ok = rc === 1 && !failed;
   setState(ok ? 'idle — last run ok' : 'idle — last run failed',
            ok ? 'ok' : 'err');
   running = false;

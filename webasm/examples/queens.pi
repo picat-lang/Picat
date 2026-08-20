@@ -37,5 +37,5 @@ nq2([H|T], C, R) :-
 
 main =>
     Ss = nqueens(8),
-    writef("8-queens: %d solutions\n", Ss.len),
+    println("8-queens: " ++ to_string(Ss.len) ++ " solutions"),
     writeln(Ss[1..3]).
