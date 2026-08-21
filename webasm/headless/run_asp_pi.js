@@ -41,12 +41,21 @@ require(path.join(ROOT, 'dist', 'picat.js'))(makeOpts()).then((M) => {
   const instantiate_ms = Date.now() - t0;
   const b0 = Date.now();
   M.ccall('browser_boot', 'null', ['string'], ['/lib2']);
+  function flushTty(M) {
+  var st;
+  try {
+    if ((st = M.FS.getStream(1)) && st.tty) st.tty.ops.fsync(st.tty);
+    if ((st = M.FS.getStream(2)) && st.tty) st.tty.ops.fsync(st.tty);
+  } catch (e) { /* best effort */ }
+}
+flushTty(M);
   const boot_ms = Date.now() - b0;
   M.FS.writeFile('/user_code_raw.pi', fs.readFileSync(file, 'utf8'));
   M.FS.writeFile('/user_code.pi', stage1);
   let rc = -1, failed = false;
   const p0 = Date.now();
   try { rc = M.ccall('browser_rerun', 'number'); } catch (e) { failed = true; }
+  flushTty(M);
   const pre_ms = Date.now() - p0;
   if (failed || rc !== 1) {
     console.log('rc=' + rc + (failed ? ' threw' : '') +
@@ -68,11 +77,13 @@ require(path.join(ROOT, 'dist', 'picat.js'))(makeOpts()).then((M) => {
   const picat2 = require(path.join(ROOT, 'dist', 'picat.js'));
   picat2(makeOpts()).then((M2) => {
     M2.ccall('browser_boot', 'null', ['string'], ['/lib2']);
+    flushTty(M2);
     if (runtime) M2.FS.writeFile('/aspic_runtime.pi', runtime);
     M2.FS.writeFile('/user_code.pi', fin);
     const r0 = Date.now();
     rc = -1; failed = false;
     try { rc = M2.ccall('browser_rerun', 'number'); } catch (e) { failed = true; }
+    flushTty(M2);
     const run_ms = Date.now() - r0;
     console.log('rc=' + rc + (failed ? ' threw' : '') +
                 ' instantiate_ms=' + instantiate_ms +

@@ -25,7 +25,7 @@ process.chdir(path.join(ROOT, 'dist'));  // picat.data is resolved from CWD
 const t0 = Date.now();
 const PicatWasm = require(path.join(ROOT, 'dist', 'picat.js'));
 PicatWasm({
-  print: () => {},
+  print: (s) => { process.stdout.write(s + '\n'); },
   printErr: (s) => { process.stderr.write(s + '\n'); },
 }).then((M) => {
   const instantiate_ms = Date.now() - t0;
@@ -34,10 +34,19 @@ PicatWasm({
       .replace(/^\s*module\s+[A-Za-z_]\w*\s*\./m, 'module user_code.'));
   const b0 = Date.now();
   M.ccall('browser_boot', 'null', ['string'], ['/lib2']);
+  function flushTty(M) {
+  var st;
+  try {
+    if ((st = M.FS.getStream(1)) && st.tty) st.tty.ops.fsync(st.tty);
+    if ((st = M.FS.getStream(2)) && st.tty) st.tty.ops.fsync(st.tty);
+  } catch (e) { /* best effort */ }
+}
+flushTty(M);
   const boot_ms = Date.now() - b0;
   const r0 = Date.now();
   let rc = -1, failed = false;
   try { rc = M.ccall('browser_rerun', 'number'); } catch (e) { failed = true; }
+  flushTty(M);
   const run_ms = Date.now() - r0;
   console.log('rc=' + rc + (failed ? ' threw' : '') +
               ' instantiate_ms=' + instantiate_ms +

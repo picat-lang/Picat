@@ -418,16 +418,32 @@ function runAspStages(code) {
   });
 }
 
+/* Drain emscripten's tty output buffer (the layer between fd 1 and
+   our print callback).  Characters accumulate there until a '\n' or
+   a process exit drain them, and under NO_EXIT_RUNTIME a page never
+   exits -- so a program whose output has no trailing newline (most
+   planner_* examples) would otherwise lose its last line.  Call after
+   every browser_boot / browser_rerun. */
+function flushRunOutput() {
+  var st;
+  try {
+    if ((st = M.FS.getStream(1)) && st.tty) st.tty.ops.fsync(st.tty);
+    if ((st = M.FS.getStream(2)) && st.tty) st.tty.ops.fsync(st.tty);
+  } catch (e) { /* best effort only */ }
+}
+
 function doRun(code) {
   var t0 = performance.now();
   M.FS.writeFile('/user_code.pi', code);
   var rc = -1, failed = false;
   try {
-    if (!booted) {
+        if (!booted) {
       M.ccall('browser_boot', 'null', ['string'], ['/lib2']);
+      flushRunOutput();
       booted = true;
     }
     rc = M.ccall('browser_rerun', 'number');
+    flushRunOutput();
   } catch (e) {
     /* picat calls exit(1) on uncaught errors; with NO_EXIT_RUNTIME the
        runtime survives.  The run is failed; the next Run takes a

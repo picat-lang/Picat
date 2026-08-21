@@ -60,6 +60,15 @@ removes whole classes of cross-run state problems (heavy solves that
 leave unreclaimed state, interpreter instances killed by a C-level
 `exit(1)` after an uncaught error) — a Run behaves exactly like a
 native `picat file` call.
+Output flushing: stdout reaches the page in two buffers — the C
+stdio buffer (drained by a `fflush(stdout)` inside `browser_rerun`)
+and emscripten's tty buffer, which only drains on a newline or when
+the process exits.  Under `-sNO_EXIT_RUNTIME=1` a page never exits,
+so after each boot/run the page drains the tty buffer itself
+(`flushRunOutput`, a `tty fsync` of streams 1 and 2); without it a
+program whose output has no trailing newline — e.g. most
+`planner_*` examples, which print `ANSWER` and then the plan on one
+unterminated line — would lose its last line.
 About the module line: a program may omit it
 entirely; if it has one, the page retargets the name to `user_code`,
 since picat requires it to match the file name. The page never

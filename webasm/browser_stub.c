@@ -6,6 +6,8 @@
 
 #include "bprolog.h"
 
+#include <stdio.h>
+
 /* thread.c (pthreads) is not available in the browser: the thread()
  * and friends predicates are simply not registered. */
 void Cboot_thread(void)
@@ -42,9 +44,15 @@ void browser_boot(const char *picatpath)
 
 int browser_rerun(void)
 {
+    int rc;
+
     use_gl_getline = 0;
-    return bp_call_term(ADDTAG(insert_sym("$bp_first_call", 14, 0),
-                               ATM));
+    rc = bp_call_term(ADDTAG(insert_sym("$bp_first_call", 14, 0), ATM));
+    /* layer 1 (of 2) of output: push the C stdio FILE buffer down to
+       fd 1.  The emscripten tty buffer below fd 1 is drained from the
+       JS side (see flushRunOutput in browser/index.html). */
+    fflush(stdout);
+    return rc;
 }
 
 #ifdef SAT
