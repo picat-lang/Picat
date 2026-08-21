@@ -17,3 +17,7 @@ emu/satshim
 # webasm build products
 webasm/dist/
 webasm/build/
+
+# webasm headless harness run products
+webasm/headless/native_cwd/
+webasm/headless/results.csv
