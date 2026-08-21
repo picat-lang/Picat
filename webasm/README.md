@@ -51,6 +51,21 @@ first Run. Uncaught picat errors make the interpreter call
 `exit(1)`; the build links with `-sNO_EXIT_RUNTIME`, so the runtime
 survives and the next Run works again.
 
+Long heavy runs (the large SAT examples) can exhaust the interpreter:
+after about three consecutive solves, the next `browser_rerun()` ends
+immediately with status 0 (or traps) before doing any work. This is a
+limitation of repeated `$bp_first_call` inside one interpreter (state
+left by a heavy solve is not fully reclaimed between runs), not a
+program error. A run can only be exhausted after earlier runs
+succeeded on the same module, so the page treats a sub-50 ms failure
+after a prior success as exhaustion: it re-creates the whole module
+(a fresh `initialize_bprolog` and a fresh emulated filesystem
+re-created from the preload image — a clean "restart picat" that keeps
+all the example data files) and retries the same run once. The
+terminal then shows `[interpreter exhausted — resetting and
+retrying…]` and the finish line gains an
+`(after interpreter reset)` note.
+
 The 100 packed examples (`examples/`) came from the repository's
 `exs/` collection, renamed with their folder as prefix
 (`cp_kakuro.pi`, `sat_bqueens.pi`, `planner_sokoban.pi`,
@@ -66,7 +81,10 @@ them with relative names and the wasm CWD is `/`.
 Verified headlessly under node (same calls the page makes): all 100
 preloaded examples run to a clean end (status 1) and match the native
 output; the runtime survives a program with a syntax error and keeps
-running afterwards.
+running afterwards. Repeating the heavy SAT examples (e.g. running
+`sat_bqueens.pi` 12 times in a row) ends all runs clean, with the
+interpreter transparently restarted every three runs; small-SAT and
+planner runs repeat 5-10 times in a single module without a restart.
 
 ## What is built and what is excluded
 

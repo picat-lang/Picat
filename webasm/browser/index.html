@@ -235,6 +235,8 @@
 var M = null;
 var booted = false;
 var running = false;
+var runsOk = 0;  /* successful runs on the current module (exhaustion
+                   can only follow at least one successful run) */
 var $ = function (id) { return document.getElementById(id); };
 var editor = $('editor'), terminal = $('terminal'),
     state = $('state'), lastrun = $('lastrun');
@@ -285,26 +287,23 @@ function loadExample() {
 $('examples').addEventListener('change', loadExample);
 
 /* ---- run ------------------------------------------------------------ */
-function run() {
-  if (!M || running) return;
-  running = true;
-  $('run').disabled = true;
-  setState('running…');
-  terminal.textContent = '';
+/*
+  run()         -- one user Run: write /user_code.pi, boot if needed,
+                   execute, and report.  On a failure that looks like
+                   VM exhaustion (a heavy run left the interpreter in a
+                   broken state) it restarts the interpreter and
+                   retries once.
+  doRun(code)   -- write the file and run it once, returning the result.
+  restartAndRetry -- build a fresh wasm module (a clean "restart picat")
+                   and run the same code once more.
+ */
+function doRun(code) {
   var t0 = performance.now();
-  /* picat requires the module name to match the file name, and the file
-     is always /user_code.pi: retarget an existing module line.  A
-     module line is NOT added when absent -- programs may omit it, and
-     for some libraries (e.g. the planner's plan/plan_unbounded, which
-     look up final//action/ in the global module) a module line would
-     break the program */
-  var code = editor.value.replace(
-    /^\s*module\s+[A-Za-z_]\w*\s*\./m, 'module user_code.');
   M.FS.writeFile('/user_code.pi', code);
   var rc = -1, failed = false;
   try {
     if (!booted) {
-      M.ccall('browser_boot', 'null', ['string'], '/lib2');
+      M.ccall('browser_boot', 'null', ['string'], ['/lib2']);
       booted = true;
     }
     rc = M.ccall('browser_rerun', 'number');
@@ -313,16 +312,62 @@ function run() {
        runtime survives, so we only mark the run as failed */
     failed = true;
   }
-  var ms = Math.round(performance.now() - t0);
-  appendOut('\n[finished in ' + ms + ' ms, status ' + rc + ']');
-  lastrun.textContent = 'last run: ' + ms + ' ms';
-  /* $bp_first_call (via bp_call_term) returns 1 when the program ran
-     to a successful end; anything else means the run failed */
-  var ok = rc === 1 && !failed;
+  return { rc: rc, failed: failed, ms: Math.round(performance.now() - t0) };
+}
+
+function finishRun(res, restarted) {
+  appendOut('\n[finished in ' + res.ms + ' ms, status ' + res.rc +
+            (restarted ? '] (after interpreter reset)' : ']'));
+  lastrun.textContent = 'last run: ' + res.ms + ' ms';
+  var ok = res.rc === 1 && !res.failed;
+  if (ok) runsOk++;
   setState(ok ? 'idle — last run ok' : 'idle — last run failed',
            ok ? 'ok' : 'err');
   running = false;
   $('run').disabled = false;
+}
+
+function run() {
+  if (!M || running) return;
+  running = true;
+  $('run').disabled = true;
+  setState('running…');
+  terminal.textContent = '';
+  /* picat requires the module name to match the file name, and the file
+     is always /user_code.pi: retarget an existing module line.  A
+     module line is NOT added when absent -- programs may omit it, and
+     for some libraries (e.g. the planner's plan/plan_unbounded, which
+     look up final//action/ in the global module) a module line would
+     break the program */
+  var code = editor.value.replace(
+    /^\s*module\s+[A-Za-z_]\w*\s*\./m, 'module user_code.');
+  var res = doRun(code);
+  /* A heavy run (e.g. a large SAT solve) can leave the interpreter
+     exhausted: the next run then ends immediately with status 0 (or
+     traps) before doing any work.  That can only happen after earlier
+     runs succeeded on this module, so on such a failure we restart the
+     interpreter (a fresh module) and retry once.  The emulated
+     filesystem is re-created from the preload image, which already
+     contains every data file the examples need. */
+  if (runsOk > 0 && res.ms < 50 && (res.failed || res.rc !== 1)) {
+    appendOut('\n[interpreter exhausted — resetting and retrying…]');
+    restartAndRetry(code);
+    return;
+  }
+  finishRun(res, false);
+}
+
+function restartAndRetry(code) {
+  setState('resetting interpreter…');
+  M = null;            // drop the old module so its memory can be reclaimed
+  booted = false;
+  createModule().then(function () {
+    finishRun(doRun(code), true);
+  }).catch(function (e) {
+    terminal.textContent = '';
+    appendOut('\ncannot restart the interpreter: ' + e);
+    finishRun({ rc: -1, failed: true, ms: 0 }, true);
+  });
 }
 $('run').addEventListener('click', run);
 
@@ -358,12 +403,23 @@ $('file-input').addEventListener('change', function () {
   this.value = '';
 });
 
-/* ---- boot -------------------------------------------------------------- */
-PicatWasm({
-  print:  function (s) { appendOut(s); },
-  printErr: function (s) { appendOut(s); },
-}).then(function (mod) {
-  M = mod;
+/* ---- module lifecycle -------------------------------------------------- */
+/* Create an interpreter module.  This is the unit a "restart" re-creates:
+   a fresh module is a fresh initialize_bprolog with a fresh emulated
+   filesystem (all example data files are baked into the preload image). */
+function createModule() {
+  return PicatWasm({
+    print:  function (s) { appendOut(s); },
+    printErr: function (s) { appendOut(s); },
+  }).then(function (mod) {
+    M = mod;
+    booted = false;
+    runsOk = 0;        // a fresh module can't be exhausted yet
+    return mod;
+  });
+}
+
+function populateExamples() {
   var files = M.FS.readdir('/examples')
                  .filter(function (f) { return /\.pi$/.test(f); })
                  .sort();
@@ -379,12 +435,18 @@ PicatWasm({
     sel.value = files[0];
     loadExample();
   }
+}
+
+/* ---- boot -------------------------------------------------------------- */
+createModule().then(function () {
+  populateExamples();
   $('run').disabled = false;
   setState('ready');
   setSrcName();
 }).catch(function (e) {
   setState('failed to load the runtime: ' + e.message, 'err');
 });
+
 </script>
 </body>
 </html>
