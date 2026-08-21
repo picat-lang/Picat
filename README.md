@@ -3,7 +3,71 @@
 This branch (`experimental`) adds features on top of `main`. Each area
 has its own README where noted.
 
-## 1. Picat in a browser — new folder `webasm/`
+## 1. External SAT solvers and the SAT solver portfolio (satext)
+
+`solve`/`solve_all` can now be served by an external SAT solver
+(kissat, CaDiCaL, MiniSat, CryptoMiniSat, or any DIMACS/IPASIR solver —
+the input protocol is picked from the solver name, probed once and
+cached for unknown names). Models come back exactly as with the
+built-in solver, so `solve_all`, `findall` and blocking of enumerated
+solutions work unchanged. Several solvers may be named at once: they
+are **raced** on the same CNF and the first decisive answer wins (the
+rest are killed) — the portfolio is capped at 8 solvers per solve. The
+built-in solver is still fed, so a failed/`unknown` external run falls
+back to it (see `SATEXT_NO_FALLBACK` below).
+
+How to select a solver:
+
+- program option: `solve([$solver(Spec)], Vars)`
+- from code: `bp.c_satext_set_solver(Spec)` (e.g. in `main`, before
+  the constraints/solve)
+- environment: `SATEXT_SOLVER=...` (below)
+- low level: `import satext.` (needs `PICATPATH=<picat>/lib2`) —
+  `satext.solve(Spec, Clauses, Status, Model)`, `satext.cnf_info`,
+  `satext.write_dimacs`; and `bp.c_satext_last_status(St)` reports how
+  the last `solve` resolved (1 SAT / 2 UNSAT / 0 unknown-or-abandoned).
+
+`Spec` is an atom or string (`"kissat"`, a path, ...; PATH-resolved
+when it has no `/`), a list of atoms/strings forming the solver's argv
+(a `@file` token is replaced by a generated CNF file, for solvers that
+read the input file as an argument), or a **list of such argv lists**
+to race them as a first-wins portfolio. `nil`/`false` selects the
+built-in solver again.
+
+Environment variables (all read by the satext layer):
+
+- `SATEXT_SOLVER` — solver selection for the standard `import sat`
+  flow. One solver: whitespace-separated argv — first token =
+  executable (name or path), the rest = extra arguments, e.g.
+  `SATEXT_SOLVER="kissat -t 4"`. A portfolio: `|` separates several
+  such argv strings, e.g. `SATEXT_SOLVER="kissat|cryptominisat"`; the
+  solvers are raced and the first decisive answer wins (up to 8).
+  `nil`/`false` selects the built-in solver.
+- `SATEXT_PRT_MIN` — estimated CNF size in bytes below which a
+  portfolio collapses to its first solver (default 64 KiB).
+- `SATEXT_PRT_BUDGET_MS` — portfolio wall budget in ms per solve
+  (default 60000; `0` = no budget). On expiry the race is killed and
+  the built-in solver answers (unless `SATEXT_NO_FALLBACK` is set).
+- `SATEXT_NO_FALLBACK` — non-empty: when the external solver(s) answer
+  `unknown` (e.g. the wall budget elapsed) the built-in solver is
+  **not** run and the solve fails instead of answering from it; the
+  default is for the built-in solver to answer. It fails *without a
+  verdict* — that is not an `unsat` result (`c_satext_last_status`
+  reports 0).
+- `SATEXT_PRT_STATS` — non-empty: print a per-solve line to stderr
+  with each racer's wall time and the winner.
+- `SATEXT_SHIM` — path of the `satshim` helper, used to hand a large
+  formula to a solver via a file descriptor; default: next to the
+  `picat` binary.
+- `SATEXT_SHIM_MIN` — estimated CNF size in bytes above which the shim
+  path is used instead of a pipe (default 4 MiB).
+- `SATEXT_TMPDIR` — directory for generated CNF files (default:
+  `/dev/shm`, else `/tmp`).
+
+Usage notes: the comments of `lib/sat.pi` / `lib2/satext.pi` and
+`exs/satext/bench_satext.sh`; examples: `exs/satext/`.
+
+## 2. Picat in a browser — new folder `webasm/`
 
 A wasm32 (emscripten) build of the interpreter plus an
 editor-and-terminal web page: any Picat program runs in a browser tab,
@@ -20,7 +84,7 @@ cd webasm && make && make serve   # needs emsdk + a native build (lib2)
 Details (build, run loop, exclusions, example set):
 [webasm/README.md](webasm/README.md)
 
-## 2. Concurrency for native Picat — new modules `par`, `thread`, `pp`
+## 3. Concurrency for native Picat — new modules `par`, `thread`, `pp`
 
 - `import par.` — data-parallel aggregates over lists/arrays of
   64-bit integers (wrapping mod 2^64): `par_sum(X)=S`, `par_prod`,
@@ -40,30 +104,6 @@ The modules live in `lib2/`, so run with:
 `PICATPATH=<picat>/lib2 picat yourfile.pi`.
 Examples and the benchmark runner `bench_parallel.sh`:
 [exs/parallel/README.md](exs/parallel/README.md)
-
-## 3. External SAT solvers behind `import sat.` (satext)
-
-`solve`/`solve_all` can now be served by an external SAT solver
-(kissat, CaDiCaL, MiniSat, or any DIMACS/IPASIR solver — the protocol
-is detected automatically). Models come back exactly as with the
-built-in solver, so `solve_all`, `findall` and blocking of enumerated
-solutions work unchanged. How to use it:
-
-- program option: `solve([$solver(Spec)], Vars)`, or call
-  `bp.c_satext_set_solver(Spec)` (e.g. in `main`, before solving)
-- environment: `SATEXT_SOLVER="kissat -t 4"` — whitespace-separated
-  argv (first token = executable, resolved via PATH, the rest are
-  arbitrary solver arguments); a `@file` token makes Picat generate a
-  DIMACS file and pass its path; `nil`/`false` selects the built-in
-  solver; `SATEXT_SOLVER="kissat|cryptominisat"` runs a first-wins
-  portfolio over the listed solvers
-- `SATEXT_NO_FALLBACK=1` stops the chain to the built-in solver when
-  the external solver answers `unknown`
-- low level: `import satext.` — `satext.solve(Spec, Clauses, Status,
-  Model)`, `satext.cnf_info`, `satext.write_dimacs`
-
-Usage notes: the comments of `lib/sat.pi` / `lib2/satext.pi` and
-`exs/satext/bench_satext.sh`; examples: `exs/satext/`.
 
 ## 4. Picat syntax checker — new folder `lsp/`
 
