@@ -122,6 +122,40 @@
   }
   .caret { color: var(--dim); font-size: 11px; }
 
+  /* ---- link dialog ---------------------------------------------------- */
+  #linkdlg {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(4,7,12,0.66);
+  }
+  #linkdlg[hidden] { display: none; }
+  #linkdlg-box {
+    width: min(680px, calc(100vw - 40px));
+    background: var(--pane);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.55);
+    padding: 14px 16px 16px;
+  }
+  #linkdlg-box .pane-title { border: 0; background: none; }
+  #linkurl {
+    width: 100%;
+    font: 12.5px/1.4 var(--mono);
+    color: var(--text);
+    background: var(--pane2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    outline: none;
+    margin: 4px 0 12px;
+  }
+  #linkurl:focus { border-color: var(--accent); }
+  #linkdlg-btns { display: flex; justify-content: flex-end; gap: 8px; }
+
   /* ---- main split --------------------------------------------------- */
   main {
     flex: 1;
@@ -210,6 +244,7 @@
           <button type="button" id="open-file">Open file&hellip;</button>
           <button type="button" id="save-file">Save as file&hellip;</button>
           <button type="button" id="share-link">Share as link&hellip;</button>
+          <button type="button" id="load-link">Load from link&hellip;</button>
         </div>
       </div>
       <div class="pane-title grow" id="srcname">source</div>
@@ -230,6 +265,18 @@
 </footer>
 
 <input type="file" id="file-input" accept=".pi,.txt,text/plain" hidden>
+
+<div id="linkdlg" hidden>
+  <div id="linkdlg-box">
+    <div class="pane-title">load program from a link</div>
+    <input type="text" id="linkurl" spellcheck="false"
+           placeholder="the full share link (or just its program part)">
+    <div id="linkdlg-btns">
+      <button type="button" id="linkcancel">Cancel</button>
+      <button type="button" class="run" id="linkok">Load</button>
+    </div>
+  </div>
+</div>
 
 <script src="picat.js"></script>
 <script>
@@ -548,6 +595,50 @@ function applySharedLink() {
     setState('program loaded from share link');
   } catch (e) {
     setState('the share link does not contain a valid program', 'err');
+  }
+}
+
+/* ---- load-from-link dialog ---------------------------------------------- */
+/* A share link can be too long for some servers to accept as a request;
+   this path decodes one locally, so only an ordinary page load reaches
+   the server.  The field takes the full link (its program parameter is
+   extracted) or, for convenience, the bare encoded program text. */
+var linkdlg = $('linkdlg');
+function closeLinkDlg() { linkdlg.hidden = true; }
+$('load-link').addEventListener('click', function () {
+  $('linkurl').value = '';
+  linkdlg.hidden = false;
+  $('linkurl').select();
+});
+$('linkcancel').addEventListener('click', closeLinkDlg);
+linkdlg.addEventListener('click', function (e) {
+  if (e.target === linkdlg) closeLinkDlg();
+});
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape' && !linkdlg.hidden) closeLinkDlg();
+});
+$('linkok').addEventListener('click', loadFromLinkText);
+$('linkurl').addEventListener('keydown', function (e) {
+  if (e.key === 'Enter') loadFromLinkText();
+});
+function loadFromLinkText() {
+  var v = $('linkurl').value.trim();
+  if (!v) { closeLinkDlg(); return; }
+  var p = v, isUrl = false;
+  if (v.indexOf('://') >= 0 || v.charAt(0) === '/') {
+    isUrl = true;
+    var q = new URL(v, location.href).searchParams.get('program');
+    if (!q) { setState('that link has no program parameter', 'err'); return; }
+    p = q;
+  }
+  try {
+    editor.value = b64decode(p);
+    setSrcName();
+    closeLinkDlg();
+    setState('program loaded from link');
+  } catch (e) {
+    setState(isUrl ? 'the link does not contain a valid program'
+                   : 'that text is not a valid encoded program', 'err');
   }
 }
 
