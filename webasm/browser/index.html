@@ -283,11 +283,12 @@
 var M = null;
 var booted = false;
 var running = false;
-var runsOk = 0;  /* successful runs on the current module (exhaustion
-                   can only follow at least one successful run) */
-var vmTainted = false;  /* a run died at C level (exit(1)/trap): every
-                           later rerun on the same instance fails too,
-                           so the next run must take a fresh one */
+/* Every Run takes a fresh interpreter (startRun): a live instance
+   keeps its compiled modules, and $bp_first_call re-runs an existing
+   module user_code instead of a newly loaded module-less program —
+   so "hello, then the planner" would run hello twice.  A fresh
+   instance re-creates the FS from the preload image, i.e. exactly a
+   native `picat file` invocation. */
 var $ = function (id) { return document.getElementById(id); };
 var editor = $('editor'), terminal = $('terminal'),
     state = $('state'), lastrun = $('lastrun');
@@ -339,21 +340,21 @@ $('examples').addEventListener('change', loadExample);
 
 /* ---- run ------------------------------------------------------------ */
 /*
-  run()         -- one user Run: write /user_code.pi, boot if needed,
-                   execute, and report.  On a failure that looks like
-                   VM exhaustion (a heavy run left the interpreter in a
-                   broken state) it restarts the interpreter and
-                   retries once.
+  run()           -- one user Run: retarget the module line, defer to
+                     the next frame, then startRun.
+  startRun(code)  -- EVERY run takes a fresh interpreter (see the
+                     vmNote block above) and runs code on it, as one
+                     stage or as the two ASP stages.
   runAspStages  -- a program with embedded "asp ... end" blocks (aspic)
-                   runs in two stages: stage 1 runs aspic_prep (a
-                   pre-transpiler staged in the wasm CWD, "/"), which
-                   writes /user_code_final.pi plus /aspic_runtime.pi;
-                   stage 2 runs that result in a fresh interpreter
-                   (see below).  Ordinary programs run one stage.
-  doRun(code)   -- write the file and run it once, returning the result.
+                    runs in two stages: stage 1 runs aspic_prep (a
+                    pre-transpiler staged in the wasm CWD, "/"), which
+                    writes /user_code_final.pi plus /aspic_runtime.pi;
+                    stage 2 runs that result in another fresh
+                    interpreter.  Ordinary programs run one stage.
+  doRun(code)   -- write /user_code.pi and run it once, returning the
+                    result.
   freshInterpreter -- build a fresh wasm module (a clean "restart
-                   picat") and run a continuation on it.
-  restartAndRetry -- fresh interpreter + one more run of the same code.
+                    picat") and run a continuation on it.
   */
 /* The aspic block marker is a bare "asp" (lowercase -- uppercase is a
    variable in Picat) as the FINAL word of a line (",asp" before the
@@ -372,18 +373,18 @@ var ASPISTAGE1 =
   'main=>\n' +
   '  aspic_prep("/user_code_raw.pi","/","/user_code_final.pi","/aspic_runtime_template.pi","sat").\n';
 
-/* Drop the interpreter and build a fresh one (a clean "restart picat");
+/* Start a fresh interpreter instance (a clean "restart picat");
    cont(M) runs on the fresh instance. */
 function freshInterpreter(cont) {
-  setState('resetting interpreter…');
+  setState('starting a fresh interpreter…');
   M = null;            // drop the old module so its memory can be reclaimed
   booted = false;
   createModule().then(function () {
     cont(M);
   }).catch(function (e) {
     terminal.textContent = '';
-    appendOut('\ncannot restart the interpreter: ' + e);
-    finishRun({ rc: -1, failed: true, ms: 0 }, false);
+    appendOut('\ncannot start the interpreter: ' + e);
+    finishRun({ rc: -1, failed: true, ms: 0 });
   });
 }
 
@@ -392,21 +393,15 @@ function freshInterpreter(cont) {
    user_code module already compiled by stage 1 (the wrapper), so an
    in-place /user_code.pi overwrite would just re-execute the wrapper.
    A fresh interpreter also re-creates the FS from the preload image,
-   so the stage-1 outputs are carried over explicitly.  allowRetry
-   limits the VM-exhaustion retry to one extra full pass.  Reports via
+   so the stage-1 outputs are carried over explicitly.  Reports via
    finishRun (no return). */
-function runAspStages(code, allowRetry) {
+function runAspStages(code) {
   var t0 = performance.now();
   M.FS.writeFile('/user_code_raw.pi', code);
   var r1 = doRun(ASPISTAGE1);
   if (r1.failed || r1.rc !== 1) {
-    if (allowRetry && runsOk > 0 && r1.ms < 50) {
-      appendOut('\n[interpreter exhausted — resetting and retrying…]');
-      freshInterpreter(function () { runAspStages(code, false); });
-    } else {
-      appendOut('\n[asp pre-translation failed]');
-      finishRun(r1, false);
-    }
+    appendOut('\n[asp pre-translation failed]');
+    finishRun(r1);
     return;
   }
   var fin = M.FS.readFile('/user_code_final.pi', {encoding: 'utf8'})
@@ -419,7 +414,7 @@ function runAspStages(code, allowRetry) {
     if (runtime) M.FS.writeFile('/aspic_runtime.pi', runtime);
     var r2 = doRun(fin);
     r2.ms = Math.round(performance.now() - t0);
-    finishRun(r2, true);
+    finishRun(r2);
   });
 }
 
@@ -435,20 +430,18 @@ function doRun(code) {
     rc = M.ccall('browser_rerun', 'number');
   } catch (e) {
     /* picat calls exit(1) on uncaught errors; with NO_EXIT_RUNTIME the
-       runtime survives, but the interpreter instance is dead for all
-       later reruns — mark it so the next run takes a fresh one */
+       runtime survives.  The run is failed; the next Run takes a
+       fresh interpreter anyway (startRun), so a dead instance never
+       lingers. */
     failed = true;
-    vmTainted = true;
   }
   return { rc: rc, failed: failed, ms: Math.round(performance.now() - t0) };
 }
 
-function finishRun(res, restarted) {
-  appendOut('\n[finished in ' + res.ms + ' ms, status ' + res.rc +
-            (restarted ? '] (after interpreter reset)' : ']'));
+function finishRun(res) {
+  appendOut('\n[finished in ' + res.ms + ' ms, status ' + res.rc + ']');
   lastrun.textContent = 'last run: ' + res.ms + ' ms';
   var ok = res.rc === 1 && !res.failed;
-  if (ok) runsOk++;
   setState(ok ? 'idle — last run ok' : 'idle — last run failed',
            ok ? 'ok' : 'err');
   running = false;
@@ -485,57 +478,28 @@ function run() {
 }
 
 function startRun(code) {
+  /* Every Run takes a fresh interpreter: a live instance keeps its
+     compiled modules, and $bp_first_call re-runs an existing module
+     user_code in place of a newly loaded module-less program (so
+     "hello, then the planner" would run hello again).  A fresh
+     instance also re-creates the emulated FS from the preload image
+     and starts with a clean VM, so a Run behaves exactly like a
+     native `picat file` call. */
+  freshInterpreter(function () { startRunFresh(code); });
+}
+
+function startRunFresh(code) {
   try {
-    /* The previous run killed the interpreter instance (an uncaught
-       error exits at C level): any code, including a brand-new
-       example, would fail on a rerun of the dead instance.  Reset
-       before running anything. */
-    if (vmTainted) {
-      appendOut('\n[resetting the interpreter left dead by the last run…]');
-      freshInterpreter(function () { startRun(code); });
-      return;
-    }
-    /* ASP (aspic) code: run the two-stage flow; it manages the
-       interpreter (and its own exhaustion retry) and reports itself.
-       A repeat Run reboots first, so a heavy previous solve cannot
-       poison the stage-1 pass. */
     if (hasAspBlock(code)) {
-      if (booted) {
-        freshInterpreter(function () { runAspStages(code, true); });
-      } else {
-        runAspStages(code, true);
-      }
+      runAspStages(code);   // reports itself
       return;
     }
-    var res = doRun(code);
-    /* A heavy run (e.g. a large SAT solve) can leave the interpreter
-       exhausted: the next run then ends immediately with status 0 (or
-       traps) before doing any work.  That can only happen after earlier
-       runs succeeded on this module, so on such a failure we restart
-       the interpreter (a fresh module) and retry once.  The emulated
-       filesystem is re-created from the preload image, which already
-       contains every data file the examples need. */
-    if (runsOk > 0 && res.ms < 50 && (res.failed || res.rc !== 1)) {
-      appendOut('\n[interpreter exhausted — resetting and retrying…]');
-      restartAndRetry(code);
-    } else {
-      finishRun(res, false);
-    }
+    finishRun(doRun(code));
   } catch (e) {
     /* e.g. a failed FS write: never leave the button stuck disabled */
     appendOut('\ninternal error: ' + e);
-    finishRun({ rc: -1, failed: true, ms: 0 }, false);
+    finishRun({ rc: -1, failed: true, ms: 0 });
   }
-}
-
-function restartAndRetry(code) {
-  freshInterpreter(function () {
-    if (hasAspBlock(code)) {
-      runAspStages(code, false);    // reports itself
-    } else {
-      finishRun(doRun(code), true);
-    }
-  });
 }
 $('run').addEventListener('click', run);
 
@@ -669,8 +633,6 @@ function createModule() {
   }).then(function (mod) {
     M = mod;
     booted = false;
-    runsOk = 0;        // a fresh module can't be exhausted yet
-    vmTainted = false; // and it is not tainted either
     return mod;
   });
 }
