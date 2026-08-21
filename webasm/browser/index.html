@@ -293,10 +293,83 @@ $('examples').addEventListener('change', loadExample);
                    VM exhaustion (a heavy run left the interpreter in a
                    broken state) it restarts the interpreter and
                    retries once.
+  runAspStages  -- a program with embedded "asp ... end" blocks (aspic)
+                   runs in two stages: stage 1 runs aspic_prep (a
+                   pre-transpiler staged in the wasm CWD, "/"), which
+                   writes /user_code_final.pi plus /aspic_runtime.pi;
+                   stage 2 runs that result in a fresh interpreter
+                   (see below).  Ordinary programs run one stage.
   doRun(code)   -- write the file and run it once, returning the result.
-  restartAndRetry -- build a fresh wasm module (a clean "restart picat")
-                   and run the same code once more.
- */
+  freshInterpreter -- build a fresh wasm module (a clean "restart
+                   picat") and run a continuation on it.
+  restartAndRetry -- fresh interpreter + one more run of the same code.
+  */
+/* A standalone word "asp" (lowercase -- uppercase is a variable in
+   Picat) marks an aspic block; aspic_prep itself reports clearly when
+   the block is not closed. */
+function hasAspBlock(code) {
+  return /(^|[^A-Za-z0-9_])asp(?:$|[^A-Za-z0-9_])/.test(code);
+}
+/* Stage-1 driver: runs as /user_code.pi, calls the aspic pre-transpiler
+   with the fixed web-FS paths.  The call must stay on one line
+   (multi-line call arg lists do not parse in goal position). */
+var ASPISTAGE1 =
+  'module user_code.\n' +
+  'import aspic_prep.\n' +
+  'main=>\n' +
+  '  aspic_prep("/user_code_raw.pi","/","/user_code_final.pi","/aspic_runtime_template.pi","sat").\n';
+
+/* Drop the interpreter and build a fresh one (a clean "restart picat");
+   cont(M) runs on the fresh instance. */
+function freshInterpreter(cont) {
+  setState('resetting interpreter…');
+  M = null;            // drop the old module so its memory can be reclaimed
+  booted = false;
+  createModule().then(function () {
+    cont(M);
+  }).catch(function (e) {
+    terminal.textContent = '';
+    appendOut('\ncannot restart the interpreter: ' + e);
+    finishRun({ rc: -1, failed: true, ms: 0 }, false);
+  });
+}
+
+/* The two-stage ASP (aspic) run, on the current interpreter.
+   Stage 2 MUST run in a fresh interpreter: $bp_first_call reuses the
+   user_code module already compiled by stage 1 (the wrapper), so an
+   in-place /user_code.pi overwrite would just re-execute the wrapper.
+   A fresh interpreter also re-creates the FS from the preload image,
+   so the stage-1 outputs are carried over explicitly.  allowRetry
+   limits the VM-exhaustion retry to one extra full pass.  Reports via
+   finishRun (no return). */
+function runAspStages(code, allowRetry) {
+  var t0 = performance.now();
+  M.FS.writeFile('/user_code_raw.pi', code);
+  var r1 = doRun(ASPISTAGE1);
+  if (r1.failed || r1.rc !== 1) {
+    if (allowRetry && runsOk > 0 && r1.ms < 50) {
+      appendOut('\n[interpreter exhausted — resetting and retrying…]');
+      freshInterpreter(function () { runAspStages(code, false); });
+    } else {
+      appendOut('\n[asp pre-translation failed]');
+      finishRun(r1, false);
+    }
+    return;
+  }
+  var fin = M.FS.readFile('/user_code_final.pi', {encoding: 'utf8'})
+    .replace(/^\s*module\s+[A-Za-z_]\w*\s*\./m, 'module user_code.');
+  var runtime = null;
+  try { runtime = M.FS.readFile('/aspic_runtime.pi', {encoding: 'utf8'}); }
+  catch (e) {}
+  setState('compiled the ASP program — running…');
+  freshInterpreter(function () {
+    if (runtime) M.FS.writeFile('/aspic_runtime.pi', runtime);
+    var r2 = doRun(fin);
+    r2.ms = Math.round(performance.now() - t0);
+    finishRun(r2, true);
+  });
+}
+
 function doRun(code) {
   var t0 = performance.now();
   M.FS.writeFile('/user_code.pi', code);
@@ -358,6 +431,18 @@ function run() {
 
 function startRun(code) {
   try {
+    /* ASP (aspic) code: run the two-stage flow; it manages the
+       interpreter (and its own exhaustion retry) and reports itself.
+       A repeat Run reboots first, so a heavy previous solve cannot
+       poison the stage-1 pass. */
+    if (hasAspBlock(code)) {
+      if (booted) {
+        freshInterpreter(function () { runAspStages(code, true); });
+      } else {
+        runAspStages(code, true);
+      }
+      return;
+    }
     var res = doRun(code);
     /* A heavy run (e.g. a large SAT solve) can leave the interpreter
        exhausted: the next run then ends immediately with status 0 (or
@@ -380,15 +465,12 @@ function startRun(code) {
 }
 
 function restartAndRetry(code) {
-  setState('resetting interpreter…');
-  M = null;            // drop the old module so its memory can be reclaimed
-  booted = false;
-  createModule().then(function () {
-    finishRun(doRun(code), true);
-  }).catch(function (e) {
-    terminal.textContent = '';
-    appendOut('\ncannot restart the interpreter: ' + e);
-    finishRun({ rc: -1, failed: true, ms: 0 }, true);
+  freshInterpreter(function () {
+    if (hasAspBlock(code)) {
+      runAspStages(code, false);    // reports itself
+    } else {
+      finishRun(doRun(code), true);
+    }
   });
 }
 $('run').addEventListener('click', run);

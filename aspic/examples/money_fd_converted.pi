@@ -1,0 +1,25 @@
+import sat.
+import aspic_runtime.
+main=>main(["sat"]).
+main([ASPIC_SEARCH])=>ASPIC_SEARCH:=ASPIC_SEARCH.to_atom(),
+aspic_startlearning(),
+aspic_holds(aspic_impl(cond((S=fd(s,4),E=fd(e,4),N=fd(n,4),D=fd(d,4),M=fd(m,4),O=fd(o,4),R=fd(r,4),Y=fd(y,4),[E,N,D,O,R,Y]::0..9,[S,M]::1..9,(1000*S+100*E+10*N+D)+(1000*M+100*O+10*R+E)#=(10000*M+1000*O+100*N+10*E+Y),all_different([S,E,N,D,M,O,R,Y])),1,1),aspic_var(main)))
+,
+aspic_stoplearning(),
+aspic_stoplearning(),
+H=get_heap_map(aspic_atoms),
+foreach(ASPIC_ATOM in H.keys())
+if(not aspic_isfdvariable(ASPIC_ATOM))
+L=[]
+++[cond((S=fd(s,4),E=fd(e,4),N=fd(n,4),D=fd(d,4),M=fd(m,4),O=fd(o,4),R=fd(r,4),Y=fd(y,4),[E,N,D,O,R,Y]::0..9,[S,M]::1..9,(1000*S+100*E+10*N+D)+(1000*M+100*O+10*R+E)#=(10000*M+1000*O+100*N+10*E+Y),all_different([S,E,N,D,M,O,R,Y])),1,1):_ in 1..1,ASPIC_ATOM=$main]
+,L2=aspic_disj(L)
+,if(not(L2==1)) then
+aspic_holds(aspic_impl(H.get(ASPIC_ATOM),aspic_disj(L))),
+end
+end
+end,
+aspic_solve(ASPIC_SEARCH)
+, % interpret the FD variables from the atoms in the solution
+S=fd(s,4),E=fd(e,4),N=fd(n,4),D=fd(d,4),M=fd(m,4),O=fd(o,4),R=fd(r,4),Y=fd(y,4),
+println(decoded=[S,E,N,D,M,O,R,Y])
+.

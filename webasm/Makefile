@@ -131,16 +131,31 @@ DATA_SRC := \
   ../exs/nn/author_classify/processed_melville3.txt
 DATA_PRELOADS := $(foreach s,$(DATA_SRC),--preload-file $(s)@/$(notdir $(s)))
 
+# The aspic (embedded ASP) tools land at the filesystem root: the
+# browser's two-stage flow runs stage 1 as a wrapper module that
+# imports aspic_prep (which imports aspic_gen), both compiled from
+# source at runtime, and the runtime produced from the template is
+# imported by the stage-2 program.  All of them must be in the wasm
+# CWD "/": this build searches module sources in the CWD and in the
+# importing module's directory (not in /lib2).
+ASPICTOOLS := ../aspic/aspic_prep.pi ../aspic/aspic_gen.pi \
+              ../aspic/aspic_runtime_template.pi
+ASPIC_PRELOADS := \
+  --preload-file ../aspic/aspic_prep.pi@/aspic_prep.pi \
+  --preload-file ../aspic/aspic_gen.pi@/aspic_gen.pi \
+  --preload-file ../aspic/aspic_runtime_template.pi@/aspic_runtime_template.pi
+
 EMFLAGS := -sMODULARIZE=1 -sEXPORT_NAME=PicatWasm \
-           -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=16777216 \
-           -sNO_EXIT_RUNTIME=1 \
-           -sINVOKE_RUN=0 \
-           -sEXPORTED_FUNCTIONS='["_browser_boot","_browser_rerun"]' \
-           -sEXPORTED_RUNTIME_METHODS='["FS","ccall"]' \
-           --preload-file $(LIB2)@/lib2 \
-           --preload-file examples@/examples \
-           $(DATA_PRELOADS) \
-           -lc++ -lc++abi
+            -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=16777216 \
+            -sNO_EXIT_RUNTIME=1 \
+            -sINVOKE_RUN=0 \
+            -sEXPORTED_FUNCTIONS='["_browser_boot","_browser_rerun"]' \
+            -sEXPORTED_RUNTIME_METHODS='["FS","ccall"]' \
+            --preload-file $(LIB2)@/lib2 \
+            --preload-file examples@/examples \
+            $(ASPIC_PRELOADS) \
+            $(DATA_PRELOADS) \
+            -lc++ -lc++abi
 
 OBJS := $(STAGE_C:$(STAGE)/%.c=$(STAGE)/%.o) $(STAGE_E:$(STAGE)/%.c=$(STAGE)/%.o) \
         $(STAGE_F:$(STAGE)/%.c=$(STAGE)/%.o) $(FANN_CPP_O) $(GLUE_O) $(STAGE_K_O)
@@ -196,7 +211,7 @@ $(STAGE)/kissat/kis_%.o: $(STAGE)/kissat/src/%.c
 
 # ---- link -------------------------------------------------------------
 $(DIST)/picat.js: $(STAGE)/stamp $(OBJS) browser/index.html \
-                  $(wildcard examples/*) $(DATA_SRC)
+                  $(wildcard examples/*) $(DATA_SRC) $(ASPICTOOLS)
 	mkdir -p $(DIST)
 	$(EMCC) $(CFLAGS) $(OBJS) $(EMFLAGS) -o $@
 	cp browser/index.html $(DIST)/

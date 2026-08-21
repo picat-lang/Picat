@@ -1,0 +1,12 @@
+% to run: picat picasp.pi examples/asp_embedded_in_picat.pi %sat
+% or:   picat picasp.pi cp examples/asp_embedded_in_picat.pi %cp
+#define DIM 8
+import aspic_runtime.
+main=>println("testing ASP embedded in Picat!"),asp
+#const n=DIM.
+{a(X):X=1..n}=1.
+end,
+Y=a(3),Y#=0, % a constraint enforced in Picat
+aspic_solve_sub(ASPIC_OPT_1),
+println([a(X):X in 1.. DIM]),fail;true.
+

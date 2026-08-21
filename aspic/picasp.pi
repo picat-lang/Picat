@@ -1,0 +1,9 @@
+import sys.
+import util.
+main([H|T]),H.reverse()="ip." ++ _ =>main(["sat",H|T]).
+main(ARGS)=>
+println("picasp v0.1")
+,_=command("cpp -P -x assembler-with-cpp -undef "++ARGS.tail.join()++" >t0.pi")
+,_=command("./picasp_preprocessor.py "++ARGS.head++" t0.pi >t.pi")
+,_=command("picat -log -s 1234567890 t.pi 2>&1")
+.

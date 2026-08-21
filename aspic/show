@@ -1,0 +1,45 @@
+#!/usr/bin/env python3
+import sys
+import re
+
+def main():
+    if len(sys.argv) != 2:
+        print("Usage: show.py functor/arity", file=sys.stderr)
+        sys.exit(1)
+
+    spec = sys.argv[1]
+    # if '/' not in spec:
+    #     print("Error: argument must be of the form functor/arity (e.g., color/2)", file=sys.stderr)
+    #     sys.exit(1)
+
+    try:
+        functor, arity_str = spec.split('/', 1)
+        arity = int(arity_str)
+    except ValueError:
+#        print("Error: arity must be an integer", file=sys.stderr)
+#        sys.exit(1)
+        arity=-1
+        functor=spec
+
+    for text in sys.stdin:
+
+        # Match functor(args...)
+        pattern = re.compile(r'\b' + re.escape(functor) + r'\(([^()]*)\)')
+
+        terms = []
+        for m in pattern.finditer(text):
+            args_str = m.group(1)
+            if args_str.strip() == "":
+                n_args = 0
+            else:
+                n_args = len([a for a in args_str.split(',') if a.strip() != ""])
+            if arity==-1 or n_args == arity:
+                terms.append(m.group(0))
+
+        for term in sorted(terms):
+            print(term)
+        print("-----------------------------------")
+
+if __name__ == "__main__":
+    main()
+    

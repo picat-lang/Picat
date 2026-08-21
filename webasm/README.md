@@ -71,7 +71,42 @@ terminal then shows `[interpreter exhausted — resetting and
 retrying…]` and the finish line gains an
 `(after interpreter reset)` note.
 
-The 100 packed examples (`examples/`) came from the repository's
+### Embedded ASP (aspic) programs
+
+Programs that mix Picat with embedded `asp ... end` blocks (the
+[aspic](../aspic/) ASP language: `#const`, intensional set
+aggregations, `#show`) run in the browser with zero external programs.
+Detection is automatic: a Run whose editor text contains a standalone
+lowercase word `asp` takes the two-stage path (ordinary programs keep
+the single stage):
+
+1. **stage 1** — the page stages the pre-transpiler
+   (`../aspic/aspic_prep.pi` + `../aspic/aspic_gen.pi` are preloaded at
+   the FS root, where this build searches module sources) as
+   `/user_code_raw.pi` + a one-line wrapper in `/user_code.pi` that
+   calls `aspic_prep/5`.  The driver substitutes `#define` lines,
+   extracts each block, transpiles it in-process (the same generator
+   the native `picasp` flow uses, without forking picat/cpp/python/
+   sed), splices the generated `aspic_N(ASPIC_OPT_N)` predicates and
+   the constraint-library import after the last `import`, and writes
+   `/user_code_final.pi` plus `/aspic_runtime.pi` (from the
+   preloaded template).
+2. **stage 2** — the generated program runs in a **fresh
+   interpreter**: `$bp_first_call` in one interpreter reuses the
+   already-compiled `user_code` module (the stage-1 wrapper), so the
+   page re-creates the module between stages (the same mechanism as
+   the exhaustion reset) and carries the stage-1 outputs over, since a
+   fresh instance re-creates the FS from the preload image.
+
+`asp_queens.pi` in `examples/` is the embedded-ASP 8-queens
+(`#define DIM 8`).  Headless proof: `node headless/run_asp_pi.js
+examples/asp_queens.pi` (mirrors the page; prints the two-stage
+timings, exit 0 on a clean end).  The native equivalent of the whole
+flow, for comparison: `cd aspic && picat aspic_prep.pi pre
+examples/asp_embedded_in_picat-queens.pi . out.pi
+aspic_runtime_template.pi sat && picat out.pi`.
+
+The 101 packed examples (`examples/`) came from the repository's
 `exs/` collection, renamed with their folder as prefix
 (`cp_kakuro.pi`, `sat_bqueens.pi`, `planner_sokoban.pi`,
 `euler_p1.pi`, `nn_spam_test.pi`, ...). Every candidate was tested on
@@ -83,7 +118,7 @@ the file-reading examples are listed in `DATA_SRC` in the Makefile and
 preloaded at the root of the virtual FS, because the programs open
 them with relative names and the wasm CWD is `/`.
 
-Verified headlessly under node (same calls the page makes): all 100
+Verified headlessly under node (same calls the page makes): all 101
 preloaded examples run to a clean end (status 1) and match the native
 output; the runtime survives a program with a syntax error and keeps
 running afterwards. Repeating the heavy SAT examples (e.g. running

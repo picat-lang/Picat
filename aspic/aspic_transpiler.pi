@@ -1,0 +1,643 @@
+import util.
+import sat.
+import sys.
+
+d(X).
+%d(X)=>println(stdout,X).
+%d(X)=>writeln(stdout,X).
+dr(X)=>println(stdout,constraint=X.show).
+
+pp(A)=>foreach(X in A) println(stdout,X) end,println(stdout,-----------------------------------).
+
+logprod([])=Z=>Z#=1.
+logprod([X])=Z=>Z#=X.
+logprod([H|T])=Z=>if(H==0) then Z=0 else if(H==1) then Z=logprod(T) else T2=logprod(T),Z#=(H#/\T2) end end.
+
+%variable associated to ASP atom X (can be a functor)
+aspvar(X)=Y=>
+M=get_heap_map(asp_atoms)
+% ,println(keys=M.keys)
+,if(M.has_key(X))
+% d(found=X),
+Y=M.get(X)
+else
+% d(notfound=X),
+Z::0..1
+,Y=Z
+,M.put(X,Y)
+end
+% ,d(Y)
+% ,d(vals=M.values())
+.
+
+uniquevarname()=Y=>
+H=get_heap_map(asp_counter),
+N=H.get(varnum,0),
+N2=N+1,
+H.put(varnum,N2),
+Y=("ARANGE"++N2.to_string()).to_atom().
+
+noanon(X)=cond(X=="_",uniquevarname().to_string(),X).
+elimws([],_)=[].
+elimws(['&'|L],N)=['&'|elimws(L,1-N)].
+elimws([' '|L],0)=elimws(L,0).
+elimws([H|T],N)=[H|elimws(T,N)].
+elimws(L)=elimws(L,0).
+
+universe=L=>M=get_heap_map(asp_atoms),L=[Z:K in M.keys,K=$f(_,Y),Z in Y].remove_dups.
+
+allvariants([])=[[]].
+allvariants(T)=R,functor(T,_,0)=>R=[T].
+allvariants(options(L))=R=>R=[X[1]:X in L].
+%allvariants(range(A,B))=R=>R=A.to_int..B.to_int.
+allvariants([H|T])=R,H1=allvariants(H),T1=allvariants(T)=>R=[[X|Y]:X in H1, Y in T1].
+allvariants([H|T])=R=>R1=allvariants(T),R=[[H|Y]: Y in R1].
+allvariants(T)=R,T=..[F,$options(L)]=>R=[Z:X in L,Y in allvariants(X),Z=..[F|Y]].
+allvariants(T)=R,T=..[F|L]=>R=[Y: X in allvariants(L),Y=..[F|X]].
+
+joindomains([],X)=R=>R=X.
+joindomains(X,[])=R=>R=X.
+joindomains(X,Y)=R=>d(joindomains=(X,Y)),R=X.
+
+
+getdetvars(T)=R,functor(T,$set,_)=>R=[]. %stop at $set
+getdetvars(T)=R,functor(T,$valset,_)=>R=[]. %stop at $valset
+getdetvars(T)=R,functor(T,_,0)=>R=[].
+getdetvars(T)=R,T=$aspic_eq($var(X,_),_)=>R=[X].
+getdetvars(T)=R,T=$var(Z,D)=>R=[].
+getdetvars(T)=R,T=..L=>R=[Z:X in L,Y=getdetvars(X),Z in Y].
+
+getvars(T)=R,functor(T,$set,_)=>R=[]. %stop at $set
+getvars(T)=R,functor(T,$valset,_)=>R=[]. %stop at $valset
+getvars(T)=R,functor(T,_,0)=>R=[].
+getvars(T)=R,T=$aspic_eq($var(X,[]),$var(_,$range(A,B)))=>R=[[X,$range(A,B)]].
+getvars(T)=R,T=$var(Z,D)=>R=[[Z,D]].
+getvars(T)=R,T=..L=>F=L[1],N=L.len-1,H=get_heap_map(aspic_ranges),R=[Y:I in 2..L.len,X=L[I],Y in getvars2(X,H.get((F,N,I-1),[]))].remove_dups.
+getvars2(T,P)=R,T=$var(Z,D)=>R=[[Z,joindomains(D,P)]].
+getvars2(T,_)=R=>R=getvars(T).
+
+%getsetvars(T)=R,functor(T,$set,_)=>T=..L,R=[Y:X in tail(L),Y in getvars(X)].remove_dups.compactvars.
+getsetvars(T)=R=>T=..L,R=[Y:X in tail(L),Y in getvars(X)].remove_dups.compactvars.
+
+replacevars(V,A,T)=R=>foreach(I in 1..V.len),S=..[$var|V[I]],T:=replace(T,S,A[I]),T:=replace(T,$var(V[I,1],[]),A[I]),end,R=T. %,pp({v=V,a=A,t=T,r=R}).
+adddomaintovars(V,T)=R=>foreach(I in 1..V.len),V[I]=$var(X,D),T:=replace(T,$var(X,[]),V[I]),end,R=T.
+
+compactvars(VI,V)=R=>L=adddomaintovars(VI,[$var(K,P):X in V,X=[K,P]]).remove_dups()
+,R=[[K,P]:X in L,X=$var(K,P)].
+compactvars(V)=compactvars([$var(A1,B1):C1 in V,C1=[A1,B1],B1!=[]],V).
+
+
+show(A)=X,A=$f(H,T)=>H2=H,X=..[H2|T].
+show(A)=X,atom(A)=>X=A.
+show(X)=X.
+
+replaceaggregates(T)=R,T=$aspic_agval(Op,Rest)=>R="aspic_"++Op.to_string()++Rest.
+replaceaggregates(T)=R,functor(T,_,0)=>R=T.
+replaceaggregates(T)=R,T=..L=>R=..[replaceaggregates(X):X in L].
+
+
+replacesetmini(T)=R,functor(T,$valset,_)
+=>
+d(rsmini=T),
+V=getsetvars(T).compactvars
+%,d(setvarsmini=V)
+,T2=replacevars(V,[X[1]:X in V],T),T2=..[_|L]
+,d(t2=T2)
+,d(l=L)
+,d(l11=L[1,1])
+,R="([ASPIC_OPTCOND3:" ++ join([X[1].to_string()++" in "++cond(X[2]=[],"universe()",showrange(X[2])):X in V],',')
+++cond(V!=[],"","_ in 1..1")
+++",ASPIC_OPTCOND1="++L[2].to_string()++",ASPIC_OPTCOND2#=ASPIC_OPTCOND1,ASPIC_AGVAL1= "++L[1,1].to_string()++",ASPIC_AGVAL2#=ASPIC_AGVAL1,ASPIC_OPTCOND3#=cond(ASPIC_OPTCOND2,ASPIC_AGVAL2,0)])"
+,d(r=R)
+,d(rsmini_done_for=T)
+.
+replacesetmini(T)=R,functor(T,_,0)=>R=T.
+replacesetmini(T)=R,T=..L=>R=..[replacesetmini(X):X in L].
+
+replaceset(T)=R,functor(T,$set,_)
+=>V=getsetvars(T).compactvars
+,d(setvars=V)
+,T2=replacevars(V,[X[1]:X in V],T),T2=..[_|L]
+,R="["++ (aspic_conj(L)).aspic_simplify.to_string() ++ cond(V!=[],":" ++ join([X[1].to_string()++" in "++cond(X[2]=[],"universe()",showrange(X[2])):X in V],','),"") ++ "]".
+replaceset(T)=R,functor(T,_,0)=>R=T.
+replaceset(T)=R,T=..L=>R=..[replaceset(X):X in L].
+
+replacesetsym(T)=R,functor(T,$set,_)
+=>
+%d(replacesetsym_in=T),
+V=getsetvars(T).compactvars
+,d(setvarssym=V)
+,T2=replacevars(V,[X[1]:X in V],T),T2=..[_|L]
+,R=[(aspic_conj(L)),V].
+%.to_string() ++ cond(V!=[],":" ++ join([X[1].to_string()++" in "++cond(X[2]=[],"universe()",showrange(X[2])):X in V],','),"") ++ "]".
+replacesetsym(T)=R,functor(T,_,0)=>R=[T,[]].
+replacesetsym(T)=R,T=..L
+=>
+R2=[R1:X in L,R1=replacesetsym(X)],R3=..[X[1]:X in R2],V3=[Y:X in R2,Y in X[2]]
+,R=[R3,V3].
+
+printxvars(N)=>
+foreach(I in 1..N)
+if(I>1) then
+print(stderr,",")
+end
+,print(stderr,"X"++I.to_string)
+end.
+
+
+showrange(range(A,B))=A.to_string()++".."++B.to_string().
+
+%varsdomaininit(T,_,_,_)?=>writeln(t=T),fail.
+varsdomaininit(T,Y,C,D),T=$aspic_eq($var(X,[]),$var(_,$range(A,B)))=>Y=1,D=[$var(X,$range(A,B))|C].
+varsdomaininit(T,Y,C,D),functor(T,_,0)=>Y=T,D=C.
+varsdomaininit([],Y,C,D)=>Y=[],D=C.
+varsdomaininit([H|T],Y,C,D),varsdomaininit(H,H2,C,C2),varsdomaininit(T,T2,C2,C3)=>Y=[H2|T2],D=C3.
+varsdomaininit(T,Y,C,D),T=..L=>varsdomaininit(L,L2,C,D),Y=..L2.
+
+aspic_simplify([])=R=>R=[].
+aspic_simplify(X)=R,X=$aspic_impl(A,B)=>A2=A.aspic_simplify,B2=B.aspic_simplify,R=aspic_impl(A2,B2).
+aspic_simplify(X)=R,X=$aspic_conj(L)=>L2=L.map(aspic_simplify),R=aspic_conj(L2).
+aspic_simplify(X)=R,X=$aspic_disj(L)=>L2=L.map(aspic_simplify),R=aspic_disj(L2).
+aspic_simplify([H|T])=R=>R=[H|T].map(aspic_simplify).
+aspic_simplify(X)=R=>R=X.
+
+% aspic_render([])=R=>R=[].
+% aspic_render([H|T])=R=>H1=aspic_render(H),T1=aspic_render(T),R=[H1|T1].
+% aspic_render(F)=R,atom(F)=>R=F.to_string().
+% aspic_render(F)=R,number(F)=>R=F.to_string().
+% aspic_render(A)=R,A=..L=>L2=aspic_render(L),R=L2[1]++"("++L2[2..L2.len].join(",")++")".
+
+% learnranges(T,V),T=$aspic_impl(A,B)=>learnranges(B,V).
+% learnranges(T,V),T=$aspic_equiv(A,B)=>true.
+learnranges(T0,V),CH=getaspcompletionhead(T0),T:=CH[1],d(learnranges=T0),d(ch=T),functor(T,F,N),N>0=>
+d(learn_for=F)
+,T=..L
+,K=0
+,H=get_heap_map(aspic_ranges)
+,foreach(W in tail(L))
+K:=K+1
+,foreach([W,R]in V,atom(W))
+d((F,K)=R)
+,H.put((F,N,K),R)
+end
+end
+.
+learnranges(T,V)=>d(learnranges_warning=T).
+
+%+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+translate_rules(T,Phase)=>
+NR:=0
+,foreach(L0 in T,L0=[L,Orig],L2 in allvariants(L))
+NR:=NR+1
+,if(Phase==1,not(functor(L2,$aspic_not,_));Phase==2,functor(L2,$aspic_not,_))
+d(orig=Orig),
+println(stderr,"% {"++NR.to_string()++"}\t"++Orig),
+%println(stderr,"d(\""++Orig++"\"),"),
+println(stderr,"d(\""++"{"++NR.to_string()++"}\t"++L.to_string()++"\"),"),
+V=getvars(L2).compactvars
+,d(v=V)
+,DV=getdetvars(L2).remove_dups
+,d(dv=DV)
+,varsdomaininit(L2,L2B,[$var(A1,B1):C1 in V,C1=[A1,B1],B1!=[]],VI)
+,d({l2b=L2B,vi=VI})
+,V:=compactvars(VI,V)
+,d(v=V)
+,L2:=adddomaintovars(VI,L2B)
+%,d(vi=VI)
+%,d(vars=V)
+%,println(stderr,"foreach(_ in 1..1)")
+%,V:=[V2:V2 in V,not(member(V2[1],DV))]
+,if(V=[]) then
+%d(l2=L2),
+println(stderr,"aspic_holds("++replaceset(L2.replacesetmini.replaceaggregates).aspic_simplify.to_string()++")")
+,println(stderr,",")
+else
+d(l2x=L2)
+,L3=replacevars(V,[X[1]:X in V],L2).aspic_simplify
+,d(v=V)
+,learnranges(L3,V)
+,d(l3=L3)
+,L4=replaceset(L3.replacesetmini.replaceaggregates)
+,d(l4=L4)
+,L4:=L4.to_string()
+,d({v=V,dv=DV})
+,println(stderr,"_=[aspic_fholds("++L4++"):")
+,println(stderr,[V2[1].to_string()++" in "++cond(V2[2]==[],"universe()",showrange(V2[2])):V2 in V].join(','))
+,println(stderr,"],")
+
+% foreach(V2 in V)
+% println(stderr,"foreach("++V2[1].to_string()++" in "++cond(V2[2]==[],"universe()",showrange(V2[2]))++")")
+% end
+% ,L3=replacevars(V,[X[1]:X in V],L2).aspic_simplify
+% ,d(v=V)
+% ,learnranges(L3,V)
+% ,d(l3=L3)
+% ,L4=replaceset(L3.replacesetmini.replaceaggregates)
+% ,d(l4=L4)
+% ,L4:=L4.to_string()
+% ,println(stderr,"aspic_holds("++L4++"),")
+% ,foreach(V2 in V)
+% println(stderr,"end")
+% end
+% ,println(stderr,",")
+
+
+end
+end
+end
+.
+
+getaspcompletionhead(Y)=R,Y=$aspic_var(X)=>R=[X,[]].
+getaspcompletionhead(Y)=R,Y=$aspic_impl(_,H)=>R=getaspcompletionhead(H).
+getaspcompletionhead(Y)=R,Y=[X|_]=>d(y=Y),R=getaspcompletionhead(X).
+getaspcompletionhead(Y)=R,Y=$aspic_card(X)=>R=getaspcompletionhead(X).
+%getaspcompletionhead(Y)=R,Y=$aspic_card(X,_,_)=>R=[].
+getaspcompletionhead(Y)=R,Y=$aspic_card(X,_,_)=>R=getaspcompletionhead(X). 
+getaspcompletionhead(Y)=R,Y=$set(X)=>R=getaspcompletionhead(X).
+getaspcompletionhead(Y)=R,Y=$set(X1,X2)=>[R1,L1]=getaspcompletionhead(X1),R=[R1,[X2|L1]].
+getaspcompletionhead(X)=R=>d(notdefined_getaspcompletionhead_for=X),R=[X,[]].
+
+
+%-------------------------------------------------------------------------------
+translate_completion(T)=>
+%T:=[X:X in T,X=$aspic_impl(_,_)]
+println(stderr,"aspic_stoplearning(),")
+,println(stderr,"H=get_heap_map(aspic_atoms),M2=get_heap_map(aspic_asserted),\nforeach(ASPIC_ATOM in H.keys())\nif(not aspic_isfdvariable(ASPIC_ATOM),not(M2.has_key(ASPIC_ATOM)))")
+,println(stderr,"L=[]")
+,foreach(L0 in T,L0=[L,Orig],L2 in allvariants(L))
+d(orig=L)
+,V=getvars(L2).compactvars
+,varsdomaininit(L2,L2B,[],VI)
+,L2C=adddomaintovars(VI,L2B)
+,L2:=L2C
+,d(vi=VI)
+,d(vars=V)
+,if(L2!=$aspic_impl(_,_),L2!=$aspic_not(_))
+L2:=$aspic_impl(1,L2)
+end
+,if(L2=$aspic_impl(B,H)) then
+%println(stderr,"%completion "++Orig)
+d(l2=L2)
+,d(h=H)
+,L2:=$aspic_impl($set(B),H)
+,d(l2=L2)
+,V:=getvars(L2).compactvars
+,d(v=V)
+,L3=replacevars(V,[X[1]:X in V],L2)
+%,L3=L2
+,d(l3=L3)
+,L3=$aspic_impl(_,H2)
+,[L4,V4]=replacesetsym(L3)
+,L4:=L4.replacesetmini.replaceaggregates
+%,d({l4=L4,v4=V4})
+,L4=$aspic_impl(B2,_)
+%,L4:=aspic_disj(B2)
+%,d(b2=B2)
+%,d(h2=H2)
+,H2C=getaspcompletionhead(H2)
+,d(h2c=H2C)
+,V3=getvars(H2C).compactvars
+,d(v3=V3)
+,H2C:=replacevars(V3,[X[1]:X in V3],H2C)
+,d(h2c_again=H2C)
+,H2C=[H3,C3]
+,d({h3=H3,c3=C3,b2=B2})
+,H3=..[H3H|LA]
+,NLA=[cond(NF>0,uniquevarname(),CA):CA in LA,functor(CA,_,NF)]
+,NLAS=[$aspic_eq(NLA[IXV],LA[IXV]):IXV in 1..LA.len,NLA[IXV]!==LA[IXV]]
+,L4:=aspic_disj([aspic_conj(NLAS++[B2]++C3)])
+,H3NLA=..[H3H|NLA]
+,d(l4=L4)
+,d(h3nla=H3NLA)
+,print(stderr,"++["++L4.aspic_simplify.to_string()++":_ in 1..1,ASPIC_ATOM=$"++H3NLA.to_string())
+,foreach(V2 in V4)
+print(stderr,","++V2[1].to_string()++" in "++cond(V2[2]==[],"universe()",showrange(V2[2])))
+end
+,println(stderr,"]")
+end
+end
+,println(stderr,",L2=aspic_disj(L)")
+,println(stderr,",if(not(L2==1)) then")
+,println(stderr,"aspic_holds(aspic_impl(H.get(ASPIC_ATOM),aspic_disj(L))),")
+%,println(stderr,"d({atom=ASPIC_ATOM,l=L,l2=L2}),")
+,println(stderr,"end")
+,println(stderr,"end")
+,println(stderr,"end,")
+.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%  convert ASP from given file F to picat text on stderr
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+main2(FileList,Extra)=>main2(FileList,[],Extra).
+main2(FileList,ID,Extra),A=[Line:F in FileList,AX=read_file_lines(F),Line in AX],d(lines=A.len),asparse(A,R,T,Mini),println(stdout,notparsed=R)
+=>
+d(extra=Extra),
+if(R!=[]) then
+d("ASP syntax error!")
+,abort
+end
+,Constr=sat
+,if Extra==cp then Constr:=cp,end
+,if Extra==allcp then Constr:=cp,end
+,if Extra==subcp then Constr:=cp,end,
+_=command("sed s/ASPIC_CONSTRAINTS_LIB/"++Constr.to_string()++"/g aspic_runtime_template.pi>aspic_runtime.pi")
+,if ((Extra!=subsat, Extra!=subcp)) then
+println(stderr,"import "++Constr.to_string()++".\nimport aspic_runtime"++cond(Extra==debug,"_debug","")++".")
+end
+,println(stderr,"var(X,_)=X.\nrange(_,_)=0.")
+,H=get_heap_map(asp_atoms)
+,Native=get_heap_map(native_atoms)
+,foreach(P in H.keys())
+,LN:=H.get(P).remove_dups
+,foreach(N in LN)
+,if(N>=1,not Native.has_key(P)) then
+print(stderr,P.to_string++"(")
+,printxvars(N)
+,print(stderr,")=aspic_var($"++P.to_string++"(")
+,printxvars(N)
+,println(stderr,")).")
+end
+end
+end
+,FN="main"
+,if(Extra==subsat;Extra==subcp) FN:="aspic_"++ID++"(ASPIC_OPT)" end
+,println(stderr,FN++"=>ASPIC_SEARCH:=sat,")
+,println(stderr,"aspic_startlearning(),")
+,translate_rules(T,1) %anything except constraints
+,println(stderr,"aspic_stoplearning(),")
+,translate_rules(T,2) %only constraints 
+,translate_completion(T)
+,println(stderr,"ASPIC_OPT#="++cond(Mini=[],"0",Mini)++",")
+,if (Extra==sat;Extra==cp)
+println(stderr,"aspic_solve(ASPIC_SEARCH,ASPIC_OPT)")
+,println(stderr,".")
+else
+if(Extra==allsat;Extra==allcp)
+println(stderr,"aspic_solve(ASPIC_SEARCH,ASPIC_OPT)")
+,println(stderr,",fail.")
+else
+println(stderr,"true")
+,println(stderr,".")
+end
+end
+.
+
+main([H|X]),H="run" => main2(X,sat). %sat is default
+main([H|X]),H="cp" => main2(X,cp).
+main([H|X]),H="sat" => main2(X,sat).
+main([H|X]),H="all" => main2(X,allsat).
+main([H|X]),H="sat/all" => main2(X,allsat).
+main([H|X]),H="cp/all" => main2(X,allcp).
+main([H|Y]),H="sub" => main([H|Y],"sat/sub").
+main([H|Y]),H="sat/sub",Y=[ID|X] => main2(X,ID,subsat).
+main([H|Y]),H="cp/sub",Y=[ID|X] => main2(X,ID,subcp).
+main([H|X]),H="rundebug" => main2(X,debug).
+main([H|X]),H="syntaxdebug" => main1(X).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%% ASP Parser %%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% debug parsing
+main1([W,S])?=>
+W:=to_atom(W)
+,d(W),d((S,l=S.len))
+,S:=[X:X in S,X!=' ',ord(X)>32]
+,p(W,S,R,T)
+,d(r=R),println(stdout,ast=T)
+.
+% main(_)=>true.
+
+%parse ASP from list of lines
+asparse(A,R,T,ObjMin)=>
+B=[]
+,C=[]
+,Mini=[]
+,foreach(L in A)
+if(member('%',L)) then
+I:=[J:J in 1..L.length,L[J]='%'], L:=L[1..I[1]-1]
+end
+,if(L.len>=1,L[1]=='#') then
+if(L[1..7]=="#const ") then
+L2:=L[8..L.len].split("=").map(strip)
+% ,d(l2const=L2)
+,V:=L2[2]
+,C:=[(L2[1].to_atom,V[1..V.len-1].to_int)|C]
+end
+,if(L[1..9]=="#minimize") then
+%d("optimization not implemented yet")
+d(mini=[X:X in L[10..L.len],X!=' ',ord(X)>32]),
+p(mini,[X:X in L[10..L.len],X!=' ',ord(X)>32],ROpt,TOpt)
+,d(topt=TOpt)
+,TOpt:=TOpt.allvariants
+,TOpt:=TOpt[1]
+,Mini:="sum"++replacesetmini(TOpt)
+,d(mini=Mini)
+end
+,L:=[]
+end
+,foreach(K in 1..L.len-3)
+if(L[K..K+3]="not ") then % a hack
+    L[K]:=' ',L[K+1]:=' ',L[K+2]:='~',L[K+3]:=' '
+end
+end
+%,L:=[X:X in L,X!=' ',ord(X)>32]
+,L:=elimws(L)
+,if(L!=[]) then
+% println(L),
+B:=[L|B]
+end
+end
+,d("ready to parse")
+,p(program,join(B.reverse,''),R,T)
+,d("after parsing")
+%,d(constants=C)
+,foreach((K,V2) in C) %substitute the constants
+%writeln(apply=(K,V2))
+,foreach(J in 1..T.len)
+    T[J,1]:=replace(T[J,1],$const(K),V2)
+    ,T[J,1]:=replace(T[J,1],K,V2) %too dangerous to replace as text
+end
+end
+,ObjMin=Mini
+.
+
+aspic_sum(A,B)=R,number(A),number(B)=>R=A+B.
+aspic_sum(A,B)=R=>R=$aspic_sum(A,B).
+aspic_diff(A,B)=R,number(A),number(B)=>R=A-B.
+aspic_diff(A,B)=R=>R=$aspic_diff(A,B).
+aspic_mul(A,B)=R,number(A),number(B)=>R=A*B.
+aspic_mul(A,B)=R=>R=$aspic_mul(A,B).
+aspic_div(A,B)=R,number(A),number(B)=>R=A/B.
+aspic_div(A,B)=R=>R=$aspic_div(A,B).
+
+aspic_member(V,[H|_]),V==H=>true.
+aspic_member(V,[_|T])=>aspic_member(V,T).
+
+aspic_conj0(X)=Y=>X2=[Y:Y in X,not(Y==1)],Y=cond(aspic_member(0,X2),0,cond(X2=[A],A,cond(X2==[],1,$aspic_conj(X2)))).
+aspic_conj(X)=Y=>Y=aspic_conj0(X). % ,d(aspic_conj_called=X),d(aspic_conj_result=Y).
+aspic_disj(X)=Y=>X2=[Y:Y in X,not(Y==0)],Y=cond(aspic_member(1,X2),1,cond(X2=[A],A,cond(X2==[],0,$aspic_disj(X2)))).
+
+aspic_impl(A,B)=Y=>if(not(A==0))if(A==1)Y=B else Y=$aspic_impl(A,B) end else Y=1 end.
+
+%aspic_conj([X])=R=>R=X.
+%aspic_conj(L)=R=>R=$aspic_conj(L).
+%aspic_disj([X])=R=>R=X.
+%aspic_disj(L)=R=>R=$aspic_disj(L).
+
+%list (type L) of terms of type T separated with sep Sep
+
+l(T,Sep,S,R,AT),p(T,S,SepR1,T1)=>
+        if(SepR1=Sep++R1)
+        l(T,Sep,R1,R,T2),AT=[T1|T2]
+        else R=SepR1,AT=[T1]
+        end.
+
+%l(T,Sep,S,R,AT),p(T,S,Sep++R1,T1)=>l(T,Sep,R1,R,T2),AT=[T1|T2].
+%l(T,_,S,R,AT)=>p(T,S,R,T1),AT=[T1].
+%l(_,_,S,R,AT)=>S=R,AT=[].
+
+%paren
+paren(L,PO,PC,S,R,T),S=PO++S2,p(L,S2,PC++R,T1)=>T=T1.
+
+% p(T,S,R,_)?=>writeln([t=T,s=S]),fail.
+
+% p(ab,S,R),S="ab"++R=>d(b1).
+% p(ab,S,R),S="ac"++R=>d(c1).
+% p(ab,S,R),S="a"++X,p(ab,X,"b"++R)=>d(b2).
+% p(ab,S,R),S="a"++X,p(ab,X,"c"++R)=>d(c2).
+
+op1(X)=>member(X,"*/").
+aspic_muldiv('*',A,B)=aspic_mul(A,B).
+aspic_muldiv('/',A,B)=aspic_div(A,B).
+
+op2(X)=>member(X,"+-").
+aspic_sumsub('+',A,B)=aspic_sum(A,B).
+aspic_sumsub('-',A,B)=aspic_diff(A,B).
+
+p(term,S,R,T),S=[A|S2],(ascii_lowercase(A)),p(restterm,S2,R,T2) %had to disable the "native atoms" clash with the picat code islands syntax
+	=>A='&',T=T2.to_atom,get_heap_map(native_atoms).put(T,1)
+	;A!='&',T=[A|T2].to_atom.
+% p(term,S,R,T),S=[A|S2],(ascii_lowercase(A);A='&'),p(restterm,S2,R,T2)
+% 	=>A='&',T=T2.to_atom,get_heap_map(native_atoms).put(T,1)
+% 	;A!='&',T=[A|T2].to_atom.
+p(restterm,S,R,T),S=[A|S2],(ascii_alpha_digit(A);member(A,"_")),p(restterm,S2,R,T2)=>T=[A|T2].
+p(restterm,S,R,T),S=R=>T=[].
+
+p(num,S,R,T),S=[A|S2],(ascii_digit(A);A='-'),p(restnum,S2,R,T2)=>T=[A|T2].to_int.
+% p(num,S,R,T),S=[A|R],ascii_digit(A)=>T=[A].
+p(restnum,S,R,T),S=[A|S2],(ascii_digit(A);member(A,"_")),p(restnum,S2,R,T2)=>T=[A|T2].
+p(restnum,S,R,T),S=R=>T=[].
+p(num,S,R,T)=>p(term,S,R,T1),T=$const(T1). % for constants
+
+p(var,S,R,T),S=[A|S2],(ascii_uppercase(A);A='_'),p(restvar,S2,R,T2)=>T=$var(noanon([cond(X=='\'','Q',X):X in [A|T2]]).to_atom,[]). %todo reduce clash probability by substituting single quotes with a longer string
+p(restvar,S,R,T),S=[A|S2],(ascii_alpha_digit(A);member(A,"_'")),p(restvar,S2,R,T2)=>T=[A|T2].
+p(restvar,S,R,T),S=R=>T=[].
+
+%functor
+p(f,S,R,T),p(term,S,"("++S2,T1),p(listargs,S2,")"++R,T2)
+=>
+d([t1=T1,t2=T2]),
+T0=..[T1,T2],
+d(t0=T0),
+T=T0,T2=$options(T3),get_heap_map(asp_atoms).put(T1,[T3[1].len|get_heap_map(asp_atoms).get(T1,[])]).
+%p(f,S,R,T),p(term,S,"("++S2,T1),p(listargs,S2,")"++R,T2)=>T0=..[T1|T2],T=T0,get_heap_map(asp_atoms).put(T1,[T2.len|get_heap_map(asp_atoms).get(T1,[])]).
+
+%list of args
+%p(listargs,S,R,T),l(t,",",S,R,T)=>true.
+p(listargs,S,R,T),p(enum,S,R,T)=>true.
+
+
+%argument
+p(t,S,R,T),(p(f,S,R,T);p(range,S,R,T);p(term,S,R,T);p(ae,S,R,T);paren(enum,"(",")",S,R,T);paren(t,"(",")",S,R,T))=>true.
+%p(t,S,R,T),(p(f,S,R,T);p(range,S,R,T);p(term,S,R,T);p(ae,S,R,T);p(enum,S,R,T);paren(t,"(",")",S,R,T))=>true.
+%restricted term
+p(t0,S,R,T),(p(f,S,R,T);p(range,S,R,T);p(term,S,R,T);p(num,S,R,T);p(var,S,R,T))=>true.
+
+%atom
+p(atom,S,R,T2),(p(f,S,R,T),T2=T;p(term,S,R,T),T2=$aspic_var(T))=>true.
+
+%num or var or expr in parentheses
+p(nv,S,R,T),(p(num,S,R,T);p(var,S,R,T);paren(ae,"(",")",S,R,T))=>true.
+p(factor,S,R,T),(p(num,S,R,T);p(var,S,R,T);paren(ae,"(",")",S,R,T);p(agval,S,R,T))=>true.
+
+p(prod,S,R,T),p(factor,S,[H|S2],T1),op1(H)=>p(prod,S2,R,T2),T=aspic_muldiv(H,T1,T2).
+p(prod,S,R,T),p(factor,S,R,T)=>true.
+
+p(sum,S,R,T),p(prod,S,[H|S2],T1),op2(H)=>p(sum,S2,R,T2),T=aspic_sumsub(H,T1,T2).
+p(sum,S,R,T2),p(prod,S,R,T)=>T2=T.
+%arith expr
+p(ae,S,R,T)=>p(sum,S,R,T).
+
+p(eq,S,R,T),p(t,S,"="++S2,T1),p(t,S2,R,T2)=>T=$aspic_eq(T1,T2).
+p(eq,S,R,T),p(t,S,"=="++S2,T1),p(t,S2,R,T2)=>T=$aspic_eq(T1,T2).
+p(ne,S,R,T),p(t,S,"!="++S2,T1),p(t,S2,R,T2)=>T=$aspic_ne(T1,T2).
+p(gt,S,R,T),p(t,S,">"++S2,T1),p(t,S2,R,T2)=>T=$aspic_gt(T1,T2).
+p(lt,S,R,T),p(t,S,"<"++S2,T1),p(t,S2,R,T2)=>T=$aspic_lt(T1,T2).
+p(ge,S,R,T),p(t,S,">="++S2,T1),p(t,S2,R,T2)=>T=$aspic_ge(T1,T2).
+p(le,S,R,T),p(t,S,"<="++S2,T1),p(t,S2,R,T2)=>T=$aspic_le(T1,T2).
+p(not,S,R,T),S="~"++S2,p(logic,S2,R,T2)=>T=$aspic_not(T2).
+
+p(notampersand,S,R,T2),S=[A|S2],A!='&'=>p(notampersand,S2,R,T),T2=[A|T].
+p(notampersand,S,R,T),S=['&'|_]=>T="",R=S.
+
+p(logic,S,R,T2),paren(notampersand,"&","&",S,R,T)=>T2=T. 
+p(logic,S,R,T),member(Op,[eq,ne,gt,lt,le,ge,not]),p(Op,S,R,T)=>true.
+p(logic,S,R,T),p(atom,S,R,T)=>true.
+p(logic,S,R,T),p(card,S,R,T)=>true.
+
+%conj
+p(conj,S,R,T2)=>l(logic,",",S,R,T),T2=aspic_conj(T).
+
+%disj
+p(disj,S,R,T2)=>l(conj,";",S,R,T),T2=aspic_disj(T).
+
+%enumeration
+p(t1,S,R,T)=>l(t,",",S,R,T).
+p(enum,S,R,T)=>l(t1,";",S,R,T1),T=$options(T1).
+
+p(miniobj,S,R,T),l(ae,",",S,":"++S2,T1)=>p(disj,S2,R,T2),T=$valset(T1,T2).
+p(mini,S,R,T)=>paren(miniobj,"{","}.",S,R,T).
+
+p(cardobj,S,R,T),p(head,S,":"++S2,T1)=>p(disj,S2,R,T2),T=$set(T1,T2).
+p(cardobj,S,R,T),p(head,S,R,T1)=>T=$set(T1).
+p(cardobj,S,R,T),p(enum,S,R,T1)=>T=$options(T1).
+
+%cardinal
+p(card,S,R,T),p(nv,S,S2,T1),paren(cardobj,"{","}",S2,S3,T2),p(nv,S3,R,T3)=>T=$aspic_card(T2,T1,T3).
+p(card,S,R,T),p(nv,S,S2,T1),paren(cardobj,"{","}",S2,S3,T2),R=S3=>T=$aspic_card(T2,T1,[]).
+p(card,S,R,T),S2=S,paren(cardobj,"{","}",S2,"=="++S3,T2),p(nv,S3,R,T3)=>T=$aspic_card(T2,T3,T3).
+p(card,S,R,T),S2=S,paren(cardobj,"{","}",S2,"!="++S3,T2),p(nv,S3,R,T3)=>T=$aspic_not($aspic_card(T2,T3,T3)).
+p(card,S,R,T),S2=S,paren(cardobj,"{","}",S2,"="++S3,T2),p(nv,S3,R,T3)=>T=$aspic_card(T2,T3,T3).
+p(card,S,R,T),S2=S,paren(cardobj,"{","}",S2,">="++S3,T2),p(nv,S3,R,T3)=>T=$aspic_card(T2,T3,[]).
+p(card,S,R,T),S2=S,paren(cardobj,"{","}",S2,"<="++S3,T2),p(nv,S3,R,T3)=>T=$aspic_card(T2,[],T3).
+p(card,S,R,T),S2=S,paren(cardobj,"{","}",S2,">"++S3,T2),p(nv,S3,R,T3)=>T3B=T3+1,T=$aspic_card(T2,T3B,[]). %todo pass properly
+p(card,S,R,T),S2=S,paren(cardobj,"{","}",S2,"<"++S3,T2),p(nv,S3,R,T3)=>T3B=T3-1,T=$aspic_card(T2,[],T3B). %todo pass properly
+p(card,S,R,T),S2=S,paren(cardobj,"{","}",S2,S3,T2),p(nv,S3,R,T3)=>T=$aspic_card(T2,[],T3).
+p(card,S,R,T)=>paren(cardobj,"{","}",S,R,T2),T=$aspic_card(T2).
+
+p(aggreg,S,R,T),S="#sum"++R=>T=$sum.
+p(aggreg,S,R,T),S="#max"++R=>T=$max.
+p(aggreg,S,R,T),S="#min"++R=>T=$min.
+p(aggreg,S,R,T),S="#count"++R=>T=$count.
+
+p(lnv,S,R,T)=>l(nv,",",S,R,T).
+
+p(valset,S,R,T),p(lnv,S,":"++S2,T1)=>p(disj,S2,R,T2),T=$valset(T1,T2).
+p(valset,S,R,T),p(lnv,S,R,T1)=>T=$valset(T1).
+
+p(agval,S,R,T),p(aggreg,S,S2,Op),paren(valset,"{","}",S2,R,T2)=>T=$aspic_agval(Op,T2).
+
+p(range,S,R,T),p(ae,S,".."++S2,T1),p(ae,S2,R,T2)=>X=uniquevarname(),T=$var(X,$range(T1,T2)).
+
+p(head,S,R,T),p(atom,S,R,T)=>true.
+p(head,S,R,T),p(card,S,R,T)=>true.
+p(body,S,R,T)=>p(disj,S,"."++R,T).
+
+p(rule,S,R,T),S=":-"++S2=>p(body,S2,R,T2),T=$aspic_not(T2),d(T).
+p(rule,S,R,T),p(head,S,":-"++S2,T1)=>p(body,S2,R,T2),T=$aspic_impl(T2,T1),d(T).
+p(rule,S,R,T),p(head,S,"<=>"++S2,T1)=>p(body,S2,R,T2),T=$aspic_equiv(T1,T2),d(T).
+p(rule,S,R,T),p(head,S,"."++R,T1)=>T=T1,d(T).
+p(rule,S,R,T)=>p(logic,S,"."++R,T).
+
+p(program,S,R,T),p(rule,S,S2,T1)=>p(program,S2,R,T2),T=[[T1,S[1..S.len-S2.len]]|T2].
+p(program,S,R,T)=>R=S,T=[].

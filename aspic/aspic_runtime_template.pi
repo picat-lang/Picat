@@ -1,0 +1,229 @@
+import ASPIC_CONSTRAINTS_LIB.
+import datetime.
+import util.
+import os.
+import math.
+import ordset.
+import datetime.
+
+% Every (re)load of a program that uses an embedded ASP block must get
+% fresh heap maps: the atom->fdvar maps persist in the same interpreter
+% (e.g. the web build re-runs programs in one module instance), and
+% reused 0..1 variables still carry the constraints of the previous
+% run.  The generated code calls aspic_seed_bump() as a top-level goal,
+% so each load bumps the seed and every map name below becomes unique
+% per load.
+aspic_seedctr_get()=S=>S=get_heap_map(aspic_seedctr).get(n,1).
+aspic_seed_bump()=>M=get_heap_map(aspic_seedctr),N=M.get(n,0),M.put(n,N+1).
+aspic_m(B)=N=>N=to_atom(B.to_string()++"_"++aspic_seedctr_get().to_string()).
+
+ismember(X,L)=T,member(X,L)=>T=1.
+ismember(_,_)=T=>T=0.
+
+d(X)=>println(stderr,X).
+
+uniquevarname()=Y=>
+H=get_heap_map(asp_counter),
+N=H.get(varnum,0),
+N2=N+1,
+H.put(varnum,N2),
+Y=("fd"++N2.to_string()).to_atom().
+
+aspic_markfd(T)=>M=get_heap_map(aspic_m(aspic_fdvars)),M.put(T,1).
+aspic_isfdvariable(T)=>get_heap_map(aspic_m(aspic_fdvars)).has_key(T).
+fd(A,N)=R=>A=..L,R#=sum([V*2**(I-1):I in 1..N,T=..(L++[I]),V=aspic_var(T),aspic_markfd(T)]).
+fd(N)=R=>R=fd(uniquevarname(),N).
+showfd(KF)=Y=>
+KF=..L0
+,M=get_heap_map(aspic_m(aspic_fdvars))
+,MV=get_heap_map(aspic_m(aspic_atoms))
+,Y=sum([2**(I-1):K in M.keys,MV.get(K)==1,K=..L,L.removelast==L0,I=L.last]).
+
+aspic_startlearning()=>M=get_heap_map(aspic_m(aspic_learning)),M.put(now,1),d(started_learning).
+aspic_stoplearning()=>M=get_heap_map(aspic_m(aspic_learning)),M.put(now,0),M.del(universe),d(stopped_learning).
+aspic_islearning()=>M=get_heap_map(aspic_m(aspic_learning)),Y=M.get(now,0),Y==1.
+
+
+%variable associated to ASP atom X (can be a functor)
+aspic_var(X)=Y=>
+M=get_heap_map(aspic_m(aspic_atoms))
+% ,println(keys=M.keys)
+%,d(search=X)
+,if(M.has_key(X)) then
+%d(found=X),
+Y=M.get(X)
+else
+%d(notfound=X),
+if(aspic_islearning()) then
+Z::0..1
+,Y=Z
+,M.put(X,Y)
+else
+%d('missing bq'),
+Y=0 %false because it is missing
+end
+end
+%,d(val=Y)
+%,d(vals=M)
+.
+
+removelast(L)=L.reverse.tail.reverse.
+
+show(X)=X.
+
+
+universe0=L=>M=get_heap_map(aspic_m(aspic_atoms)),L=[Z:K in M.keys,K=..[_|Y],Z in Y].remove_dups. % ,d(L).
+universe=R=>
+M=get_heap_map(aspic_m(aspic_learning))
+,if(M.get(now,0)==0) then % not learning
+if(M.has_key(universe)) then
+R=M.get(universe)
+else
+R=universe0()
+,M.put(universe,R)
+end
+else
+R=universe0()
+end.
+
+
+logprod([])=Z=>Z=1.
+logprod([X])=Z=>Z=X.
+logprod([H|T])=Z=>if(H==0) Z=0 else if(H==1) Z=logprod(T) else T2=logprod(T),Z=(H#/\T2) end end.
+%logprod([H|T])=Z=>T2=logprod(T),Z=(H#/\T2).
+
+logsum([])=Z=>Z=0.
+logsum([X])=Z=>Z=X.
+logsum([H|T])=Z=>if(H==1) Z=1 else if(H==0) Z=logsum(T) else T2=logsum(T),Z=(H#\/T2) end end.
+
+aspic_sum([])=Y=>Y#=0.
+aspic_sum([H|T])=Y=>Y2=aspic_sum(T),Y#=H+Y2.
+
+aspic_max(L)=Y=>Y#=max(L).
+aspic_min(L)=Y=>Y#=min(L).
+aspic_count(L)=Y=>Y#=count(L).
+
+
+aspic_member(V,[H|_]),V==H=>true.
+aspic_member(V,[_|T])=>aspic_member(V,T).
+
+aspic_conj(X)=Y=>X2=[Y:Y in X,not(Y==1)],Y=cond(aspic_member(0,X2),0,logprod(X2)).
+aspic_disj(X)=Y=>X2=[Y:Y in X,not(Y==0)],Y=cond(aspic_member(1,X2),1,logsum(X2)).
+
+aspic_not(A)=Y=>if(A==0) then Y=1 else if(A==1)Y=0 else Y=(A#=0) end end. %not
+aspic_assert(A)=Y=>M2=get_heap_map(aspic_m(aspic_asserted)),M2.put(A,1),Y=aspic_fholds(apply(A)).
+aspic_fholds(A)=Y,aspic_holds(A)=>Y=1. %function version to use in expressions
+aspic_fholds(_)=Y=>Y=0.
+aspic_holds(A)=>
+if(not(A==1))
+A#=1,M=get_heap_map(aspic_m(aspic_learning)),C=1+M.get(clauses,0),M.put(clauses,C)
+end.
+%aspic_holds(A)=>if(not(A==1)) d(A),M=get_heap_map(aspic_m(aspic_learning)),C=1+M.get(clauses,0),M.put(clauses,C) end.
+aspic_impl(A,B)=Y=>if(not(A==0))if(A==1)Y#=B else Y#=(A#=>B)end else Y=1 end.
+aspic_equiv(A,B)=Y=>Y#=(A#<=>B).
+
+aspic_vn(X),var(X)=>true.
+aspic_vn(X),number(X)=>true.
+aspic_lt(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A#<B).
+aspic_le(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A#<=B).
+aspic_gt(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A#>B).
+aspic_ge(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A#>=B).
+aspic_eq(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A#=B).
+aspic_ne(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A#!=B).
+aspic_sum(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A+B).
+aspic_mul(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A*B).
+aspic_div(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A/B).
+aspic_diff(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A-B).
+aspic_diff(A,B)=0.
+
+aspic_card(_)=1.
+
+aspic_card(L,A,[])=Y,A=B=>C#=sum(L),Y#=(C#>=A).
+aspic_card(L,[],B)=Y,A=B=>C#=sum(L),Y#=(C#<=B).
+aspic_card(L,A,B)=Y,A=B=>C#=sum(L),Y#=(C#=A).
+
+% aspic_card(L,A,[])=Y,A=B=>count(1,L,#>=,A).
+% aspic_card(L,[],B)=Y,A=B=>count(1,L,#<=,B).
+% aspic_card(L,A,B)=Y,A=B=>count(1,L,#=,A).
+
+
+% aspic_card(L,A,[])=Y,A=B=>at_least(A,L,1).
+% aspic_card(L,[],B)=Y,A=B=>at_most(B,L,1).
+% aspic_card(L,A,B)=Y,A=B=>exactly(A,L,1).
+
+
+aspic_card(L,A,B)=Y=>C#=sum(L),Y#=((C#>=A)#/\(C#<=B)).
+
+var(X)=X.
+
+% aspic_showsatstats(MV),solve([$nvars(NVARS),$ncls(NCLS)],MV)
+% %,(solve([$min(S),$nvars(NVARS),$ncls(NCLS)],[S|MV])
+% ,d(satvars=NVARS)
+% ,d(satclauses=NCLS)=>true.
+aspic_showsatstats(_).
+
+aspic_solve_gen(Mini)=>
+M=get_heap_map(aspic_m(aspic_atoms))
+,MV=M.values()
+%,S::0..MV.len
+%,S#=sum(MV)
+,d("starting to solve")
+,(aspic_showsatstats(MV),fail
+%;solve([dump],MV),fail
+%;(solve([$min(S)],[S|MV])
+;(
+%d(presolution=[K.show=V:K in M.keys.sort,V=M.get(K)]),
+%d(universe=universe().sort),
+d(universe_size=universe().len)
+%,d(cpvars=M.keys.sort.map(show))
+,d(cpvars=MV.len)
+,d(cprules=get_heap_map(aspic_m(aspic_learning)).get(clauses,0))
+,if Mini==0 then solve([rand],MV)
+,d(solution=[K.show:K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K)]
+++[X=X.showfd:X in [F:K in M.keys,aspic_isfdvariable(K),K=..L,L2=L.removelast,F=..L2].remove_dups.sort])
+else solve([$min(Mini),rand],[Mini|MV])
+,d(solution=[$optimization(Mini)|[K.show:K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K)]]
+++[X=X.showfd:X in [F:K in M.keys,aspic_isfdvariable(K),K=..L,L2=L.removelast,F=..L2].remove_dups.sort])
+end
+% ,d([K.show:K in M.keys.sort,V=M.get(K),V=0])
+%,d(s=S)
+% ,d([K.show:K in M.keys()])
+)
+;
+d("UNSAT")
+)
+,current_datetime().d
+.
+
+aspic_solve(sat,Mini)=>aspic_solve_gen(Mini).
+
+%used when embedding ASP islands in Picat
+aspic_solve_sub(Mini)=>
+M=get_heap_map(aspic_m(aspic_atoms))
+,MV=M.values()
+,d("starting to solve")
+,(aspic_showsatstats(MV),fail
+;(
+%d(presolution=[K.show=V:K in M.keys.sort,V=M.get(K)]),
+%d(universe=universe().sort),
+d(universe_size=universe().len)
+%,d(cpvars=M.keys.sort.map(show))
+,d(cpvars=MV.len)
+,d(cprules=get_heap_map(aspic_m(aspic_learning)).get(clauses,0))
+,if Mini==0 then solve([rand],MV)
+%,d(solution=[K.show:K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K)]
+%++[X=X.showfd:X in [F:K in M.keys,aspic_isfdvariable(K),K=..L,L2=L.removelast,F=..L2].remove_dups.sort])
+else solve([$min(Mini),rand],[Mini|MV])
+%,d(solution=[$optimization(Mini)|[K.show:K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K)]]
+%++[X=X.showfd:X in [F:K in M.keys,aspic_isfdvariable(K),K=..L,L2=L.removelast,F=..L2].remove_dups.sort])
+end
+% ,d([K.show:K in M.keys.sort,V=M.get(K),V=0])
+%,d(s=S)
+% ,d([K.show:K in M.keys()])
+)
+;
+d("UNSAT"),!,fail
+)
+%,current_datetime().d
+.
+
