@@ -358,11 +358,12 @@ $('examples').addEventListener('change', loadExample);
   */
 /* The aspic block marker is a bare "asp" (lowercase -- uppercase is a
    variable in Picat) as the FINAL word of a line (",asp" before the
-   newline).  An asp(...) predicate call, which the PICASP library
-   examples use, must not trigger the two-stage flow; aspic_prep itself
+   newline; trailing blanks and CR tolerated, as in aspic_prep).
+   An asp(...) predicate call, which the PICASP library examples
+   use, must not trigger the two-stage flow; aspic_prep itself
    reports clearly when the block is not closed. */
 function hasAspBlock(code) {
-  return /(^|[^A-Za-z0-9_])asp[ \t]*$/m.test(code);
+  return /(^|[^A-Za-z0-9_])asp[ \t\r]*$/m.test(code);
 }
 /* Stage-1 driver: runs as /user_code.pi, calls the aspic pre-transpiler
    with the fixed web-FS paths.  The call must stay on one line

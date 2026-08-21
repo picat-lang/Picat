@@ -89,9 +89,16 @@ H.put(varnum,N2),
 Y=("ARANGE"++N2.to_string()).to_atom().
 
 noanon(X)=cond(X=="_",uniquevarname().to_string(),X).
+% Whitespace-only lines (space/tab/CR) must vanish: a surviving
+% "\t" becomes a non-blank pseudo-clause line and, since the lines are
+% joined with no separator, it lands at the head of the parse input,
+% which no p(rule) entry matches (the parse then returns zero rules
+% and the generation aborts).
 elimws([],_)=[].
 elimws(['&'|L],N)=['&'|elimws(L,1-N)].
 elimws([' '|L],0)=elimws(L,0).
+elimws(['\t'|L],0)=elimws(L,0).
+elimws(['\r'|L],0)=elimws(L,0).
 elimws([H|T],N)=[H|elimws(T,N)].
 elimws(L)=elimws(L,0).
 

@@ -204,15 +204,21 @@ find_end(C,From,A,E) =>
 
 % aspmarker(C,E): the word ending at 1-based offset E is the last word
 % on its line.  The block syntax in an embedded source is a bare "asp"
-% as the final word of a line (",asp" before the newline); an asp(...)
-% predicate call (PICASP library style) must not be taken as a marker.
+% as the final word of a line (",asp" before the newline; trailing
+% blanks and CR are tolerated); an asp(...) predicate call (PICASP
+% library style) must not be taken as a marker.  The blank check is a
+% separate predicate, because this picat does not accept a character
+% disjunction on an unification RHS (C[K]=(' ' ; '\t')); the plain
+% goal form, as used by the #define / #constr checks, does work.
 aspmarker(C,E) =>
   aspmarker(C,E+1,C.len).
 aspmarker(C,K,L) =>
   (K>L -> true
    ; C[K]='\n' -> true
-   ; C[K]=(' ' ; '\t' ; '\r')
-   -> aspmarker(C,K+1,L))
+   ; wspc(C,K) -> aspmarker(C,K+1,L))
+  .
+wspc(C,K) =>
+  (C[K]=' ' ; C[K]='\t' ; C[K]='\r')
   .
 
 numbl(Pr,Bl) =>
@@ -230,8 +236,19 @@ ar0(C,[P|T],R)=>
   R=take(R2,P[1]-1)++repltext(P[3])++drop(R2,P[2])
   .
 
+% The extracted content starts AFTER the marker line's trailing blanks
+% and newline, so the first "line" of the block is its first real
+% clause whatever blanks surround the asp marker word (a leftover
+% "\t" first line would otherwise survive aspic_gen's elimws and
+% poison the whole parse).
 content_of(S,A,A2)=T=>
-  T=drop(take(S,A2-3),A+2).
+  T=drop(take(S,A2-3),nextline(S,A+3)-1).
+nextline(S,K)=K2=>
+  (S[K]=' ' -> nextline(S,K+1)=K2
+   ;S[K]='\t' -> nextline(S,K+1)=K2
+   ;S[K]='\r' -> nextline(S,K+1)=K2
+   ;S[K]='\n' -> K2=K+1)
+  .
 
 blocks(S,[S1,Bl])=>
   S2=blankcom(S),
