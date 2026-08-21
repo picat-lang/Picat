@@ -9,8 +9,10 @@ import aspic_gen.
 %   1. substitute "#define NAME value" lines (the subset of cpp the
 %      embedded examples use; "#const" is left to the transpiler;
 %      #if/#ifdef/#include are rejected with a clear error)
-%   2. extract each "asp ... end" block (word-boundary scan over the
-%      comment-blanked source, so comment text is never interpreted)
+%   2. extract each "asp ... end" block: the marker is a bare "asp"
+%      as the final word of a line (an asp(...) call is not a marker),
+%      scanned over the comment-blanked source so comment text is
+%      never interpreted
 %   3. aspic_gen/3 (in-process transpiler) generates the predicate
 %      aspic_<N>(ASPIC_OPT_N) for every block
 %   4. splice "import <constr>." (when not already imported) and the
@@ -190,13 +192,27 @@ find_end(C,From,A,E) =>
    ; handle_exception($asp_block_not_closed,aspic_prep))
   .
 
-scan(C,From,Acc,R) =>
+ scan(C,From,Acc,R) =>
   (nextword(C,From,A,E,W)
    -> (W="asp"
+      , aspmarker(C,E)
        -> find_end(C,E+1,A2,E2),
           scan(C,E2+1,[[A,E2]|Acc],R)
        ; scan(C,E+1,Acc,R))
    ; R=reverse(Acc))
+   .
+
+% aspmarker(C,E): the word ending at 1-based offset E is the last word
+% on its line.  The block syntax in an embedded source is a bare "asp"
+% as the final word of a line (",asp" before the newline); an asp(...)
+% predicate call (PICASP library style) must not be taken as a marker.
+aspmarker(C,E) =>
+  aspmarker(C,E+1,C.len).
+aspmarker(C,K,L) =>
+  (K>L -> true
+   ; C[K]='\n' -> true
+   ; C[K]=(' ' ; '\t' ; '\r')
+   -> aspmarker(C,K+1,L))
   .
 
 numbl(Pr,Bl) =>
@@ -236,6 +252,11 @@ blocks(S,[S1,Bl])=>
 
 blankcom(S)=R =>
   bcomC(S,1,0,0,[],R).
+% the single-quote character, without a ' literal in the source
+% (this picat lexes ' in that context unreliably):
+squote(Q) =>
+  S="'",
+  Q=S[1].
 bcomC(S,K,Sq,Es,Acc,R), Sq==1 =>
   (K>S.len
    -> R=Acc.to_string()
@@ -256,7 +277,9 @@ bcomC(S,K,Sq,0,Acc,R), Sq>0 =>
    ; C=S[K],
     (C=='\\'
      -> bcomC(S,K+1,Sq,1,Acc++[C],R)
-     ; (Sq==2, C=='\'') ; (Sq==3, C=='"')
+     ; Sq==2, squote(Q), C==Q
+     -> bcomC(S,K+1,0,0,Acc++[C],R)
+     ; Sq==3, Bq='"', C==Bq
      -> bcomC(S,K+1,0,0,Acc++[C],R)
      ; bcomC(S,K+1,Sq,0,Acc++[C],R)))
   .
@@ -266,9 +289,9 @@ bcomC(S,K,0,0,Acc,R) =>
    ; C=S[K],
     (C=='%'
      -> bcomC(S,K+1,1,0,Acc++[' '],R)
-     ; C=='\''
+     ; squote(Q), C==Q
      -> bcomC(S,K+1,2,0,Acc++[C],R)
-     ; C=='"'
+     ; Dq='"', C==Dq
      -> bcomC(S,K+1,3,0,Acc++[C],R)
      ; bcomC(S,K+1,0,0,Acc++[C],R)))
   .

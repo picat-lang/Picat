@@ -23,16 +23,18 @@ external programs at all, in two ordinary `picat` runs:
     picat aspic_prep.pi pre SRC.pi LIBDIR OUT.pi aspic_runtime_template.pi sat
     (cd LIBDIR and) picat OUT.pi
 
-* stage 1 (`aspic_prep.pi`, with the in-process transpiler
-  `aspic_gen.pi`): substitutes `#define NAME value` lines, extracts
-  every `asp ... end` block (word-boundary scan, the same match
-  semantics as the upstream python preprocessor's regex), transpiles
-  each block in-process, splices the generated predicates and a
-  constraint-library import after the last `import`, replaces each
-  block by a call to its `aspic_N(ASPIC_OPT_N)` predicate, writes
-  `OUT.pi` and generates `LIBDIR/aspic_runtime.pi` from the template
-  (in place of the `sed` step; `ASPIC_CONSTRAINTS_LIB` becomes `sat`
-  or `cp`).  `#if`/`#ifdef`/`#include` are rejected with a clear error.
+ * stage 1 (`aspic_prep.pi`, with the in-process transpiler
+   `aspic_gen.pi`): substitutes `#define NAME value` lines, extracts
+   every `asp ... end` block — the marker is a bare `asp` as the
+   final word of a line, scanned over the comment-blanked source, so
+   comment text and `asp(...)` predicate calls (PICASP library style)
+   are never interpreted — transpiles
+   each block in-process, splices the generated predicates and a
+   constraint-library import after the last `import`, replaces each
+   block by a call to its `aspic_N(ASPIC_OPT_N)` predicate, writes
+   `OUT.pi` and generates `LIBDIR/aspic_runtime.pi` from the template
+   (in place of the `sed` step; `ASPIC_CONSTRAINTS_LIB` becomes `sat`
+   or `cp`).  `#if`/`#ifdef`/`#include` are rejected with a clear error.
 * stage 2: an ordinary Picat program (imports `aspic_runtime.`), runs
   on any Picat build — including the browser build, where
   `aspic_prep`'s `main` (fixed web-FS paths) is what the page stages.

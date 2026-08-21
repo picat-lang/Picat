@@ -60,8 +60,13 @@ whole duration (with no repaint possible in between, an immediately
 started run would only show its starting state in its last instant).
 The runtime is bootstrapped once (`browser_boot("-p /lib2")`) on the
 first Run. Uncaught picat errors make the interpreter call
-`exit(1)`; the build links with `-sNO_EXIT_RUNTIME`, so the runtime
-survives and the next Run works again.
+`exit(1)`; the build links with `-sNO_EXIT_RUNTIME`, so the wasm
+runtime survives, but the interpreter instance is dead for any later
+`browser_rerun` (verified: even a trivial program then fails on it).
+The page marks such a run and re-creates the whole module before the
+next Run — the same fresh-instance reset as for exhaustion, below —
+so editing the source or loading a new example recovers immediately,
+without a page reload.
 
 Long heavy runs (the large SAT examples) can exhaust the interpreter:
 after about three consecutive solves, the next `browser_rerun()` ends
@@ -83,9 +88,11 @@ retrying…]` and the finish line gains an
 Programs that mix Picat with embedded `asp ... end` blocks (the
 [aspic](../aspic/) ASP language: `#const`, intensional set
 aggregations, `#show`) run in the browser with zero external programs.
-Detection is automatic: a Run whose editor text contains a standalone
-lowercase word `asp` takes the two-stage path (ordinary programs keep
-the single stage):
+Detection is automatic: a Run whose editor text has a bare lowercase
+`asp` as the final word of a line (the `,asp` before the newline that
+introduces an embedded block) takes the two-stage path; programs that
+call an `asp(...)` predicate (the PICASP library style) keep the
+single stage:
 
 1. **stage 1** — the page stages the pre-transpiler
    (`../aspic/aspic_prep.pi` + `../aspic/aspic_gen.pi` are preloaded at

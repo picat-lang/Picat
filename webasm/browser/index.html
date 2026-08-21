@@ -285,6 +285,9 @@ var booted = false;
 var running = false;
 var runsOk = 0;  /* successful runs on the current module (exhaustion
                    can only follow at least one successful run) */
+var vmTainted = false;  /* a run died at C level (exit(1)/trap): every
+                           later rerun on the same instance fails too,
+                           so the next run must take a fresh one */
 var $ = function (id) { return document.getElementById(id); };
 var editor = $('editor'), terminal = $('terminal'),
     state = $('state'), lastrun = $('lastrun');
@@ -352,11 +355,13 @@ $('examples').addEventListener('change', loadExample);
                    picat") and run a continuation on it.
   restartAndRetry -- fresh interpreter + one more run of the same code.
   */
-/* A standalone word "asp" (lowercase -- uppercase is a variable in
-   Picat) marks an aspic block; aspic_prep itself reports clearly when
-   the block is not closed. */
+/* The aspic block marker is a bare "asp" (lowercase -- uppercase is a
+   variable in Picat) as the FINAL word of a line (",asp" before the
+   newline).  An asp(...) predicate call, which the PICASP library
+   examples use, must not trigger the two-stage flow; aspic_prep itself
+   reports clearly when the block is not closed. */
 function hasAspBlock(code) {
-  return /(^|[^A-Za-z0-9_])asp(?:$|[^A-Za-z0-9_])/.test(code);
+  return /(^|[^A-Za-z0-9_])asp[ \t]*$/m.test(code);
 }
 /* Stage-1 driver: runs as /user_code.pi, calls the aspic pre-transpiler
    with the fixed web-FS paths.  The call must stay on one line
@@ -430,8 +435,10 @@ function doRun(code) {
     rc = M.ccall('browser_rerun', 'number');
   } catch (e) {
     /* picat calls exit(1) on uncaught errors; with NO_EXIT_RUNTIME the
-       runtime survives, so we only mark the run as failed */
+       runtime survives, but the interpreter instance is dead for all
+       later reruns — mark it so the next run takes a fresh one */
     failed = true;
+    vmTainted = true;
   }
   return { rc: rc, failed: failed, ms: Math.round(performance.now() - t0) };
 }
@@ -479,6 +486,15 @@ function run() {
 
 function startRun(code) {
   try {
+    /* The previous run killed the interpreter instance (an uncaught
+       error exits at C level): any code, including a brand-new
+       example, would fail on a rerun of the dead instance.  Reset
+       before running anything. */
+    if (vmTainted) {
+      appendOut('\n[resetting the interpreter left dead by the last run…]');
+      freshInterpreter(function () { startRun(code); });
+      return;
+    }
     /* ASP (aspic) code: run the two-stage flow; it manages the
        interpreter (and its own exhaustion retry) and reports itself.
        A repeat Run reboots first, so a heavy previous solve cannot
@@ -654,6 +670,7 @@ function createModule() {
     M = mod;
     booted = false;
     runsOk = 0;        // a fresh module can't be exhausted yet
+    vmTainted = false; // and it is not tainted either
     return mod;
   });
 }
