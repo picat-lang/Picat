@@ -151,9 +151,9 @@ EMFLAGS := -sMODULARIZE=1 -sEXPORT_NAME=PicatWasm \
             -sMAXIMUM_MEMORY=4294967296 \
             -sNO_EXIT_RUNTIME=1 \
             -sINVOKE_RUN=0 \
-             -sEXPORTED_FUNCTIONS='["_browser_boot","_browser_rerun"]' \
-             -sEXPORTED_RUNTIME_METHODS='["FS","ccall"]' \
-             --preload-file $(LIB2)@/lib2 \
+            -sEXPORTED_FUNCTIONS='["_browser_boot","_browser_rerun"]' \
+            -sEXPORTED_RUNTIME_METHODS='["FS","ccall"]' \
+            --preload-file $(LIB2)@/lib2 \
             --preload-file examples@/examples \
             $(ASPIC_PRELOADS) \
             $(DATA_PRELOADS) \
