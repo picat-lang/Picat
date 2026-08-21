@@ -16,23 +16,42 @@ rest are killed) — the portfolio is capped at 8 solvers per solve. The
 built-in solver is still fed, so a failed/`unknown` external run falls
 back to it (see `SATEXT_NO_FALLBACK` below).
 
-How to select a solver:
+How to select a solver (live surfaces; the `$solver` option is
+documented but inert in the current build — see below):
 
-- program option: `solve([$solver(Spec)], Vars)`
 - from code: `bp.c_satext_set_solver(Spec)` (e.g. in `main`, before
-  the constraints/solve)
+  the constraints/solve; `Spec` = an atom/path, an argv list such as
+  `["cryptominisat", "@file"]`, or a list of argv lists for a
+  portfolio; `nil`/`false` restores the built-in)
 - environment: `SATEXT_SOLVER=...` (below)
 - low level: `import satext.` (needs `PICATPATH=<picat>/lib2`) —
   `satext.solve(Spec, Clauses, Status, Model)`, `satext.cnf_info`,
   `satext.write_dimacs`; and `bp.c_satext_last_status(St)` reports how
   the last `solve` resolved (1 SAT / 2 UNSAT / 0 unknown-or-abandoned).
 
-`Spec` is an atom or string (`"kissat"`, a path, ...; PATH-resolved
+`Spec` is a bare atom (`kissat`, a path, ...; PATH-resolved
 when it has no `/`), a list of atoms/strings forming the solver's argv
 (a `@file` token is replaced by a generated CNF file, for solvers that
 read the input file as an argument), or a **list of such argv lists**
 to race them as a first-wins portfolio. `nil`/`false` selects the
 built-in solver again.
+
+Note: the `Spec` grammar distinguishes strings from argv lists, so an
+in-program selection is a bare atom (`kissat`) or a list of atoms/
+strings — a top-level Picat string such as `"kissat"` is a list of
+characters and would be parsed as a six-element argv (`"k"`, `"i"`,
+...), which protocol detection rejects with a warning.
+
+The `$solver(Spec)` option of `solve(Options,Vars)` is documented in
+`lib/sat.pi`, but it is **inert in the current build**: `import sat`
+loads the embedded copy of the standard library (`emu/picat_bc.h`),
+which predates the option, and a module named `sat` on `PICATPATH`
+cannot override an embedded one. No generator for `emu/picat_bc.h`
+exists in the repository, so the option stays inert until the standard
+library is re-embedded (see the Limitations section of
+[docs/satext_report.tex](docs/satext_report.tex)). The environment
+variable and `bp.c_satext_set_solver/1` above reach the same C state
+without going through `sat.pi`, so they work today.
 
 Environment variables (all read by the satext layer):
 
