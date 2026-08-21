@@ -37,6 +37,13 @@ external programs at all, in two ordinary `picat` runs:
   on any Picat build — including the browser build, where
   `aspic_prep`'s `main` (fixed web-FS paths) is what the page stages.
 
+The constraint library is `sat` by default; a `#constr cp` line
+(outside the `asp` block) switches to the picat CP solver — the
+32-bit (browser/wasm32) build needs this for large instances, since
+the built-in 32-bit kissat caps its clause arena at 1 GB while the CP
+solver has no such cap (e.g. N=200 queens: `sat` runs out of arena,
+`cp` solves it).
+
 `aspic_gen` seeds a fresh runtime per run (`aspic_seed_bump()` at the
 head of every generated predicate), so re-running in one interpreter
 does not replay stale asserted rules.

@@ -46,27 +46,27 @@ main(["pre",Src,LibDir,Out,Tmpl,Constr]) =>
 main(["pre",Src,LibDir,Out]) =>
   aspic_prep(Src,LibDir,Out,"aspic_runtime_template.pi","sat").
 
-aspic_prep(Src,LibDir,Out,Tmpl,Constr)=>
+ aspic_prep(Src,LibDir,Out,Tmpl,Constr)=>
   L0=read_file_lines(Src),
-  L1=define_pass0(L0),
+  [L1,C0]=define_pass0(L0,Constr),
   S=L1.join("\n"),
   blocks(S,[S1,Bl]),
   N=Bl.len,
   Snips=[Sp: B in Bl,
-    Ct=content_of(S,B[1],B[2]),
-    Ct2=Ct.split("\n"),
-    Sp=aspic_gen(B[3].to_string(),Constr,Ct2)],
+  Ct=content_of(S,B[1],B[2]),
+  Ct2=Ct.split("\n"),
+  Sp=aspic_gen(B[3].to_string(),C0,Ct2)],
   L2=S1.split("\n"),
-  P=inspos(L2,Constr),
-  Insl=inslines(Constr,Snips,L2),
+  P=inspos(L2,C0),
+  Insl=inslines(C0,Snips,L2),
   OutL=take(L2,P)++Insl++drop(L2,P),
   writetext(Out,OutL.join("\n")),
   T0=read_file_lines(Tmpl),
   T0s=T0.join("\n"),
-  sub1(T0s,"ASPIC_CONSTRAINTS_LIB",Constr,T1),
+  sub1(T0s,"ASPIC_CONSTRAINTS_LIB",C0,T1),
   writetext(LibDir++"/aspic_runtime.pi",T1),
   N2=cond(N==1," ASP block"," ASP blocks"),
-  O2="aspic_prep: "++N.to_string()++N2++" -> "++Out,
+  O2="aspic_prep: "++N.to_string()++N2++" on "++C0++" -> "++Out,
   println(O2)
   .
 
@@ -106,33 +106,51 @@ isdefine(C) =>
   C.len>=7
   ,C[1..7]="#define"
   .
-baddir(C) =>
+ baddir(C) =>
   C.len>=3
   ,C[1..3]=="#if"
   .
-includes(C) =>
+ includes(C) =>
   C.len>=8
   ,C[1..8]=="#include"
   .
+ % "#constr sat|cp" (outside any asp block) selects the constraint
+ % library, overriding the backend passed to aspic_prep.  Useful in
+ % the browser, where the stage-1 driver is fixed to sat but large
+ % instances may exceed the built-in kissat's 1 GB clause arena on
+ % 32-bit (wasm32) builds, which the picat cp solver does not have.
+ isconstr(C) =>
+  C.len>=7
+  ,C[1..7]=="#constr"
+  ,(C.len==7 ; C[8]=' ' ; C[8]='\t')
+  .
+ constrval(C,W) =>
+  W=rstrip(lstrip(drop(C,7))).to_string()
+  .
 
-define_pass0(Ls)=R=>
+ define_pass0(Ls,D0)=[R,K]=>
   M=new_map(),
-  define_pass(Ls,M,[],R2),
+  define_pass(Ls,M,D0,[],R2,K),
   R=reverse(R2)
   .
-define_pass([],M,Acc,R)=>R=Acc.
-define_pass([L|T],M,Acc,R) =>
+ define_pass([],M,D,Acc,R,D0)=>R=Acc,D0=D.
+ define_pass([L|T],M,D0,Acc,R,D) =>
   C=lstrip(L),
   (isdefine(C)
-   -> define_parse(L,N,V),
-      M.put(N,V),
-      define_pass(T,M,Acc,R)
-   ;baddir(C)
-   -> handle_exception($cpreprocessor_directive_not_supported(L),aspic_prep)
-   ;includes(C)
-   -> handle_exception($cpreprocessor_directive_not_supported(L),aspic_prep)
-   ;Line=applyw(M,L),
-      define_pass(T,M,[Line|Acc],R))
+  -> define_parse(L,N,V),
+   M.put(N,V),
+   define_pass(T,M,D0,Acc,R,D)
+  ;baddir(C)
+  -> handle_exception($cpreprocessor_directive_not_supported(L),aspic_prep)
+  ;includes(C)
+  -> handle_exception($cpreprocessor_directive_not_supported(L),aspic_prep)
+  ;isconstr(C)
+  -> constrval(C,W),
+   (W=="sat" ; W=="cp"
+   ; handle_exception($asp_constraint_library_not_supported(W),aspic_prep)),
+   define_pass(T,M,W,Acc,R,D)
+  ;Line=applyw(M,L),
+   define_pass(T,M,D0,[Line|Acc],R,D))
   .
 
 applyw(M,Cs)=R=>

@@ -106,6 +106,14 @@ flow, for comparison: `cd aspic && picat aspic_prep.pi pre
 examples/asp_embedded_in_picat-queens.pi . out.pi
 aspic_runtime_template.pi sat && picat out.pi`.
 
+Large instances: the stage-1 driver is fixed to the `sat` backend,
+but a `#constr cp` line in the source (outside the `asp` block)
+switches the run to the picat CP solver.  This matters on wasm32:
+the built-in kissat there caps its clause arena at 1 GB (32-bit
+build), which this `sat` queens encoding exceeds at N=200 (N=150
+still runs), while the CP backend has no such cap (N=200 solves in
+the browser in ~1 min).
+
 The 101 packed examples (`examples/`) came from the repository's
 `exs/` collection, renamed with their folder as prefix
 (`cp_kakuro.pi`, `sat_bqueens.pi`, `planner_sokoban.pi`,
@@ -176,5 +184,9 @@ inputs to it change).
 * no *external* SAT solvers (satext, fork/exec), no MIP/SMT/LP
   back-ends (they need external binaries), no concurrent predicates
   (`thread/...`), no socket file descriptors,
-* memory grows on demand (`ALLOW_MEMORY_GROWTH`), initial 16 MB,
-  growth capped at 2 GB (wasm32).
+* memory grows on demand (`ALLOW_MEMORY_GROWTH`), initial 32 MB,
+  growth capped at 4 GB (the wasm32 maximum; heavy solves like
+  N=200 ASP queens peak near 1.7 GB),
+* even with the 4 GB heap, the *built-in* SAT solver on wasm32 is
+  capped by kissat's 32-bit clause arena (1 GB) — for such instances
+  use `#constr cp` (see the ASP section above).

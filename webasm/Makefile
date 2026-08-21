@@ -147,6 +147,8 @@ ASPIC_PRELOADS := \
 
 EMFLAGS := -sMODULARIZE=1 -sEXPORT_NAME=PicatWasm \
             -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=16777216 \
+            -sINITIAL_MEMORY=33554432 \
+            -sMAXIMUM_MEMORY=4294967296 \
             -sNO_EXIT_RUNTIME=1 \
             -sINVOKE_RUN=0 \
             -sEXPORTED_FUNCTIONS='["_browser_boot","_browser_rerun"]' \
