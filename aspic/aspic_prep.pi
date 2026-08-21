@@ -9,8 +9,8 @@ import aspic_gen.
 %   1. substitute "#define NAME value" lines (the subset of cpp the
 %      embedded examples use; "#const" is left to the transpiler;
 %      #if/#ifdef/#include are rejected with a clear error)
-%   2. extract each "asp ... end" block (word-boundary scan, the same
-%      match semantics as the upstream python preprocessor's regex)
+%   2. extract each "asp ... end" block (word-boundary scan over the
+%      comment-blanked source, so comment text is never interpreted)
 %   3. aspic_gen/3 (in-process transpiler) generates the predicate
 %      aspic_<N>(ASPIC_OPT_N) for every block
 %   4. splice "import <constr>." (when not already imported) and the
@@ -218,10 +218,59 @@ content_of(S,A,A2)=T=>
   T=drop(take(S,A2-3),A+2).
 
 blocks(S,[S1,Bl])=>
-  scan(S,1,[],Pr),
+  S2=blankcom(S),
+  scan(S2,1,[],Pr),
   numbl(Pr,Bl),
   ar0(S,Bl,S1l),
   S1=S1l.to_string()
+  .
+
+% ---- comment blanking -----------------------------------------------------
+% blankcom(S)=R: S with every comment character (a '%' outside
+% string/char literals through the end of its line) replaced by a
+% space; length and line structure are preserved, so word scans on R
+% locate the same words at the same 1-based offsets as in S, except
+% that comment text is never interpreted.  State: 0 code, 1 comment,
+% 2 single-quoted, 3 double-quoted; Esc: 1 when a backslash inside a
+% quote marks an escaped character.
+
+blankcom(S)=R =>
+  bcomC(S,1,0,0,[],R).
+bcomC(S,K,Sq,Es,Acc,R), Sq==1 =>
+  (K>S.len
+   -> R=Acc.to_string()
+   ; C=S[K],
+    (C=='\n'
+     -> bcomC(S,K+1,0,0,Acc++[C],R)
+     ; bcomC(S,K+1,1,0,Acc++[' '],R)))
+  .
+bcomC(S,K,Sq,1,Acc,R), Sq>0 =>
+  (K>S.len
+   -> R=Acc.to_string()
+   ; C=S[K],
+    bcomC(S,K+1,Sq,0,Acc++[C],R))
+  .
+bcomC(S,K,Sq,0,Acc,R), Sq>0 =>
+  (K>S.len
+   -> R=Acc.to_string()
+   ; C=S[K],
+    (C=='\\'
+     -> bcomC(S,K+1,Sq,1,Acc++[C],R)
+     ; (Sq==2, C=='\'') ; (Sq==3, C=='"')
+     -> bcomC(S,K+1,0,0,Acc++[C],R)
+     ; bcomC(S,K+1,Sq,0,Acc++[C],R)))
+  .
+bcomC(S,K,0,0,Acc,R) =>
+  (K>S.len
+   -> R=Acc.to_string()
+   ; C=S[K],
+    (C=='%'
+     -> bcomC(S,K+1,1,0,Acc++[' '],R)
+     ; C=='\''
+     -> bcomC(S,K+1,2,0,Acc++[C],R)
+     ; C=='"'
+     -> bcomC(S,K+1,3,0,Acc++[C],R)
+     ; bcomC(S,K+1,0,0,Acc++[C],R)))
   .
 
 % ---- splicing -------------------------------------------------------------

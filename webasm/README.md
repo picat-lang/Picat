@@ -98,11 +98,14 @@ the single stage):
    the exhaustion reset) and carries the stage-1 outputs over, since a
    fresh instance re-creates the FS from the preload image.
 
-`asp_queens.pi` in `examples/` is the embedded-ASP 8-queens
-(`#define DIM 8`).  Headless proof: `node headless/run_asp_pi.js
-examples/asp_queens.pi` (mirrors the page; prints the two-stage
-timings, exit 0 on a clean end).  The native equivalent of the whole
-flow, for comparison: `cd aspic && picat aspic_prep.pi pre
+`x_asp_queens.pi` in `examples/` is the embedded-ASP 8-queens
+(`#define DIM 8`), kept at the end of the list because the embedded
+`asp ... end` syntax is very experimental; the file header explains
+it (aspic from the `lib_ext` git repository, and the `#constr cp`
+hack for large instances).  Headless proof: `node headless/
+run_asp_pi.js examples/x_asp_queens.pi` (mirrors the page; prints the
+two-stage timings, exit 0 on a clean end).  The native equivalent of
+the whole flow, for comparison: `cd aspic && picat aspic_prep.pi pre
 examples/asp_embedded_in_picat-queens.pi . out.pi
 aspic_runtime_template.pi sat && picat out.pi`.
 
