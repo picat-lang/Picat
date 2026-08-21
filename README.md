@@ -100,7 +100,25 @@ cd webasm && make && make serve   # needs emsdk + a native build (lib2)
 # -> http://localhost:8000 : editor left, terminal right, example select
 ```
 
-Details (build, run loop, exclusions, example set):
+Performance versus the native build (median of 3 runs, 384-core
+x86_64, 32-way parallel measurements; the full 100-example table,
+methodology and runnable harness are in
+[webasm/headless/README.md](webasm/headless/README.md)):
+
+- overall, the geomean of (wasm run time)/(native wall time) is
+  **1.06x** (median 1.19x) — small programs are at parity, because
+  the native number includes ~25–30 ms of process startup while the
+  wasm side pays only a one-time ~60 ms instantiate + ~35 ms boot
+  per session;
+- genuinely compute-heavy programs (search, SAT, FANN) run
+  **~2–4x slower** on wasm — the honest figure for interpreter
+  overhead (e.g. `sat_queens` 2.2x, `planner_klotski` 2.3x; worst
+  verified: `cp_pigeon_hole` 4.5x);
+- a few heavy programs are actually **faster on wasm**:
+  `sat_vmtl` 7.0 s → 2.3 s (0.31x), `euler_p48` 1.8 s → 0.8 s
+  (0.44x), `sat_magic_square` 2.8 s → 2.4 s (0.84x).
+
+Details (build, run loop, exclusions, example set, headless runs):
 [webasm/README.md](webasm/README.md)
 
 ## 3. Concurrency for native Picat — new modules `par`, `thread`, `pp`
