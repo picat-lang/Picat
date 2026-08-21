@@ -46,6 +46,11 @@ since picat requires it to match the file name. The page never
 *adds* a module line: that is not merely unnecessary, for the planner
 library it is harmful (`plan`/`plan_unbounded` resolve `final//action/`
 in the global module, so a program with a module name breaks).
+The run itself is a synchronous wasm call that blocks the main thread,
+so it is started on the frame after the click: the Run button greys
+out and reads "Running…" and the status bar shows `running…` for the
+whole duration (with no repaint possible in between, an immediately
+started run would only show its starting state in its last instant).
 The runtime is bootstrapped once (`browser_boot("-p /lib2")`) on the
 first Run. Uncaught picat errors make the interpreter call
 `exit(1)`; the build links with `-sNO_EXIT_RUNTIME`, so the runtime

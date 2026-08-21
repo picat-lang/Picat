@@ -325,12 +325,14 @@ function finishRun(res, restarted) {
            ok ? 'ok' : 'err');
   running = false;
   $('run').disabled = false;
+  $('run').innerHTML = '&#9654; Run';
 }
 
 function run() {
   if (!M || running) return;
   running = true;
   $('run').disabled = true;
+  $('run').innerHTML = '&#9654; Running&hellip;';
   setState('running…');
   terminal.textContent = '';
   /* picat requires the module name to match the file name, and the file
@@ -341,20 +343,40 @@ function run() {
      break the program */
   var code = editor.value.replace(
     /^\s*module\s+[A-Za-z_]\w*\s*\./m, 'module user_code.');
-  var res = doRun(code);
-  /* A heavy run (e.g. a large SAT solve) can leave the interpreter
-     exhausted: the next run then ends immediately with status 0 (or
-     traps) before doing any work.  That can only happen after earlier
-     runs succeeded on this module, so on such a failure we restart the
-     interpreter (a fresh module) and retry once.  The emulated
-     filesystem is re-created from the preload image, which already
-     contains every data file the examples need. */
-  if (runsOk > 0 && res.ms < 50 && (res.failed || res.rc !== 1)) {
-    appendOut('\n[interpreter exhausted — resetting and retrying…]');
-    restartAndRetry(code);
-    return;
+  /* doRun runs synchronously in wasm and blocks the main thread for
+     the whole program: the browser cannot repaint while it is
+     running, so an immediately-started run would grey the button and
+     say "running…" in the status bar only in the instant of its end.
+     Deferring to after the next painted frame (double rAF) makes the
+     running state actually visible for the duration of the run. */
+  requestAnimationFrame(function () {
+    requestAnimationFrame(function () {
+      setTimeout(function () { startRun(code); }, 0);
+    });
+  });
+}
+
+function startRun(code) {
+  try {
+    var res = doRun(code);
+    /* A heavy run (e.g. a large SAT solve) can leave the interpreter
+       exhausted: the next run then ends immediately with status 0 (or
+       traps) before doing any work.  That can only happen after earlier
+       runs succeeded on this module, so on such a failure we restart
+       the interpreter (a fresh module) and retry once.  The emulated
+       filesystem is re-created from the preload image, which already
+       contains every data file the examples need. */
+    if (runsOk > 0 && res.ms < 50 && (res.failed || res.rc !== 1)) {
+      appendOut('\n[interpreter exhausted — resetting and retrying…]');
+      restartAndRetry(code);
+    } else {
+      finishRun(res, false);
+    }
+  } catch (e) {
+    /* e.g. a failed FS write: never leave the button stuck disabled */
+    appendOut('\ninternal error: ' + e);
+    finishRun({ rc: -1, failed: true, ms: 0 }, false);
   }
-  finishRun(res, false);
 }
 
 function restartAndRetry(code) {
