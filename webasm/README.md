@@ -33,8 +33,12 @@ Prerequisites:
   right corner,
 * the **example** select (top right) loads a preloaded program into the
   editor (it does not run it),
-* the **File** menu opens a local `.pi` file into the editor, or saves
-  the editor contents as a download,
+* the **File** menu opens a local `.pi` file into the editor, saves
+  the editor contents as a download, or creates a **share link**:
+  the editor text is base64url-encoded into the URL's `program`
+  parameter (the link targets the page's own origin and path,
+  wherever this build is served); visiting such a link restores the
+  program into the editor.
 * the **terminal** (right) shows the program's stdout/stderr.
 
 How a Run works: the page writes the editor text to the virtual file

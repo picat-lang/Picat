@@ -209,6 +209,7 @@
         <div class="menu-items">
           <button type="button" id="open-file">Open file&hellip;</button>
           <button type="button" id="save-file">Save as file&hellip;</button>
+          <button type="button" id="share-link">Share as link&hellip;</button>
         </div>
       </div>
       <div class="pane-title grow" id="srcname">source</div>
@@ -507,6 +508,49 @@ $('file-input').addEventListener('change', function () {
   this.value = '';
 });
 
+/* ---- share link: the whole program in one URL parameter -------------- */
+/* ?program= carries the editor text base64url-encoded (utf-8).  The link
+   points at this page itself (origin + path of wherever this build is
+   served), so visiting it restores the program into the editor. */
+function b64encode(s) {
+  var bytes = new TextEncoder().encode(s);
+  var bin = '';
+  for (var i = 0; i < bytes.length; i += 0x8000)
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function b64decode(v) {
+  v = v.replace(/-/g, '+').replace(/_/g, '/');
+  while (v.length % 4) v += '=';
+  var bin = atob(v);
+  var bytes = new Uint8Array(bin.length);
+  for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+$('share-link').addEventListener('click', function () {
+  var url = location.origin + location.pathname +
+            '?program=' + b64encode(editor.value);
+  var fallback = function () { window.prompt('Copy this share link:', url); };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(function () {
+      setState('share link copied to the clipboard');
+    }, fallback);
+  } else {
+    fallback();
+  }
+});
+function applySharedLink() {
+  var p = new URLSearchParams(location.search).get('program');
+  if (!p) return;
+  try {
+    editor.value = b64decode(p);
+    setSrcName();
+    setState('program loaded from share link');
+  } catch (e) {
+    setState('the share link does not contain a valid program', 'err');
+  }
+}
+
 /* ---- module lifecycle -------------------------------------------------- */
 /* Create an interpreter module.  This is the unit a "restart" re-creates:
    a fresh module is a fresh initialize_bprolog with a fresh emulated
@@ -544,6 +588,7 @@ function populateExamples() {
 /* ---- boot -------------------------------------------------------------- */
 createModule().then(function () {
   populateExamples();
+  applySharedLink();         // a ?program= link overrides the default example
   $('run').disabled = false;
   setState('ready');
   setSrcName();
