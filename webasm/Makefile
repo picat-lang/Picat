@@ -29,6 +29,14 @@ BUILDDIR:= build
 STAGE   := $(BUILDDIR)/stage
 DIST    := dist
 
+# Build stamp embedded into dist/index.html (top-right of the terminal
+# title bar): the 12-char git short sha of HEAD when this dist/ is
+# built, with '+' appended if the tree is dirty at build time --
+# identifies a deployed dist/ against the git history.  "unknown"
+# when the checkout is not a git repo.
+BUILD_ID := $(shell git -C .. rev-parse --short=12 HEAD 2>/dev/null)
+BUILD_ID := $(if $(strip $(BUILD_ID)),$(BUILD_ID)$(if $(shell git -C .. status --porcelain 2>/dev/null),+),unknown)
+
 # Compile exactly the object list of the native build (emu/common.mak),
 # minus the pieces that cannot run in a browser:
 #   thread.c, satext.c, sapi.c, satshim.c : pthreads / fork-exec external
@@ -216,7 +224,7 @@ $(DIST)/picat.js: $(STAGE)/stamp $(OBJS) browser/index.html \
                   $(wildcard examples/*) $(DATA_SRC) $(ASPICTOOLS)
 	mkdir -p $(DIST)
 	$(EMCC) $(CFLAGS) $(OBJS) $(EMFLAGS) -o $@
-	cp browser/index.html $(DIST)/
+	sed 's/__PICAT_BUILD_ID__/$(BUILD_ID)/g' browser/index.html > $(DIST)/index.html
 
 serve: $(DIST)/picat.js
 	@echo "serving $(DIST) on http://localhost:8000 (Ctrl-C to stop)"

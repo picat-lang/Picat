@@ -33,6 +33,10 @@ Prerequisites:
   right corner,
 * the **example** select (top right) loads a preloaded program into the
   editor (it does not run it),
+* the **terminal** title bar carries, at its right edge, a small badge
+  with the build stamp: the 12-char commit id the `dist/` was built
+  from (`+` marks a dirty tree at build time) -- use it to identify a
+  deployed page against the git history,
 * the **File** menu opens a local `.pi` file into the editor, saves
   the editor contents as a download, or deals in share links:
   **Share as link…** base64url-encodes (utf-8) the editor text into

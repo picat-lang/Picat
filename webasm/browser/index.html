@@ -187,6 +187,19 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  #termttl { display: flex; align-items: center; gap: 8px; }
+  #buildid {
+    margin-left: auto;
+    font: 10.5px/1.7 var(--mono);
+    font-weight: 400;
+    letter-spacing: 0.4px;
+    text-transform: none;
+    color: var(--dim);
+    background: var(--pane);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0 8px;
+  }
   #editor {
     flex: 1;
     resize: none;
@@ -253,7 +266,9 @@
     <textarea id="editor" spellcheck="false"></textarea>
   </section>
   <section>
-    <div class="pane-title">terminal</div>
+    <div class="pane-title" id="termttl"><span>terminal</span>
+      <span id="buildid">__PICAT_BUILD_ID__</span>
+    </div>
     <pre id="terminal"></pre>
   </section>
 </main>
@@ -292,6 +307,17 @@ var running = false;
 var $ = function (id) { return document.getElementById(id); };
 var editor = $('editor'), terminal = $('terminal'),
     state = $('state'), lastrun = $('lastrun');
+
+/* Build stamp: webasm/Makefile bakes the commit id this dist/ was
+   built from (a '+' marks a dirty tree) into the terminal title bar,
+   so a deployed page shows which build it is.  Remove the badge when
+   the placeholder was never substituted (a page straight from the
+   checkout, not a build). */
+(function () {
+  var b = $('buildid'), v = b ? b.textContent.trim() : '';
+  if (!b || v === '__PICAT_BUILD_ID__') { if (b) b.remove(); return; }
+  b.title = 'built from commit ' + v;
+})();
 
 function appendOut(s) {
   terminal.textContent += s.replace(/\x1b\[[0-9;]*m/g, '') + '\n';
