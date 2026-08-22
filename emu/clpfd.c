@@ -772,7 +772,7 @@ static int cpden_scratch_add(cpden_scratch *s, BPLONG_PTR vs, int c, BPLONG cell
     if (s->n == s->cap) {
         if (s->cap == 0) {
             int pc1, pc2, m;
-            BPLONG_PTR pv = (BPLONG_PTR)cpden_pop8(64, &pc1);
+            BPLONG_PTR *pv = (BPLONG_PTR *)cpden_pop8(64, &pc1);
             BPLONG *pe = (BPLONG *)cpden_pop8(64, &pc2);
             int *pc = (int *)0;
             int pcc = 0;
