@@ -427,11 +427,40 @@ extern PAR_TLS BPLONG no_gcs;
     PUSHTRAIL_s(op1);                           \
     FOLLOW(op1) = encodefloat1(value);          \
 
-#define FORK AR_CPF(AR) = *P++
+/* parsearch (Path B, M2): when a pvm session is running (mode 1), a
+   choice point may be split across processes: pvm_fork_frame() forks a
+   child that continues with the disjunction's remaining clauses while
+   the parent keeps the first. Returns 1 only in the child; the macro
+   then dispatches the child at pvm_child_reentry (the original
+   re-entry word, since the child's own frame cell already holds the
+   fail stub). A delegated frame's AR_CPF is patched to
+   &pvm_deleg_fail_word; when its kept clause fails, lab_pvm_deleg_fail
+   waits for the worker (pvm_deleg_wait) and, if the worker found a
+   solution, re-runs the original re-entry locally to re-materialize
+   the solution deterministically; otherwise the disjunction fails to
+   its caller as usual. pvm_fork_frame additionally requires the
+   engine state to equal the frame's entry state (see parvm.c). */
+#if PAR_THREADS
+#define PVM_FORK_MAYBE(ar) \
+    do { \
+        if (pvm_deleg_fail_word == 0) \
+            pvm_deleg_fail_word = (BPLONG)&&lab_pvm_deleg_fail; \
+        if (pvm_fork_frame(ar)) { \
+            P = (BPLONG_PTR)pvm_child_reentry; \
+            CONTCASE; \
+        } \
+    } while (0)
+#endif
 
-#define SET_FORK AR_CPF(AR) = tmp_op
-
-#define SET_FORK1 AR_CPF(AR) = *(P+1)
+#if PAR_THREADS
+#define FORK { AR_CPF(AR) = *P++; PVM_FORK_MAYBE(AR); }
+#define SET_FORK { AR_CPF(AR) = tmp_op; PVM_FORK_MAYBE(AR); }
+#define SET_FORK1 { AR_CPF(AR) = *(P+1); PVM_FORK_MAYBE(AR); }
+#else
+#define FORK { AR_CPF(AR) = *P++; }
+#define SET_FORK { AR_CPF(AR) = tmp_op; }
+#define SET_FORK1 { AR_CPF(AR) = *(P+1); }
+#endif
 
 /* handle simple cases before calling bp_call_term_catch(term)
    if term == true, do nothing

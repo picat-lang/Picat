@@ -325,6 +325,42 @@ lab_fail0:
     */
     CONTCASE;
 
+#if PAR_THREADS
+lab_pvm_deleg_fail:
+    /* reached through a patched AR_CPF (see pvm_fork_frame): frame B
+       delegated the remaining clauses of its disjunction to a forked
+       worker, and the kept first clause just failed (on arrival AR = B,
+       heap, trail and local already restored to the frame entry, as by
+       lab_fail). Wait for the worker; if its main succeeded, re-run the
+       original re-entry locally (status 0 below), otherwise fail the
+       disjunction to its caller with cut semantics. */
+    pvm_deleg_wait(B);
+    if (pvm_last_deleg_status == 0) {
+        /* the forked worker's main succeeded: the disjunction's
+           remaining clauses succeeded over there. Re-run the original
+           re-entry locally to re-materialize the result (a found
+           solution is re-derived deterministically; a trivial branch
+           just runs), then continue this process normally. */
+        P = (BPLONG_PTR)pvm_deleg_reentry(B);
+        CONTCASE;
+    }
+    B = (BPLONG_PTR)AR_B(B);
+    AR = B;
+    LOCAL_TOP = (BPLONG_PTR)AR_TOP(B);
+    HB = (BPLONG_PTR)AR_H(B);
+    SF = (BPLONG_PTR)AR_SF(B);
+    H = (BPLONG_PTR)HB;
+    trigger_no = 0;
+    toam_signal_vec &= (INTERRUPT | EVENT_POOL_NONEMPTY);
+    RESET_WATER_MARKS;
+    top = (BPLONG_PTR)AR_T(B);
+    while (T != top) {
+        POPTRAIL(T);
+    }
+    P = (BPLONG_PTR)AR_CPF(B);
+    CONTCASE;
+#endif
+
 #ifndef GCC
 case getbreg_y:  /* y */
 #endif

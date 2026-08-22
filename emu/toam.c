@@ -37,6 +37,10 @@ extern Builtins builtins[];  //branch
 extern BPLONG_PTR *asp_rel_mins, *asp_rel_sizes;
 extern char *eventNoNameTable[];  //branch
 
+#if PAR_THREADS
+BPLONG pvm_deleg_fail_word = 0;
+#endif
+
 BPLONG interrupt_sym;  /* the atom 'interrupt' */
 SYM_REC_PTR ball_psc;  /* the global var '$ball' */
 BPLONG_PTR sreg = NULL;  /* current build or unify field */

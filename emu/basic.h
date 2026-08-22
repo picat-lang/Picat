@@ -316,6 +316,35 @@ extern int curr_toam_status;
 #define PAR_THREADS 0
 #endif
 
+/* OR-parallel search state (parsearch, Path B, M2). */
+typedef struct {
+    volatile long live;   /* workers currently alive */
+    volatile long count;  /* solution count (mode 2) */
+    volatile int  found;  /* first-solution found (mode 1) */
+} pvm_shm_t;
+
+typedef struct {
+    int armed;            /* 1 while this engine participates as a worker */
+    BPLONG nt;            /* worker budget (max live workers) */
+    BPLONG mode;          /* 1 = first solution, 2 = count all */
+    BPLONG wid;           /* this process's worker id (0 = root) */
+    BPLONG w_lo;          /* mode 2: this worker's value-chunk bounds */
+    BPLONG w_hi;
+    BPLONG aval;          /* value count A for chunking */
+} pvm_t;
+
+#if PAR_THREADS
+extern PAR_TLS pvm_t pvm;
+extern pvm_shm_t *pvm_shm;
+extern BPLONG pvm_deleg_fail_word;  /* set at first hook; == (BPLONG)&&lab_pvm_deleg_fail */
+extern int pvm_fork_frame(BPLONG_PTR ar);
+void pvm_reap_my_children(void);
+int pvm_deleg_wait(BPLONG_PTR f);
+extern BPLONG pvm_child_reentry;
+extern int pvm_last_deleg_status;
+BPLONG pvm_deleg_reentry(BPLONG_PTR f);
+#endif
+
 #define TOAM_NOTSET 0
 #define TOAM_MOUNTED 1
 #define TOAM_STARTED 2
