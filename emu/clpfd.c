@@ -9,6 +9,7 @@
  ********************************************************************/
 #include "bprolog.h"
 #include <stdlib.h>
+#include <string.h>
 #include "event.h"
 #include "clpfd.h"
 #include "frame.h"
@@ -272,28 +273,34 @@ int exclude_elm_dvars() {
   On any mismatch the arrays are freed, the key is blacklisted
   after a second failure, and the call falls back to the plain
   term walk, so any in-place mutation of the lists self-heals.
-*/
-static int cpdense_enabled(void)
-{
-    static int e = -1;
-    if (e < 0) {
-        const char *v = getenv("CPDENSE");
-        e = !(v && v[0] == '0');
-    }
-    return e;
-}
 
+  Self-adaptive: some models rebuild their exclusion lists
+  constantly with recycled heap cells (measured on 25x25 sudoku),
+  so the fingerprint perpetually fails and the register/drop cycle
+  outruns any dense-walk benefit.  The cache therefore counts
+  dense-apply hits against register/drop maintenance events, and
+  if after CPDEN_KILL_MAINT maintenance events fewer than 1 dense
+  hit in 4 have been produced, it frees all cached state and
+  disables itself
+  for the remainder of the run: subsequent calls take the plain
+  term-walk path exactly as with CPDENSE=0.  On stable-list
+  workloads (n-queens: -13% to -28% measured) the hit rate is
+  orders of magnitude above the threshold, so the gate never fires.
+ */
 #define CPDEN_HT_BITS 14
 #define CPDEN_HT_SIZE (1 << CPDEN_HT_BITS)
 #define CPDEN_VERIFY_EVERY 64
 #define CPDEN_MAX_ENTRIES (1L << 24)
-#define CPDEN_BLACK_MAX 256
+#define CPDEN_LIVE_MAX (CPDEN_HT_SIZE * 3 / 4)
+#define CPDEN_POOL_MAX 48
+#define CPDEN_POOL_MAX_BYTES (1L << 20)
 
 typedef struct cpden_rec {
     BPLONG_PTR *vslot;   /* slot holding the variable (VCS: pair arg1) */
     int *c;              /* per-entry constant (non-NULL only for VCS) */
     BPLONG *cell;        /* list cell untagged address per entry (both lists) */
     int n;               /* total entries */
+    int cap;             /* allocated capacity of the arrays above */
     int n1;              /* entries from list1 (rest: list2) */
     unsigned long key[2];
     int hits;
@@ -307,32 +314,226 @@ typedef struct {
 
 static cpden_slot cpden_tab[CPDEN_HT_SIZE];
 static cpden_rec *cpden_recs = (cpden_rec *)0;
-static int cpden_nrecs = 0, cpden_cap = 0;
+static int cpden_nrecs = 0, cpden_rec_cap = 0;
+static int cpden_nlive = 0;                    /* records currently in the table */
+static int cpden_freelist[CPDEN_HT_SIZE];
+static int cpden_nfree = 0;
 static long cpden_entries = 0;
-static unsigned long cpden_black[2 * CPDEN_BLACK_MAX];
+
+/* Churned keys (two verification failures) go here and are never cached
+   again.  Separate open-addressing table so that live records can't
+   clobber the entries; capped below table size so lookups terminate. */
+static cpden_slot cpden_blacktab[CPDEN_HT_SIZE];
 static int cpden_nblack = 0;
 
-static int cpden_black_listed(const unsigned long k[2])
+/* Recycled dense arrays between drop/register, bounded by count and by
+   total bytes, so the heap allocator is out of the steady-state churn
+   loop.  8-byte pool serves both vslot and cell arrays (opaque void*). */
+static void *cpden_pool8_a[CPDEN_POOL_MAX];
+static int cpden_pool8_c[CPDEN_POOL_MAX];
+static int cpden_pool8_n = 0;
+static long cpden_pool8_b = 0;
+static int *cpden_pool4_a[CPDEN_POOL_MAX];
+static int cpden_pool4_c[CPDEN_POOL_MAX];
+static int cpden_pool4_n = 0;
+static long cpden_pool4_b = 0;
+
+static int cpden_killed = 0;
+static long cpden_hits = 0;
+static long cpden_maint = 0;
+#define CPDEN_KILL_MAINT 8192L
+#define CPDEN_KILL_RATIO 4L
+
+static void cpden_report(void)
 {
-    int i;
-    for (i = 0; i < cpden_nblack; i++)
-        if (cpden_black[2*i] == k[0] && cpden_black[2*i+1] == k[1])
-            return 1;
-    return 0;
+    if (getenv("CPDEN_STATS") == (char *)0)
+        return;
+    fprintf(stderr,
+            "cpdense: killed=%d hits=%ld maint=%ld nlive=%d nrecs=%d entries=%ld\n",
+            cpden_killed, cpden_hits, cpden_maint, cpden_nlive,
+            cpden_nrecs, cpden_entries);
 }
 
-static void cpden_blacken(const unsigned long k[2])
+static int cpdense_enabled(void)
 {
-    if (cpden_nblack < CPDEN_BLACK_MAX) {
-        cpden_black[2*cpden_nblack] = k[0];
-        cpden_black[2*cpden_nblack+1] = k[1];
-        cpden_nblack++;
+    static int e = -1;
+    if (e < 0) {
+        const char *v = getenv("CPDENSE");
+        e = !(v && v[0] == '0');
+        if (e)
+            atexit(cpden_report);
     }
+    return e && !cpden_killed;
+}
+
+static void cpden_kill_all(void)
+{
+    int ri, i;
+
+    if (cpden_killed)
+        return;
+    cpden_killed = 1;
+    for (ri = 0; ri < cpden_nrecs; ri++) {
+        cpden_rec *r = &cpden_recs[ri];
+        free(r->vslot);
+        if (r->c) free(r->c);
+        free(r->cell);
+    }
+    free(cpden_recs);
+    cpden_recs = (cpden_rec *)0;
+    cpden_nrecs = 0;
+    cpden_rec_cap = 0;
+    cpden_nlive = 0;
+    cpden_nfree = 0;
+    cpden_entries = 0;
+    for (i = 0; i < cpden_pool8_n; i++)
+        free(cpden_pool8_a[i]);
+    cpden_pool8_n = 0;
+    cpden_pool8_b = 0;
+    for (i = 0; i < cpden_pool4_n; i++)
+        free(cpden_pool4_a[i]);
+    cpden_pool4_n = 0;
+    cpden_pool4_b = 0;
+    memset(cpden_tab, 0, sizeof(cpden_tab));
+    memset(cpden_blacktab, 0, sizeof(cpden_blacktab));
+    cpden_nblack = 0;
+}
+
+static void cpden_note_maint(void)
+{
+    if (cpden_killed)
+        return;
+    cpden_maint++;
+    if (cpden_maint >= CPDEN_KILL_MAINT &&
+        cpden_hits * CPDEN_KILL_RATIO < cpden_maint) {
+        cpden_kill_all();
+        if (getenv("CPDEN_STATS") != (char *)0)
+            fprintf(stderr, "cpdense: KILL hits=%ld maint=%ld\n",
+                    cpden_hits, cpden_maint);
+        return;
+    }
+    if (getenv("CPDEN_STATS") != (char *)0 &&
+        (cpden_maint == CPDEN_KILL_MAINT || (cpden_maint & 0x7fff) == 0x7fff))
+        fprintf(stderr, "cpdense: hits=%ld maint=%ld nlive=%d\n",
+                cpden_hits, cpden_maint, cpden_nlive);
+}
+
+static void cpden_note_hit(void)
+{
+    if (!cpden_killed)
+        cpden_hits++;
 }
 
 static void cpden_keyhash(const unsigned long k[2], unsigned *h)
 {
     *h = ((unsigned)(k[0] >> 4) ^ (unsigned)(k[1] >> 4)) & (CPDEN_HT_SIZE - 1);
+}
+
+static void cpden_push8(void *p, int cap)
+{
+    if (!p || cap <= 0)
+        return;
+    if (cpden_pool8_n >= CPDEN_POOL_MAX ||
+        cpden_pool8_b + (long)cap * 8L > CPDEN_POOL_MAX_BYTES) {
+        free(p);
+        return;
+    }
+    cpden_pool8_a[cpden_pool8_n] = p;
+    cpden_pool8_c[cpden_pool8_n] = cap;
+    cpden_pool8_n++;
+    cpden_pool8_b += (long)cap * 8L;
+}
+
+static void *cpden_pop8(int need, int *cap)
+{
+    int i;
+
+    for (i = 0; i < cpden_pool8_n; i++) {
+        if (cpden_pool8_c[i] >= need) {
+            void *p = cpden_pool8_a[i];
+            *cap = cpden_pool8_c[i];
+            cpden_pool8_b -= (long)cpden_pool8_c[i] * 8L;
+            cpden_pool8_n--;
+            cpden_pool8_a[i] = cpden_pool8_a[cpden_pool8_n];
+            cpden_pool8_c[i] = cpden_pool8_c[cpden_pool8_n];
+            return p;
+        }
+    }
+    *cap = need;
+    return malloc((size_t)need * 8L);
+}
+
+static void cpden_push4(int *p, int cap)
+{
+    if (!p || cap <= 0)
+        return;
+    if (cpden_pool4_n >= CPDEN_POOL_MAX ||
+        cpden_pool4_b + (long)cap * (long)sizeof(int) > CPDEN_POOL_MAX_BYTES) {
+        free(p);
+        return;
+    }
+    cpden_pool4_a[cpden_pool4_n] = p;
+    cpden_pool4_c[cpden_pool4_n] = cap;
+    cpden_pool4_n++;
+    cpden_pool4_b += (long)cap * (long)sizeof(int);
+}
+
+static int *cpden_pop4(int need, int *cap)
+{
+    int i;
+
+    for (i = 0; i < cpden_pool4_n; i++) {
+        if (cpden_pool4_c[i] >= need) {
+            int *p = cpden_pool4_a[i];
+            *cap = cpden_pool4_c[i];
+            cpden_pool4_b -= (long)cpden_pool4_c[i] * (long)sizeof(int);
+            cpden_pool4_n--;
+            cpden_pool4_a[i] = cpden_pool4_a[cpden_pool4_n];
+            cpden_pool4_c[i] = cpden_pool4_c[cpden_pool4_n];
+            return p;
+        }
+    }
+    *cap = need;
+    return (int *)malloc((size_t)need * sizeof(int));
+}
+
+static void cpden_blacken(const unsigned long k[2])
+{
+    unsigned h;
+
+    if (cpden_nblack >= CPDEN_HT_SIZE - 1)
+        return;
+    cpden_keyhash(k, &h);
+    for (;;) {
+        if (cpden_blacktab[h].key[0] == 0 && cpden_blacktab[h].key[1] == 0) {
+            cpden_blacktab[h].key[0] = k[0];
+            cpden_blacktab[h].key[1] = k[1];
+            cpden_blacktab[h].rec = -2;
+            cpden_nblack++;
+            return;
+        }
+        if (cpden_blacktab[h].rec == -2 &&
+            cpden_blacktab[h].key[0] == k[0] && cpden_blacktab[h].key[1] == k[1])
+            return;
+        h = (h + 1) & (CPDEN_HT_SIZE - 1);
+    }
+}
+
+static int cpden_is_black(const unsigned long k[2])
+{
+    unsigned h;
+    int steps;
+
+    cpden_keyhash(k, &h);
+    for (steps = 0; steps < CPDEN_HT_SIZE; steps++) {
+        if (cpden_blacktab[h].key[0] == 0 && cpden_blacktab[h].key[1] == 0)
+            return 0;
+        if (cpden_blacktab[h].rec == -2 &&
+            cpden_blacktab[h].key[0] == k[0] && cpden_blacktab[h].key[1] == k[1])
+            return 1;
+        h = (h + 1) & (CPDEN_HT_SIZE - 1);
+    }
+    return 0;
 }
 
 static int cpden_find(const unsigned long k[2])
@@ -350,14 +551,21 @@ static int cpden_find(const unsigned long k[2])
 
 static int cpden_new_rec(void)
 {
-    if (cpden_nrecs == cpden_cap) {
-        int ncap = cpden_cap ? 2 * cpden_cap : 256;
+    int ri;
+
+    if (cpden_nfree > 0) {
+        cpden_nfree--;
+        return cpden_freelist[cpden_nfree];
+    }
+    if (cpden_nrecs == cpden_rec_cap) {
+        int ncap = cpden_rec_cap ? 2 * cpden_rec_cap : 256;
         cpden_rec *nr = (cpden_rec *)realloc(cpden_recs, (size_t)ncap * sizeof(cpden_rec));
         if (!nr) return -1;
         cpden_recs = nr;
-        cpden_cap = ncap;
+        cpden_rec_cap = ncap;
     }
-    return cpden_nrecs++;
+    ri = cpden_nrecs++;
+    return ri;
 }
 
 static void cpden_clear_slot(int ri)
@@ -378,13 +586,21 @@ static void cpden_clear_slot(int ri)
 static void cpden_drop(int ri)
 {
     cpden_rec *r = &cpden_recs[ri];
-    free(r->vslot); free(r->c); free(r->cell);
+
+    cpden_push8(r->vslot, r->cap);
+    if (r->c) cpden_push4(r->c, r->cap);
+    cpden_push8(r->cell, r->cap);
     r->vslot = (BPLONG_PTR *)0;
     r->c = (int *)0;
     r->cell = (BPLONG *)0;
     cpden_entries -= r->n;
     r->n = 0;
+    r->cap = 0;
     cpden_clear_slot(ri);
+    cpden_nlive--;
+    if (cpden_nfree < CPDEN_HT_SIZE)
+        cpden_freelist[cpden_nfree++] = ri;
+    cpden_note_maint();
 }
 
 /* O(1) fingerprint over the recorded tail cell. */
@@ -437,26 +653,42 @@ static int cpden_verify(const cpden_rec *r)
     return cpden_verify_segment(r, r->n1, r->n);
 }
 
-/* take ownership of the scratch buffers; caller guarantees n > 0 */
-static void cpden_register(const unsigned long key[2], BPLONG_PTR *vslot,
-                           int *c, BPLONG *cell, int n, int n1)
+/* take ownership of the scratch buffers; caller guarantees n > 0.
+   Returns 1 if the record was registered, 0 if it was skipped (the
+   scratch buffers are returned to the pool either way). */
+static int cpden_register(const unsigned long key[2], BPLONG_PTR *vslot,
+                          int *c, BPLONG *cell, int n, int n1, int cap)
 {
-    int ri, h, fresh = 0;
+    int ri, h;
     cpden_rec *r;
 
-    if (cpden_entries + n > CPDEN_MAX_ENTRIES) {
-        free(vslot); free(c); free(cell);
-        return;
+    if (cpden_entries + n > CPDEN_MAX_ENTRIES || cpden_nlive >= CPDEN_LIVE_MAX) {
+        cpden_push8(vslot, cap);
+        if (c) cpden_push4(c, cap);
+        cpden_push8(cell, cap);
+        return 0;
     }
     ri = cpden_find(key);
     if (ri >= 0) {
         r = &cpden_recs[ri];
+        /* recycle the displaced record's arrays into the pool */
+        cpden_push8(r->vslot, r->cap);
+        if (r->c) cpden_push4(r->c, r->cap);
+        cpden_push8(r->cell, r->cap);
+        r->vslot = (BPLONG_PTR *)0;
+        r->c = (int *)0;
+        r->cell = (BPLONG *)0;
         cpden_entries -= r->n;
-        free(r->vslot); free(r->c); free(r->cell);
+        r->n = 0;
+        r->cap = 0;
     } else {
         ri = cpden_new_rec();
-        if (ri < 0) { free(vslot); free(c); free(cell); return; }
-        fresh = 1;
+        if (ri < 0) {
+            cpden_push8(vslot, cap);
+            if (c) cpden_push4(c, cap);
+            cpden_push8(cell, cap);
+            return 0;
+        }
         r = &cpden_recs[ri];
         h = 0;
         cpden_keyhash(key, &h);
@@ -467,27 +699,14 @@ static void cpden_register(const unsigned long key[2], BPLONG_PTR *vslot,
         cpden_tab[h].key[0] = key[0];
         cpden_tab[h].key[1] = key[1];
         cpden_tab[h].rec = ri;
+        cpden_nlive++;
     }
-    /* shrink to the exact size (scratch grew in doublings) */
-    {
-        BPLONG_PTR *nv = (BPLONG_PTR *)realloc(vslot, (size_t)n * sizeof(BPLONG_PTR));
-        int *nc = c ? (int *)realloc(c, (size_t)n * sizeof(int)) : (int *)0;
-        BPLONG *ncell = (BPLONG *)realloc(cell, (size_t)n * sizeof(BPLONG));
-        if (!nv || (c && !nc) || !ncell) {
-            free(nv); if (nc) free(nc); free(ncell);
-            r->vslot = (BPLONG_PTR *)0;
-            r->c = (int *)0;
-            r->cell = (BPLONG *)0;
-            r->n = 0;
-            r->n1 = 0;
-            cpden_clear_slot(ri);
-            if (fresh) cpden_nrecs = ri;
-            return;
-        }
-        r->vslot = nv;
-        r->c = nc;
-        r->cell = ncell;
-    }
+    /* keep the scratch buffers as-is (they already hold n entries);
+       no shrink-to-fit reallocation */
+    r->vslot = vslot;
+    r->c = c;
+    r->cell = cell;
+    r->cap = cap;
     r->key[0] = key[0];
     r->key[1] = key[1];
     r->hits = 0;
@@ -495,6 +714,8 @@ static void cpden_register(const unsigned long key[2], BPLONG_PTR *vslot,
     r->n = n;
     r->n1 = n1;
     cpden_entries += n;
+    cpden_note_maint();
+    return 1;
 }
 
 /* dense walk for a cached record; returns 0 on conflict, 1 otherwise */
@@ -547,12 +768,40 @@ typedef struct {
 static int cpden_scratch_add(cpden_scratch *s, BPLONG_PTR vs, int c, BPLONG cell)
 {
     if (s->n == s->cap) {
-        int nc = s->cap ? 2 * s->cap : 64;
-        s->vslot = (BPLONG_PTR *)realloc(s->vslot, (size_t)nc * sizeof(BPLONG_PTR));
-        if (s->want_c) s->c = (int *)realloc(s->c, (size_t)nc * sizeof(int));
-        s->cell = (BPLONG *)realloc(s->cell, (size_t)nc * sizeof(BPLONG));
-        if (!s->vslot || (s->want_c && !s->c) || !s->cell) return 0;
-        s->cap = nc;
+        if (s->cap == 0) {
+            int pc1, pc2, m;
+            BPLONG_PTR pv = (BPLONG_PTR)cpden_pop8(64, &pc1);
+            BPLONG *pe = (BPLONG *)cpden_pop8(64, &pc2);
+            int *pc = (int *)0;
+            int pcc = 0;
+            if (pv && pe) {
+                m = pc1 < pc2 ? pc1 : pc2;
+                if (s->want_c) {
+                    pc = cpden_pop4(64, &pcc);
+                    if (pc) m = pcc < m ? pcc : m;
+                }
+                if (!s->want_c || pc) {
+                    s->vslot = pv;
+                    s->cell = pe;
+                    s->c = pc;
+                    s->cap = m;   /* only set on success */
+                } else {
+                    cpden_push8(pv, pc1);
+                    cpden_push8(pe, pc2);
+                }
+            }
+            /* push8/pop8 already return safely on NULL; if s->cap is
+               still 0 the caller's NULL check below bails out and the
+               next call retries the first allocation. */
+        } else {
+            int nc = 2 * s->cap;
+            s->vslot = (BPLONG_PTR *)realloc(s->vslot, (size_t)nc * sizeof(BPLONG_PTR));
+            if (s->want_c) s->c = (int *)realloc(s->c, (size_t)nc * sizeof(int));
+            s->cell = (BPLONG *)realloc(s->cell, (size_t)nc * sizeof(BPLONG));
+            if (!s->vslot || (s->want_c && !s->c) || !s->cell) return 0;
+            s->cap = nc;
+        }
+        if (!s->vslot || !s->cell || (s->want_c && !s->c)) return 0;
     }
     s->vslot[s->n] = vs;
     if (s->want_c) s->c[s->n] = c;
@@ -563,7 +812,9 @@ static int cpden_scratch_add(cpden_scratch *s, BPLONG_PTR vs, int c, BPLONG cell
 
 static void cpden_scratch_free(cpden_scratch *s)
 {
-    free(s->vslot); free(s->c); free(s->cell);
+    cpden_push8(s->vslot, s->cap);
+    if (s->c) cpden_push4(s->c, s->cap);
+    cpden_push8(s->cell, s->cap);
     s->vslot = (BPLONG_PTR *)0;
     s->c = (int *)0;
     s->cell = (BPLONG *)0;
@@ -597,41 +848,68 @@ static int cpden_prefix_ok(const cpden_rec *r)
     return l != nil_sym && ISLIST(l) && !ISVAR(l);
 }
 
+/* grow the record's arrays (and r->cap) to at least `need` slots.
+   On heap failure the arrays whose old memory realloc already consumed
+   are nulled so that a subsequent cpden_drop stays safe; the arrays
+   still valid are left as-is so the drop can recycle them. */
+static int cpden_grow(cpden_rec *r, int need)
+{
+    BPLONG_PTR *nv = (BPLONG_PTR *)realloc(r->vslot, (size_t)need * sizeof(BPLONG_PTR));
+    int *nc;
+    BPLONG *ncell;
+
+    if (!nv)
+        return 0;
+    if (r->c) {
+        nc = (int *)realloc(r->c, (size_t)need * sizeof(int));
+        if (!nc) {
+            free(nv);
+            r->vslot = (BPLONG_PTR *)0;
+            r->cap = 0;
+            return 0;
+        }
+    } else {
+        nc = (int *)0;
+    }
+    ncell = (BPLONG *)realloc(r->cell, (size_t)need * sizeof(BPLONG));
+    if (!ncell) {
+        free(nv);
+        if (nc) free(nc);
+        r->vslot = (BPLONG_PTR *)0;
+        r->c = (int *)0;
+        r->cap = 0;
+        return 0;
+    }
+    r->vslot = nv;
+    if (nc) r->c = nc;
+    r->cell = ncell;
+    r->cap = need;
+    return 1;
+}
+
 /* extend the record with the appended cells (prefix known intact).
-   Returns 0 on allocation failure (arrays left as they were). */
+   Returns 0 on allocation failure; the record is left in a safe state
+   for cpden_drop (see cpden_grow). */
 static int cpden_extend_tail(cpden_rec *r)
 {
     BPLONG l;
     int n0, cap;
-    BPLONG_PTR *nv;
-    int *nc;
-    BPLONG *ncell;
 
     l = FOLLOW((BPLONG_PTR)UNTAGGED_ADDR(r->cell[r->n - 1]) + 1);
     DEREF_NONVAR(l);
     n0 = r->n;
-    cap = 2 * n0;
-    nv = (BPLONG_PTR *)realloc(r->vslot, (size_t)cap * sizeof(BPLONG_PTR));
-    if (r->c) nc = (int *)realloc(r->c, (size_t)cap * sizeof(int));
-    else nc = (int *)0;
-    ncell = (BPLONG *)realloc(r->cell, (size_t)cap * sizeof(BPLONG));
-    if (!nv || (r->c && !nc) || !ncell) {
-        free(nv); if (nc) free(nc); free(ncell);
+    if (!cpden_grow(r, 2 * n0))
         return 0;
-    }
-    r->vslot = nv; r->c = nc; r->cell = ncell;
+    cap = r->cap;
 
     while (ISLIST(l)) {
         BPLONG_PTR p = (BPLONG_PTR)UNTAGGED_ADDR(l);
         if (r->n >= cap) {
-            cap = 2 * cap;
-            nv = (BPLONG_PTR *)realloc(r->vslot, (size_t)cap * sizeof(BPLONG_PTR));
-            if (r->c) nc = (int *)realloc(r->c, (size_t)cap * sizeof(int));
-            else nc = (int *)0;
-            ncell = (BPLONG *)realloc(r->cell, (size_t)cap * sizeof(BPLONG));
-            if (!nv || (r->c && !nc) || !ncell)
-                return 0; /* inconsistent; caller drops */
-            r->vslot = nv; r->c = nc; r->cell = ncell;
+            if (!cpden_grow(r, 2 * cap)) {
+                r->n = n0;   /* no entries were counted on failure */
+                return 0;    /* caller drops the record */
+            }
+            cap = r->cap;
         }
         if (r->c) {
             BPLONG pair = FOLLOW(p);
@@ -671,23 +949,29 @@ int b_EXCLUDE_ELM_DVARS(BPLONG P_elm, BPLONG P_list1, BPLONG P_list2)
         DEREF_NONVAR(t2);
         key[0] = (t1 == nil_sym) ? 0 : (unsigned long)(t1 & ~3);
         key[1] = (t2 == nil_sym) ? 0 : (unsigned long)(t2 & ~3);
-        if ((key[0] | key[1]) && !cpden_black_listed(key)) {
+        if ((key[0] | key[1]) && !cpden_is_black(key)) {
             int ri = cpden_find(key);
             if (ri >= 0) {
                 cpden_rec *rr = &cpden_recs[ri];
                 if (cpden_fp_ok(rr)) {
                     rr->hits++;
-                    if ((rr->hits % CPDEN_VERIFY_EVERY) != 1 || cpden_verify(rr))
+                    if ((rr->hits % CPDEN_VERIFY_EVERY) != 1 || cpden_verify(rr)) {
+                        cpden_note_hit();
                         return cpden_apply_dvar(rr, elm);
+                    }
                 } else if (rr->n > 0 && cpden_prefix_ok(rr)) {
-                    if (cpden_extend_tail(rr)) return cpden_apply_dvar(rr, elm);
+                    if (cpden_extend_tail(rr)) {
+                        cpden_note_hit();
+                        return cpden_apply_dvar(rr, elm);
+                    }
                 }
                 rr->bad++;
                 if (rr->bad >= 2) cpden_blacken(rr->key);
                 cpden_drop(ri);
             }
         }
-        if ((key[0] | key[1]) && !cpden_black_listed(key)) {
+        if ((key[0] | key[1]) && !cpden_killed && !cpden_is_black(key)
+            && cpden_nlive < CPDEN_LIVE_MAX && cpden_entries < CPDEN_MAX_ENTRIES) {
             CPDEN_SCR_INIT(&s);
             building = 1;
         } else {
@@ -727,7 +1011,7 @@ start:
         goto start;
     }
     if (building && s.n > 0) {
-        cpden_register(key, s.vslot, s.c, s.cell, s.n, s.n1);
+        cpden_register(key, s.vslot, s.c, s.cell, s.n, s.n1, s.cap);
     } else if (building) {
         cpden_scratch_free(&s);
     }
@@ -764,23 +1048,29 @@ int b_EXCLUDE_ELM_VCS(BPLONG elm, BPLONG P_list)
         BPLONG t = P_list;
         DEREF_NONVAR(t);
         key[0] = (t == nil_sym) ? 0 : (unsigned long)(t & ~3);
-        if (key[0] && !cpden_black_listed(key)) {
+        if (key[0] && !cpden_is_black(key)) {
             int ri = cpden_find(key);
             if (ri >= 0) {
                 cpden_rec *rr = &cpden_recs[ri];
                 if (cpden_fp_ok(rr)) {
                     rr->hits++;
-                    if ((rr->hits % CPDEN_VERIFY_EVERY) != 1 || cpden_verify(rr))
+                    if ((rr->hits % CPDEN_VERIFY_EVERY) != 1 || cpden_verify(rr)) {
+                        cpden_note_hit();
                         return cpden_apply_vcs(rr, elm);
+                    }
                 } else if (rr->n > 0 && cpden_prefix_ok(rr)) {
-                    if (cpden_extend_tail(rr)) return cpden_apply_vcs(rr, elm);
+                    if (cpden_extend_tail(rr)) {
+                        cpden_note_hit();
+                        return cpden_apply_vcs(rr, elm);
+                    }
                 }
                 rr->bad++;
                 if (rr->bad >= 2) cpden_blacken(rr->key);
                 cpden_drop(ri);
             }
         }
-        if (key[0] && !cpden_black_listed(key)) {
+        if (key[0] && !cpden_killed && !cpden_is_black(key)
+            && cpden_nlive < CPDEN_LIVE_MAX && cpden_entries < CPDEN_MAX_ENTRIES) {
             CPDEN_SCR_INIT(&s);
             s.want_c = 1;
             building = 1;
@@ -822,7 +1112,7 @@ int b_EXCLUDE_ELM_VCS(BPLONG elm, BPLONG P_list)
         DEREF_NONVAR(P_list);
     }
     if (building && s.n > 0) {
-        cpden_register(key, s.vslot, s.c, s.cell, s.n, s.n);
+        cpden_register(key, s.vslot, s.c, s.cell, s.n, s.n, s.cap);
     } else if (building) {
         cpden_scratch_free(&s);
     }
