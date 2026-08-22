@@ -413,7 +413,9 @@ static void cpden_note_maint(void)
         return;
     }
     if (getenv("CPDEN_STATS") != (char *)0 &&
-        (cpden_maint == CPDEN_KILL_MAINT || (cpden_maint & 0x7fff) == 0x7fff))
+        (cpden_maint == CPDEN_KILL_MAINT || (cpden_maint & 0x7fff) == 0x7fff ||
+         cpden_maint == 256 || cpden_maint == 1024 || cpden_maint == 2048 ||
+         cpden_maint == 4096))
         fprintf(stderr, "cpdense: hits=%ld maint=%ld nlive=%d\n",
                 cpden_hits, cpden_maint, cpden_nlive);
 }
