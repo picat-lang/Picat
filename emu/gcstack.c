@@ -22,18 +22,18 @@ N.F. Zhou: Garbage Collection in B-Prolog, 2000.
 #include "inst.h"
 
 BPLONG_PTR copy_local_top;  /* stack in gc area */
-BPLONG_PTR b_top;  /* top of the latest choice point */
-BPLONG_PTR marked_susp_var_ptr;
-int n_marked_susp_vars;
+PAR_TLS BPLONG_PTR b_top;  /* top of the latest choice point */
+PAR_TLS BPLONG_PTR marked_susp_var_ptr;
+PAR_TLS int n_marked_susp_vars;
 
 #define SP_AFTER_GC(sp) (b_top-((BPULONG)copy_area_high-(BPULONG)sp)/sizeof(BPLONG))
 #define POINTER_TO_COPY_AREA(p) ((BPLONG_PTR)p >= copy_area_low && (BPLONG_PTR)p <= copy_area_high)
 
-BYTE copy_area_allocated = 0;
-BPLONG no_gcs = 0;
-BPLONG gc_time = 0;
+PAR_TLS BYTE copy_area_allocated = 0;
+PAR_TLS BPLONG no_gcs = 0;
+PAR_TLS BPLONG gc_time = 0;
 
-BPLONG_PTR max_heap_mark;
+PAR_TLS BPLONG_PTR max_heap_mark;
 
 int number_of_gcs() {
     BPLONG n = ARG(1, 1);

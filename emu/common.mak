@@ -3,7 +3,7 @@ OBJ = dis.o init.o init_sym.o loader.o inst_inf.o main.o toam.o unify.o \
 	builtins.o mic.o numbervars.o cpreds.o univ.o assert_bp.o findall.o clause.o \
     delay.o clpfd.o clpfd_libs.o event.o toamprofile.o \
     kapi.o getline.o table.o gcstack.o gcheap.o gcqueue.o debug.o \
-    par.o thread.o satext.o expand_bp.o bigint.o sapi.o kissat_picat.o espresso_bp.o \
+    par.o parvm.o thread.o satext.o expand_bp.o bigint.o sapi.o kissat_picat.o espresso_bp.o \
 	picat_utilities.o fann.o fann_cascade.o fann_error.o fann_io.o fann_train.o fann_train_data.o fann_interface.o
 
 ESPRESSO_FLAGS = -O3 -I. -Iespresso
@@ -102,6 +102,8 @@ event.o : event.c term.h basic.h bapi.h kapi.h event.h
 	$(CCC) $(CFLAGS) event.c
 par.o : par.c term.h basic.h bapi.h extern_decl.h
 	$(CCC) $(CFLAGS) par.c
+parvm.o : parvm.c term.h basic.h bapi.h extern_decl.h frame.h gc.h
+	$(CCC) $(CFLAGS) parvm.c
 satext.o : satext.c term.h basic.h bapi.h extern_decl.h
 	$(CCC) $(CFLAGS) satext.c
 satshim : satshim.c

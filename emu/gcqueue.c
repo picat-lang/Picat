@@ -13,18 +13,20 @@
 #include "gc.h"
 
 /************* Dynamic array of pointers   *******************/
+/* Per-engine GC scratch: each engine runs its own GC over its own
+   regions, so all of this is thread-local (PAR_TLS from basic.h). */
 static int InitDynamicArraySize = 1000000;
-int gcDynamicArraySize;
-int gcDynamicArrayCount;
-BPLONG_PTR gcDynamicArray = NULL;
+PAR_TLS int gcDynamicArraySize;
+PAR_TLS int gcDynamicArrayCount;
+PAR_TLS BPLONG_PTR gcDynamicArray = NULL;
 
-BPLONG_PTR global_mask_ptr = NULL;
-BPLONG global_mask_size;
+PAR_TLS BPLONG_PTR global_mask_ptr = NULL;
+PAR_TLS BPLONG global_mask_size;
 
 /************* Queue of terms to be rescued *******************/
-BPLONG gcQueueSize = 1024;
-GcQueueCell *gcQueue;
-BPLONG gcQueueFront, gcQueueRear, gcQueueCount;
+PAR_TLS BPLONG gcQueueSize = 1024;
+PAR_TLS GcQueueCell *gcQueue;
+PAR_TLS BPLONG gcQueueFront, gcQueueRear, gcQueueCount;
 
 void gcQueueConstruct() {
     gcQueue = (GcQueueCell *)malloc(gcQueueSize*sizeof(GcQueueCell));

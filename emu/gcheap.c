@@ -20,10 +20,10 @@
 #define ADDR_AFTER_GC(addr) (hbreg+((BPULONG)addr-(BPULONG)copy_area_low)/sizeof(BPLONG))
 #define GC_IS_MOVED(ptr) ((BPULONG)FOLLOW(ptr) >= (BPULONG)copy_area_low && (BPULONG)FOLLOW(ptr) < (BPULONG)copy_h)
 
-extern BPLONG_PTR copy_area_low;
-extern BPLONG_PTR copy_area_high;
+extern PAR_TLS BPLONG_PTR copy_area_low;
+extern PAR_TLS BPLONG_PTR copy_area_high;
 
-BPLONG_PTR copy_h;
+PAR_TLS BPLONG_PTR copy_h;
 
 /**************************************************************
   Move alive heap cells (between hbreg and heap_top) accessible from 

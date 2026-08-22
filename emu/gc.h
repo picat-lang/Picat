@@ -7,12 +7,18 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. 
  ********************************************************************/
 
+/* GC scratch state is per-engine: see PAR_TLS in basic.h. basic.h is
+   included before gc.h in every GC compilation unit. */
+#ifndef PAR_TLS
+#define PAR_TLS
+#endif
+
 typedef struct {
     BPLONG_PTR addr;
     BPLONG term;
 } GcQueueCell;
 
-extern GcQueueCell *gcQueue;
+extern PAR_TLS GcQueueCell *gcQueue;
 
 #define gcQueueInit {                           \
         gcQueueFront = 0;                       \
@@ -20,8 +26,8 @@ extern GcQueueCell *gcQueue;
         gcQueueCount = 0;                       \
     }
 
-extern BPLONG gcQueueSize;
-extern BPLONG gcQueueFront, gcQueueRear, gcQueueCount;
+extern PAR_TLS BPLONG gcQueueSize;
+extern PAR_TLS BPLONG gcQueueFront, gcQueueRear, gcQueueCount;
 
 extern BPLONG cg_all_components;
 
@@ -72,9 +78,9 @@ extern BPLONG cg_all_components;
         gcQueueCount--;                                 \
     }
 
-extern int gcDynamicArraySize;
-extern int gcDynamicArrayCount;
-extern BPLONG_PTR gcDynamicArray;
+extern PAR_TLS int gcDynamicArraySize;
+extern PAR_TLS int gcDynamicArrayCount;
+extern PAR_TLS BPLONG_PTR gcDynamicArray;
 
 #define gcAddDynamicArray(elm) {                                \
         if (gcDynamicArrayCount >= gcDynamicArraySize) {        \
@@ -84,8 +90,8 @@ extern BPLONG_PTR gcDynamicArray;
         gcDynamicArrayCount++;                                  \
     }
 
-extern BPLONG_PTR global_mask_ptr;
-extern BPLONG global_mask_size;
+extern PAR_TLS BPLONG_PTR global_mask_ptr;
+extern PAR_TLS BPLONG global_mask_size;
 
 #define GCSetMaskBit(addr, base) {                                      \
         BPULONG offset = ((BPULONG)addr-(BPULONG)base)/sizeof(BPLONG);  \

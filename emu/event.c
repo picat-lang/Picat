@@ -725,7 +725,7 @@ DWORD WINAPI timerThread(LPVOID timer_no) {
         BPLONG_PTR sv_ptr = (BPLONG_PTR)UNTAGGED_ADDR(handler);
 
         /*
-          extern BPLONG no_gcs;
+          extern PAR_TLS BPLONG no_gcs;
           printf("post %d\n",type);
           printf("GC = %d\n",no_gcs);
         */

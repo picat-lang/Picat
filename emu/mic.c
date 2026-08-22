@@ -63,8 +63,8 @@
         else return 1;                          \
     }
 
-extern BPLONG no_gcs;
-extern BPLONG gc_time;
+extern PAR_TLS BPLONG no_gcs;
+extern PAR_TLS BPLONG gc_time;
 extern BPLONG gc_threshold;
 extern char *string_in;
 

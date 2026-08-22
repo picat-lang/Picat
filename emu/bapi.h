@@ -175,7 +175,7 @@
         new_list = tmp;                         \
     }
 
-extern BPLONG no_gcs;
+extern PAR_TLS BPLONG no_gcs;
 
 #define ALLOCATE_NEW_PAREA_BLOCK(size, success) {                       \
         BPLONG_PTR old_parea_low_addr, tmp_ptr;                         \

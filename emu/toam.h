@@ -40,7 +40,7 @@ void *user_signal_data[NSIG];
 #define ULTRAUNLIKELY(x) (x)
 #endif
 
-extern BPLONG no_gcs;
+extern PAR_TLS BPLONG no_gcs;
 
 #define Operand0 *P
 #define Operand(offset) *(P+offset)

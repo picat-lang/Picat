@@ -300,6 +300,22 @@ extern int curr_toam_status;
 
 #include "extern_decl.h"
 
+/* Per-engine VM-state storage class (parsearch, Path B). On multithreaded
+   native targets the TOAM registers/regions are thread-local so several
+   engines can run concurrently in one process (see parvm.c); wasm and
+   other single-threaded targets keep plain globals. */
+#if defined(LINUX) && !defined(__EMSCRIPTEN__)
+#ifdef __cplusplus
+#define PAR_TLS thread_local
+#else
+#define PAR_TLS _Thread_local
+#endif
+#define PAR_THREADS 1
+#else
+#define PAR_TLS
+#define PAR_THREADS 0
+#endif
+
 #define TOAM_NOTSET 0
 #define TOAM_MOUNTED 1
 #define TOAM_STARTED 2
@@ -324,19 +340,20 @@ extern UW16 dg_flag_word;
 
 extern FILE *curr_in, *curr_out;
 
-extern BPLONG stack_size, stack_size_limit, parea_size, findall_area_size, trail_size;  /* declared in init.c */
+extern PAR_TLS BPLONG stack_size, trail_size;  /* declared in init.c */
+extern BPLONG stack_size_limit, parea_size, findall_area_size;
 
 extern BPLONG_PTR parea_low_addr;  /* psc records, instructions, p-names */
 extern BPLONG_PTR parea_water_mark;  /* overflows when this mark is reached */
-extern BPLONG_PTR trail_low_addr;  /* trail stack */
-extern BPLONG_PTR trail_water_mark;  /* overflows when this mark is reached after compaction */
-extern BPLONG_PTR trail_water_mark0;  /* compact when this mark is reached */
+extern PAR_TLS BPLONG_PTR trail_low_addr;  /* trail stack */
+extern PAR_TLS BPLONG_PTR trail_water_mark;  /* overflows when this mark is reached after compaction */
+extern PAR_TLS BPLONG_PTR trail_water_mark0;  /* compact when this mark is reached */
 
-extern BPLONG_PTR stack_up_addr;
-extern BPLONG_PTR stack_low_addr;
-extern BPLONG_PTR trail_up_addr;
+extern PAR_TLS BPLONG_PTR stack_up_addr;
+extern PAR_TLS BPLONG_PTR stack_low_addr;
+extern PAR_TLS BPLONG_PTR trail_up_addr;
 
-extern BPLONG_PTR cpreg;
+extern PAR_TLS BPLONG_PTR cpreg;
 extern CHAR_PTR curr_fence;  /* ptr to next free byte in perm space */
 extern BPLONG_PTR parea_up_addr;  /* ptr to last+1 free byte in perm space */
 extern BPLONG_PTR inst_begin;  /* ptr to the beginning of inst. array */
@@ -346,28 +363,28 @@ extern BPLONG_PTR addr_fail;
 extern BPLONG_PTR addr_table_consume;
 extern BPLONG_PTR addr_table_consume0;
 
-extern BPLONG_PTR gc_low;
-extern BPLONG_PTR gc_upper;
-extern int gc_is_working;
-extern BPLONG_PTR copy_area_low, copy_area_high;
+extern PAR_TLS BPLONG_PTR gc_low;
+extern PAR_TLS BPLONG_PTR gc_upper;
+extern PAR_TLS int gc_is_working;
+extern PAR_TLS BPLONG_PTR copy_area_low, copy_area_high;
 
-extern BPLONG_PTR top;
-extern BPLONG_PTR arreg;  /* latest activation record       */
-extern BPLONG_PTR local_top;
-extern BPLONG_PTR local_top0;
-extern BPLONG_PTR breg;  /* latest choice point          */
+extern PAR_TLS BPLONG_PTR top;
+extern PAR_TLS BPLONG_PTR arreg;  /* latest activation record       */
+extern PAR_TLS BPLONG_PTR local_top;
+extern PAR_TLS BPLONG_PTR local_top0;
+extern PAR_TLS BPLONG_PTR breg;  /* latest choice point          */
 extern BPLONG_PTR breg0;  /* choice point where global variables for cglib are stored */
-extern BPLONG_PTR heap_top;  /* top of heap                  */
-extern BPLONG_PTR trail_top;  /* top of trail stack           */
-extern BPLONG_PTR hbreg;  /* heap backtrack point         */
-extern BPLONG_PTR sfreg;  /* latest suspension frame      */
-extern BPLONG_PTR gc_b;
+extern PAR_TLS BPLONG_PTR heap_top;  /* top of heap                  */
+extern PAR_TLS BPLONG_PTR trail_top;  /* top of trail stack           */
+extern PAR_TLS BPLONG_PTR hbreg;  /* heap backtrack point         */
+extern PAR_TLS BPLONG_PTR sfreg;  /* latest suspension frame      */
+extern PAR_TLS BPLONG_PTR gc_b;
 
-extern BPLONG_PTR triggeredCs[MAXTRIGGERS];
-extern int event_flag[MAXTRIGGERS];
-extern BPLONG event_object[MAXTRIGGERS];
-extern BPLONG_PTR triggering_frame[MAXTRIGGERS];  /* list of awaken frames  */
-extern BPLONG trigger_no;
+extern PAR_TLS BPLONG_PTR triggeredCs[MAXTRIGGERS];
+extern PAR_TLS int event_flag[MAXTRIGGERS];
+extern PAR_TLS BPLONG event_object[MAXTRIGGERS];
+extern PAR_TLS BPLONG_PTR triggering_frame[MAXTRIGGERS];  /* list of awaken frames  */
+extern PAR_TLS BPLONG trigger_no;
 extern SYM_REC_PTR sym_hash_table[BUCKET_CHAIN];
 // extern MODULE_SYM_REC_PTR module_sym_hash_table[MODULE_BUCKET_CHAIN];
 extern BPLONG char_sym_table[AlphabetSize];

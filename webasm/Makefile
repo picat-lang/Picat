@@ -56,7 +56,7 @@ CORE_O := dis init init_sym loader inst_inf main toam unify file domain \
           cfd float1 arith token global builtins mic numbervars cpreds \
           univ assert_bp findall clause delay clpfd clpfd_libs event \
           toamprofile kapi getline table gcstack gcheap gcqueue debug par \
-          expand_bp bigint picat_utilities kissat_picat espresso_bp
+          parvm expand_bp bigint picat_utilities kissat_picat espresso_bp
 # the native KISSAT_OBJ (emu/common.mak): kis_<name>.o <- kissat/src/<name>.c
 KISSAT_O := kis_allocate.o kis_analyze.o kis_ands.o kis_application.o \
             kis_arena.o kis_assign.o kis_autarky.o kis_averages.o \

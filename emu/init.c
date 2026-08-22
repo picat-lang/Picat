@@ -34,12 +34,12 @@ int access(const char *pathname, int mode);
 
 BPLONG stack_size_limit = 1000000000;
 #ifdef BPSOLVER
-BPLONG stack_size = 250000000;
-BPLONG trail_size = 4000000;
+PAR_TLS BPLONG stack_size = 250000000;
+PAR_TLS BPLONG trail_size = 4000000;
 BPLONG parea_size = 2000000;
 #else
-BPLONG stack_size = 8000000;
-BPLONG trail_size = 2000000;
+PAR_TLS BPLONG stack_size = 8000000;
+PAR_TLS BPLONG trail_size = 2000000;
 BPLONG parea_size = 4000000;
 #endif
 BPLONG table_size = 1000000;

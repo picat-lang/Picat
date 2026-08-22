@@ -38,18 +38,18 @@ UW16 dg_flag_word;
 FILE *curr_in, *curr_out;
 
 BPLONG n_backtracks = 0;
-BPLONG_PTR stack_low_addr;
+PAR_TLS BPLONG_PTR stack_low_addr;
 BPLONG_PTR parea_low_addr = NULL;
 BPLONG_PTR parea_water_mark;
-BPLONG_PTR trail_low_addr;
-BPLONG_PTR trail_water_mark;
-BPLONG_PTR trail_water_mark0;
+PAR_TLS BPLONG_PTR trail_low_addr;
+PAR_TLS BPLONG_PTR trail_water_mark;
+PAR_TLS BPLONG_PTR trail_water_mark0;
 
-BPLONG_PTR stack_up_addr;
-BPLONG_PTR stack_low_addr;
-BPLONG_PTR trail_up_addr;
+PAR_TLS BPLONG_PTR stack_up_addr;
+PAR_TLS BPLONG_PTR stack_low_addr;
+PAR_TLS BPLONG_PTR trail_up_addr;
 
-BPLONG_PTR cpreg;
+PAR_TLS BPLONG_PTR cpreg;
 CHAR_PTR curr_fence;  /* ptr to next free byte in perm space */
 BPLONG_PTR parea_up_addr;  /* ptr to last+1 free byte in perm space */
 BPLONG_PTR inst_begin;  /* ptr to the beginning of inst. array */
@@ -58,28 +58,28 @@ BPLONG_PTR addr_halt0;
 BPLONG_PTR addr_fail;
 BPLONG_PTR addr_table_consume;
 
-BPLONG_PTR gc_low;
-BPLONG_PTR gc_upper;
-int gc_is_working;
-BPLONG_PTR copy_area_low, copy_area_high;
+PAR_TLS BPLONG_PTR gc_low;
+PAR_TLS BPLONG_PTR gc_upper;
+PAR_TLS int gc_is_working;
+PAR_TLS BPLONG_PTR copy_area_low, copy_area_high;
 
-BPLONG_PTR top;
-BPLONG_PTR arreg = NULL;  /* latest activation record       */
-BPLONG_PTR local_top;
-BPLONG_PTR local_top0;
-BPLONG_PTR breg = NULL;  /* latest choice point            */
+PAR_TLS BPLONG_PTR top;
+PAR_TLS BPLONG_PTR arreg = NULL;  /* latest activation record       */
+PAR_TLS BPLONG_PTR local_top;
+PAR_TLS BPLONG_PTR local_top0;
+PAR_TLS BPLONG_PTR breg = NULL;  /* latest choice point            */
 BPLONG_PTR breg0;  /* choice point where global variables for cglib are stored */
-BPLONG_PTR heap_top;  /* top of heap                  */
-BPLONG_PTR trail_top;  /* top of trail stack           */
-BPLONG_PTR hbreg;  /* heap back track point        */
-BPLONG_PTR sfreg = NULL;  /* latest suspension frame      */
-BPLONG_PTR gc_b;
+PAR_TLS BPLONG_PTR heap_top;  /* top of heap                  */
+PAR_TLS BPLONG_PTR trail_top;  /* top of trail stack           */
+PAR_TLS BPLONG_PTR hbreg;  /* heap back track point        */
+PAR_TLS BPLONG_PTR sfreg = NULL;  /* latest suspension frame      */
+PAR_TLS BPLONG_PTR gc_b;
 
-BPLONG_PTR triggeredCs[MAXTRIGGERS];
-int event_flag[MAXTRIGGERS];
-BPLONG_PTR triggering_frame[MAXTRIGGERS];
-BPLONG event_object[MAXTRIGGERS];  /* dom(X,E), etc. */
-BPLONG trigger_no = 0;  /* list of woken frames         */
+PAR_TLS BPLONG_PTR triggeredCs[MAXTRIGGERS];
+PAR_TLS int event_flag[MAXTRIGGERS];
+PAR_TLS BPLONG_PTR triggering_frame[MAXTRIGGERS];
+PAR_TLS BPLONG event_object[MAXTRIGGERS];  /* dom(X,E), etc. */
+PAR_TLS BPLONG trigger_no = 0;  /* list of woken frames         */
 BPULONG toam_signal_vec;
 int user_signal;
 EVENT_FUNC event_func;

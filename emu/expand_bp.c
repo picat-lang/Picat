@@ -13,7 +13,7 @@
 #include "frame.h"
 #include "event.h"
 #include "gc.h"
-extern BPLONG gc_time;
+extern PAR_TLS BPLONG gc_time;
 /*
   #define DEBUG_EXPAND
 */
