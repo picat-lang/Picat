@@ -312,10 +312,12 @@ var editor = $('editor'), terminal = $('terminal'),
    built from (a '+' marks a dirty tree) into the terminal title bar,
    so a deployed page shows which build it is.  Remove the badge when
    the placeholder was never substituted (a page straight from the
-   checkout, not a build). */
+   checkout, not a build).  NB: the test string below must NOT contain
+   the full __PICAT_BUILD_ID__ token -- the makefile's sed substitutes
+   all occurrences of it, and a match here would invert the guard. */
 (function () {
   var b = $('buildid'), v = b ? b.textContent.trim() : '';
-  if (!b || v === '__PICAT_BUILD_ID__') { if (b) b.remove(); return; }
+  if (!b || v.indexOf('__PICAT_') === 0) { if (b) b.remove(); return; }
   b.title = 'built from commit ' + v;
 })();
 
