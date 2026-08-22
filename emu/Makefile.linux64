@@ -18,3 +18,74 @@ CFLAGS = -O3 -fno-strict-aliasing -finline-functions -fomit-frame-pointer -Dunix
 LFLAGS = -lm -lpthread
 
 include common.mak
+
+#-----------------------------------------------------------------------------
+# ULTRAOPTIMISATION -- native build-time optimization switch.
+#
+#   make -f Makefile.linux64 ULTRA=1                 ultra build (behavior-preserving)
+#   make -f Makefile.linux64 ULTRA=1 LTO=1           + link-time optimization
+#   make -f Makefile.linux64 ULTRA=1 PGO=gen         PGO step 1: instrumented
+#                                                 binary; run representative
+#                                                 workloads to collect .gcda
+#   make -f Makefile.linux64 ULTRA=1 PGO=use         PGO step 2: profile-guided
+#                                                 final build
+#   make -f Makefile.linux64 ULTRA=1 SOLVERISA=1     native-codegen the vendored
+#                                                 kissat/espresso solvers (SEE
+#                                                 WARNING BELOW)
+#
+# Toggles (defaults when ULTRA=1):
+#   NATIVEARCH  -march=native -mtune=native
+#   LOOPOPTS    -funroll-loops            (default 0: measured slightly negative)
+#   NOPROTECT   -fno-stack-protector -U_FORTIFY_SOURCE -fno-plt
+#               -fno-asynchronous-unwind-tables -fno-ident -fno-unwind-tables
+#   LTO         -flto across all TUs      (changes SAT solver behavior, see below)
+#   PGO         gen|use                   (no measured gain; optional experiment)
+#   GCWORDS     GC trigger margin in words (default 1000000, as stock)
+#   SOLVERISA   native ISA for kissat/espresso (default 0, see below)
+#
+# Measured on EPYC 9654 (Zen 4), quiet machine, all witnesses run in
+# simultaneous parallel batches (median of 5 rounds, 112-way):
+#   - The picat interpreter (VM dispatch, GC, CP, ASP, planners) is NOT
+#     codegen-bound: -march/nor LTO moves it by less than ~5% in either
+#     direction.  The default build already gets ~all available codegen gain.
+#   - WARNING: the vendored kissat is codegen-sensitive.  Compiling it with
+#     -march=native (even WITHOUT -flto, even with -fno-strict-aliasing)
+#     deterministically changes the solver's search order: different (still
+#     valid) models, ~3x faster on vmtl-class instances, ~15% slower on
+#     queens-class.  -flto additionally segfaults UNLESS compiled with
+#     -fno-strict-aliasing (its code violates strict aliasing).  So the
+#     default keeps kissat/espresso on baseline ISA to preserve the shipped
+#     solver behavior; SOLVERISA=1 opts into native solver codegen only if
+#     accepting changed search behavior.
+#-----------------------------------------------------------------------------
+ULTRA      ?= 0
+NATIVEARCH ?= 1
+LOOPOPTS   ?= 0
+NOPROTECT  ?= 1
+LTO        ?= 0
+PGO        ?=
+GCWORDS    ?= 1000000
+SOLVERISA  ?= 0
+
+ifneq ($(ULTRA), 0)
+ifneq ($(NATIVEARCH), 0)
+  ULTRA_ISA = -march=native -mtune=native
+endif
+ifneq ($(LOOPOPTS), 0)
+  ULTRA_ISA += -funroll-loops
+endif
+ifeq ($(LTO), 1)
+  ULTRA_ISA += -flto
+endif
+ifneq ($(PGO),)
+  ULTRA_ISA += -fprofile-$(PGO)
+endif
+ifneq ($(NOPROTECT), 0)
+  ULTRA_PROTO = -fno-stack-protector -U_FORTIFY_SOURCE -fno-plt -fno-asynchronous-unwind-tables -fno-ident -fno-unwind-tables
+endif
+CFLAGS         += $(ULTRA_ISA) $(ULTRA_PROTO) -DULTRAOPTIMISATION -DMIN_AVAIL_WORDS=$(GCWORDS)
+ifneq ($(SOLVERISA), 0)
+KISSAT_FLAGS   += $(ULTRA_ISA) -fno-strict-aliasing
+ESPRESSO_FLAGS += $(ULTRA_ISA) -fno-strict-aliasing
+endif
+endif

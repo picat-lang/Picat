@@ -32,6 +32,14 @@ void *user_signal_data[NSIG];
 #define RESTORE_AR AR = arreg
 #define RESTORE_TOP LOCAL_TOP = local_top
 
+#ifdef ULTRAOPTIMISATION
+#define ULTRALIKELY(x) __builtin_expect(!!(x), 1)
+#define ULTRAUNLIKELY(x) __builtin_expect(!!(x), 0)
+#else
+#define ULTRALIKELY(x) (x)
+#define ULTRAUNLIKELY(x) (x)
+#endif
+
 extern BPLONG no_gcs;
 
 #define Operand0 *P
@@ -397,13 +405,13 @@ extern BPLONG no_gcs;
 #define BACKTRACK0 goto lab_fail0
 
 #define toam_LOCAL_OVERFLOW_CHECK_SMALL_MARGIN(num)     \
-    if (LOCAL_TOP - H <= LARGE_MARGIN) {                \
+    if (ULTRAUNLIKELY(LOCAL_TOP - H <= LARGE_MARGIN)) { \
         printf("(in place %d) ", num);                  \
         SAVE_AR;                                        \
         myquit(STACK_OVERFLOW, "toam");}
 
 #define toam_LOCAL_OVERFLOW_CHECK(num)          \
-    if (LOCAL_TOP - H <= LARGE_MARGIN) {        \
+    if (ULTRAUNLIKELY(LOCAL_TOP - H <= LARGE_MARGIN)) { \
         printf("(in place %d) ", num);          \
         SAVE_AR;                                \
         myquit(STACK_OVERFLOW, "toam");}
@@ -587,7 +595,7 @@ extern BPLONG no_gcs;
         AR_STATUS(AR) = SUSP_EXIT;              \
     }
 
-#define CATCH_WAKE_EVENT if (toam_signal_vec != 0) {                    \
+#define CATCH_WAKE_EVENT if (ULTRAUNLIKELY(toam_signal_vec != 0)) {                    \
         if (toam_signal_vec & INTERRUPT) {bp_exception = interrupt_sym; goto interrupt_handler;} \
         if (toam_signal_vec & EVENT_POOL_NONEMPTY) post_event_pool();   \
         if (trigger_no != 0) goto trigger_on_handler;                   \
@@ -692,7 +700,12 @@ extern BPLONG no_gcs;
         P = (BPLONG_PTR)FOLLOW(AR_REEP(AR));                            \
     }
 
+/* Garbage-collection trigger distance in words.  May be overridden at
+   compile time (-DMIN_AVAIL_WORDS=n); larger values run GC less often at
+   the cost of more peak memory. */
+#ifndef MIN_AVAIL_WORDS
 #define MIN_AVAIL_WORDS 1000000
+#endif
 
 #define RESET_WATER_MARKS {                                     \
         available_sh_space = (LOCAL_TOP-H)/gc_threshold;        \
@@ -700,7 +713,7 @@ extern BPLONG no_gcs;
         heap_water_mark = H+available_sh_space;                 \
     }
 
-#define EXPAND_STACK(margin) if (LOCAL_TOP - H <= margin) {     \
+#define EXPAND_STACK(margin) if (ULTRAUNLIKELY(LOCAL_TOP - H <= margin)) {     \
         if (toam_signal_vec == 0 && in_critical_region == 0) {  \
             gc_is_working = 1;                                  \
             if (expand_local_global_stacks(0) == BP_ERROR) {    \
@@ -731,7 +744,7 @@ extern BPLONG no_gcs;
 */
 
 #define INVOKE_GC {                                                     \
-        if (LOCAL_TOP - H <= MIN_AVAIL_WORDS) {                         \
+        if (ULTRAUNLIKELY(LOCAL_TOP - H <= MIN_AVAIL_WORDS)) {          \
             if (bp_gc) {                                                \
                 SAVE_AR; SAVE_TOP;                                      \
                 if (garbage_collector() == BP_ERROR) {                  \
@@ -772,7 +785,7 @@ extern BPLONG no_gcs;
   }
 */
 #define INVOKE_GC_NONDET {                                              \
-        if (bp_gc && ((LOCAL_TOP - H <= MIN_AVAIL_WORDS) || (H >= heap_water_mark) || (LOCAL_TOP < stack_water_mark))) { \
+        if (bp_gc && ULTRAUNLIKELY((LOCAL_TOP - H <= MIN_AVAIL_WORDS) || (H >= heap_water_mark) || (LOCAL_TOP < stack_water_mark))) { \
             SAVE_AR; SAVE_TOP;                                          \
             if (garbage_collector() == BP_ERROR) {                      \
                 bp_exception = et_OUT_OF_MEMORY_STACK;                  \
