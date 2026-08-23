@@ -434,24 +434,28 @@ extern PAR_TLS BPLONG no_gcs;
      1 = in the forked worker: dispatch at pvm_child_reentry (the
          original re-entry word, the worker then skips its chunk
          offset via repeated hook fires, see parvm.c), and the worker
-         may tail-fork the next chunk owner at t=0;
-      2 = boundary: this process has walked its C values and the
-          remaining ones are (or were) the worker's; it dispatches to
-          lab_pvm_deleg_fail (the same target a patched AR_CPF would
-          yield), which waits for the worker and then fails the
-          disjunction in this process's state either way (a found
-          solution was reported by value at discovery; the root
-          materializes it in bp.pvm_solution after pvm_collect);
-      3 = value skip: re-dispatch the CURRENT re-entry AR_CPF(ar)
-          (re-recorded by the just re-executed FORK) without searching.
-          This is exactly what a serial value failure does
-          (lab_fail: P = AR_CPF(AR); CONTCASE), one value ahead.
-          The fork-time re (pvm_forked_re) must NOT be used here:
-          cascade disjunctions re-execute FORK at different sites per
-          value with different re cells, and a stale re cell lands P
-          inside the wrong re cell (desync).
-   pvm_fork_frame additionally requires the engine state to equal the
-   frame's entry state (see parvm.c). */
+         may tail-fork the next chunk owner at t=0 (pool-gated);
+      4 = boundary delegated: the chunk is exhausted and a child (or
+          the just-forked next chunk) covers the remaining values;
+          dispatch to lab_pvm_deleg_fail (the same target a patched
+          AR_CPF would yield), where pvm_deleg_wait() decides: a
+          root-flagged worker hands off (exit 77 + done registry,
+          releasing its process slot to the pool) and a root / deep
+          (a) waiter parks on the successor chain; the disjunction
+          then fails in the waiter's state when the region is
+          exhausted (a found solution was reported by value at
+          discovery; the root materializes it in bp.pvm_solution
+          after pvm_collect);
+       3 = value skip: re-dispatch the CURRENT re-entry AR_CPF(ar)
+           (re-recorded by the just re-executed FORK) without searching.
+           This is exactly what a serial value failure does
+           (lab_fail: P = AR_CPF(AR); CONTCASE), one value ahead.
+           The fork-time re (pvm_forked_re) must NOT be used here:
+           cascade disjunctions re-execute FORK at different sites per
+           value with different re cells, and a stale re cell lands P
+           inside the wrong re cell (desync).
+    pvm_fork_frame additionally requires the engine state to equal the
+    frame's entry state (see parvm.c). */
 #if PAR_THREADS
  #define PVM_FORK_MAYBE(ar) \
     do { \
@@ -468,6 +472,10 @@ extern PAR_TLS BPLONG no_gcs;
         } else if (_pvm_rc == 3) { \
             pvm_rerun_site = 0; \
             P = (BPLONG_PTR)AR_CPF(ar); \
+            CONTCASE; \
+        } else if (_pvm_rc == 4) { \
+            pvm_rerun_site = 0; \
+            P = (BPLONG_PTR)&pvm_deleg_fail_word; \
             CONTCASE; \
         } \
     } while (0)

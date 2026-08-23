@@ -318,18 +318,49 @@ extern int curr_toam_status;
 
 /* OR-parallel search state (parsearch, Path B, M2). */
 #define PVM_SOL_CAP 1048576  /* max integers in a reported solution */
+#define PVM_POOL_SEATS 256   /* pool seats (mode 1/3): one per live process */
+#define PVM_DONE_SLOTS 256   /* pool completion/handoff registry slots */
 typedef struct {
     volatile long live;   /* workers currently alive */
     volatile long count;  /* solution count (mode 2) */
     volatile int  found;  /* first-solution found (mode 1/3) */
     volatile int  bad;    /* a worker reaped a crashed child */
     volatile long sol_len;/* mode 1/3: -1 until the finder reports,
-                             then the solution length (completion
-                             marker: the integers are written before
-                             it, under a barrier) */
+                              then the solution length (completion
+                              marker: the integers are written before
+                              it, under a barrier) */
+    /* pool (mode 1/3): process-slot fork budget and park waker word.
+       pool_free = process slots not currently occupied (initial
+       nt-1; a fork consumes one, the forked process's death releases
+       it -- exactly once, by the seat CAS). wake = futex word bumped
+       on every slot release and done-registry write, waking (a)
+       waiters parked in pvm_deleg_wait. */
+    volatile long pool_free;
+    volatile long wake;
+    /* one frontier seat per live process, for the deepest-frontier
+       fork gate: pid = 0 (idle) or the owner's pid; depth = frame
+       address of the process's current frontier (deeper frames have
+       LOWER addresses; frames are pushed down); wait = 1 while the
+       process is (a)-waiting on a successor (it is not an active
+       frontier then -- its work continues in the successor chain --
+       so the gate ignores it, or the forks below it would starve).
+       A stale depth (a process backtracked since its last hook) only
+       over-blocks a fork, never under-blocks it. */
+    struct { volatile long pid; volatile BPLONG depth; volatile long wait;
+    } pvm_seat[PVM_POOL_SEATS];
+    /* completion/handoff registry: a dying worker records
+       (pid, st, succ) just before exit. st = 0 (its disjunction
+       region is exhausted, or found was reported), 77 (transfer: its
+       chunk failed and its child pid `succ` now covers the rest of
+       the disjunction), or negative (crash). (a) waiters follow the
+       chain across processes (a successor is often a grandchild,
+       invisible to waitpid). Fresh per session (the shm is). */
+    struct { volatile long pid; volatile long st; volatile long succ;
+             volatile long tick; } pvm_done[PVM_DONE_SLOTS];
+    long pvm_tick;
     BPLONG sol[PVM_SOL_CAP];  /* mode 1/3: the reported solution (a
-                                 single writer flips found 0->1 by
-                                 CAS before writing; mode 2: unused) */
+                                  single writer flips found 0->1 by
+                                  CAS before writing; mode 2: unused) */
 } pvm_shm_t;
 
 typedef struct {
@@ -352,6 +383,7 @@ extern int pvm_fork_frame(BPLONG_PTR ar, BPLONG_PTR p);
 extern int pvm_fork_frame_tail(BPLONG_PTR ar, BPLONG_PTR p);
 extern int pvm_labfail_park(BPLONG_PTR ar, BPLONG_PTR p);
 void pvm_slot_rearm(BPLONG_PTR ar);
+void pvm_scope_lost(BPLONG_PTR b);
 void pvm_reap_my_children(void);
 int pvm_deleg_wait(BPLONG_PTR f);
 extern BPLONG pvm_rerun_site;

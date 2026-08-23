@@ -62,4 +62,11 @@ model_q(N, P, Q) =>
         Q[I] #!= Q[J],
         abs(Q[I]-Q[J]) #!= J-I
     end,
-    solve([ff], Q).
+    % the delegation window opens around the solve only: the CP
+    % decision frames inside it are the delegable value disjunctions;
+    % the loop frames above and the (model; true) wrapper below stay
+    % serial (a worker's trivial success in a fallback clause is
+    % indistinguishable from exhaustion in the done registry).
+    bp.pvm_delegate(1),
+    solve([ff], Q),
+    bp.pvm_delegate(0).

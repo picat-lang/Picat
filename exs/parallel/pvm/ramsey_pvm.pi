@@ -111,7 +111,13 @@ main =>
     ( (E :: 0..1,
        no_k_sets(N, K, M, AllSets, E),
        degree_order(N, E, D),
-       solve([E, D]))
+       % delegation window: only the CP decision frames of the solve
+       % are delegable; the (model -> sat ; unsat) disjunction below
+       % must stay serial (a worker's trivial clause success is
+       % indistinguishable from exhaustion in the done registry)
+       bp.pvm_delegate(1),
+       solve([E, D]),
+       bp.pvm_delegate(0))
     ->
         % this process owns the graph; the parallel report is BY
         % VALUE (the edge array E), and the verdict collects +

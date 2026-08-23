@@ -281,6 +281,36 @@ lab_fail:
       }
     */
     P = (BPLONG_PTR)AR_CPF(AR);
+#ifdef PVM_DEBUG_DUMPS
+    /* PVM_LF2: value-chain fail state ground truth (serial vs PVM):
+       dump every lab_fail whose frame shares its re cell with its
+       parent (the nested value-disjunction chain). */
+    if (getenv("PVM_LF2") != NULL) {
+        static int lf2_n = 0;
+        if (lf2_n < 200000 && AR_B(AR) != (BPLONG)0 &&
+            AR_CPF(AR) ==
+                AR_CPF((BPLONG_PTR)AR_B(AR))) {
+            lf2_n++;
+            fprintf(stderr,
+                    "LF2 pid=%d AR=%lx B=%lx H=%lx HB=%lx T=%lx "
+                    "SF=%lx LT=%lx P=%lx dA=%lx dB=%lx\n",
+                    (int)getpid(),
+                    (unsigned long)((BPULONG)AR & 0xFFFFFL),
+                    (unsigned long)((BPULONG)B & 0xFFFFFL),
+                    (unsigned long)((BPULONG)H & 0xFFFFFL),
+                    (unsigned long)((BPULONG)HB & 0xFFFFFL),
+                    (unsigned long)((BPULONG)T & 0xFFFFFL),
+                    (unsigned long)((BPULONG)SF & 0xFFFFFL),
+                    (unsigned long)((BPULONG)LOCAL_TOP & 0xFFFFFL),
+                    (unsigned long)((BPULONG)P & 0xFFFFFL),
+                    (unsigned long)((BPULONG)(*(AR + 4)) & 0xFFFFFL),
+                    (unsigned long)
+                         ((BPULONG)(*((BPLONG_PTR)AR_B(AR) + 4))
+                          & 0xFFFFFL));
+            fflush(stderr);
+        }
+    }
+#endif
 #if PAR_THREADS
     /* boundary owner: its chunk is exhausted and its worker holds the
         rest: park BEFORE advancing into the delegated value, so the
@@ -288,6 +318,15 @@ lab_fail:
         label) on exactly the frame-entry state of a standard
         backtrack. */
     if (pvm_labfail_park(AR, P)) {
+#ifdef PVM_DEBUG_DUMPS
+        if (getenv("PVM_DBG") != NULL)
+            fprintf(stderr,
+                    "PARK1 pid=%d ar=%p LT=%p T=%p H=%p SB=%p AR=%p "
+                    "ARTOP=%p\n",
+                    (int)getpid(), (void *)AR, (void *)LOCAL_TOP,
+                    (void *)T, (void *)H, (void *)B, (void *)arreg,
+                    (void *)AR_TOP(AR));
+#endif
         P = (BPLONG_PTR)&pvm_deleg_fail_word;
         CONTCASE;
     }
@@ -339,18 +378,11 @@ lab_fail0:
 #if PAR_THREADS
 lab_pvm_deleg_fail:
     pvm_deleg_wait(B);
-    /* st == 0 with found: the delegated region holds the solution.
-       It was REPORTED BY VALUE at discovery (c_pvm_report wrote the
-       integers to the shared block before marking found), so this
-       process does not re-search any of it: the disjunction simply
-       fails here, as in the st==0/!found case below. The root
-       materializes the reported value in bp.pvm_solution after
-       pvm_collect. (A worker that got here with found set has already
-       dropped out in pvm_deleg_wait.) */
-    /* st == 0 without found: the worker's main is
-       `(model_q ; true)` and exits 0 even for an exhausted (dead-end)
-       delegated region: the disjunction is fully exhausted -> fall
-       through to failing it to the caller. */
+    /* st == 0: the delegated region's outcome is consumed (found or
+       exhausted; a worker that got here with found set has already
+       dropped out in pvm_deleg_wait). Either way the resume is the
+       native one: re-dispatch D's own re-entry in D's own state (see
+       the long comment below the wait). */
     if (pvm_last_deleg_status == -1) {
         /* tail walker: nothing was delegated (no child); a value
            failure here just continues the walk at the next value. */
@@ -361,19 +393,50 @@ lab_pvm_deleg_fail:
     }
     pvm_rerun_site = 0;
     pvm_slot_rearm(B);
-    B = (BPLONG_PTR)AR_B(B);
-    AR = B;
-    LOCAL_TOP = (BPLONG_PTR)AR_TOP(B);
-    HB = (BPLONG_PTR)AR_H(B);
-    SF = (BPLONG_PTR)AR_SF(B);
-    H = (BPLONG_PTR)HB;
-    trigger_no = 0;
-    toam_signal_vec &= (INTERRUPT | EVENT_POOL_NONEMPTY);
-    RESET_WATER_MARKS;
-    top = (BPLONG_PTR)AR_T(B);
-    while (T != top) {
-        POPTRAIL(T);
+    pvm_scope_lost(B);
+    /* st == 0 (found OR not found): the delegated region's outcome is
+       consumed. Resume EXACTLY as an unparked lab_fail at D would:
+       re-dispatch D's own re-entry in D's own frame-entry state
+       (B=AR=D, H/T/SF/LOCAL_TOP all set by the park's lab_fail). The
+       compiled chain re-entry is a two-word state machine (word 0:
+       B := AR_B(D) and HB restore; word 1: LOCAL_TOP pop when
+       LOCAL_TOP == AR_TOP(D), then AR := AR_AR(D)) that requires
+       exactly that native state. Any pre-popped "fail to caller"
+       emulation (B=AR=C with LOCAL_TOP still at D's entry) breaks
+       the word-1 precondition: the LOCAL_TOP check skips the local
+       pop, AR_AR(C) is stale, B and AR desync, and the next
+       frame-relative dvar read segvs (NULL+0x44 on queens mode-3).
+       The re-entry natively advances D's dvar (this process's
+       COW-isolated view) or fails D to its caller when that view is
+       empty. With found set, a worker already REPORTED the solution
+       BY VALUE; this process simply continues its own view natively;
+       bp.pvm_solution is materialized at pvm_collect. */
+#ifdef PVM_DEBUG_DUMPS
+    if (getenv("PVM_DBG") != NULL) {
+        BPLONG_PTR ff;
+        int kk;
+        fprintf(stderr,
+                "STUBX pid=%d D=%p B=%p AR=%p H=%p T=%p SF=%p LT=%p "
+                "LG=%p HB=%p found=%d lastst=%d\n",
+                (int)getpid(), (void *)B, (void *)B, (void *)AR,
+                (void *)heap_top, (void *)trail_top,
+                (void *)sfreg, (void *)LOCAL_TOP, (void *)local_top,
+                (void *)hbreg, (pvm_shm != NULL) ? pvm_shm->found : -1,
+                pvm_last_deleg_status);
+        fprintf(stderr, "  D[CPF,H,T,TOP,B] = %p %p %p %p %p\n",
+                (void *)AR_CPF(B), (void *)AR_H(B), (void *)AR_T(B),
+                (void *)AR_TOP(B), (void *)AR_B(B));
+        ff = (BPLONG_PTR)B;
+        for (kk = 1; kk < 5 && ff != NULL; kk++) {
+            fprintf(stderr, "  SX[%d]=%p TOP=%p H=%p T=%p CPF=%p B=%p\n",
+                    kk, (void *)ff, (void *)AR_TOP(ff),
+                    (void *)AR_H(ff), (void *)AR_T(ff),
+                    (void *)AR_CPF(ff), (void *)AR_B(ff));
+            ff = (BPLONG_PTR)AR_B(ff);
+        }
+        fflush(stderr);
     }
+#endif
     P = (BPLONG_PTR)AR_CPF(B);
     CONTCASE;
 #endif
