@@ -321,6 +321,7 @@ typedef struct {
     volatile long live;   /* workers currently alive */
     volatile long count;  /* solution count (mode 2) */
     volatile int  found;  /* first-solution found (mode 1) */
+    volatile int  bad;    /* a worker reaped a crashed child */
 } pvm_shm_t;
 
 typedef struct {

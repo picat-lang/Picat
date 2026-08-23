@@ -294,6 +294,16 @@ static int pvm_is_fork_child = 0;
 
 static pid_t pvm_my_children[PARVM_MAX_WORKERS];
 static int pvm_nchildren = 0;
+/* Set (this process) when a direct child died abnormally -- signalled
+   or non-zero exit; a healthy worker always exits 0. Also ORed into
+   the shared pvm_shm->bad so the root sees a death anywhere in the
+   tree. pvm_collect rejects a result if bad is set and the pool was
+   not intentionally SIGKILLed (i.e. it is a real crash, which in
+   count mode means the total is a silent undercount). */
+static int pvm_child_bad = 0;
+/* 1 while reaping children we just SIGKILLed on purpose (found set,
+   mode 1/3): their signalled exits are expected, not failures. */
+static int pvm_reap_quiet = 0;
 
 /* atexit for a forked worker: let its own (branch-forked) children
    finish and reap them, then drop the shared live counter. */
@@ -323,6 +333,7 @@ static int pvm_open_shm(void)
         pvm_shm->live = 0;
         pvm_shm->count = 0;
         pvm_shm->found = 0;
+        pvm_shm->bad = 0;
         return BP_TRUE;
     }
     return BP_FALSE;
@@ -337,8 +348,14 @@ void pvm_reap_my_children(void)
         if (p > 0) {
             int i;
             for (i = 0; i < pvm_nchildren; i++)
-                if (pvm_my_children[i] == p)
+                if (pvm_my_children[i] == p) {
+                    if (!pvm_reap_quiet &&
+                        (!WIFEXITED(st) || WEXITSTATUS(st) != 0)) {
+                        pvm_child_bad = 1;
+                        if (pvm_shm != NULL) pvm_shm->bad = 1;
+                    }
                     pvm_my_children[i] = pvm_my_children[--pvm_nchildren];
+                }
             if (pvm_nchildren == 0) return;
         } else if (p < 0) {
             if (errno == EINTR) continue;
@@ -536,6 +553,10 @@ int pvm_fork_frame(BPLONG_PTR ar, BPLONG_PTR p)
             if (r > 0) {
                 pvm_forked_st[s] = WIFEXITED(wst) ? WEXITSTATUS(wst) : 1;
                 pvm_forked_pid[s] = 0;
+                if (pvm_forked_st[s] != 0) {
+                    pvm_child_bad = 1;
+                    if (pvm_shm != NULL) pvm_shm->bad = 1;
+                }
             } else if (r < 0 && errno == ECHILD) {
                 pvm_forked_pid[s] = 0;  /* reaped elsewhere */
             }
@@ -764,6 +785,10 @@ int pvm_deleg_wait(BPLONG_PTR f)
                 st = WIFEXITED(wst) ? WEXITSTATUS(wst) : 1;
                 pvm_forked_st[s] = st;
                 pvm_forked_pid[s] = 0;
+                if (st != 0) {
+                    pvm_child_bad = 1;
+                    pvm_shm->bad = 1;
+                }
             }
         } else {
             st = pvm_forked_st[s];  /* reaped earlier in the hook */
@@ -920,20 +945,39 @@ int c_pvm_collect()
     }
     if (pvm_is_fork_child && (pvm.mode == 1 || pvm.mode == 3)) {
         /* a delegated branch whose (inherited) session has ended:
-           finish the subtree and drop out of the process. */
-        if (pvm_shm->found)
+           finish the subtree and drop out of the process. A crashed
+           grandchild was already flagged in the shared state; the
+           root's collect rejects the session on it. */
+        if (pvm_shm->found) {
+            pvm_reap_quiet = 1;
             for (i = 0; i < pvm_nchildren; i++)
                 kill(pvm_my_children[i], SIGKILL);
-        pvm_reap_my_children();
+            pvm_reap_my_children();
+            pvm_reap_quiet = 0;
+        } else
+            pvm_reap_my_children();
         if (pvm_shm != NULL)
             __sync_fetch_and_add(&pvm_shm->live, -1);  /* _exit skips atexit */
         fflush(NULL);       /* _exit skips stdio flushing */
         _exit(0);
     }
-    if ((pvm.mode == 1 || pvm.mode == 3) && pvm_shm->found)
+    if ((pvm.mode == 1 || pvm.mode == 3) && pvm_shm->found) {
+        pvm_reap_quiet = 1;
         for (i = 0; i < pvm_nchildren; i++)
             kill(pvm_my_children[i], SIGKILL);
-    pvm_reap_my_children();
+        pvm_reap_my_children();
+        pvm_reap_quiet = 0;
+    } else
+        pvm_reap_my_children();
+    if ((pvm_child_bad || pvm_shm->bad) &&
+        !((pvm.mode == 1 || pvm.mode == 3) && pvm_shm->found)) {
+        /* a worker died inside the search (arena overflow, OOM,
+           ...): in count mode the total would be a silent undercount,
+           in an unsuccessful first-solution run the "no solution"
+           verdict is untrustworthy -- refuse the result. */
+        bp_exception = run_time_error;
+        return BP_ERROR;
+    }
     result = (pvm.mode == 1 || pvm.mode == 3)
          ? (long)pvm_shm->found : (long)pvm_shm->count;
     pvm.armed = 0;
