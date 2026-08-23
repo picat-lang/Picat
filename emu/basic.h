@@ -326,23 +326,36 @@ typedef struct {
 typedef struct {
     int armed;            /* 1 while this engine participates as a worker */
     BPLONG nt;            /* worker budget (max live workers) */
-    BPLONG mode;          /* 1 = first solution, 2 = count all */
+    BPLONG mode;          /* 1 = first solution, 2 = count all,
+                             3 = first solution with value chunks of
+                             C = aval per process */
     BPLONG wid;           /* this process's worker id (0 = root) */
     BPLONG w_lo;          /* mode 2: this worker's value-chunk bounds */
     BPLONG w_hi;
-    BPLONG aval;          /* value count A for chunking */
+    BPLONG aval;          /* mode 2: value count A; mode 3: chunk size C */
 } pvm_t;
 
 #if PAR_THREADS
 extern PAR_TLS pvm_t pvm;
 extern pvm_shm_t *pvm_shm;
 extern BPLONG pvm_deleg_fail_word;  /* set at first hook; == (BPLONG)&&lab_pvm_deleg_fail */
-extern int pvm_fork_frame(BPLONG_PTR ar);
+extern int pvm_fork_frame(BPLONG_PTR ar, BPLONG_PTR p);
+extern int pvm_fork_frame_tail(BPLONG_PTR ar, BPLONG_PTR p);
+extern int pvm_labfail_park(BPLONG_PTR ar, BPLONG_PTR p);
+void pvm_slot_rearm(BPLONG_PTR ar);
 void pvm_reap_my_children(void);
 int pvm_deleg_wait(BPLONG_PTR f);
+extern BPLONG pvm_rerun_site;
 extern BPLONG pvm_child_reentry;
 extern int pvm_last_deleg_status;
 BPLONG pvm_deleg_reentry(BPLONG_PTR f);
+/* value-skip state (COW per process), set by pvm_fork_frame */
+extern long pvm_skip_count;
+extern int pvm_skip_armed;
+extern BPLONG pvm_skip_frame;
+/* E_1 copy-out for PVM_FORK_MAYBE (pvm_fork_frame return 2/3) */
+extern BPLONG pvm_e1_H, pvm_e1_T, pvm_e1_SF, pvm_e1_TOP, pvm_e1_re;
+
 #endif
 
 #define TOAM_NOTSET 0

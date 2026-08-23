@@ -281,6 +281,17 @@ lab_fail:
       }
     */
     P = (BPLONG_PTR)AR_CPF(AR);
+#if PAR_THREADS
+    /* boundary owner: its chunk is exhausted and its worker holds the
+        rest: park BEFORE advancing into the delegated value, so the
+        re-derivation re-dispatches the re-entry (a valid dispatch
+        label) on exactly the frame-entry state of a standard
+        backtrack. */
+    if (pvm_labfail_park(AR, P)) {
+        P = (BPLONG_PTR)&pvm_deleg_fail_word;
+        CONTCASE;
+    }
+#endif
     CONTCASE;
 
 
@@ -327,23 +338,34 @@ lab_fail0:
 
 #if PAR_THREADS
 lab_pvm_deleg_fail:
-    /* reached through a patched AR_CPF (see pvm_fork_frame): frame B
-       delegated the remaining clauses of its disjunction to a forked
-       worker, and the kept first clause just failed (on arrival AR = B,
-       heap, trail and local already restored to the frame entry, as by
-       lab_fail). Wait for the worker; if its main succeeded, re-run the
-       original re-entry locally (status 0 below), otherwise fail the
-       disjunction to its caller with cut semantics. */
     pvm_deleg_wait(B);
-    if (pvm_last_deleg_status == 0) {
-        /* the forked worker's main succeeded: the disjunction's
-           remaining clauses succeeded over there. Re-run the original
-           re-entry locally to re-materialize the result (a found
-           solution is re-derived deterministically; a trivial branch
-           just runs), then continue this process normally. */
+    if (pvm_last_deleg_status == 0 && pvm_shm != NULL && pvm_shm->found) {
+        /* the delegated region holds the solution: re-derive it
+           locally. (A worker that got here with found set has already
+           dropped out in pvm_deleg_wait: only the root re-derives.)
+           The park was made in lab_fail with P = the frame re-entry:
+           re-dispatching it advances into the delegated value and
+           re-searches its body exactly as a serial search would. */
+        P = (BPLONG_PTR)(pvm_rerun_site ? pvm_rerun_site
+                                        : pvm_deleg_reentry(B));
+        pvm_rerun_site = 0;
+        pvm_slot_rearm(B);  /* the re-run may re-fork a re-tried disjunction */
+        CONTCASE;
+    }
+    /* st == 0 without found: the worker's main is
+       `(model_q ; true)` and exits 0 even for an exhausted (dead-end)
+       delegated region: the disjunction is fully exhausted -> fall
+       through to failing it to the caller. */
+    if (pvm_last_deleg_status == -1) {
+        /* tail walker: nothing was delegated (no child); a value
+           failure here just continues the walk at the next value. */
+        pvm_rerun_site = 0;
+        pvm_slot_rearm(B);
         P = (BPLONG_PTR)pvm_deleg_reentry(B);
         CONTCASE;
     }
+    pvm_rerun_site = 0;
+    pvm_slot_rearm(B);
     B = (BPLONG_PTR)AR_B(B);
     AR = B;
     LOCAL_TOP = (BPLONG_PTR)AR_TOP(B);

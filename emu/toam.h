@@ -427,26 +427,46 @@ extern PAR_TLS BPLONG no_gcs;
     PUSHTRAIL_s(op1);                           \
     FOLLOW(op1) = encodefloat1(value);          \
 
-/* parsearch (Path B, M2): when a pvm session is running (mode 1), a
-   choice point may be split across processes: pvm_fork_frame() forks a
-   child that continues with the disjunction's remaining clauses while
-   the parent keeps the first. Returns 1 only in the child; the macro
-   then dispatches the child at pvm_child_reentry (the original
-   re-entry word, since the child's own frame cell already holds the
-   fail stub). A delegated frame's AR_CPF is patched to
-   &pvm_deleg_fail_word; when its kept clause fails, lab_pvm_deleg_fail
-   waits for the worker (pvm_deleg_wait) and, if the worker found a
-   solution, re-runs the original re-entry locally to re-materialize
-   the solution deterministically; otherwise the disjunction fails to
-   its caller as usual. pvm_fork_frame additionally requires the
-   engine state to equal the frame's entry state (see parvm.c). */
+/* parsearch (Path B, M2/M3): when a pvm session is running (mode 1
+   or 3), a choice point may be split across processes. pvm_fork_frame()
+   returns:
+     0 = keep searching this value (dispatch continues as-is);
+     1 = in the forked worker: dispatch at pvm_child_reentry (the
+         original re-entry word, the worker then skips its chunk
+         offset via repeated hook fires, see parvm.c), and the worker
+         may tail-fork the next chunk owner at t=0;
+     2 = boundary: this process has walked its C values and the
+         remaining ones are (or were) the worker's; the macro restores
+         the frame to its fork-time entry state (pvm_e1_*) and
+         dispatches to lab_pvm_deleg_fail (the same target a patched
+         AR_CPF would yield), which waits for the worker and re-runs
+         the original re-entry (status 0) or fails the disjunction;
+      3 = value skip: re-dispatch the CURRENT re-entry AR_CPF(ar)
+          (re-recorded by the just re-executed FORK) without searching.
+          This is exactly what a serial value failure does
+          (lab_fail: P = AR_CPF(AR); CONTCASE), one value ahead.
+          The fork-time re (pvm_forked_re) must NOT be used here:
+          cascade disjunctions re-execute FORK at different sites per
+          value with different re cells, and a stale re cell lands P
+          inside the wrong re cell (desync).
+   pvm_fork_frame additionally requires the engine state to equal the
+   frame's entry state (see parvm.c). */
 #if PAR_THREADS
-#define PVM_FORK_MAYBE(ar) \
+ #define PVM_FORK_MAYBE(ar) \
     do { \
+        int _pvm_rc; \
         if (pvm_deleg_fail_word == 0) \
             pvm_deleg_fail_word = (BPLONG)&&lab_pvm_deleg_fail; \
-        if (pvm_fork_frame(ar)) { \
+        _pvm_rc = pvm_fork_frame(ar, P); \
+        if (_pvm_rc == 1) { \
+            if (pvm_fork_frame_tail(ar, P)) \
+                P = (BPLONG_PTR)pvm_child_reentry; \
+            fflush(NULL); \
             P = (BPLONG_PTR)pvm_child_reentry; \
+            CONTCASE; \
+        } else if (_pvm_rc == 3) { \
+            pvm_rerun_site = 0; \
+            P = (BPLONG_PTR)AR_CPF(ar); \
             CONTCASE; \
         } \
     } while (0)

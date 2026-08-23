@@ -49,6 +49,8 @@ int c_pvm_chunk(void);
 int c_pvm_report(void);
 int c_pvm_collect(void);
 
+extern int toam(BPLONG_PTR, BPLONG_PTR, BPLONG_PTR);
+
 #if PAR_THREADS
 
 static BPLONG_PTR parvm_reserve_block;  /* one region; all engine arenas */
@@ -248,13 +250,30 @@ void Cboot_parvm()
  *   choicepoint and leave; the root unwinds its session to the
  *   user's ( model ; true ) cut, collects and prints.
  *
- *   Mode 1 delegation protocol (see pvm_fork_frame): a delegated
- *   frame's AR_CPF is patched to &pvm_deleg_fail_word in both copies;
- *   when its disjunction fails, lab_pvm_deleg_fail (emu_inst.h)
- *   blocks the delegator in pvm_deleg_wait() until the worker exits,
- *   and if the worker's main succeeded it re-runs the original
- *   re-entry locally to re-materialize the result (deterministic
- *   re-derivation); otherwise the disjunction fails to its caller.
+ *   Mode 1/3 value-chunking protocol (see pvm_fork_frame): a
+ *   disjunction whose re-entry re-executes its FORK site (the CP
+ *   value disjunctions) is split into contiguous value chunks of C
+ *   values (mode 1: C = 1; mode 3: C = bp.pvm_fork third arg). The
+ *   forking process (the owner) keeps values 1..C and walks them
+ *   normally (its frame cell is NOT patched, so value failures
+ *   re-enter through the original re-entry). When the owner's walk
+ *   reaches value C+1 (re-entry re-fire with C values tried), it
+ *   restores the frame to its fork-time entry state and goes to
+ *   lab_pvm_deleg_fail: pvm_deleg_wait() blocks until the worker
+ *   exits; if the worker's main succeeded the original re-entry is
+ *   re-run locally from the fork-time entry (deterministic
+ *   re-derivation from value 2); otherwise the disjunction fails to
+ *   its caller. The worker starts the dispatch at the original
+ *   re-entry, which advances from value 1 to value 2; its pending
+ *   skip (from-2, from = C+1) makes it re-dispatch the re-entry
+ *   once per skipped value (hook return 3) until it lands on value
+ *   C+1. While still at the fork-time entry (value 1) the worker
+ *   may tail-fork another worker for values 2C+1.. (from = 2C+1,
+ *   skip = 2C-2) and so on, fanning the chunk chain out to NT
+ *   processes at t=0; the last worker (no budget) walks its values
+ *   to exhaustion. A worker's boundary (its own C+1th value)
+ *   delegates upward the same way, so a whole chunk chain can park
+ *   in delegated waits while the next process owns the walk.
  *   Delegation is attempted only when the engine state equals the
  *   frame's entry state (fresh choice frame), and a forked child
  *   restores the original re-entries of inherited frames outside its
@@ -329,30 +348,49 @@ void pvm_reap_my_children(void)
 }
 
 /* Per-frame delegation record (ring). A stale slot can only COST a
-   missed delegation (the parent then runs the remaining clauses
-   itself), never break correctness.
+   missed delegation (or a redundant overlap fork), never break
+   correctness.
    re   = original re-entry word (to restore in a child whose lineage
-          is not the delegated one)
+           is not the delegated one; the value walk's "next value")
+   e1H/T/SF/TOP = the engine state at fork time (the frame's entry,
+           value 1 already assigned); the owner's boundary restore
+           and the re-run re-materialization go back to it
+   from = first value index (1-based) this process owns in the
+           disjunction's value sequence; the owner's chunk is
+           [from, from+C-1], a tail worker's is [from, last]
    pid  = worker forked for this frame (meaningful in the delegator's
-          copy only; 0 in everyone else's)
+           copy only; 0 in everyone else's; 0 here = never forked or
+           already reaped)
+   st   = saved exit status of a reaped worker (-1 = no result yet)
    mine = this process forked the worker for this frame (inherited
-          entries are COW-reset to 0 in every child) */
+           entries are COW-reset to 0 in every child)
+   tail = this process is the tail owner (walks to exhaustion, never
+           parks at a boundary) */
 #define PVM_FRAME_LOG 1024
 static BPLONG pvm_forked_ar[PVM_FRAME_LOG];
 static BPLONG pvm_forked_re[PVM_FRAME_LOG];
+static BPLONG pvm_forked_e1H[PVM_FRAME_LOG];
+static BPLONG pvm_forked_e1T[PVM_FRAME_LOG];
+static BPLONG pvm_forked_e1SF[PVM_FRAME_LOG];
+static BPLONG pvm_forked_e1TOP[PVM_FRAME_LOG];
 static BPLONG pvm_forked_pid[PVM_FRAME_LOG];
+static int pvm_forked_st[PVM_FRAME_LOG];
+static long pvm_forked_tried[PVM_FRAME_LOG];
+static long pvm_forked_from[PVM_FRAME_LOG];
 static char pvm_forked_mine[PVM_FRAME_LOG];
+static char pvm_forked_tail[PVM_FRAME_LOG];
 
-/* Frames whose remaining clauses this process is exploring: this
-   process's own fork frame plus the fork frames of its forking
-   ancestors. A visible patch on a frame in this chain belongs to this
-   lineage (kept); an inherited patch on any other frame belongs to
-   some ancestor's kept first clause, so the remaining clauses are
-   this process's own search space and the original re-entry must be
-   restored here. */
-#define PVM_DELEG_CHAIN 16
-static BPLONG pvm_deleg_chain[PVM_DELEG_CHAIN];
-static int pvm_deleg_chain_n = 0;
+/* Value-skip state (COW per process): this process is walking the
+   values of frame pvm_skip_frame and must re-dispatch its re-entry
+   pvm_skip_count more times before searching. */
+long pvm_skip_count = 0;
+int pvm_skip_armed = 0;
+BPLONG pvm_skip_frame = 0;
+
+/* E_1 copy-out for the toam.h macro (pvm_fork_frame return 2/3):
+   the armed frame's fork-time entry state and re-entry word. */
+BPLONG pvm_e1_H = 0, pvm_e1_T = 0, pvm_e1_SF = 0, pvm_e1_TOP = 0;
+BPLONG pvm_e1_re = 0;
 
 /* Original re-entry word of the frame this process was forked for:
    PVM_FORK_MAYBE dispatches the child there (its own frame cell is
@@ -364,24 +402,85 @@ static int pvm_frame_slot(BPLONG_PTR ar)
     return (int)(((BPULONG)ar >> 4) % PVM_FRAME_LOG);
 }
 
-/* Called from the FORK / SET_FORK macros in toam.h, i.e. exactly when
-   a choice point records AR_CPF = re-entry word of the disjunction's
-   remaining clauses. Mode 1 only. If a fork is made: the child
-   continues with the remaining clauses (the caller dispatches it at
-   pvm_child_reentry); the parent keeps the first clause. Both copies
-   patch the frame cell so that a failure of the disjunction (first
-   clause in the parent, exhausted remaining clauses in the child)
-   fails the whole disjunction to its caller (lab_pvm_deleg_fail,
-   which waits for the worker if the current process is the
-   delegator) instead of re-running the delegated clauses. Returns 1
-   only in the child. */
-int pvm_fork_frame(BPLONG_PTR ar)
+/* Linear probing over the frame->slot table: two live frames may hash
+   to the same slot (frames 16KB apart in address), so every
+   frame-to-record access must probe. lookup returns the recorded
+   slot of ar or -1; alloc returns a free probed slot or -1 if full. */
+static int pvm_slot_lookup(BPLONG_PTR ar)
+{
+    int s = pvm_frame_slot(ar), i;
+    for (i = 0; i < PVM_FRAME_LOG; i++) {
+        if (pvm_forked_ar[s] == (BPLONG)ar) return s;
+        if (pvm_forked_ar[s] == (BPLONG)0) return -1;
+        s = (s + 1) % PVM_FRAME_LOG;
+    }
+    return -1;
+}
+
+static int pvm_slot_alloc(BPLONG_PTR ar)
+{
+    int s = pvm_frame_slot(ar), i;
+    for (i = 0; i < PVM_FRAME_LOG; i++) {
+        if (pvm_forked_ar[s] == (BPLONG)0) return s;
+        s = (s + 1) % PVM_FRAME_LOG;
+    }
+    return -1;
+}
+
+/* Set by pvm_labfail_park: the boundary owner's frame re-entry
+   (P = AR_CPF(AR) at the parking lab_fail). The stub's success
+   re-derivation re-dispatches it: standard backtrack state, and it
+   advances exactly into the delegated value. */
+BPLONG pvm_rerun_site = 0;
+
+/* Shared by pvm_fork_frame and pvm_fork_frame_tail: in a newly
+   forked child, forget ownership of the inherited delegation
+   records (slots other than the just-forked frame's). The engine
+   frame cells themselves must NOT be touched here: an inherited
+   slot may reference a frame that has since been popped (its local
+   stack cells reused by live frames) and a write through it
+   corrupts the live frame. Non-owner descendants handle a
+   delegated frame's failure through the lab_pvm_deleg_fail stub
+   (pvm_deleg_wait returns -1 -> pvm_deleg_reentry(B)), which reads
+   the slot records only. */
+static void pvm_child_inherit_reset(BPLONG_PTR ar)
+{
+    int k;
+
+    for (k = 0; k < PVM_FRAME_LOG; k++) {
+        BPLONG_PTR fr = (BPLONG_PTR)pvm_forked_ar[k];
+        if (fr == (BPLONG_PTR)NULL || fr == ar) continue;
+        pvm_forked_mine[k] = 0;
+    }
+}
+
+/* Called from the FORK / SET_FORK macros in toam.h, i.e. exactly
+   when a choice point (re)records AR_CPF = re-entry word of the
+   disjunction's remaining alternatives. Modes 1/3 only. Return:
+     0 = keep searching this value (caller continues the dispatch)
+     1 = in the forked worker: dispatch at pvm_child_reentry
+     2 = boundary: the caller has restored the frame to its
+         fork-time entry (pvm_e1_*) and must go to
+         lab_pvm_deleg_fail via &pvm_deleg_fail_word
+     3 = value skip: the caller must re-dispatch the re-entry
+         (pvm_e1_re) without searching (advance one more value)
+   Only value disjunctions (whose re-entry re-executes the FORK
+   site) re-fire the hook; structural nondets see the hook once, at
+   frame creation (M2 behavior is a C=1 special case of the same
+   protocol). */
+int pvm_fork_frame(BPLONG_PTR ar, BPLONG_PTR p)
 {
     BPLONG re;
+    long C;
     pid_t pid;
-    int s, k, i;
+    int s;
 
-    if (pvm_shm == NULL || !pvm.armed || pvm.mode != 1) return 0;
+    (void)p;
+    if (pvm_shm == NULL || !pvm.armed ||
+        (pvm.mode != 1 && pvm.mode != 3))
+        return 0;
+    C = (pvm.mode == 1) ? 1 : pvm.aval;
+    if (C < 1) C = 1;
 
     if (pvm_shm->found) {
         if (pvm_is_fork_child) {
@@ -389,90 +488,256 @@ int pvm_fork_frame(BPLONG_PTR ar)
             _exit(0);         /* worker: the tree is solved, drop out */
         }
         return 0;             /* root: finish its own territory, then
-                                  collect (early abort is a v2 item) */
+                                  collect (early abort is a v3 item) */
     }
 
-    if (pvm_shm->live >= pvm.nt) return 0;
-
     re = AR_CPF(ar);
-    if (re < 0x10000LL) return 0;               /* no re-entry word */
-    if (*(BPLONG *)(re) < 0x10000LL) return 0;  /* not a jmp entry */
+    if (re < 0x10000LL) return 0;                    /* no re-entry word */
+    if (*(BPLONG *)(re) < 0x10000LL) return 0;       /* not a jmp entry */
 
     /* Delegate only when the engine state is exactly the frame's
        entry state: the frame was just created by the running
        instruction (a fresh choice frame) and nothing has executed
-       since. Then a re-run of the re-entry from the forked state is
-       serial-equivalent to a normal backtrack re-entry. For a
-       SET_FORK mid-body on an already-executed call frame the state
-       has diverged (trail/heap/locals), so skip. */
+       since (on a value-disjunction re-entry the frame re-records
+       the current value's state as its entry at the re-executed
+       FORK, so the gate passes there too). For a SET_FORK mid-body
+       on an already-executed call frame the state has diverged
+       (trail/heap/locals), so skip. */
     if (heap_top != (BPLONG_PTR)AR_H(ar) ||
         trail_top != (BPLONG_PTR)AR_T(ar) ||
         sfreg != (BPLONG_PTR)AR_SF(ar) ||
         local_top != (BPLONG_PTR)AR_TOP(ar))
         return 0;
 
-    s = pvm_frame_slot(ar);
-    if (pvm_forked_ar[s] == (BPLONG)ar) return 0;  /* already delegated */
-    pvm_forked_ar[s] = (BPLONG)ar;
-    pvm_forked_re[s] = re;
+    s = pvm_slot_lookup(ar);
+    if (s >= 0) {
+        /* armed frame: this process owns this disjunction's value
+           walk (as owner, tail worker, or re-running a re-run) */
+        if (!pvm_forked_mine[s]) return 0;      /* inherited: not ours */
+        if (pvm_skip_armed && pvm_skip_frame == (BPLONG)ar &&
+            pvm_skip_count > 0) {
+            pvm_skip_count--;
+            if (pvm_skip_count <= 0) {
+                pvm_skip_count = 0;
+                pvm_skip_armed = 0;
+            }
+            pvm_e1_re = pvm_forked_re[s];
+            pvm_rerun_site = 0;
+            return 3;
+        }
+        if (pvm_forked_tried[s] < C) {
+            pvm_forked_tried[s]++;
+            return 0;   /* search this value ourselves */
+        }
+        /* tried >= C: boundary (chunk exhausted) or tail owner */
+        if (pvm_forked_pid[s] > 0) {
+            int wst;
+            pid_t r = waitpid((pid_t)pvm_forked_pid[s], &wst, WNOHANG);
+            if (r > 0) {
+                pvm_forked_st[s] = WIFEXITED(wst) ? WEXITSTATUS(wst) : 1;
+                pvm_forked_pid[s] = 0;
+            } else if (r < 0 && errno == ECHILD) {
+                pvm_forked_pid[s] = 0;  /* reaped elsewhere */
+            }
+            /* r == 0: worker still running */
+        }
+        /* Boundary re-firing reached without the lab_fail park having
+           intercepted (should be unreachable: pvm_labfail_park parks
+           one step earlier, before this value is advanced into).
+            Degrade safely: search past the boundary ourselves; the
+            worker runs on in parallel (first-solution is unaffected). */
+        return 0;
+    }
+
+    /* unrecorded: the (re-)tried disjunction's fork site */
+    if (pvm_shm->live >= pvm.nt)
+        return 0;
+    s = pvm_slot_alloc(ar);
+    if (s < 0) return 0;   /* slot table full: search serially */
 
     pid = fork();
     if (pid == (pid_t)-1) return 0;  /* fork failed: continue serially */
 
     if (pid == 0) {
-        /* child: take the remaining clauses of this disjunction. The
-           engine state is exactly what a frame failure would restore
-           (the fork instruction allocates nothing, so heap/trail are
-           at the frame entry values). */
+        /* worker: owns values C+1.., reached by skipping C-1 values
+           from the dispatch point (value 2). The engine state is
+           exactly the frame's entry (value 1 assigned); the frame
+           cell is patched so that an exhaustion failure (should one
+           happen before the first re-FORK re-records it) fails the
+           disjunction rather than re-run the delegated values. */
         pvm_is_fork_child = 1;
         pvm_nchildren = 0;
         atexit(pvm_worker_exit_atexit);
         __sync_fetch_and_add(&pvm_shm->live, 1);
+        pvm_child_inherit_reset(ar);
 
-        /* Inherited delegation records: forget ownership, and restore
-           the original re-entry for frames this process is NOT on the
-           delegated side of (an ancestor's kept-first-clause
-           territory: their remaining clauses are this process's own
-           search space). Frames in the delegation chain (fork frames
-           of this process or its forking ancestors) stay patched
-           here: exhausting them must fail the disjunction, not
-           re-run the remaining clauses. */
-        for (k = 0; k < PVM_FRAME_LOG; k++) {
-            BPLONG_PTR fr = (BPLONG_PTR)pvm_forked_ar[k];
-            int in_chain;
-            if (fr == (BPLONG_PTR)NULL || fr == ar) continue;
-            pvm_forked_mine[k] = 0;
-            in_chain = 0;
-            for (i = 0; i < pvm_deleg_chain_n; i++)
-                if (pvm_deleg_chain[i] == (BPLONG)fr) {
-                    in_chain = 1;
-                    break;
-                }
-            if (!in_chain)
-                AR_CPF(fr) = pvm_forked_re[k];
-        }
-
-        if (pvm_deleg_chain_n < PVM_DELEG_CHAIN)
-            pvm_deleg_chain[pvm_deleg_chain_n++] = (BPLONG)ar;
-
-        /* patch my copy of my frame too (exhaustion must fail the
-           disjunction, not re-run its remaining clauses); the caller
-           dispatches at the saved original re-entry. */
-        AR_CPF(ar) = (BPLONG)&pvm_deleg_fail_word;
+        pvm_forked_ar[s] = (BPLONG)ar;
+        pvm_forked_re[s] = re;
+        pvm_forked_e1H[s] = (BPLONG)heap_top;
+        pvm_forked_e1T[s] = (BPLONG)trail_top;
+        pvm_forked_e1SF[s] = (BPLONG)sfreg;
+        pvm_forked_e1TOP[s] = (BPLONG)local_top;
         pvm_forked_pid[s] = 0;
+        pvm_forked_st[s] = -1;
         pvm_forked_mine[s] = 1;
+        pvm_forked_tail[s] = 1;
+        pvm_forked_tried[s] = 0;
+        pvm_forked_from[s] = C + 1;
+        AR_CPF(ar) = (BPLONG)&pvm_deleg_fail_word;
+        pvm_skip_count = C - 1;
+        pvm_skip_frame = (BPLONG)ar;
+        pvm_skip_armed = (pvm_skip_count > 0);
         pvm_child_reentry = re;
         return 1;
     }
 
-    /* parent: keep the first clause; patch this frame copy (COW: the
-       child got the pre-patch image). */
+    /* parent: owner of values 1..C, walked with the unpatched frame
+       (value failures re-enter through the original re-entry). */
+    pvm_forked_ar[s] = (BPLONG)ar;
+    pvm_forked_re[s] = re;
+    pvm_forked_e1H[s] = (BPLONG)heap_top;
+    pvm_forked_e1T[s] = (BPLONG)trail_top;
+    pvm_forked_e1SF[s] = (BPLONG)sfreg;
+    pvm_forked_e1TOP[s] = (BPLONG)local_top;
     pvm_forked_pid[s] = (BPLONG)pid;
+    pvm_forked_st[s] = -1;
     pvm_forked_mine[s] = 1;
-    AR_CPF(ar) = (BPLONG)&pvm_deleg_fail_word;
+    pvm_forked_tail[s] = 0;
+    pvm_forked_tried[s] = 1;   /* value 1 will be searched */
+    pvm_forked_from[s] = 1;
     if (pvm_nchildren < PARVM_MAX_WORKERS)
         pvm_my_children[pvm_nchildren++] = pid;
     return 0;
+}
+
+/* Called from the toam.h macro immediately after a forked worker is
+   dispatched (t = 0: the worker is still at its fork-time entry,
+   state = the frame's entry, nothing executed since the fork).
+   Favors the chunk chain: if budget remains, fork a grandchild that
+   owns the next C values (from + C), and this worker becomes the
+   boundary owner of its own chunk. Return 1 only in the grandchild. */
+int pvm_fork_frame_tail(BPLONG_PTR ar, BPLONG_PTR p)
+{
+    BPLONG re;
+    long C, from, skip;
+    pid_t pid;
+    int s;
+
+    (void)p;
+    if (pvm_shm == NULL || !pvm.armed ||
+        (pvm.mode != 1 && pvm.mode != 3))
+        return 0;
+    if (pvm_shm->found || pvm_shm->live >= pvm.nt) return 0;
+    C = (pvm.mode == 1) ? 1 : pvm.aval;
+    if (C < 1) C = 1;
+    s = pvm_slot_lookup(ar);
+    if (s < 0 || !pvm_forked_mine[s] || pvm_forked_pid[s] != 0)
+        return 0;
+    re = pvm_forked_re[s];
+    if (re < 0x10000LL) return 0;
+    if (*(BPLONG *)(re) < 0x10000LL) return 0;
+    if (heap_top != (BPLONG_PTR)AR_H(ar) ||
+        trail_top != (BPLONG_PTR)AR_T(ar) ||
+        sfreg != (BPLONG_PTR)AR_SF(ar) ||
+        local_top != (BPLONG_PTR)AR_TOP(ar))
+        return 0;
+
+    from = pvm_forked_from[s] + C;
+    skip = from - 2;   /* the dispatch lands on value 2 */
+    if (skip < 0) skip = 0;
+
+    pid = fork();
+    if (pid == (pid_t)-1) return 0;
+    if (pid == 0) {
+        /* grandchild: same worker protocol, next chunk. (atexit and
+           the live counter were already set up by the parent fork.) */
+        pvm_child_inherit_reset(ar);
+        pvm_forked_ar[s] = (BPLONG)ar;
+        pvm_forked_re[s] = re;
+        pvm_forked_e1H[s] = (BPLONG)heap_top;
+        pvm_forked_e1T[s] = (BPLONG)trail_top;
+        pvm_forked_e1SF[s] = (BPLONG)sfreg;
+        pvm_forked_e1TOP[s] = (BPLONG)local_top;
+        pvm_forked_pid[s] = 0;
+        pvm_forked_st[s] = -1;
+        pvm_forked_mine[s] = 1;
+        pvm_forked_tail[s] = 1;
+        pvm_forked_tried[s] = 0;
+        pvm_forked_from[s] = from;
+        AR_CPF(ar) = (BPLONG)&pvm_deleg_fail_word;
+        pvm_skip_count = skip;
+        pvm_skip_frame = (BPLONG)ar;
+        pvm_skip_armed = (skip > 0);
+        pvm_child_reentry = re;
+        return 1;
+    }
+
+    /* this worker becomes the boundary owner of its own chunk */
+    pvm_forked_pid[s] = (BPLONG)pid;
+    pvm_forked_st[s] = -1;
+    if (pvm_nchildren < PARVM_MAX_WORKERS)
+        pvm_my_children[pvm_nchildren++] = pid;
+    return 0;
+}
+
+/* Called from lab_fail just after P = AR_CPF(AR), i.e. right before
+   the failed value's disjunction re-dispatches its re-entry (which
+   advances to the next value). Parks the boundary owner HERE, one
+   step before the boundary value is advanced into, so the re-derivation
+   site is the re-entry itself (a valid dispatch label) and the engine
+   state is exactly the frame's entry after a standard backtrack:
+   re-dispatching the re-entry then searches the delegated value exactly
+   as a serial search would. Returns 1 when the caller must park
+   (P -> deleg-fail word, CONTCASE); 0 otherwise. A worker that sees
+   the global solution drops out here (earlier than the next fork hook). */
+int pvm_labfail_park(BPLONG_PTR ar, BPLONG_PTR p)
+{
+    long C;
+    int s;
+
+    if (pvm_shm == NULL || !pvm.armed ||
+        (pvm.mode != 1 && pvm.mode != 3))
+        return 0;
+    if (pvm_shm->found) {
+        if (pvm_is_fork_child) {
+            fflush(NULL);     /* _exit skips stdio flushing */
+            pvm_worker_exit_atexit();
+            _exit(0);
+        }
+        return 0;             /* root: finish its own territory */
+    }
+    C = (pvm.mode == 1) ? 1 : pvm.aval;
+    if (C < 1) C = 1;
+    s = pvm_slot_lookup(ar);
+    if (s >= 0 && pvm_forked_mine[s] &&
+        pvm_forked_tried[s] >= C &&
+        (pvm_forked_pid[s] > 0 || pvm_forked_st[s] != -1)) {
+        pvm_rerun_site = (BPLONG)p;
+        return 1;
+    }
+    return 0;
+}
+
+/* Clear a frame's delegation record (called by lab_pvm_deleg_fail
+   after the outcome is consumed): a re-tried disjunction can fork
+   afresh at its next fork site. */
+void pvm_slot_rearm(BPLONG_PTR ar)
+{
+    int s = pvm_slot_lookup(ar);
+
+    if (s < 0) return;
+    pvm_forked_ar[s] = 0;
+    pvm_forked_re[s] = 0;
+    pvm_forked_e1H[s] = 0;
+    pvm_forked_e1T[s] = 0;
+    pvm_forked_e1SF[s] = 0;
+    pvm_forked_e1TOP[s] = 0;
+    pvm_forked_pid[s] = 0;
+    pvm_forked_st[s] = -1;
+    pvm_forked_tried[s] = 0;
+    pvm_forked_from[s] = 0;
+    pvm_forked_mine[s] = 0;
+    pvm_forked_tail[s] = 0;
 }
 
 /* Called from lab_pvm_deleg_fail (failure of a delegated disjunction).
@@ -489,13 +754,20 @@ int pvm_last_deleg_status = -1;
 
 int pvm_deleg_wait(BPLONG_PTR f)
 {
-    int s = pvm_frame_slot(f);
+    int s = pvm_slot_lookup(f);
     int st = -1;
 
-    if (pvm_forked_mine[s] && pvm_forked_pid[s] > 0) {
-        int wst;
-        if (waitpid((pid_t)pvm_forked_pid[s], &wst, 0) > 0)
-            st = WIFEXITED(wst) ? WEXITSTATUS(wst) : 1;
+    if (s >= 0 && pvm_forked_mine[s]) {
+        if (pvm_forked_pid[s] > 0) {
+            int wst;
+            if (waitpid((pid_t)pvm_forked_pid[s], &wst, 0) > 0) {
+                st = WIFEXITED(wst) ? WEXITSTATUS(wst) : 1;
+                pvm_forked_st[s] = st;
+                pvm_forked_pid[s] = 0;
+            }
+        } else {
+            st = pvm_forked_st[s];  /* reaped earlier in the hook */
+        }
     }
     if (pvm_shm != NULL && pvm_shm->found && pvm_is_fork_child) {
         pvm_worker_exit_atexit();
@@ -509,9 +781,9 @@ int pvm_deleg_wait(BPLONG_PTR f)
 /* Original re-entry word of a delegated frame (0 if not recorded). */
 BPLONG pvm_deleg_reentry(BPLONG_PTR f)
 {
-    int s = pvm_frame_slot(f);
+    int s = pvm_slot_lookup(f);
 
-    if (pvm_forked_ar[s] != (BPLONG)0 && pvm_forked_ar[s] == (BPLONG)f)
+    if (s >= 0)
         return pvm_forked_re[s];
     return 0;
 }
@@ -527,8 +799,12 @@ int c_pvm_fork()
         bp_exception = out_of_range;
         return BP_ERROR;
     }
-    if (mode != 1 && mode != 2) {
+    if (mode != 1 && mode != 2 && mode != 3) {
         bp_exception = illegal_arguments;
+        return BP_ERROR;
+    }
+    if (mode == 3 && (aval < 1 || aval > 1000000)) {
+        bp_exception = out_of_range;  /* mode 3: C = chunk size */
         return BP_ERROR;
     }
     if (pvm.armed || pvm_shm != NULL) {
@@ -543,12 +819,12 @@ int c_pvm_fork()
     pvm.nt = nt;
     pvm.mode = mode;
     pvm.wid = 0;
-    pvm.aval = aval;
+    pvm.aval = (mode == 3) ? aval : 0;
     pvm.w_lo = 1;
     pvm.w_hi = aval;
     pvm.armed = 1;
 
-    if (mode == 1) {
+    if (mode == 1 || mode == 3) {
         /* root is worker 0; the pool grows through branch forks */
         __sync_fetch_and_add(&pvm_shm->live, 1);
         return BP_TRUE;
@@ -623,7 +899,7 @@ int c_pvm_report()
         bp_exception = illegal_arguments;
         return BP_ERROR;
     }
-    if (pvm.mode == 1) {
+    if (pvm.mode == 1 || pvm.mode == 3) {
         pvm_shm->found = 1;
     } else {
         __sync_fetch_and_add(&pvm_shm->count, c);
@@ -642,7 +918,7 @@ int c_pvm_collect()
         bp_exception = illegal_arguments;
         return BP_ERROR;
     }
-    if (pvm_is_fork_child && pvm.mode == 1) {
+    if (pvm_is_fork_child && (pvm.mode == 1 || pvm.mode == 3)) {
         /* a delegated branch whose (inherited) session has ended:
            finish the subtree and drop out of the process. */
         if (pvm_shm->found)
@@ -654,11 +930,12 @@ int c_pvm_collect()
         fflush(NULL);       /* _exit skips stdio flushing */
         _exit(0);
     }
-    if (pvm.mode == 1 && pvm_shm->found)
+    if ((pvm.mode == 1 || pvm.mode == 3) && pvm_shm->found)
         for (i = 0; i < pvm_nchildren; i++)
             kill(pvm_my_children[i], SIGKILL);
     pvm_reap_my_children();
-    result = (pvm.mode == 1) ? (long)pvm_shm->found : (long)pvm_shm->count;
+    result = (pvm.mode == 1 || pvm.mode == 3)
+         ? (long)pvm_shm->found : (long)pvm_shm->count;
     pvm.armed = 0;
     shm_unlink(pvm_shm_name);
     munmap(pvm_shm, sizeof(pvm_shm_t));
@@ -674,9 +951,10 @@ pvm_shm_t *pvm_shm = NULL;
 
 static pvm_shm_t pvm_serial_shm;
 
-int pvm_fork_frame(BPLONG_PTR ar)
+int pvm_fork_frame(BPLONG_PTR ar, BPLONG_PTR p)
 {
     (void)ar;
+    (void)p;
     return 0;
 }
 
@@ -690,7 +968,7 @@ int c_pvm_fork()
     BPLONG mode = INTVAL(ARG(2, 3));
     BPLONG aval = INTVAL(ARG(3, 3));
 
-    if (nt < 1 || mode != 1 && mode != 2) {
+    if (nt < 1 || (mode != 1 && mode != 2 && mode != 3)) {
         bp_exception = illegal_arguments;
         return BP_ERROR;
     }
@@ -701,7 +979,7 @@ int c_pvm_fork()
     pvm.nt = nt;
     pvm.mode = mode;
     pvm.wid = 0;
-    pvm.aval = aval;
+    pvm.aval = (mode == 3) ? aval : 0;
     pvm.w_lo = 1;
     pvm.w_hi = aval;
     pvm.armed = 1;
@@ -734,7 +1012,7 @@ int c_pvm_report()
         bp_exception = illegal_arguments;
         return BP_ERROR;
     }
-    if (pvm.mode == 1) pvm_shm->found = 1;
+    if (pvm.mode == 1 || pvm.mode == 3) pvm_shm->found = 1;
     else __sync_fetch_and_add(&pvm_shm->count, c);
     return BP_TRUE;
 }
@@ -747,7 +1025,8 @@ int c_pvm_collect()
         bp_exception = illegal_arguments;
         return BP_ERROR;
     }
-    ASSIGN_f_atom(r, MAKEINT(pvm.mode == 1 ? pvm_shm->found : pvm_shm->count));
+    ASSIGN_f_atom(r, MAKEINT((pvm.mode == 1 || pvm.mode == 3)
+                             ? pvm_shm->found : pvm_shm->count));
     pvm.armed = 0;
     pvm_shm = NULL;
     return BP_TRUE;
