@@ -14,17 +14,23 @@ This folder holds the parallel-search example sets, by branch:
 
 ## parsearch examples, in `pvm/`
 
-Builtins: `bp.pvm_fork(NT, Mode, C)` arms the session,
-`bp.pvm_report(X)`/`bp.pvm_collect(R)` finish it. Mode 1 = the $C=1$
-OR split, mode 2 = static value-chunk counting
-(`bp.pvm_worker_id(I)` + `bp.pvm_chunk(Lo, Hi)` in each worker),
-mode 3 = first-solution with value chunks of size $C$.
+Builtins: `bp.pvm_fork(NT, Mode, C)` arms the session, and
+`bp.pvm_report(S)` / `bp.pvm_collect(R)` / `bp.pvm_solution(S)`
+finish it. Mode 1 = the $C=1$ OR split; mode 2 = static value-chunk
+counting (`bp.pvm_worker_id(I)` + `bp.pvm_chunk(Lo, Hi)` in each
+worker); mode 3 = first-solution with value chunks of size $C$. For
+modes 1/3 the solution is **reported by value**: the finding process
+calls `pvm_report(Sol)` with the solution term (a list or array of
+ground integers), the root's `pvm_collect(R)` returns 1, and
+`pvm_solution(S)` (root side) binds `S` to a fresh array holding the
+reported solution — the delegating processes never re-search the
+found region. Mode 2's `pvm_report(N)` is the integer slice count.
 Run with a `parsearch` build, e.g.
 `picat [-s <bytes>] exs/parallel/pvm/<model>.pi`; the counting
 models for N>=15 need a sized arena (`-s 4294967296` for workers,
 `-s 8589934592` serial — the flag takes raw bytes). The Ram
 models read `K`/`N` from the environment (e.g. `K=4 N=16`); their
-base solver is `exs/satext/ramsey_ps.pi` with the three `pvm` calls
+base solver is `exs/satext/ramsey_ps.pi` with the `pvm` calls
 inserted.
 
 Three parametrized programs cover every configuration used in the

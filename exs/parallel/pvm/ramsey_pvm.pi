@@ -108,27 +108,71 @@ main =>
     writef("=== ramsey: looking for a (%d,%d)-Ramsey graph on %d vertices (R(%d,%d) candidate), %d edge vars, %d K-subsets, starting at %d ms%n",
         K, K, N, K, K, NPairs, NSets, T0),
     E = new_array(NPairs),
-    ((E :: 0..1,
-      no_k_sets(N, K, M, AllSets, E),
-      degree_order(N, E, D),
-      solve([E, D]))
+    ( (E :: 0..1,
+       no_k_sets(N, K, M, AllSets, E),
+       degree_order(N, E, D),
+       solve([E, D]))
     ->
-        ( ( T > 0, bp.pvm_report(1) ; true ),
-          sat_found(K, N, M, AllSets, E, D, T0) )
+        % this process owns the graph; the parallel report is BY
+        % VALUE (the edge array E), and the verdict collects +
+        % re-derives the degree order from the reported array
+        ( (T > 0, bp.pvm_report(E) ; true),
+          sat_verdict(T, K, N, M, AllSets, E, D, T0)
+        )
     ;
-        (bp.c_satext_last_status(St),
-         (St == 2 ->
-             unsat_ok(K, N, T0)
-         ;
-             unknown_note(K, N, T0, St)))
-    ),
-    ( T > 0,
-      bp.pvm_collect(R),
-      writeln(R)
-    ;
-      true
+        % the model failed HERE; in parallel a worker may still hold
+        % the graph (R=1), in which case the reported edge array is
+        % the witness
+        unsat_verdict(T, K, N, M, AllSets, T0)
     ),
     halt.
+
+% SAT verdict: the model succeeded in this process. In parallel we
+% collect first; with R=1 the reported value is authoritative, so the
+% graph (and its degree order) is taken from it -- D was only bound in
+% the finding process.
+sat_verdict(T, K, N, M, AllSets, E, D, T0) =>
+    ( T > 0,
+      bp.pvm_collect(R),
+      writeln(R),
+      ( R = 1,
+        bp.pvm_solution(Es),
+        degree_order(N, Es, Ds),
+        sat_found(K, N, M, AllSets, Es, Ds, T0)
+      ;
+        fail_verdict(K, N, T0)
+      )
+    ;
+      sat_found(K, N, M, AllSets, E, D, T0)
+    ).
+
+% The model failed in this process. In parallel a worker may have
+% found the graph (R = 1): the reported edge array is then the
+% witness. Otherwise (serial, or R = 0) the verdict comes from the
+% external-solver status.
+unsat_verdict(T, K, N, M, AllSets, T0) =>
+    ( T > 0,
+      bp.pvm_collect(R),
+      writeln(R),
+      ( R = 1,
+        bp.pvm_solution(Es),
+        degree_order(N, Es, Ds),
+        sat_found(K, N, M, AllSets, Es, Ds, T0)
+      ;
+        fail_verdict(K, N, T0)
+      )
+    ;
+      fail_verdict(K, N, T0)
+    ).
+
+% the solve failed for a reason that is NOT a verified UNSAT verdict
+fail_verdict(K, N, T0) =>
+    (bp.c_satext_last_status(St),
+     (St == 2 ->
+          unsat_ok(K, N, T0)
+     ;
+          unknown_note(K, N, T0, St))
+    ).
 
 k_from_env(K) =>
     ((bp.picat_getenv("K", S)) -> K = to_int(S) ; K = 3),

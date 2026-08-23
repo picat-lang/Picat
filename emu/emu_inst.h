@@ -339,19 +339,14 @@ lab_fail0:
 #if PAR_THREADS
 lab_pvm_deleg_fail:
     pvm_deleg_wait(B);
-    if (pvm_last_deleg_status == 0 && pvm_shm != NULL && pvm_shm->found) {
-        /* the delegated region holds the solution: re-derive it
-           locally. (A worker that got here with found set has already
-           dropped out in pvm_deleg_wait: only the root re-derives.)
-           The park was made in lab_fail with P = the frame re-entry:
-           re-dispatching it advances into the delegated value and
-           re-searches its body exactly as a serial search would. */
-        P = (BPLONG_PTR)(pvm_rerun_site ? pvm_rerun_site
-                                        : pvm_deleg_reentry(B));
-        pvm_rerun_site = 0;
-        pvm_slot_rearm(B);  /* the re-run may re-fork a re-tried disjunction */
-        CONTCASE;
-    }
+    /* st == 0 with found: the delegated region holds the solution.
+       It was REPORTED BY VALUE at discovery (c_pvm_report wrote the
+       integers to the shared block before marking found), so this
+       process does not re-search any of it: the disjunction simply
+       fails here, as in the st==0/!found case below. The root
+       materializes the reported value in bp.pvm_solution after
+       pvm_collect. (A worker that got here with found set has already
+       dropped out in pvm_deleg_wait.) */
     /* st == 0 without found: the worker's main is
        `(model_q ; true)` and exits 0 even for an exhausted (dead-end)
        delegated region: the disjunction is fully exhausted -> fall

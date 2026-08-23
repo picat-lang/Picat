@@ -435,12 +435,13 @@ extern PAR_TLS BPLONG no_gcs;
          original re-entry word, the worker then skips its chunk
          offset via repeated hook fires, see parvm.c), and the worker
          may tail-fork the next chunk owner at t=0;
-     2 = boundary: this process has walked its C values and the
-         remaining ones are (or were) the worker's; the macro restores
-         the frame to its fork-time entry state (pvm_e1_*) and
-         dispatches to lab_pvm_deleg_fail (the same target a patched
-         AR_CPF would yield), which waits for the worker and re-runs
-         the original re-entry (status 0) or fails the disjunction;
+      2 = boundary: this process has walked its C values and the
+          remaining ones are (or were) the worker's; it dispatches to
+          lab_pvm_deleg_fail (the same target a patched AR_CPF would
+          yield), which waits for the worker and then fails the
+          disjunction in this process's state either way (a found
+          solution was reported by value at discovery; the root
+          materializes it in bp.pvm_solution after pvm_collect);
       3 = value skip: re-dispatch the CURRENT re-entry AR_CPF(ar)
           (re-recorded by the just re-executed FORK) without searching.
           This is exactly what a serial value failure does

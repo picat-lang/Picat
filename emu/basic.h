@@ -317,11 +317,19 @@ extern int curr_toam_status;
 #endif
 
 /* OR-parallel search state (parsearch, Path B, M2). */
+#define PVM_SOL_CAP 1048576  /* max integers in a reported solution */
 typedef struct {
     volatile long live;   /* workers currently alive */
     volatile long count;  /* solution count (mode 2) */
-    volatile int  found;  /* first-solution found (mode 1) */
+    volatile int  found;  /* first-solution found (mode 1/3) */
     volatile int  bad;    /* a worker reaped a crashed child */
+    volatile long sol_len;/* mode 1/3: -1 until the finder reports,
+                             then the solution length (completion
+                             marker: the integers are written before
+                             it, under a barrier) */
+    BPLONG sol[PVM_SOL_CAP];  /* mode 1/3: the reported solution (a
+                                 single writer flips found 0->1 by
+                                 CAS before writing; mode 2: unused) */
 } pvm_shm_t;
 
 typedef struct {

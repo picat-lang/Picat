@@ -48,8 +48,97 @@ int c_pvm_worker_id(void);
 int c_pvm_chunk(void);
 int c_pvm_report(void);
 int c_pvm_collect(void);
+int c_pvm_solution(void);
 
 extern int toam(BPLONG_PTR, BPLONG_PTR, BPLONG_PTR);
+
+/* mode 1/3: the reported solution, copied out of the shared block by
+   the root's c_pvm_collect (before the unmap) and served by
+   c_pvm_solution. -1 = nothing reported yet. */
+static BPLONG pvm_sol_cache[PVM_SOL_CAP];
+static long pvm_sol_len = -1;
+
+/* Serialize t (a list or array of ground integers) into the session's
+   shared solution region, then mark it complete (sol_len). Returns
+   BP_ERROR (with bp_exception set) if t is not such a term or the
+   solution is longer than PVM_SOL_CAP. Called only after the process
+   has won the report (CAS on pvm_shm->found), so the write is racing
+   against no other writer. */
+static int pvm_serialize_solution(BPLONG t)
+{
+    BPLONG sym, v;
+    long n = 0;
+
+    if (b_IS_ARRAY_c(t)) {
+        BPLONG_PTR ptr;
+        BPLONG i;
+
+        if (!ISATOM(t)) {       /* an empty array is the atom "{}()" */
+            ptr = (BPLONG_PTR)UNTAGGED_ADDR(t);
+            sym = FOLLOW(ptr);
+            n = GET_ARITY((SYM_REC_PTR)sym);
+            if (n > PVM_SOL_CAP) {
+                bp_exception = out_of_range;
+                return BP_ERROR;
+            }
+            for (i = 1; i <= n; i++) {
+                v = FOLLOW(ptr + i);
+                DEREF(v);
+                if (!ISINT(v)) {
+                    bp_exception = c_type_error(et_INTEGER, t);
+                    return BP_ERROR;
+                }
+                pvm_shm->sol[i - 1] = v;
+            }
+        }
+    } else if (ISLIST(t)) {
+        BPLONG_PTR ptr;
+
+        while (ISLIST(t)) {
+            if (n == PVM_SOL_CAP) {
+                bp_exception = out_of_range;
+                return BP_ERROR;
+            }
+            ptr = (BPLONG_PTR)UNTAGGED_ADDR(t);
+            v = FOLLOW(ptr);
+            DEREF(v);
+            if (!ISINT(v)) {
+                bp_exception = c_type_error(et_INTEGER, t);
+                return BP_ERROR;
+            }
+            pvm_shm->sol[n++] = v;
+            t = FOLLOW(ptr + 1);
+            DEREF(t);
+        }
+    } else {
+        bp_exception = c_type_error(et_LIST, t);
+        return BP_ERROR;
+    }
+    __sync_synchronize();
+    pvm_shm->sol_len = n;      /* completion marker (data written above) */
+    return BP_TRUE;
+}
+
+/* Root side: materialize the reported solution as a fresh integer
+   array of length sol_len. Errors if no solution was reported. */
+int c_pvm_solution()
+{
+    BPLONG s = ARG(1, 1);
+    BPLONG a, i;
+    BPLONG_PTR ap;
+
+    DEREF(s);
+    if (pvm_sol_len < 0 || pvm_sol_len > PVM_SOL_CAP) {
+        bp_exception = illegal_arguments;  /* nothing reported */
+        return BP_ERROR;
+    }
+    a = picat_build_array(pvm_sol_len);
+    ap = (BPLONG_PTR)UNTAGGED_ADDR(a);
+    for (i = 0; i < pvm_sol_len; i++)
+        ap[i + 1] = pvm_sol_cache[i];
+    ASSIGN_f_atom(s, a);
+    return BP_TRUE;
+}
 
 #if PAR_THREADS
 
@@ -219,6 +308,7 @@ void Cboot_parvm()
     insert_cpred("pvm_chunk", 2, c_pvm_chunk);
     insert_cpred("pvm_report", 1, c_pvm_report);
     insert_cpred("pvm_collect", 1, c_pvm_collect);
+    insert_cpred("pvm_solution", 1, c_pvm_solution);
 }
 
 /* ------------------------------------------------------------------
@@ -232,23 +322,31 @@ void Cboot_parvm()
  *   bp.pvm_worker_id(I)        this process's worker id (0 = root).
  *   bp.pvm_chunk(Lo,Hi)        this process's value slice for the
  *       partition variable (mode 2; the whole [1,A] for mode 1/root).
- *   bp.pvm_report(N)           signal a solution (mode 1) or report N
- *       solutions for the local slice (mode 2).
+ *   bp.pvm_report(S)           mode 1/3: report the solution BY VALUE
+ *       (S = a list or array of ground integers; the first reporter
+ *       wins, others are no-ops); mode 2: report N solutions for the
+ *       local slice.
+ *   bp.pvm_solution(S)         root side, after pvm_collect: bind S to
+ *       a fresh array holding the reported solution (mode 1/3, R=1).
  *   bp.pvm_collect(R)          root only: wait for the worker processes
- *       and return R (1/0 in mode 1, the total count in mode 2).
+ *       and return R (1/0 in mode 1/3, the total count in mode 2).
  *
- *   The user's main forks the session and then branches on
- *   pvm_worker_id: workers run the model (restricting the partition
- *   variable to their chunk in mode 2) and report; the root collects
- *   and prints. In mode 1 the root is worker 0 and searches its own
- *   territory as usual; on every choice point the FORK/SET_FORK hook
+ *   The user's main forks the session and then runs ONE body, with the
+ *   report at the model's success point:
+ *       ( model, pvm_report(Sol) ; true ), pvm_collect(R),
+ *       ( R = 1, pvm_solution(S), print ; ... ).
+ *   In mode 1 the root is worker 0 and searches its own territory as
+ *   usual; on every choice point the FORK/SET_FORK hook
  *   (PVM_FORK_MAYBE, toam.h) may fork a child that takes the
  *   disjunction's remaining clauses while the caller (parent) keeps
  *   the first, growing the pool up to NT (disjoint OR subtrees, so a
  *   solution is examined exactly once). The first process to a
- *   solution sets shm->found; processes notice it at their next
- *   choicepoint and leave; the root unwinds its session to the
- *   user's ( model ; true ) cut, collects and prints.
+ *   solution reports its value (integers to the shared block, then
+ *   found 0->1 by CAS) and finishes; other processes notice found at
+ *   their next choicepoint and leave; the root unwinds its session to
+ *   the user's ( model ; true ) cut (its own model failure there is
+ *   expected when the solution was in a worker's territory), collects,
+ *   and materializes the reported value.
  *
  *   Mode 1/3 value-chunking protocol (see pvm_fork_frame): a
  *   disjunction whose re-entry re-executes its FORK site (the CP
@@ -260,10 +358,11 @@ void Cboot_parvm()
  *   reaches value C+1 (re-entry re-fire with C values tried), it
  *   restores the frame to its fork-time entry state and goes to
  *   lab_pvm_deleg_fail: pvm_deleg_wait() blocks until the worker
- *   exits; if the worker's main succeeded the original re-entry is
- *   re-run locally from the fork-time entry (deterministic
- *   re-derivation from value 2); otherwise the disjunction fails to
- *   its caller. The worker starts the dispatch at the original
+ *   exits; the disjunction then fails in the owner's state -- the
+ *   delegated region is never re-searched by the owner: a found
+ *   solution was already reported by value by the finder, and the
+ *   root materializes it via pvm_solution after pvm_collect. The
+ *   worker starts the dispatch at the original
  *   re-entry, which advances from value 1 to value 2; its pending
  *   skip (from-2, from = C+1) makes it re-dispatch the re-entry
  *   once per skipped value (hook return 3) until it lands on value
@@ -334,6 +433,7 @@ static int pvm_open_shm(void)
         pvm_shm->count = 0;
         pvm_shm->found = 0;
         pvm_shm->bad = 0;
+        pvm_shm->sol_len = -1;
         return BP_TRUE;
     }
     return BP_FALSE;
@@ -349,8 +449,13 @@ void pvm_reap_my_children(void)
             int i;
             for (i = 0; i < pvm_nchildren; i++)
                 if (pvm_my_children[i] == p) {
-                    if (!pvm_reap_quiet &&
-                        (!WIFEXITED(st) || WEXITSTATUS(st) != 0)) {
+                    /* quiet (post-found SIGKILL sweep): only a plain
+                       non-zero EXIT is still a failure -- signalled
+                       exits are ours; non-quiet: any abnormal exit. */
+                    int abnormal = pvm_reap_quiet
+                         ? (WIFEXITED(st) && WEXITSTATUS(st) != 0)
+                         : (!WIFEXITED(st) || WEXITSTATUS(st) != 0);
+                    if (abnormal) {
                         pvm_child_bad = 1;
                         if (pvm_shm != NULL) pvm_shm->bad = 1;
                     }
@@ -445,9 +550,9 @@ static int pvm_slot_alloc(BPLONG_PTR ar)
 }
 
 /* Set by pvm_labfail_park: the boundary owner's frame re-entry
-   (P = AR_CPF(AR) at the parking lab_fail). The stub's success
-   re-derivation re-dispatches it: standard backtrack state, and it
-   advances exactly into the delegated value. */
+   (P = AR_CPF(AR) at the parking lab_fail). Kept for the park's
+   diagnostic state; the deleg-fail stub no longer re-dispatches it
+   (the solution is reported by value, no re-derivation). */
 BPLONG pvm_rerun_site = 0;
 
 /* Shared by pvm_fork_frame and pvm_fork_frame_tail: in a newly
@@ -704,11 +809,10 @@ int pvm_fork_frame_tail(BPLONG_PTR ar, BPLONG_PTR p)
 /* Called from lab_fail just after P = AR_CPF(AR), i.e. right before
    the failed value's disjunction re-dispatches its re-entry (which
    advances to the next value). Parks the boundary owner HERE, one
-   step before the boundary value is advanced into, so the re-derivation
-   site is the re-entry itself (a valid dispatch label) and the engine
-   state is exactly the frame's entry after a standard backtrack:
-   re-dispatching the re-entry then searches the delegated value exactly
-   as a serial search would. Returns 1 when the caller must park
+   step before the boundary value is advanced into, so the engine
+   state is exactly the frame's entry after a standard backtrack and
+   the deleg-fail stub can fail the disjunction to the caller without
+   touching any engine state. Returns 1 when the caller must park
    (P -> deleg-fail word, CONTCASE); 0 otherwise. A worker that sees
    the global solution drops out here (earlier than the next fork hook). */
 int pvm_labfail_park(BPLONG_PTR ar, BPLONG_PTR p)
@@ -918,18 +1022,32 @@ int c_pvm_chunk()
 
 int c_pvm_report()
 {
-    BPLONG c = INTVAL(ARG(1, 1));
+    BPLONG t = ARG(1, 1);
 
     if (pvm_shm == NULL || !pvm.armed) {
         bp_exception = illegal_arguments;
         return BP_ERROR;
     }
-    if (pvm.mode == 1 || pvm.mode == 3) {
-        pvm_shm->found = 1;
-    } else {
-        __sync_fetch_and_add(&pvm_shm->count, c);
+    if (pvm.mode == 2) {
+        DEREF(t);
+        if (!ISINT(t)) {
+            bp_exception = c_type_error(et_INTEGER, t);
+            return BP_ERROR;
+        }
+        __sync_fetch_and_add(&pvm_shm->count, INTVAL(t));
+        return BP_TRUE;
     }
-    return BP_TRUE;
+    /* mode 1/3: report the solution BY VALUE (a list or array of
+       ground integers). The first reporter wins (CAS on found); a
+       second reporter is a no-op (the first-found solution stands).
+       Winner: serialize, then mark sol_len (the reader-side
+       completion marker). A serialization error leaves found=1 with
+       sol_len=-1; this process then exits non-zero, the bad flag is
+       set, and pvm_collect rejects the session. */
+    if (!__sync_bool_compare_and_swap(&pvm_shm->found, 0, 1))
+        return BP_TRUE;
+    DEREF(t);
+    return pvm_serialize_solution(t);
 }
 
 int c_pvm_collect()
@@ -970,16 +1088,37 @@ int c_pvm_collect()
     } else
         pvm_reap_my_children();
     if ((pvm_child_bad || pvm_shm->bad) &&
-        !((pvm.mode == 1 || pvm.mode == 3) && pvm_shm->found)) {
+        !((pvm.mode == 1 || pvm.mode == 3) && pvm_shm->found &&
+          pvm_shm->sol_len >= 0)) {
         /* a worker died inside the search (arena overflow, OOM,
            ...): in count mode the total would be a silent undercount,
            in an unsuccessful first-solution run the "no solution"
-           verdict is untrustworthy -- refuse the result. */
+           verdict is untrustworthy, and a found whose report was
+           never completed (sol_len < 0) is a crashed finder --
+           refuse the result. */
         bp_exception = run_time_error;
+        pvm.armed = 0;
+        shm_unlink(pvm_shm_name);
+        munmap(pvm_shm, sizeof(pvm_shm_t));
+        pvm_shm = NULL;
         return BP_ERROR;
     }
     result = (pvm.mode == 1 || pvm.mode == 3)
          ? (long)pvm_shm->found : (long)pvm_shm->count;
+    if ((pvm.mode == 1 || pvm.mode == 3) && result &&
+        pvm_shm->sol_len >= 0) {
+        /* copy the reported solution out of the shared block before
+           the unmap; c_pvm_solution serves it from the local copy.
+           The blocking reaps above finished the finder's process, so
+           its write (integers, barrier, sol_len) is complete: seeing
+           sol_len >= 0 here orders the data. */
+        if (pvm_shm->sol_len <= PVM_SOL_CAP) {
+            __sync_synchronize();
+            memcpy(pvm_sol_cache, pvm_shm->sol,
+                   (size_t)pvm_shm->sol_len * sizeof(BPLONG));
+            pvm_sol_len = pvm_shm->sol_len;
+        }
+    }
     pvm.armed = 0;
     shm_unlink(pvm_shm_name);
     munmap(pvm_shm, sizeof(pvm_shm_t));
@@ -1019,6 +1158,7 @@ int c_pvm_fork()
     pvm_serial_shm.live = 0;
     pvm_serial_shm.count = 0;
     pvm_serial_shm.found = 0;
+    pvm_serial_shm.sol_len = -1;
     pvm_shm = &pvm_serial_shm;
     pvm.nt = nt;
     pvm.mode = mode;
@@ -1051,14 +1191,26 @@ int c_pvm_chunk()
 
 int c_pvm_report()
 {
-    BPLONG c = INTVAL(ARG(1, 1));
+    BPLONG t = ARG(1, 1);
+
     if (pvm_shm == NULL || !pvm.armed) {
         bp_exception = illegal_arguments;
         return BP_ERROR;
     }
-    if (pvm.mode == 1 || pvm.mode == 3) pvm_shm->found = 1;
-    else __sync_fetch_and_add(&pvm_shm->count, c);
-    return BP_TRUE;
+    if (pvm.mode == 2) {
+        DEREF(t);
+        if (!ISINT(t)) {
+            bp_exception = c_type_error(et_INTEGER, t);
+            return BP_ERROR;
+        }
+        __sync_fetch_and_add(&pvm_shm->count, INTVAL(t));
+        return BP_TRUE;
+    }
+    if (pvm_shm->found)
+        return BP_TRUE;  /* a solution was already reported */
+    pvm_shm->found = 1;
+    DEREF(t);
+    return pvm_serialize_solution(t);
 }
 
 int c_pvm_collect()
@@ -1068,6 +1220,13 @@ int c_pvm_collect()
     if (pvm_shm == NULL || !pvm.armed) {
         bp_exception = illegal_arguments;
         return BP_ERROR;
+    }
+    if ((pvm.mode == 1 || pvm.mode == 3) && pvm_shm->found &&
+        pvm_shm->sol_len >= 0 && pvm_shm->sol_len <= PVM_SOL_CAP) {
+        __sync_synchronize();
+        memcpy(pvm_sol_cache, pvm_shm->sol,
+               (size_t)pvm_shm->sol_len * sizeof(BPLONG));
+        pvm_sol_len = pvm_shm->sol_len;
     }
     ASSIGN_f_atom(r, MAKEINT((pvm.mode == 1 || pvm.mode == 3)
                              ? pvm_shm->found : pvm_shm->count));
@@ -1090,6 +1249,7 @@ void Cboot_parvm()
     insert_cpred("pvm_chunk", 2, c_pvm_chunk);
     insert_cpred("pvm_report", 1, c_pvm_report);
     insert_cpred("pvm_collect", 1, c_pvm_collect);
+    insert_cpred("pvm_solution", 1, c_pvm_solution);
 }
 
 #endif  /* PAR_THREADS */
