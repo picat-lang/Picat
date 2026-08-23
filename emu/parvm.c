@@ -924,6 +924,8 @@ int c_pvm_fork()
     BPLONG aval = INTVAL(ARG(3, 3));
     long i;
 
+    pvm_sol_len = -1;  /* cleared at entry: a failed arm must not
+                          leave a previous session's solution live */
     if (nt < 1 || nt > PARVM_MAX_WORKERS) {
         bp_exception = out_of_range;
         return BP_ERROR;
@@ -1160,6 +1162,7 @@ int c_pvm_fork()
     pvm_serial_shm.found = 0;
     pvm_serial_shm.sol_len = -1;
     pvm_shm = &pvm_serial_shm;
+    pvm_sol_len = -1;
     pvm.nt = nt;
     pvm.mode = mode;
     pvm.wid = 0;
