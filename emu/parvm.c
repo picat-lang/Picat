@@ -54,6 +54,9 @@ int c_pvm_solution(void);
 
 extern int toam(BPLONG_PTR, BPLONG_PTR, BPLONG_PTR);
 
+/* env-gated protocol trace switch (defined further down) */
+static int pvm_dbg_on(void);
+
 /* mode 1/3: the reported solution, copied out of the shared block by
    the root's c_pvm_collect (before the unmap) and served by
    c_pvm_solution. -1 = nothing reported yet. */
@@ -441,8 +444,9 @@ int c_pvm_delegate(void)
         pvm_delegate_depth++;
     else if (pvm_delegate_depth > 0)
         pvm_delegate_depth--;
-    fprintf(stderr, "PVMDEL pid=%d on=%ld depth->%ld\n",
-            (int)getpid(), on, (long)pvm_delegate_depth);
+    if (pvm_dbg_on())
+        fprintf(stderr, "PVMDEL pid=%d on=%ld depth->%ld\n",
+                (int)getpid(), on, (long)pvm_delegate_depth);
     return BP_TRUE;
 }
 
@@ -1253,6 +1257,8 @@ static void pvm_dump_once(const char *tag, BPLONG_PTR ar, int s,
     static int n = 0;
     BPLONG re = pvm_forked_re[s];
     BPLONG_PTR r = (BPLONG_PTR)re;
+
+    if (!pvm_dbg_on()) return;
 
     if (n > 6) return;
     n++;

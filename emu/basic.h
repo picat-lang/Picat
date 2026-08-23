@@ -375,9 +375,13 @@ typedef struct {
     BPLONG aval;          /* mode 2: value count A; mode 3: chunk size C */
 } pvm_t;
 
-#if PAR_THREADS
+/* defined in both builds (the PAR_THREADS section and the
+   !PAR_THREADS serial fallback in parvm.c); shared-region code such
+   as pvm_serialize_solution needs them unconditionally. */
 extern PAR_TLS pvm_t pvm;
 extern pvm_shm_t *pvm_shm;
+
+#if PAR_THREADS
 extern BPLONG pvm_deleg_fail_word;  /* set at first hook; == (BPLONG)&&lab_pvm_deleg_fail */
 extern int pvm_fork_frame(BPLONG_PTR ar, BPLONG_PTR p);
 extern int pvm_fork_frame_tail(BPLONG_PTR ar, BPLONG_PTR p);
