@@ -1,0 +1,259 @@
+% ramsey_pvm: (K,K)-Ramsey "critical" graphs on N vertices, sized by
+% the environment, for testing the SAT and UNSAT paths of the external
+% solver(s) on instances that are much harder than pigeonhole -- the
+% decidable sweet spot (K<=4, N<=17) still takes 100s of ms. This is
+% the parsearch version of exs/satext/ramsey_ps.pi: the same search in
+% OR-parallel, armed by T > 0 workers (env var T; 0/absent = the
+% plain serial run). K/N are read from the environment as in the
+% original:  K=4 N=16 T=8 picat exs/parallel/pvm/ramsey_pvm.pi
+%
+% Background: R(K,K) is the least m such that every graph on m
+% vertices contains a K-clique (K mutually adjacent vertices) or an
+% independent K-set (K mutually non-adjacent vertices). A graph on N
+% vertices that has NEITHER a K-clique nor an independent K-set is a
+% (K,K)-Ramsey graph; when such a graph exists it witnesses
+% R(K,K) > N, and at N = R(K,K)-1 it is called a (K,K)-critical
+% graph: every extension to one more vertex forces the pattern.
+%
+% The program searches for a (K,K)-Ramsey/critical graph on N
+% vertices:
+%   SAT   -> prints the graph, independently verifies it (no K-clique
+%            and no independent K-set among all C(N,K) vertex sets),
+%            and notes R(K,K) >= N+1.
+%   UNSAT -> no such graph exists, i.e. R(K,K) <= N (combined with a
+%            (N-1)-vertex SAT run this PROVES R(K,K) = N).
+%
+% Default (K=3, N=6) is the classical UNSAT instance proving
+% R(3,3) = 6. Other interesting runs (timings on this machine):
+%   K=3 N=5   SAT in ~2 ms: the result is the 5-cycle C5, the unique
+%                      (3,3) graph on 5 vertices.
+%   K=3 N=6   UNSAT in ~2 ms (default): proves R(3,3) = 6 together
+%                      with N=5. The UNSAT path is a real proof
+%                      search, unlike pigeonhole, and with
+%                      SATEXT_PRT_STATS=1 + a portfolio the race for
+%                      the UNSAT verdict is visible.
+%   K=4 N=15  SAT in ~0.3 s: a 15-vertex (4,4)-Ramsey graph, the
+%                      classical witness of R(4,4) >= 16 (the
+%                      renowned 8-regular one is the Schlaefli graph;
+%                      this solver found a non-regular variant).
+%   K=4 N=17  SAT in ~0.2-0.5 s: a 17-vertex (4,4)-Ramsey graph, the
+%                      classical extremal witness of R(4,4) >= 18.
+%                      Every engine found an 8-regular one (degree
+%                      sequence [8 x 17]). The strongest instance
+%                      still decidable here (136 edge vars,
+%                      2 x C(17,4) = 4760 subset constraints).
+%   K=4 N>=18 UNSAT by the classical result R(4,4) = 18
+%                      (Greenwood-Gleason 1955, Kalbfleisch 1966):
+%                      no (4,4)-Ramsey graph exists on 18 vertices,
+%                      so the search must PROVE non-existence -- a
+%                      whole-tree run the built-in solver is too weak
+%                      to finish in a practical time (N=18 made no
+%                      progress in 25 s single-processor). Useful as
+%                      the "work is the entire tree" case for the
+%                      parallel modes; SATEXT_PRT_BUDGET_MS stops a
+%                      portfolio race and falls back to the built-in
+%                      after the given wall time
+%                      (SATEXT_NO_FALLBACK=1: the solve fails
+%                      instead of running the built-in).
+%   K>=5      C(N,K) subset constraints each touch K(K-1)/2 variables
+%                      -- the encoding blows up fast.
+%
+% Encoding: one 0/1 dvar per undirected edge (N*(N-1)/2 vars); for
+% every K-subset S of the vertices with its C(K,2) edge vars Ev:
+%     sum(Ev) #=< C(K,2)-1     S is not a K-clique
+%     sum(Ev) #>= 1            S is not an independent K-set
+% Symmetry breaking: vertex degrees in non-increasing order (any
+% solution can be vertex-renumbered that way), removing the N!
+% isomorphic labelings.
+%
+% Built-in solver:
+%   K=3 N=6 picat exs/satext/ramsey_ps.pi
+%
+% One external solver:
+%   K=4 N=17 SATEXT_SOLVER=kissat picat exs/satext/ramsey_ps.pi
+%   K=4 N=17 SATEXT_SOLVER=cadical picat exs/satext/ramsey_ps.pi
+%
+% First-wins portfolio ('|'-separated argv strings, the same solver
+% may repeat with different CLI parameters):
+%   K=4 N=17 SATEXT_SOLVER="kissat|cadical" SATEXT_PRT_STATS=1 \
+%       picat exs/satext/ramsey_ps.pi
+% The K=3 instances produce small CNFs (under the 64 KiB
+% SATEXT_PRT_MIN default), so add SATEXT_PRT_MIN=1 to make a
+% portfolio actually race on them. In-program selections are lists of
+% argv lists: bp.c_satext_set_solver([["kissat"],["cadical"]]).
+% Controls: SATEXT_PRT_BUDGET_MS (wall budget per solve, 0 = none),
+% SATEXT_PRT_STATS (one stderr line per solve with each racer's time
+% and the winner), SATEXT_NO_FALLBACK (non-empty: on unknown/timeout
+% the built-in solver is NOT run, the solve fails instead -- with a
+% budget such a timed-out instance then takes the UNSAT branch
+% below, a FALSE UNSAT; the stderr line marks the timeout). Like the
+% other satext examples you can watch the child solver processes with
+% ps -ef | grep -E "kissat|cadical".
+%
+% K defaults to 3 and N defaults to 6 (the classical R(3,3) case)
+% when the env vars are absent; N must be set explicitly for K != 3.
+
+import sat.
+
+main =>
+    k_from_env(K),
+    n_from_env(K, N),
+    t_from_env(T),
+    ( T > 0, bp.pvm_fork(T, 3, 1) ; true ),   % T workers, mode 3, C=1
+    M = K * (K - 1) // 2,
+    NPairs = N * (N - 1) // 2,
+    subsets(K, N, AllSets),
+    NSets = length(AllSets),
+    bp.c_wall_ms(T0),
+    writef("=== ramsey: looking for a (%d,%d)-Ramsey graph on %d vertices (R(%d,%d) candidate), %d edge vars, %d K-subsets, starting at %d ms%n",
+        K, K, N, K, K, NPairs, NSets, T0),
+    E = new_array(NPairs),
+    ((E :: 0..1,
+      no_k_sets(N, K, M, AllSets, E),
+      degree_order(N, E, D),
+      solve([E, D]))
+    ->
+        ( ( T > 0, bp.pvm_report(1) ; true ),
+          sat_found(K, N, M, AllSets, E, D, T0) )
+    ;
+        (bp.c_satext_last_status(St),
+         (St == 2 ->
+             unsat_ok(K, N, T0)
+         ;
+             unknown_note(K, N, T0, St)))
+    ),
+    ( T > 0,
+      bp.pvm_collect(R),
+      writeln(R)
+    ;
+      true
+    ),
+    halt.
+
+k_from_env(K) =>
+    ((bp.picat_getenv("K", S)) -> K = to_int(S) ; K = 3),
+    (K >= 2 -> true ; handle_exception($k_expected_at_least_2(K), main)).
+
+n_from_env(K, N) =>
+    ((bp.picat_getenv("N", S)) -> N = to_int(S)
+    ;
+    (K == 3 -> N = 6 ; handle_exception($n_env_var_expected(K), main))
+    ),
+    (N >= K -> true ; handle_exception($n_expected_at_least_k(K, N), main)).
+
+% number of OR-parallel workers (mode 3, C=1); 0 / absent = serial.
+t_from_env(T) =>
+    ((bp.picat_getenv("T", S)) -> T = to_int(S) ; T = 0),
+    (T >= 0 -> true ; handle_exception($t_expected_at_least_0(T), main)).
+
+% 1-based array index of the edge (I,J), 0 <= I < J < N
+pair_idx(I, J, N) =
+    I * (N - 1) - I * (I - 1) // 2 + (J - I).
+
+% all strictly increasing K-element subsets of {0..N-1}
+subsets(K, N, All) =>
+    Dom = [I : I in 0..(N - 1)],
+    All = findall(S, comb(K, Dom, S)).
+
+% comb(K, Dom, S): all K-element subsets of Dom, in increasing order
+comb(0, _Dom, S) => S = [].
+comb(K, [H|T], S) =>
+    K > 0,
+    (take_c(K, H, T, S) ; drop_c(K, T, S)).
+
+take_c(K, H, T, S) =>
+    Len = length(T),
+    Len >= K - 1,
+    S = [H|R],
+    comb(K - 1, T, R).
+
+drop_c(K, T, S) =>
+    Len = length(T),
+    Len >= K,
+    comb(K, T, S).
+
+no_k_sets(N, K, M, Sets, E) =>
+    foreach (S in Sets)
+        Ev = [E[pair_idx(S[P], S[Q], N)] : P in 1..K, Q in P + 1..K],
+        sum(Ev) #=< M - 1,
+        sum(Ev) #>= 1
+    end.
+
+% D[I] = degree of vertex I; vertices assumed sorted by degree
+% (non-increasing): a valid symmetry breaking, since any solution can
+% be renumbered that way.
+degree_order(N, E, D) =>
+    D = new_array(N),
+    D :: 0..(N - 1),
+    foreach (I in 0..(N - 1))
+        Di = [E[pair_idx(J, I, N)] : J in 0..(I - 1)]
+           ++ [E[pair_idx(I, J, N)] : J in (I + 1)..(N - 1)],
+        D[I + 1] #= sum(Di)
+    end,
+    foreach (I in 0..(N - 2))
+        D[I + 1] #>= D[I + 2]
+    end.
+
+sat_found(K, N, M, Sets, E, D, T0) =>
+    bp.c_wall_ms(T1),
+    check_graph(K, N, M, Sets, E),
+    print_graph(N, E, D),
+    writef("SAT: (K,K)-Ramsey/critical graph on %d vertices found in %d ms -- witnesses R(%d,%d) >= %d%n",
+        N, T1 - T0, K, K, N + 1).
+
+unsat_ok(K, N, T0) =>
+    bp.c_wall_ms(T1),
+    writef("UNSAT in %d ms: every graph on %d vertices has a %d-clique or an independent %d-set, i.e. R(%d,%d) <= %d%n",
+        T1 - T0, N, K, K, K, K, N),
+    writef("    (together with a SAT run on N-1 vertices this proves R(%d,%d) = %d)%n",
+        K, K, N).
+
+% the solve failed for a reason that is NOT an UNSAT verdict
+unknown_note(K, N, T0, St) =>
+    bp.c_wall_ms(T1),
+    writef("*** WARNING: NOT a (K,K)-Ramsey result -- the external solver(s) produced%n"),
+    writef("*** no verdict (wall budget elapsed / unparseable output) and the built-in%n"),
+    writef("*** solver was not run (SATEXT_NO_FALLBACK); status code: %d.%n", St),
+    writef("*** In particular, R(%d,%d) is NOT shown to be <= %d: no conclusion may be%n", K, K, N),
+    writef("*** drawn for this run (%d ms elapsed).%n", T1 - T0),
+    handle_exception($ramsey_solver_unknown(St), main).
+
+% independent re-check: no K-subset is all-edges (clique) or
+% all-no-edges (independent)
+check_graph(K, N, M, Sets, E) =>
+    foreach (S in Sets)
+        Eds = [E[pair_idx(S[P], S[Q], N)] : P in 1..K, Q in P + 1..K],
+        Cnt = sum(Eds),
+        ((Cnt > 0, Cnt < M) -> true ;
+        (
+            writef("CHECK FAILED: %d-subset ", K),
+            write(S),
+            writef(" has %d edges%n", Cnt),
+            handle_exception($ramsey_check_failed(S, K, N), main)
+        ))
+    end.
+
+print_graph(N, E, D) =>
+    DegList = to_list(D),
+    writef("degrees (non-increasing): "),
+    write(DegList),
+    writef("%n"),
+    writef("edges:"),
+    foreach (I in 0..(N - 1), J in (I + 1)..(N - 1)),
+        (E[pair_idx(I, J, N)] == 1 ->
+            writef(" %d-%d", I, J)
+        ;
+            true
+        )
+    end,
+    writef("%n"),
+    writef("matrix (row = vertex):%n"),
+    foreach (I in 0..(N - 1))
+        writef("%n  %d: ", I),
+        foreach (J in 0..(N - 1)),
+            ((I < J) -> V = E[pair_idx(I, J, N)] ;
+            ((I == J) -> V = -1 ; V = E[pair_idx(J, I, N)])),
+            ((V == -1) -> writef("  ") ; writef("%d ", V))
+        end
+    end,
+    writef("%n").

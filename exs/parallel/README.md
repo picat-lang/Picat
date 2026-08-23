@@ -1,8 +1,47 @@
 # Parallel Picat — examples and benchmarks
 
-This folder contains the examples for the `parallel` branch, which
-makes Picat parallel in the open-source 3.9 tree (which ships without
-a `thread` module and runs a single-threaded VM).
+This folder holds the parallel-search example sets, by branch:
+
+* **`parallel` branch** (threads in the engine) — the examples in this
+  folder's root: `par_*`, `threads_*`, `pp_*`, `bench_*`. See the
+  sections below ("What the branch adds" ... "Measured numbers").
+* **`parsearch` branch** (fork-based OR-parallel CP search,
+  `bp.pvm_fork/report/collect/chunk/worker_id`) — the complete source
+  of every model used in the `parsearch` engineering report
+  (docs/ report "OR-Parallel Constraint Search in Picat 3.9"), in
+  **`pvm/`**. One file per configuration; the filename encodes
+  `instance_modechunk/workers`.
+
+## parsearch examples, in `pvm/`
+
+Builtins: `bp.pvm_fork(NT, Mode, C)` arms the session,
+`bp.pvm_report(X)`/`bp.pvm_collect(R)` finish it. Mode 1 = the $C=1$
+OR split, mode 2 = static value-chunk counting
+(`bp.pvm_worker_id(I)` + `bp.pvm_chunk(Lo, Hi)` in each worker),
+mode 3 = first-solution with value chunks of size $C$.
+Run with a `parsearch` build, e.g.
+`picat [-s <bytes>] exs/parallel/pvm/<model>.pi`; the counting
+models for N>=15 need a sized arena (`-s 4294967296` for workers,
+`-s 8589934592` serial — the flag takes raw bytes). The Ram
+models read `K`/`N` from the environment (e.g. `K=4 N=16`); their
+base solver is `exs/satext/ramsey_ps.pi` with the three `pvm` calls
+inserted.
+
+Three parametrized programs cover every configuration used in the
+report (one file per problem, not one per benchmark cell):
+
+| file | args | usage from the report |
+|------|------|-----------------------|
+| `pvm/queens_first.pi` | `[N] [NT] [MODE] [C] [PIN]` (defaults 10 0 3 1 0) | `queens_first.pi 10 4 3 2 4` (worked example), `queens_first.pi 10 4 1 1` (mode-1 family), `queens_first.pi 479` (N=479 serial baseline), `queens_first.pi 479 16 3 64` (mode-3 grid cells) |
+| `pvm/queens_count.pi` | `[N] [NT]` (defaults 10, serial) | the counting matrix: `queens_count.pi 16 16`, `queens_count.pi 13 8`, `queens_count.pi 10 4` (must print 724); OEIS A000170 totals are quoted in the header |
+| `pvm/ramsey_pvm.pi` | env `K= N= T=` (T = workers, 0 = serial) | `K=4 N=16 T=8 picat pvm/ramsey_pvm.pi`; `K=4 N=18` is the UNSAT whole-tree case ($R(4,4)=18$) |
+
+Example:
+
+```
+picat exs/parallel/pvm/queens_count.pi 16 16
+# 14772512
+```
 
 ## What the branch adds
 
