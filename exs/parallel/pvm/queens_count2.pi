@@ -1,0 +1,57 @@
+% All n-Queens solutions, counted.
+%
+% Usage:  picat queens_count.pi [N] [NT]
+%   N   board size (default 10)
+%   NT  worker processes: absent/0 = serial, >0 = OR-parallel mode 2
+%       (the all-results mode: NT fixed chunks of Q[1], one per worker;
+%       each worker reports its result -- any ground term -- with
+%       pvm_report, pvm_collect returns the LIST of all reported
+%       results and the parent sums it explicitly)
+%  in this version NT can go up to N*N
+%
+% Known totals (OEIS A000170): 10=724, 11=2680, 12=14200, 13=73712,
+% 14=365596, 15=2279184, 16=14772512 -- every run below must reach the
+% exact total; a low total means a worker died (the engine raises
+% run_time_error in pvm_collect for that since the liveness fix).
+%
+% count_all counts without materializing the solutions, so no process
+% ever holds a solution list: N=16 needs no sized arena at all.
+%
+import cp.
+
+main => run(10, 0).
+main(Args) =>
+    Args = [NS | RS],
+    N = to_int(NS),
+    NT = nt_of(RS),
+    run(N, NT).
+
+nt_of([])   = 0.
+nt_of([NS]) = to_int(NS).
+
+run(N, 0) =>
+    count_q(N, 1, N*N, C),
+    writeln(C).
+run(N, NT) =>
+    bp.pvm_fork(NT, 2, N*N),
+    bp.pvm_worker_id(I),
+    ( I > 0,
+      bp.pvm_chunk(Lo, Hi),
+      count_q(N, Lo, Hi, C),
+      bp.pvm_report(C)
+    ;
+      bp.pvm_collect(Counts),
+      C = sum(Counts),
+      writeln(C)
+    ).
+
+count_q(N, Lo, Hi, C) =>
+    Q = new_array(N),
+    Q :: 1..N,
+    Q[1]+N*(Q[2]-1)#>=Lo,
+    Q[1]+N*(Q[2]-1)#<=Hi,
+    foreach (I in 1..N-1, J in I+1..N)
+        Q[I] #!= Q[J],
+        abs(Q[I]-Q[J]) #!= J-I
+    end,
+    C = count_all(solve([ff], Q)).
