@@ -1,0 +1,44 @@
+% Forced-delegation experiment (mode 1): one CP variable X :: 1..N,
+% only values >= Target satisfy. The root owns value 1 (fast fail),
+% delegates at its forced first clean re-fire, and parks on the
+% successor chain. SAT: Target = N (only the last value works);
+% UNSAT: Target = N+1 (nothing works).
+%
+% Usage: picat dbg_force.pi N NT TARGET
+%   serial (NT=0): prints found(<X>) or none
+%   parallel:     prints R (1/0) and, if R=1, the reported solution
+% Run with PVM_FORCE_AR=<hex ar of the X value-disjunction frame>
+% (read from a PVM_DBG=1 trace: the frame that SKIP-STATes at
+% creation and SKIP-SEENs on every value re-fire).
+import cp.
+
+main => run(100, 4, 100).
+main(Args) =>
+    N = to_int(Args[1]),
+    NT = to_int(Args[2]),
+    T = to_int(Args[3]),
+    run(N, NT, T).
+
+run(N, 0, T) =>
+    X :: 1..N,
+    X #>= T,
+    ( solve([ff], [X]),
+      writeln(found(X))
+    ;
+      writeln(none) ).
+run(N, NT, T) =>
+    NT > 0,
+    bp.pvm_fork(NT, 1, 1),
+    X :: 1..N,
+    X #>= T,
+    ( solve([ff], [X]),
+      bp.pvm_report([X])
+    ;
+      true ),
+    bp.pvm_collect(R),
+    writeln(R),
+    ( R = 1,
+      bp.pvm_solution(S),
+      writeln(S)
+    ;
+      true ).

@@ -1,0 +1,37 @@
+% Stepped copy of queens_first for root-death diagnosis.
+import cp.
+import io.
+
+main(Args) =>
+    ( Args = [A1, A2, A3, A4, A5],
+      run(to_int(A1), to_int(A2), to_int(A3), to_int(A4), to_int(A5))
+    ; true ).
+
+run(N, NT, M, C, P) =>
+    NT > 0,
+    bp.pvm_fork(NT, M, C),
+    ( model_q(N, P, Q),
+      bp.pvm_report(Q)
+    ; true ),
+    bp.pvm_collect(R),
+    writeln(R).
+
+mark(S) => io.writeln(S), io.flush().
+
+model_q(N, P, Q) =>
+    mark("M1 enter"),
+    Q = new_array(N),
+    mark("M2 new_array done"),
+    Q :: 1..N,
+    mark("M3 domains done"),
+    ( P = 0, mark("M4a free"), true ;
+      mark("M4b pin"), Q[1] #= P ),
+    foreach (I in 1..N-1, J in I+1..N)
+        Q[I] #!= Q[J],
+        abs(Q[I]-Q[J]) #!= J-I
+    end,
+    mark("M5 constraints done"),
+    solve([ff], Q),
+    mark("M6 solved"),
+    io.writeln(Q),
+    io.flush().

@@ -1,0 +1,12 @@
+import cp.
+
+main =>
+    ( m() ; true ),
+    writeln(1).
+
+m() =>
+    X = new_array(1),
+    X :: 1..3,
+    X[1] #= 99,
+    solve([X]),
+    writeln(X).
