@@ -57,91 +57,374 @@ extern int toam(BPLONG_PTR, BPLONG_PTR, BPLONG_PTR);
 /* env-gated protocol trace switch (defined further down) */
 static int pvm_dbg_on(void);
 
+#if PAR_THREADS
 /* mode 1/3: the reported solution, copied out of the shared block by
    the root's c_pvm_collect (before the unmap) and served by
-   c_pvm_solution. -1 = nothing reported yet. */
+   c_pvm_solution. The cache holds the ENCODED term (see below);
+   pvm_sol_len = -1 until a report lands. */
 static BPLONG pvm_sol_cache[PVM_SOL_CAP];
 static long pvm_sol_len = -1;
 
-/* Serialize t (a list or array of ground integers) into the session's
-   shared solution region, then mark it complete (sol_len). Returns
-   BP_ERROR (with bp_exception set) if t is not such a term or the
-   solution is longer than PVM_SOL_CAP. Called only after the process
-   has won the report (CAS on pvm_shm->found), so the write is racing
-   against no other writer. */
+/* -----------------------------------------------------------------
+ * Address-free ground-term codec.
+ *
+ * The shared block is address-free and each process's heap has a
+ * different base, so a term crosses the boundary only as a flat word
+ * buffer. Records (root at offset 0, pre-order; a record's child
+ * offsets are patched in after the children are encoded):
+ *   [T_INT,  v]               an in-register integer
+ *   [T_ATOM, sym]             an atom (symbol table is shared RO)
+ *   [T_LIST, n, off0..n-1]    a list (empty list = an atom)
+ *   [T_STR,  sym, n, off..]   a compound term
+ *   [T_ARR,  n, off0..n-1]    an array (empty array = an atom)
+ * Offsets are word offsets into the buffer and always point PAST the
+ * encoding parent (pre-order), which bounds-checks against cycles.
+ * ----------------------------------------------------------------- */
+#define PVM_T_INT   1
+#define PVM_T_ATOM  2
+#define PVM_T_LIST  3
+#define PVM_T_STR   4
+#define PVM_T_ARR   5
+
+/* Encode t into b at pos; returns the position past the record, -1 on
+   error (bp_exception set). */
+static long pvm_enc_term(BPLONG t, BPLONG_PTR b, long pos, long cap)
+{
+    BPLONG_PTR p;
+    BPLONG sym;
+    long n, i, rec, epos;
+
+    DEREF(t);
+    if (ISINT(t)) {
+        if (pos + 2 > cap) {
+            bp_exception = out_of_range;
+            return -1;
+        }
+        b[pos] = PVM_T_INT;
+        b[pos + 1] = t;
+        return pos + 2;
+    }
+    if (ISATOM(t)) {
+        if (pos + 2 > cap) {
+            bp_exception = out_of_range;
+            return -1;
+        }
+        b[pos] = PVM_T_ATOM;
+        b[pos + 1] = t;
+        return pos + 2;
+    }
+    if (ISLIST(t)) {
+        BPLONG cur;
+        BPLONG_PTR cp;
+
+        /* list walk: UNTAGGED_ADDR yields an untagged ADDRESS as an
+           integer, so the stride must be explicit pointer arithmetic
+           (+1 word = +8 bytes); an integer +1 would step one byte. */
+        cur = t;
+        n = 0;
+        while (ISLIST(cur)) {
+            n++;
+            cp = (BPLONG_PTR)UNTAGGED_ADDR(cur);
+            cur = FOLLOW(cp + 1);
+        }
+        rec = pos;
+        epos = pos + 2 + n;
+        if (epos > cap) {
+            bp_exception = out_of_range;
+            return -1;
+        }
+        b[rec] = PVM_T_LIST;
+        b[rec + 1] = n;
+        cur = t;
+        for (i = 0; i < n; i++) {
+            cp = (BPLONG_PTR)UNTAGGED_ADDR(cur);
+            long s0 = epos;
+            long r = pvm_enc_term(FOLLOW(cp), b, epos, cap);
+            if (r < 0)
+                return -1;
+            b[rec + 2 + i] = s0;
+            epos = r;
+            cur = FOLLOW(cp + 1);
+        }
+        return epos;
+    }
+    if (b_IS_ARRAY_c(t)) {
+        p = (BPLONG_PTR)UNTAGGED_ADDR(t);
+        sym = FOLLOW(p);
+        n = GET_ARITY((SYM_REC_PTR)sym);
+        rec = pos;
+        epos = pos + 2 + n;
+        if (epos > cap) {
+            bp_exception = out_of_range;
+            return -1;
+        }
+        b[rec] = PVM_T_ARR;
+        b[rec + 1] = n;
+        for (i = 0; i < n; i++) {
+            long s0 = epos;
+            long r = pvm_enc_term(FOLLOW(p + 1 + i), b, epos, cap);
+            if (r < 0)
+                return -1;
+            b[rec + 2 + i] = s0;
+            epos = r;
+        }
+        return epos;
+    }
+    if (ISCOMPOUND(t)) {
+        SYM_REC_PTR fs;
+
+        /* same layout as an array: cell 0 = the functor's sym record
+           pointer (raw, untagged), cells 1..n = the arguments. The
+           PSCs ride along as ordinary compounds: a float encodes as
+           '$float'(int1,int2,int3), a bigint as '$bigint'(size,
+           digit list) -- all ground -- and the root's
+           picat_build_structure materializes them under the same
+           sym record, so the engine treats them as live float /
+           bigint terms. */
+        p = (BPLONG_PTR)UNTAGGED_ADDR(t);
+        fs = (SYM_REC_PTR)FOLLOW(p);
+        n = GET_ARITY(fs);
+        rec = pos;
+        epos = pos + 3 + n;
+        if (epos > cap) {
+            bp_exception = out_of_range;
+            return -1;
+        }
+        b[rec] = PVM_T_STR;
+        b[rec + 1] = (BPLONG)fs;      /* shared RO: valid in both
+                                         processes */
+        b[rec + 2] = n;
+        for (i = 0; i < n; i++) {
+            long s0 = epos;
+            long r = pvm_enc_term(FOLLOW(p + 1 + i), b, epos, cap);
+            if (r < 0)
+                return -1;
+            b[rec + 3 + i] = s0;
+            epos = r;
+        }
+        return epos;
+    }
+    /* not a ground term (variable, deferred constraint, ...) */
+    bp_exception = c_type_error(et_ATOM, t);
+    return -1;
+}
+
+/* Heap words the materialization of the encoded term at pos needs
+   (list: 2n; array/compound: n+1; leaves: 0). -1 on a corrupt
+   buffer. Read-only over b. */
+static long pvm_dec_words(const BPLONG_PTR b, long pos, long cap)
+{
+    long tag = b[pos];
+
+    if (pos + 2 > cap)
+        return -1;
+    if (tag == PVM_T_INT)
+        return ((b[pos + 1] & TAG_MASK) == INT_TAG) ? 0 : -1;
+    if (tag == PVM_T_ATOM)
+        return ((b[pos + 1] & TAG_MASK) == ATM) ? 0 : -1;
+    if (tag == PVM_T_LIST) {
+        long n = b[pos + 1];
+        long i, tot = 2 * n;
+        if (n < 0 || pos + 2 + n > cap)
+            return -1;
+        for (i = 0; i < n; i++) {
+            long off = b[pos + 2 + i];
+            long c;
+            if (off <= pos || off >= cap)
+                return -1;
+            c = pvm_dec_words(b, off, cap);
+            if (c < 0)
+                return -1;
+            tot += c;
+        }
+        return tot;
+    }
+    if (tag == PVM_T_ARR) {
+        long n = b[pos + 1];
+        long i, tot = n + 1;
+        if (n < 0 || pos + 2 + n > cap)
+            return -1;
+        for (i = 0; i < n; i++) {
+            long off = b[pos + 2 + i];
+            long c;
+            if (off <= pos || off >= cap)
+                return -1;
+            c = pvm_dec_words(b, off, cap);
+            if (c < 0)
+                return -1;
+            tot += c;
+        }
+        return tot;
+    }
+    if (tag == PVM_T_STR) {
+        long n = b[pos + 2];
+        long i, tot = n + 1;
+        /* the sym word is a raw SYM_REC_PTR: it must be non-zero and
+           aligned; no address-range test (the range is
+           architecture-dependent, e.g. 32-bit wasm heaps). */
+        if (pos + 3 > cap ||
+            (b[pos + 1] & 0x7L) != 0 || b[pos + 1] == 0 ||
+            n < 0 || pos + 3 + n > cap)
+            return -1;
+        for (i = 0; i < n; i++) {
+            long off = b[pos + 3 + i];
+            long c;
+            if (off <= pos || off >= cap)
+                return -1;
+            c = pvm_dec_words(b, off, cap);
+            if (c < 0)
+                return -1;
+            tot += c;
+        }
+        return tot;
+    }
+    return -1;
+}
+
+/* Materialize the encoded term at pos into fresh cells of this
+   process's heap; *res gets the term. Returns BP_TRUE/BP_ERROR
+   (corrupt buffer). The caller must have performed the heap
+   overflow check with pvm_dec_words' result. */
+static int pvm_dec_term(const BPLONG_PTR b, long pos, long cap, BPLONG *res)
+{
+    long tag = b[pos];
+
+    if (pos + 2 > cap)
+        return BP_ERROR;
+    tag = b[pos];
+    if (tag == PVM_T_INT) {
+        *res = b[pos + 1];
+        return BP_TRUE;
+    }
+    if (tag == PVM_T_ATOM) {
+        *res = b[pos + 1];
+        return BP_TRUE;
+    }
+    if (tag == PVM_T_LIST) {
+        long n = b[pos + 1];
+        long i;
+        BPLONG lst0 = 0, el;
+        BPLONG_PTR lp;
+
+        for (i = 0; i < n; i++) {
+            if (pvm_dec_term(b, b[pos + 2 + i], cap, &el) != BP_TRUE)
+                return BP_ERROR;
+            if (i == 0) {
+                lst0 = ADDTAG(heap_top, LST);
+                FOLLOW(heap_top++) = el;
+                lp = heap_top++;
+            } else {
+                FOLLOW(lp) = ADDTAG(heap_top, LST);
+                FOLLOW(heap_top++) = el;
+                lp = heap_top++;
+            }
+        }
+        FOLLOW(lp) = nil_sym;
+        *res = lst0;
+        return BP_TRUE;
+    }
+    if (tag == PVM_T_ARR) {
+        long n = b[pos + 1];
+        long i;
+        BPLONG a;
+        BPLONG_PTR ap;
+        BPLONG el;
+
+        a = picat_build_array(n);
+        ap = (BPLONG_PTR)UNTAGGED_ADDR(a);
+        for (i = 0; i < n; i++) {
+            if (pvm_dec_term(b, b[pos + 2 + i], cap, &el) != BP_TRUE)
+                return BP_ERROR;
+            ap[i + 1] = el;
+        }
+        *res = a;
+        return BP_TRUE;
+    }
+    if (tag == PVM_T_STR) {
+        long n = b[pos + 2];
+        long i;
+        BPLONG s;
+        BPLONG_PTR sp;
+        BPLONG el;
+        SYM_REC_PTR fs;
+
+        fs = (SYM_REC_PTR)b[pos + 1];  /* raw shared sym pointer */
+        s = picat_build_structure(fs->nameptr, n);
+        sp = (BPLONG_PTR)UNTAGGED_ADDR(s);
+        for (i = 0; i < n; i++) {
+            if (pvm_dec_term(b, b[pos + 3 + i], cap, &el) != BP_TRUE)
+                return BP_ERROR;
+            sp[i + 1] = el;
+        }
+        *res = s;
+        return BP_TRUE;
+    }
+    return BP_ERROR;
+}
+
+/* Encode t (any ground term: integers, atoms/booleans, lists,
+   compounds, arrays, nested arbitrarily) into the session's shared
+   solution region, then mark it complete (sol_len). Returns BP_ERROR
+   (with bp_exception set) if t is not a ground term or the encoding
+   does not fit PVM_SOL_CAP words. Called only after the process has
+   won the report (CAS on pvm_shm->found), so the write races no other
+   writer. An error here leaves found=1 with sol_len=-1: the process
+   exits non-zero, the bad flag trips, and pvm_collect rejects. */
 static int pvm_serialize_solution(BPLONG t)
 {
-    BPLONG sym, v;
-    long n = 0;
+    long n;
 
-    if (b_IS_ARRAY_c(t)) {
-        BPLONG_PTR ptr;
-        BPLONG i;
-
-        if (!ISATOM(t)) {       /* an empty array is the atom "{}()" */
-            ptr = (BPLONG_PTR)UNTAGGED_ADDR(t);
-            sym = FOLLOW(ptr);
-            n = GET_ARITY((SYM_REC_PTR)sym);
-            if (n > PVM_SOL_CAP) {
-                bp_exception = out_of_range;
-                return BP_ERROR;
-            }
-            for (i = 1; i <= n; i++) {
-                v = FOLLOW(ptr + i);
-                DEREF(v);
-                if (!ISINT(v)) {
-                    bp_exception = c_type_error(et_INTEGER, t);
-                    return BP_ERROR;
-                }
-                pvm_shm->sol[i - 1] = v;
-            }
-        }
-    } else if (ISLIST(t)) {
-        BPLONG_PTR ptr;
-
-        while (ISLIST(t)) {
-            if (n == PVM_SOL_CAP) {
-                bp_exception = out_of_range;
-                return BP_ERROR;
-            }
-            ptr = (BPLONG_PTR)UNTAGGED_ADDR(t);
-            v = FOLLOW(ptr);
-            DEREF(v);
-            if (!ISINT(v)) {
-                bp_exception = c_type_error(et_INTEGER, t);
-                return BP_ERROR;
-            }
-            pvm_shm->sol[n++] = v;
-            t = FOLLOW(ptr + 1);
-            DEREF(t);
-        }
-    } else {
-        bp_exception = c_type_error(et_LIST, t);
+    n = pvm_enc_term(t, (BPLONG_PTR)pvm_shm->sol, 0, PVM_SOL_CAP);
+    if (n < 0)
         return BP_ERROR;
-    }
     __sync_synchronize();
     pvm_shm->sol_len = n;      /* completion marker (data written above) */
     return BP_TRUE;
 }
 
-/* Root side: materialize the reported solution as a fresh integer
-   array of length sol_len. Errors if no solution was reported. */
+#else /* !PAR_THREADS: no PVM on single-engines: no shared block and no
+        encoding. The one engine reports nothing away from itself: the
+        reported term is kept as a VALUE. It stays reachable in the
+        reporting frame from report to solution (both run in that
+        frame), so the saved value never dangles; nothing is copied. */
+static BPLONG pvm_serial_sol = 0;
+#endif /* PAR_THREADS */
+
+/* Root side: materialize the reported solution as a fresh ground
+   term (the reported term's own shape) in this process's heap.
+   Errors if no solution was reported or the cache is corrupt. */
 int c_pvm_solution()
 {
     BPLONG s = ARG(1, 1);
-    BPLONG a, i;
-    BPLONG_PTR ap;
+#if PAR_THREADS
+    BPLONG term;
+    long need;
+#endif
 
     DEREF(s);
+#if PAR_THREADS
     if (pvm_sol_len < 0 || pvm_sol_len > PVM_SOL_CAP) {
         bp_exception = illegal_arguments;  /* nothing reported */
         return BP_ERROR;
     }
-    a = picat_build_array(pvm_sol_len);
-    ap = (BPLONG_PTR)UNTAGGED_ADDR(a);
-    for (i = 0; i < pvm_sol_len; i++)
-        ap[i + 1] = pvm_sol_cache[i];
-    ASSIGN_f_atom(s, a);
+    need = pvm_dec_words(pvm_sol_cache, 0, pvm_sol_len);
+    if (need < 0) {
+        bp_exception = run_time_error;  /* corrupt encoding */
+        return BP_ERROR;
+    }
+    LOCAL_OVERFLOW_CHECK_WITH_MARGIN("pvm", need + 8);
+    if (pvm_dec_term(pvm_sol_cache, 0, pvm_sol_len, &term) != BP_TRUE) {
+        bp_exception = run_time_error;
+        return BP_ERROR;
+    }
+    ASSIGN_f_atom(s, term);
+#else
+    if (pvm_serial_sol == 0) {
+        bp_exception = illegal_arguments;  /* nothing reported */
+        return BP_ERROR;
+    }
+    ASSIGN_f_atom(s, pvm_serial_sol);
+#endif
     return BP_TRUE;
 }
 
@@ -2283,13 +2566,13 @@ int c_pvm_report()
         __sync_fetch_and_add(&pvm_shm->count, INTVAL(t));
         return BP_TRUE;
     }
-    /* mode 1/3: report the solution BY VALUE (a list or array of
-       ground integers). The first reporter wins (CAS on found); a
-       second reporter is a no-op (the first-found solution stands).
-       Winner: serialize, then mark sol_len (the reader-side
-       completion marker). A serialization error leaves found=1 with
-       sol_len=-1; this process then exits non-zero, the bad flag is
-       set, and pvm_collect rejects the session. */
+    /* mode 1/3: report the solution BY VALUE (any ground term; the
+       first reporter wins by CAS on found; a second reporter is a
+       no-op). Winner: serialize the term into the shared solution
+       region, then mark sol_len (the reader-side completion marker).
+       A serialization error leaves found=1 with sol_len=-1; this
+       process then exits non-zero, the bad flag is set, and
+       pvm_collect rejects the session. */
     if (!__sync_bool_compare_and_swap(&pvm_shm->found, 0, 1))
         return BP_TRUE;
     DEREF(t);
@@ -2412,7 +2695,7 @@ int c_pvm_fork()
     pvm_serial_shm.found = 0;
     pvm_serial_shm.sol_len = -1;
     pvm_shm = &pvm_serial_shm;
-    pvm_sol_len = -1;
+    pvm_serial_sol = 0;
     pvm.nt = nt;
     pvm.mode = mode;
     pvm.wid = 0;
@@ -2463,7 +2746,8 @@ int c_pvm_report()
         return BP_TRUE;  /* a solution was already reported */
     pvm_shm->found = 1;
     DEREF(t);
-    return pvm_serialize_solution(t);
+    pvm_serial_sol = t;   /* kept by value; nothing is copied */
+    return BP_TRUE;
 }
 
 int c_pvm_collect()
@@ -2474,15 +2758,8 @@ int c_pvm_collect()
         bp_exception = illegal_arguments;
         return BP_ERROR;
     }
-    if ((pvm.mode == 1 || pvm.mode == 3) && pvm_shm->found &&
-        pvm_shm->sol_len >= 0 && pvm_shm->sol_len <= PVM_SOL_CAP) {
-        __sync_synchronize();
-        memcpy(pvm_sol_cache, pvm_shm->sol,
-               (size_t)pvm_shm->sol_len * sizeof(BPLONG));
-        pvm_sol_len = pvm_shm->sol_len;
-    }
     ASSIGN_f_atom(r, MAKEINT((pvm.mode == 1 || pvm.mode == 3)
-                             ? pvm_shm->found : pvm_shm->count));
+                              ? pvm_shm->found : pvm_shm->count));
     pvm.armed = 0;
     pvm_shm = NULL;
     return BP_TRUE;

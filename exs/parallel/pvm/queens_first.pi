@@ -40,10 +40,12 @@ run(N, NT, M, C, P) =>
     % one body for every process: a mode 1/3 worker resumes inside
     % its delegated value (never through a worker_id branch), so the
     % report must sit where the search itself succeeds. The solution
-    % is reported BY VALUE (the integer array Q); a process whose
-    % territory does not hold it fails the model and takes the true
-    % branch. The root materializes the reported value after the
-    % collect, so the solution is printed exactly once, there.
+    % is reported BY VALUE (any ground term; here the integer array
+    % Q); a process whose territory does not hold it fails the model
+    % and takes the true branch. The root materializes the reported
+    % term after the collect and, as an explicit integrity check on
+    % the materialized value, sums it there: any permutation of
+    % 1..N sums to N*(N+1)/2, so the printed sum is exact.
     ( model_q(N, P, Q),
       bp.pvm_report(Q)
     ; true ),
@@ -51,8 +53,14 @@ run(N, NT, M, C, P) =>
     writeln(R),
     ( R = 1,
       bp.pvm_solution(Qs),
-      writeln(Qs)
+      writeln(Qs),
+      qsum(N, Qs, S),
+      writeln(S)
     ; true ).
+
+qsum(N, A, S) =>
+    L = [A[I] : I in 1..N],
+    S = sum(L).
 
 model_q(N, P, Q) =>
     Q = new_array(N),

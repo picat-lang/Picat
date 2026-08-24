@@ -20,13 +20,20 @@ finish it. Mode 1 = the $C=1$ OR split; mode 2 = static value-chunk
 counting (`bp.pvm_worker_id(I)` + `bp.pvm_chunk(Lo, Hi)` in each
 worker); mode 3 = first-solution with value chunks of size $C$. For
 modes 1/3 the solution is **reported by value**: the finding process
-calls `pvm_report(Sol)` with the solution term (a list or array of
-ground integers), the root's `pvm_collect(R)` returns 1, and
-`pvm_solution(S)` (root side) binds `S` to a fresh array holding the
-reported solution. When the root's own process parks on a delegated
-disjunction, it waits for the delegated region's outcome and then
-resumes its own (COW-isolated) view of the disjunction exactly as a
-serial run would — the delegated chunk is never re-searched.
+calls `pvm_report(Sol)` with the solution term (any ground term:
+integers, atoms, lists, compounds, arrays — floats and bigints ride
+along as their `$float`/`$bigint` PSCs), the root's `pvm_collect(R)`
+returns 1, and `pvm_solution(S)` (root side) binds `S` to a fresh term
+of the reported shape. The term crosses the process boundary as a
+flat, address-free word buffer (the codec in `emu/parvm.c`). On
+single-engine targets (`PAR_THREADS = 0`, e.g. the webasm build) there
+is no PVM at all: the builtins arm a serial session, `pvm_report`
+keeps the term by value in the one engine (no encoding, no shared
+block) and `pvm_solution` returns that same value. When the root's
+own process parks on a delegated disjunction, it waits for the
+delegated region's outcome and then resumes its own (COW-isolated)
+view of the disjunction exactly as a serial run would — the delegated
+chunk is never re-searched.
 Mode 2's `pvm_report(N)` is the integer slice count.
 Run with a `parsearch` build, e.g.
 `picat [-s <bytes>] exs/parallel/pvm/<model>.pi`; the counting
