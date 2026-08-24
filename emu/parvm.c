@@ -1069,6 +1069,38 @@ static void pvm_worker_exit(long st, long succ)
     _exit((int)st);
 }
 
+/* Wait for the finder's completion marker (or a crash flag). The
+   winner of the report's CAS on found may still be between that CAS
+   and its sol_len marker write; a SIGKILL sweep in that window would
+   lose the solution without a trace (a signalled exit is quiet). The
+   marker is a bounded run of stores (no allocation, no I/O), so this
+   wait is short by construction; any crash in the tree is flagged in
+   the shared bad by some reaper. A bad flag only shortens the wait
+   (one grace round for an in-flight marker from a healthy finder),
+   never the marker-first rule: a completed solution is trustworthy
+   even if another worker crashed. Returns 1 = marker complete,
+   0 = no marker (tainted or stuck finder). */
+static int pvm_wait_marker(void)
+{
+    long spins;
+
+    if (pvm_shm->sol_len >= 0)
+        return 1;
+    for (spins = 30000; spins > 0; spins--) {   /* up to ~30 s */
+        if (pvm_shm->sol_len >= 0)
+            return 1;
+        if (pvm_shm->bad || pvm_child_bad)
+            break;
+        usleep(1000);
+    }
+    for (spins = 500; spins > 0; spins--) {     /* ~0.5 s grace */
+        if (pvm_shm->sol_len >= 0)
+            return 1;
+        usleep(1000);
+    }
+    return pvm_shm->sol_len >= 0;
+}
+
 /* A worker that has seen the tree solved: quietly kill and reap my
    still-running children (they are worthless now), then exit 0 as
    any other healthy worker. */
@@ -1078,6 +1110,7 @@ static void pvm_worker_die_found(void)
 
     pvm_dbg("DIE-FOUND", NULL, 0);
     if (pvm_shm != NULL) {
+        pvm_wait_marker();   /* never SIGKILL the finder mid-marker */
         pvm_reap_quiet = 1;
         for (i = 0; i < pvm_nchildren; i++)
             kill((pid_t)pvm_my_children[i], SIGKILL);
@@ -2597,6 +2630,7 @@ int c_pvm_collect()
            root's collect rejects the session on it. Records the
            region-done outcome (st 0) for the (a) waiters. */
         if (pvm_shm->found) {
+            pvm_wait_marker();   /* never SIGKILL the finder mid-marker */
             pvm_reap_quiet = 1;
             for (i = 0; i < pvm_nchildren; i++)
                 kill((pid_t)pvm_my_children[i], SIGKILL);
@@ -2608,6 +2642,20 @@ int c_pvm_collect()
     if (!pvm_is_fork_child && (pvm.mode == 1 || pvm.mode == 3))
         pvm_seat_release();   /* the root is out of the frontier */
     if ((pvm.mode == 1 || pvm.mode == 3) && pvm_shm->found) {
+        /* the finder's CAS on found precedes its marker write: wait
+           for it before the sweep can SIGKILL a direct-child finder
+           (a signalled exit is quiet, so the loss would be silent).
+           No marker without a crash flag is a stuck/crashed finder:
+           refuse the session. */
+        if (!pvm_wait_marker()) {
+            bp_exception = run_time_error;
+            pvm.armed = 0;
+            shm_unlink(pvm_shm_name);
+            munmap(pvm_shm, sizeof(pvm_shm_t));
+            pvm_shm = NULL;
+            return BP_ERROR;
+        }
+        __sync_synchronize();
         pvm_reap_quiet = 1;
         for (i = 0; i < pvm_nchildren; i++)
             kill(pvm_my_children[i], SIGKILL);
