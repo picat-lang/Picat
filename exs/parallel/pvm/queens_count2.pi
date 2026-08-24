@@ -1,13 +1,21 @@
 % All n-Queens solutions, counted.
 %
-% Usage:  picat queens_count.pi [N] [NT]
+% Usage:  picat queens_count2.pi [N] [NT]
 %   N   board size (default 10)
 %   NT  worker processes: absent/0 = serial, >0 = OR-parallel mode 2
-%       (the all-results mode: NT fixed chunks of Q[1], one per worker;
-%       each worker reports its result -- any ground term -- with
-%       pvm_report, pvm_collect returns the LIST of all reported
-%       results and the parent sums it explicitly)
-%  in this version NT can go up to N*N
+%       (all-results mode); the partition is over the JOINT value
+%       Q[1] + N*(Q[2]-1) in 1..N*N (the first two queens), so NT can
+%       go up to N*N, not just N. Each worker reports its result with
+%       pvm_report; pvm_collect returns the LIST of all reported
+%       results and the parent sums it explicitly.
+%
+% NOTE: count_all(solve(...)) does not return 0 when a slice has no
+%       solution -- for some zero-solution slices it FAILS (FD
+%       propagation detects the inconsistency). A worker whose slice
+%       has no solution must therefore fall back to C = 0
+%       (see below); letting count_q's failure backtrack into the
+%       second disjunct turns that worker into a second "root" that
+%       runs pvm_collect inside the worker process.
 %
 % Known totals (OEIS A000170): 10=724, 11=2680, 12=14200, 13=73712,
 % 14=365596, 15=2279184, 16=14772512 -- every run below must reach the
@@ -30,20 +38,28 @@ nt_of([])   = 0.
 nt_of([NS]) = to_int(NS).
 
 run(N, 0) =>
-    count_q(N, 1, N*N, C),
-    writeln(C).
+    slice_count(N, 1, N*N, C),
+    writeln(a=C).
 run(N, NT) =>
     bp.pvm_fork(NT, 2, N*N),
     bp.pvm_worker_id(I),
     ( I > 0,
       bp.pvm_chunk(Lo, Hi),
-      count_q(N, Lo, Hi, C),
+      slice_count(N, Lo, Hi, C),
       bp.pvm_report(C)
     ;
       bp.pvm_collect(Counts),
+      println(l=Counts),
       C = sum(Counts),
-      writeln(C)
+      writeln(b=C)
     ).
+
+% count_q fails (it does not return 0) for some zero-solution slices;
+% a failed count IS the count 0.
+slice_count(N, Lo, Hi, C) =>
+    count_q(N, Lo, Hi, C)
+    ;
+    C = 0.
 
 count_q(N, Lo, Hi, C) =>
     Q = new_array(N),

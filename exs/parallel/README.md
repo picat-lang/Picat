@@ -59,7 +59,7 @@ same names run the no-PVM serial fallback described above.
 | `bp.pvm_worker_id(I)` | Mode 2: binds the caller's worker id — 0 in the root (the collector), 1..N in the workers. |
 | `bp.pvm_chunk(Lo, Hi)` | Mode 2: binds the caller's statically assigned value range [Lo, Hi] over the total given to `pvm_fork`. |
 | `bp.pvm_report(T)` | Mode 1/3: report the solution **by value** — T may be any ground term (ints, atoms, lists, compounds, arrays; floats/bigints ride as their `$float`/`$bigint` PSCs); the first reporter wins by CAS, a second reporter is a no-op. Mode 2: any ground term, appended to the session's result buffer (as many times as it likes). |
-| `bp.pvm_collect(R)` | Ends the session: SIGKILL sweep of the pool (after waiting for the solution's completion marker), blocking reaps, copy-out and unmap of the shared block. Mode 1/3: R = 1 iff a solution was reported, else 0. Mode 2: R = the list of all reported terms, in report order (the parent consumes/sums it explicitly). Refuses the session as a hard `run_time_error` on a crashed worker or a `found` without a completed marker. A forked child reaching this in a finished mode-1/3 session exits quietly. |
+| `bp.pvm_collect(R)` | Ends the session: SIGKILL sweep of the pool (after waiting for the solution's completion marker), blocking reaps, copy-out and unmap of the shared block. Mode 1/3: R = 1 iff a solution was reported, else 0. Mode 2: R = the list of all reported terms, in report order (the parent consumes/sums it explicitly). Refuses the session as a hard `run_time_error` on a crashed worker or a `found` without a completed marker. A forked child reaching this in a finished mode-1/3 session exits quietly; a mode-2 worker reaching it (its report branch failed upstream) instead flags the session and drops out -- the real root's collect then refuses with `run_time_error` rather than serving a silent undercount or letting the worker run a second collect against the shared block. |
 | `bp.pvm_solution(S)` | Root side, after a mode-1/3 `pvm_collect` that returned 1: binds S to a fresh term of the reported shape, materialized from the address-free encoding (shape/bounds/offsets validated, heap headroom checked first). On no-PVM targets: returns the stored by-value term. Errors if nothing was reported. |
 
 A complete session has the shape (modes 1/3):
@@ -78,7 +78,7 @@ models read `K`/`N` from the environment (e.g. `K=4 N=16`); their
 base solver is `exs/satext/ramsey_ps.pi` with the `pvm` calls
 inserted.
 
-Three parametrized programs cover every configuration used in the
+Four parametrized programs cover every configuration used in the
 report (one file per problem, not one per benchmark cell), plus one
 capability check:
 
@@ -86,6 +86,7 @@ capability check:
 |------|------|-----------------------|
 | `pvm/queens_first.pi` | `[N] [NT] [MODE] [C] [PIN]` (defaults 10 0 3 1 0) | `queens_first.pi 10 4 3 2 4` (worked example), `queens_first.pi 10 4 1 1` (mode-1 family), `queens_first.pi 479` (N=479 serial baseline), `queens_first.pi 479 16 3 64` (mode-3 grid cells) |
 | `pvm/queens_count.pi` | `[N] [NT]` (defaults 10, serial) | the counting matrix: `queens_count.pi 16 16`, `queens_count.pi 13 8`, `queens_count.pi 10 4` (must print 724); OEIS A000170 totals are quoted in the header |
+| `pvm/queens_count2.pi` | `[N] [NT]` (defaults 10, serial) | the counting matrix partitioned over the joint value `Q[1] + N*(Q[2]-1)` in `1..N*N` (first two queens), so up to `N*N` workers are useful -- `queens_count2.pi 8 35` must print `b = 92` once. Note the `slice_count` guard: `count_all` sometimes *fails* (instead of returning 0) on a zero-solution slice, and an unguarded failure would backtrack the worker into the root branch |
 | `pvm/ramsey_pvm.pi` | env `K= N= T=` (T = workers, 0 = serial) | `K=4 N=16 T=8 picat pvm/ramsey_pvm.pi`; `K=4 N=18` is the UNSAT whole-tree case ($R(4,4)=18$) |
 | `pvm/term_report.pi` | none | any-ground-term report: a worker reports a mixed nested term (compounds, array, float, bigint), the root materializes it and the parent verifies it field by field — prints `1 / <term> / pass`; runs identically on native and webasm |
 

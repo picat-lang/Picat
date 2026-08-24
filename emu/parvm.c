@@ -2688,6 +2688,18 @@ int c_pvm_collect()
         bp_exception = illegal_arguments;
         return BP_ERROR;
     }
+    if (pvm_is_fork_child && pvm.mode == 2) {
+        /* a mode-2 worker reaching collect: its user program failed
+           the report branch upstream and backtracked into the root
+           branch, so its slice count never reaches the result list
+           (a silent undercount) -- and running the root's collect
+           inside a worker would tear the shared block down from under
+           the real root. Flag the session so the real root's collect
+           refuses, and drop out of the process. */
+        pvm_shm->bad = 1;
+        pvm_reap_my_children();
+        pvm_worker_exit(0, 0);    /* noreturn */
+    }
     if (pvm_is_fork_child && (pvm.mode == 1 || pvm.mode == 3)) {
         /* a delegated branch whose (inherited) session has ended:
            finish the subtree and drop out of the process. A crashed
