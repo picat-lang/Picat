@@ -54,7 +54,7 @@ same names run the no-PVM serial fallback described above.
 
 | predicate | meaning |
 |---|---|
-| `bp.pvm_fork(NT, Mode, C)` | Arms the session, once per run (nested sessions error; NT 1..256). Modes 1/3: the pool grows through branch forks up to NT live workers (the root is worker 0; freed seats flow to the deepest active frontier). Mode 2: forks its static workers at this call. Third argument: **mode 3** = chunk size C values; **mode 2** = total number of values to partition among the workers; **mode 1** = ignored (the split is the C=1 OR split). |
+| `bp.pvm_fork(NT, Mode, C)` | Arms the session, once per run (nested sessions error; NT 1..4096). Modes 1/3: the pool grows through branch forks up to NT live workers (the root is worker 0; freed seats flow to the deepest active frontier). Mode 2: forks its static workers at this call. Third argument: **mode 3** = chunk size C values; **mode 2** = total number of values to partition among the workers; **mode 1** = ignored (the split is the C=1 OR split). |
 | `bp.pvm_delegate(On)` | Opens (`On > 0`) / closes (`On = 0`) the delegation window, counted so nested solves compose. Only the value disjunctions of frames *inside* the window are delegable; outer loop frames stay serial (a worker's trivial fallback success would be indistinguishable from exhaustion). Silent no-op outside a session. |
 | `bp.pvm_worker_id(I)` | Mode 2: binds the caller's worker id — 0 in the root (the collector), 1..N in the workers. |
 | `bp.pvm_chunk(Lo, Hi)` | Mode 2: binds the caller's statically assigned value range [Lo, Hi] over the total given to `pvm_fork`. |

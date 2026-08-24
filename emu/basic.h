@@ -318,8 +318,8 @@ extern int curr_toam_status;
 
 /* OR-parallel search state (parsearch, Path B, M2). */
 #define PVM_SOL_CAP 1048576  /* max integers in a reported solution */
-#define PVM_POOL_SEATS 256   /* pool seats (mode 1/3): one per live process */
-#define PVM_DONE_SLOTS 256   /* pool completion/handoff registry slots */
+#define PVM_POOL_SEATS 4096  /* pool seats (mode 1/3): one per live process */
+#define PVM_DONE_SLOTS 4096  /* pool completion/handoff registry slots */
 typedef struct {
     volatile long live;   /* workers currently alive */
     volatile long count;  /* mode 2: result-buffer cursor (words)

@@ -753,7 +753,7 @@ void Cboot_parvm()
  *   in the done registry), atexit covers the rest.
  * ------------------------------------------------------------------ */
 
-#define PARVM_MAX_WORKERS 256
+#define PARVM_MAX_WORKERS 4096
 
 PAR_TLS pvm_t pvm;
 pvm_shm_t *pvm_shm = NULL;
@@ -1627,6 +1627,14 @@ static int pvm_spawn_chunk(BPLONG_PTR ar, int s, long from)
             pvm_shm->pvm_seat[i].depth = (BPLONG)ar;
             break;
         }
+    }
+    if (i >= PVM_POOL_SEATS) {
+        /* defensive (unreachable while NT <= the seat count): an
+           unseated child self-balances at its healthy exit but its
+           slot is never counted by the pool, so degrade this frame
+           to serial exactly like a fork failure. */
+        pvm_dbg("SPAWN-NOSEAT", ar, from);
+        return -1;
     }
     return 0;
 }
