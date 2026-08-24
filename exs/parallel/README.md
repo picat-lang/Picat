@@ -71,9 +71,9 @@ bp.pvm_collect(R),
 ( R = 1, bp.pvm_solution(S), ...verify/use S... ; true ).
 ```
 Run with a `parsearch` build, e.g.
-`picat [-s <bytes>] exs/parallel/pvm/<model>.pi`; the counting
-models for N>=15 need a sized arena (`-s 4294967296` for workers,
-`-s 8589934592` serial — the flag takes raw bytes). The Ram
+`picat exs/parallel/pvm/<model>.pi` (the counting model counts with
+`count_all`, so no process ever holds a solution list and no sized
+arena is needed, not even at N=16). The Ram
 models read `K`/`N` from the environment (e.g. `K=4 N=16`); their
 base solver is `exs/satext/ramsey_ps.pi` with the `pvm` calls
 inserted.

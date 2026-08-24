@@ -1,6 +1,6 @@
 % All n-Queens solutions, counted.
 %
-% Usage:  picat [-s <bytes>] queens_count.pi [N] [NT]
+% Usage:  picat queens_count.pi [N] [NT]
 %   N   board size (default 10)
 %   NT  worker processes: absent/0 = serial, >0 = OR-parallel mode 2
 %       (the all-results mode: NT fixed chunks of Q[1], one per worker;
@@ -14,9 +14,8 @@
 % exact total; a low total means a worker died (the engine raises
 % run_time_error in pvm_collect for that since the liveness fix).
 %
-% N >= 15 stores up to millions of solutions per worker; give each
-% process room with -s (raw bytes): -s 4294967296 (4G, workers) or
-% -s 8589934592 (8G, serial).
+% count_all counts without materializing the solutions, so no process
+% ever holds a solution list: N=16 needs no sized arena at all.
 import cp.
 
 main => run(10, 0).
@@ -53,5 +52,4 @@ count_q(N, Lo, Hi, C) =>
         Q[I] #!= Q[J],
         abs(Q[I]-Q[J]) #!= J-I
     end,
-    Sols = solve_all([ff], Q),
-    C = len(Sols).
+    C = count_all(solve([ff], Q)).
