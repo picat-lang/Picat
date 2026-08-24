@@ -33,7 +33,11 @@ block) and `pvm_solution` returns that same value. When the root's
 own process parks on a delegated disjunction, it waits for the
 delegated region's outcome and then resumes its own (COW-isolated)
 view of the disjunction exactly as a serial run would — the delegated
-chunk is never re-searched.
+chunk is never re-searched. The post-found kill sweeps wait for the
+solution's completion marker before killing children
+(`pvm_wait_marker`, commit `7e2e650`), so a completed report is never
+lost in the sweep; a `found` without a marker is refused at
+`pvm_collect` as a hard error.
 Mode 2's `pvm_report(N)` is the integer slice count.
 Run with a `parsearch` build, e.g.
 `picat [-s <bytes>] exs/parallel/pvm/<model>.pi`; the counting
@@ -44,21 +48,28 @@ base solver is `exs/satext/ramsey_ps.pi` with the `pvm` calls
 inserted.
 
 Three parametrized programs cover every configuration used in the
-report (one file per problem, not one per benchmark cell):
+report (one file per problem, not one per benchmark cell), plus one
+capability check:
 
 | file | args | usage from the report |
 |------|------|-----------------------|
 | `pvm/queens_first.pi` | `[N] [NT] [MODE] [C] [PIN]` (defaults 10 0 3 1 0) | `queens_first.pi 10 4 3 2 4` (worked example), `queens_first.pi 10 4 1 1` (mode-1 family), `queens_first.pi 479` (N=479 serial baseline), `queens_first.pi 479 16 3 64` (mode-3 grid cells) |
 | `pvm/queens_count.pi` | `[N] [NT]` (defaults 10, serial) | the counting matrix: `queens_count.pi 16 16`, `queens_count.pi 13 8`, `queens_count.pi 10 4` (must print 724); OEIS A000170 totals are quoted in the header |
 | `pvm/ramsey_pvm.pi` | env `K= N= T=` (T = workers, 0 = serial) | `K=4 N=16 T=8 picat pvm/ramsey_pvm.pi`; `K=4 N=18` is the UNSAT whole-tree case ($R(4,4)=18$) |
+| `pvm/term_report.pi` | none | any-ground-term report: a worker reports a mixed nested term (compounds, array, float, bigint), the root materializes it and the parent verifies it field by field — prints `1 / <term> / pass`; runs identically on native and webasm |
 
 Measured on this machine (best of 3, this tree, -O3), first solution
 of the N=479 distinct-differences instance: serial 7.71 s, mode 3
 $C=8$/NT8 6.25 s (1.23x), mode 3 $C=16$/NT8 5.56 s (1.39x);
 mode 1 ($C=1$) is slower than serial (per-value OR-split overhead).
-Validation battery: queens N=10 mode 1/3 first-solution cells,
-`queens_count` N=10/12/13 (724 / 14200 / 73712), and the ramsey
-$K=3$ $N=5/6$, $K=4$ $N=15$ SAT/UNSAT matrix at T=2/8/16 all pass.
+Re-verified 2026-08-24 on a 27-run battery (serial + the mode-3
+NT4/8/16 x C8/16/64 grid, 3 reps each), after the marker-wait fix
+(`7e2e650`): serial 6.90-7.03 s, best cell 4.92-5.49 s (1.14-1.40x),
+every run with the identical reference solution and the exact
+parent-side sum (114960). Validation battery: queens N=10 mode 1/3
+first-solution cells, `queens_count` N=10/12/13 (724 / 14200 /
+73712), the ramsey $K=3$ $N=5/6$, $K=4$ $N=15$ SAT/UNSAT matrix at
+T=2/8/16, and `term_report.pi` on native and webasm all pass.
 
 Example:
 

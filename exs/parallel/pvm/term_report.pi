@@ -1,0 +1,67 @@
+% Arbitrary ground-term reporting: a worker reports a term of nested
+% mixed shape (ints, atoms, a boolean, a float, a bigint, nested
+% lists, compound terms, an array); the root materializes it from the
+% encoded buffer and verifies the structure field by field. The
+% reported term may be ANY ground term -- anything the value report
+% accepts, per the parsearch report's solution-by-value protocol.
+%
+%   picat exs/parallel/pvm/term_report.pi     -> 1 / <term> / pass
+%
+% On single-engine targets (webasm, PAR_THREADS unset) there is no
+% PVM: the report keeps the term by value and the solution returns
+% it, so this program runs with the identical protocol and prints
+% `pass` there too (verified under the webasm headless runner).
+import cp.
+
+main => run().
+
+run() =>
+    bp.pvm_fork(2, 3, 1),
+    ( body(T),
+      bp.pvm_report(T)
+    ; true ),
+    bp.pvm_collect(R),
+    writeln(R),
+    ( R = 1,
+      bp.pvm_solution(Tg),
+      writeln(Tg),
+      check(Tg, Res),
+      writeln(Res)
+    ; true ).
+
+body(T) =>
+    A = new_array(2),
+    A[1] = 10,
+    A[2] = 20,
+    B = 2.5 * 2.0,
+    C = 99999999999999999999,
+    T = [1, two, true, $f($g(3, A), [four, [5]]), A, B, C],
+    % the delegation window opens around the delegable disjunction
+    % only, as in queens_first.pi.
+    bp.pvm_delegate(1),
+    pick(_),
+    bp.pvm_delegate(0).
+
+pick(M) =>
+    ( M = 1
+    ; M = 2
+    ; M = 3 ).
+
+check(Tg, Res) =>
+    Tg = [H1, H2, H3, H4, H5, H6, H7],
+    H1 = 1,
+    H2 = two,
+    H3 = true,
+    H4 = $f(G, L2),
+    G = $g(3, A2),
+    A2[1] = 10,
+    A2[2] = 20,
+    L2 = [four, L3],
+    L3 = [5],
+    N5 = length(H5),
+    N5 = 2,
+    H5[1] = 10,
+    H5[2] = 20,
+    H6 = 5.0,
+    H7 = 99999999999999999999,
+    Res = pass.
