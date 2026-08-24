@@ -3,8 +3,11 @@
 % Usage:  picat [-s <bytes>] queens_count.pi [N] [NT]
 %   N   board size (default 10)
 %   NT  worker processes: absent/0 = serial, >0 = OR-parallel mode 2
-%       (NT fixed chunks of Q[1], one per worker; the sweet spot is NT=N
-%       because there are only N values)
+%       (the all-results mode: NT fixed chunks of Q[1], one per worker;
+%       each worker reports its result -- any ground term -- with
+%       pvm_report, pvm_collect returns the LIST of all reported
+%       results and the parent sums it explicitly; the sweet spot is
+%       NT=N because there are only N values)
 %
 % Known totals (OEIS A000170): 10=724, 11=2680, 12=14200, 13=73712,
 % 14=365596, 15=2279184, 16=14772512 -- every run below must reach the
@@ -37,8 +40,9 @@ run(N, NT) =>
       count_q(N, Lo, Hi, C),
       bp.pvm_report(C)
     ;
-      bp.pvm_collect(R),
-      writeln(R)
+      bp.pvm_collect(Counts),
+      C = sum(Counts),
+      writeln(C)
     ).
 
 count_q(N, Lo, Hi, C) =>

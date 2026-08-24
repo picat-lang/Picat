@@ -322,7 +322,8 @@ extern int curr_toam_status;
 #define PVM_DONE_SLOTS 256   /* pool completion/handoff registry slots */
 typedef struct {
     volatile long live;   /* workers currently alive */
-    volatile long count;  /* solution count (mode 2) */
+    volatile long count;  /* mode 2: result-buffer cursor (words)
+                               reserved in sol[]; mode 1/3: unused */
     volatile int  found;  /* first-solution found (mode 1/3) */
     volatile int  bad;    /* a worker reaped a crashed child */
     volatile long sol_len;/* mode 1/3: -1 until the finder reports,

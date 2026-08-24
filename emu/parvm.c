@@ -382,6 +382,74 @@ static int pvm_serialize_solution(BPLONG t)
     return BP_TRUE;
 }
 
+/* The encoder writes child offsets relative to its own start (it is
+   called at offset 0 of a scratch). A record appended at an absolute
+   offset d in the result buffer needs every stored offset shifted by
+   d (the decoder bounds-checks offsets against the whole buffer). */
+static void pvm_shift_offsets(BPLONG_PTR b, long pos, long d)
+{
+    long tag = b[pos];
+    long n, i;
+
+    if (tag == PVM_T_LIST) {
+        n = b[pos + 1];
+        for (i = 0; i < n; i++) {
+            long off = b[pos + 2 + i];
+            b[pos + 2 + i] = off + d;
+            pvm_shift_offsets(b, off, d);
+        }
+    } else if (tag == PVM_T_ARR) {
+        n = b[pos + 1];
+        for (i = 0; i < n; i++) {
+            long off = b[pos + 2 + i];
+            b[pos + 2 + i] = off + d;
+            pvm_shift_offsets(b, off, d);
+        }
+    } else if (tag == PVM_T_STR) {
+        n = b[pos + 2];
+        for (i = 0; i < n; i++) {
+            long off = b[pos + 3 + i];
+            b[pos + 3 + i] = off + d;
+            pvm_shift_offsets(b, off, d);
+        }
+    }
+}
+
+/* mode 2 (all-results): append t to the session's result buffer. Any
+   ground term; any process (workers and the root) may call it, as
+   many times as it likes. The buffer holds the reports in report
+   order, each as [marker, data...] -- the marker word (data length +
+   1, written last under a barrier) gives the reader the record's size
+   at its head and signals completion. The reservation (cursor CAS)
+   precedes the copy; a process that dies in between leaves a zeroed
+   marker, which the collecting root refuses as a crashed writer. */
+static int pvm_report_append(BPLONG t)
+{
+    long pos, n;
+
+    DEREF(t);
+    n = pvm_enc_term(t, (BPLONG_PTR)pvm_sol_cache, 0, PVM_SOL_CAP);
+    if (n < 0)
+        return BP_ERROR;   /* not a ground term or too large */
+    for (;;) {
+        pos = pvm_shm->count;
+        if (pos < 0 || pos + n + 1 > PVM_SOL_CAP) {
+            bp_exception = out_of_range;  /* the result list is full */
+            return BP_ERROR;
+        }
+        if (__sync_bool_compare_and_swap(
+                &pvm_shm->count, pos, pos + n + 1))
+            break;
+    }
+    /* the data starts at pos+1 (behind the marker word), so its
+       offsets are shifted by pos+1 */
+    pvm_shift_offsets((BPLONG_PTR)pvm_sol_cache, 0, pos + 1);
+    memcpy(&pvm_shm->sol[pos + 1], pvm_sol_cache, (size_t)n * sizeof(BPLONG));
+    __sync_synchronize();
+    pvm_shm->sol[pos] = (BPLONG)(n + 1);   /* completion marker */
+    return BP_TRUE;
+}
+
 #else /* !PAR_THREADS: no PVM on single-engines: no shared block and no
         encoding. The one engine reports nothing away from itself: the
         reported term is kept as a VALUE. It stays reachable in the
@@ -2591,13 +2659,10 @@ int c_pvm_report()
         return BP_ERROR;
     }
     if (pvm.mode == 2) {
-        DEREF(t);
-        if (!ISINT(t)) {
-            bp_exception = c_type_error(et_INTEGER, t);
-            return BP_ERROR;
-        }
-        __sync_fetch_and_add(&pvm_shm->count, INTVAL(t));
-        return BP_TRUE;
+        /* all-results: any ground term, appended to the session's
+           result buffer; the root's pvm_collect hands back the list
+           of all reported terms, in report order. */
+        return pvm_report_append(t);
     }
     /* mode 1/3: report the solution BY VALUE (any ground term; the
        first reporter wins by CAS on found; a second reporter is a
@@ -2679,27 +2744,86 @@ int c_pvm_collect()
         pvm_shm = NULL;
         return BP_ERROR;
     }
-    result = (pvm.mode == 1 || pvm.mode == 3)
-         ? (long)pvm_shm->found : (long)pvm_shm->count;
-    if ((pvm.mode == 1 || pvm.mode == 3) && result &&
-        pvm_shm->sol_len >= 0) {
-        /* copy the reported solution out of the shared block before
-           the unmap; c_pvm_solution serves it from the local copy.
-           The blocking reaps above finished the finder's process, so
-           its write (integers, barrier, sol_len) is complete: seeing
-           sol_len >= 0 here orders the data. */
-        if (pvm_shm->sol_len <= PVM_SOL_CAP) {
-            __sync_synchronize();
-            memcpy(pvm_sol_cache, pvm_shm->sol,
-                   (size_t)pvm_shm->sol_len * sizeof(BPLONG));
-            pvm_sol_len = pvm_shm->sol_len;
+    if (pvm.mode == 2) {
+        /* all-results: build R = the list of all reported terms, in
+           report order. The reaps above killed every writer, so the
+           cursor is final and each record's marker must be set -- a
+           record still at its zeroed state came from a process that
+           died between its reservation and its marker write. */
+        BPLONG_PTR b = (BPLONG_PTR)pvm_shm->sol;
+        long cursor = pvm_shm->count;
+        long pos, need = 16;
+        BPLONG l, prev, rest;
+
+        for (pos = 0; pos < cursor; ) {
+            long m = b[pos];
+            long sz;
+            if (m < 3 || pos + m > cursor ||
+                pvm_dec_words(b, pos + 1, cursor) < 0) {
+                bp_exception = run_time_error;   /* crashed writer */
+                pvm.armed = 0;
+                shm_unlink(pvm_shm_name);
+                munmap(pvm_shm, sizeof(pvm_shm_t));
+                pvm_shm = NULL;
+                return BP_ERROR;
+            }
+            sz = m - 1;
+            need += 3 * sz + 2;   /* materialized term + list cell */
+            pos += m;
         }
+        LOCAL_OVERFLOW_CHECK_WITH_MARGIN("pvm", need);
+        l = nil_sym;
+        for (pos = 0; pos < cursor; ) {
+            BPLONG term, cell = ADDTAG(heap_top, LST);
+            BPLONG_PTR c = (BPLONG_PTR)UNTAGGED_ADDR(cell);
+            long m = b[pos];
+
+            NEW_HEAP_FREE;
+            NEW_HEAP_FREE;
+            if (pvm_dec_term(b, pos + 1, cursor, &term) != BP_TRUE) {
+                bp_exception = run_time_error;   /* corrupt record */
+                pvm.armed = 0;
+                shm_unlink(pvm_shm_name);
+                munmap(pvm_shm, sizeof(pvm_shm_t));
+                pvm_shm = NULL;
+                return BP_ERROR;
+            }
+            c[0] = term;
+            c[1] = l;
+            l = cell;
+            pos += m;
+        }
+        /* un-reverse: the consing above built the list backwards */
+        prev = nil_sym;
+        while (l != nil_sym) {
+            BPLONG_PTR c = (BPLONG_PTR)UNTAGGED_ADDR(l);
+            rest = c[1];
+            c[1] = prev;
+            prev = l;
+            l = rest;
+        }
+        ASSIGN_f_atom(r, prev);
+    } else {
+        if (pvm_shm->sol_len >= 0) {
+            /* copy the reported solution out of the shared block
+               before the unmap; c_pvm_solution serves it from the
+               local copy. The blocking reaps above finished the
+               finder's process, so its write (data, barrier,
+               sol_len) is complete: seeing sol_len >= 0 here orders
+               the data. */
+            if (pvm_shm->sol_len <= PVM_SOL_CAP) {
+                __sync_synchronize();
+                memcpy(pvm_sol_cache, pvm_shm->sol,
+                       (size_t)pvm_shm->sol_len * sizeof(BPLONG));
+                pvm_sol_len = pvm_shm->sol_len;
+            }
+        }
+        ASSIGN_f_atom(r, MAKEINT(pvm_shm->found));
     }
     pvm.armed = 0;
     shm_unlink(pvm_shm_name);
     munmap(pvm_shm, sizeof(pvm_shm_t));
     pvm_shm = NULL;
-    ASSIGN_f_atom(r, MAKEINT(result));
     return BP_TRUE;
 }
 
@@ -2709,6 +2833,13 @@ PAR_TLS pvm_t pvm;
 pvm_shm_t *pvm_shm = NULL;
 
 static pvm_shm_t pvm_serial_shm;
+
+/* mode-2 (all-results) terms held by value (no encoding, no shared
+   block on single engines). The values stay reachable in the
+   reporting frame until the collect consumes them. */
+#define PVM_SER_M2_CAP 4096
+static BPLONG pvm_serial_m2[PVM_SER_M2_CAP];
+static long pvm_serial_m2_n = 0;
 
 int pvm_fork_frame(BPLONG_PTR ar, BPLONG_PTR p)
 {
@@ -2744,6 +2875,7 @@ int c_pvm_fork()
     pvm_serial_shm.sol_len = -1;
     pvm_shm = &pvm_serial_shm;
     pvm_serial_sol = 0;
+    pvm_serial_m2_n = 0;
     pvm.nt = nt;
     pvm.mode = mode;
     pvm.wid = 0;
@@ -2783,11 +2915,11 @@ int c_pvm_report()
     }
     if (pvm.mode == 2) {
         DEREF(t);
-        if (!ISINT(t)) {
-            bp_exception = c_type_error(et_INTEGER, t);
+        if (pvm_serial_m2_n >= PVM_SER_M2_CAP) {
+            bp_exception = out_of_range;  /* the result list is full */
             return BP_ERROR;
         }
-        __sync_fetch_and_add(&pvm_shm->count, INTVAL(t));
+        pvm_serial_m2[pvm_serial_m2_n++] = t;
         return BP_TRUE;
     }
     if (pvm_shm->found)
@@ -2806,8 +2938,23 @@ int c_pvm_collect()
         bp_exception = illegal_arguments;
         return BP_ERROR;
     }
-    ASSIGN_f_atom(r, MAKEINT((pvm.mode == 1 || pvm.mode == 3)
-                              ? pvm_shm->found : pvm_shm->count));
+    if (pvm.mode == 2) {
+        BPLONG l = nil_sym;
+        long i = pvm_serial_m2_n - 1;
+        LOCAL_OVERFLOW_CHECK_WITH_MARGIN("pvm",
+                                         2 * (int)pvm_serial_m2_n + 16);
+        for (; i >= 0; i--) {
+            BPLONG cell = ADDTAG(heap_top, LST);
+            BPLONG_PTR c = (BPLONG_PTR)UNTAGGED_ADDR(cell);
+            NEW_HEAP_FREE;
+            NEW_HEAP_FREE;
+            c[0] = pvm_serial_m2[i];
+            c[1] = l;
+            l = cell;
+        }
+        ASSIGN_f_atom(r, l);
+    } else
+        ASSIGN_f_atom(r, MAKEINT(pvm_shm->found));
     pvm.armed = 0;
     pvm_shm = NULL;
     return BP_TRUE;

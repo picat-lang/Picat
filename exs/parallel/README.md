@@ -17,8 +17,11 @@ This folder holds the parallel-search example sets, by branch:
 Builtins: `bp.pvm_fork(NT, Mode, C)` arms the session, and
 `bp.pvm_report(S)` / `bp.pvm_collect(R)` / `bp.pvm_solution(S)`
 finish it. Mode 1 = the $C=1$ OR split; mode 2 = static value-chunk
-counting (`bp.pvm_worker_id(I)` + `bp.pvm_chunk(Lo, Hi)` in each
-worker); mode 3 = first-solution with value chunks of size $C$. For
+all-results (`bp.pvm_worker_id(I)` + `bp.pvm_chunk(Lo, Hi)` in each
+worker; each worker `pvm_report`s its result -- any ground term -- and
+the root's `pvm_collect(R)` returns the LIST of all reported results,
+in report order, which the parent then uses explicitly, e.g. sums);
+mode 3 = first-solution with value chunks of size $C$. For
 modes 1/3 the solution is **reported by value**: the finding process
 calls `pvm_report(Sol)` with the solution term (any ground term:
 integers, atoms, lists, compounds, arrays — floats and bigints ride
@@ -38,7 +41,35 @@ solution's completion marker before killing children
 (`pvm_wait_marker`, commit `7e2e650`), so a completed report is never
 lost in the sweep; a `found` without a marker is refused at
 `pvm_collect` as a hard error.
-Mode 2's `pvm_report(N)` is the integer slice count.
+Mode 2's `pvm_report(T)` appends T (any ground term) to the
+session's result buffer; `pvm_collect` hands back the list of all
+reported terms and the parent consumes it explicitly (e.g. sums it).
+
+### Builtin reference (`bp.*`)
+
+All PVM entry points in one table; every call except `pvm_fork`
+itself requires an armed session (otherwise `invalid_argument`). On
+single-engine targets (`PAR_THREADS = 0`, e.g. the webasm build) the
+same names run the no-PVM serial fallback described above.
+
+| predicate | meaning |
+|---|---|
+| `bp.pvm_fork(NT, Mode, C)` | Arms the session, once per run (nested sessions error; NT 1..256). Modes 1/3: the pool grows through branch forks up to NT live workers (the root is worker 0; freed seats flow to the deepest active frontier). Mode 2: forks its static workers at this call. Third argument: **mode 3** = chunk size C values; **mode 2** = total number of values to partition among the workers; **mode 1** = ignored (the split is the C=1 OR split). |
+| `bp.pvm_delegate(On)` | Opens (`On > 0`) / closes (`On = 0`) the delegation window, counted so nested solves compose. Only the value disjunctions of frames *inside* the window are delegable; outer loop frames stay serial (a worker's trivial fallback success would be indistinguishable from exhaustion). Silent no-op outside a session. |
+| `bp.pvm_worker_id(I)` | Mode 2: binds the caller's worker id — 0 in the root (the collector), 1..N in the workers. |
+| `bp.pvm_chunk(Lo, Hi)` | Mode 2: binds the caller's statically assigned value range [Lo, Hi] over the total given to `pvm_fork`. |
+| `bp.pvm_report(T)` | Mode 1/3: report the solution **by value** — T may be any ground term (ints, atoms, lists, compounds, arrays; floats/bigints ride as their `$float`/`$bigint` PSCs); the first reporter wins by CAS, a second reporter is a no-op. Mode 2: any ground term, appended to the session's result buffer (as many times as it likes). |
+| `bp.pvm_collect(R)` | Ends the session: SIGKILL sweep of the pool (after waiting for the solution's completion marker), blocking reaps, copy-out and unmap of the shared block. Mode 1/3: R = 1 iff a solution was reported, else 0. Mode 2: R = the list of all reported terms, in report order (the parent consumes/sums it explicitly). Refuses the session as a hard `run_time_error` on a crashed worker or a `found` without a completed marker. A forked child reaching this in a finished mode-1/3 session exits quietly. |
+| `bp.pvm_solution(S)` | Root side, after a mode-1/3 `pvm_collect` that returned 1: binds S to a fresh term of the reported shape, materialized from the address-free encoding (shape/bounds/offsets validated, heap headroom checked first). On no-PVM targets: returns the stored by-value term. Errors if nothing was reported. |
+
+A complete session has the shape (modes 1/3):
+
+```
+bp.pvm_fork(NT, Mode, C),
+( model, bp.pvm_report(Sol) ; true ),   % report where search succeeds
+bp.pvm_collect(R),
+( R = 1, bp.pvm_solution(S), ...verify/use S... ; true ).
+```
 Run with a `parsearch` build, e.g.
 `picat [-s <bytes>] exs/parallel/pvm/<model>.pi`; the counting
 models for N>=15 need a sized arena (`-s 4294967296` for workers,
