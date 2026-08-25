@@ -1,0 +1,209 @@
+% backpack_pvm: 0/1 (back)pack aka knapsack, maximized by the MODE-4
+% driver -- bound-lifted branch-and-bound OR-parallelized purely at
+% the user level on mode-1 PVM sessions (no C changes). Each
+% iteration is one pvm_fork(NT, 1, 0) session racing the CP search of
+%
+%     model(N, B)  +   P #>= B + 1
+%
+% across the 0/1 labeling tree: the root is worker 0 and the pool
+% refills the deepest active frontier as the search branches (the
+% mode-1 protocol). A process whose territory holds a model of value
+% >= B+1 reports the value P BY VALUE (a small integer; the first
+% reporter wins); the root lifts the bound to that value and arms the
+% next session. The first session that exhausts its territory without
+% a report proves B optimal: no model reaches B+1, and B itself is
+% realized (the all-zero model realizes 0, so the loop always sits on
+% a feasible bound). A worker that dies mid-search flags the session
+% and the collect refuses the verdict (the same liveness argument as
+% the ramsey_pvm UNSAT case): an infeasible iteration is trusted only
+% when every worker finished.
+%
+ % Why P and not X: the driver lifts on the reported value alone
+ % (the bound), so the loop never carries a decoded model across
+ % sessions and the report is a small integer, the cheapest thing the
+ % shared block holds. Reporting X (the 0/1 array) and decoding it
+ % in the root works on this engine (verified: N=10 NT=4 x5,
+ % N=16 NT=8 x20), but the lift needs only the value. The final
+ % model is re-derived after the loop by one plain serial solve at
+ % the proven bound (the same retrieval step the built-in $max loop
+ % performs).
+%
+ % ENGINE STATE (this build): re-arming a mode-1 session in the same
+ % process (pvm_fork ... collect, then pvm_fork again with CHANGED
+ % bounds) is supported -- the engine clears the per-session frame
+ % table and worker state at each re-arm (c_pvm_fork), which the
+ % built-in examples (one session per process) never needed. The
+ % driver's stress runs exposed and led to three engine fixes, all
+ % in emu/parvm.c: (1) the re-arm clear above (stale frame slots
+ % hit recycled addresses and corrupted the CP constraint store:
+ % small_integer_expected at N=16, NT>=2); (2) the delegate-frame
+ % tombstone is now updated in place instead of allocating a second
+ % slot entry for the same frame (a duplicate could shadow the live
+ % record in the probe chain and make a scope exit drop the hand-off
+ % to its live successor child -- a silent coverage gap and a wrong
+ % "optimal" bound); (3) the scope-exit hand-off keys on the live
+ % successor pid, not on ownership. Remaining known issue: a rare
+ % (~1 in 200 at N=20 NT=8 in local stress) run hangs with the root
+ % parked in its successor-chain wait; with PVM_DBG=1 a 15 s
+ % watchdog dumps the wait state. See the "Mode 4" goal section of
+ % docs/parsearch_report.tex.
+ % Verified N x NT grid for this build: 10, 12, 14, 16, 20, 30, 40,
+ % 50, 60, 80, 100 at NT in 0..16 (all vs the 0/1-knapsack DP
+ % optima; NT >= 1 runs 3x, N=20 NT=8 additionally 200x).
+%
+% Problem and encoding: identical to backpack_ps.pi (item i has
+% w(i) = ((i-1) mod 5)+1, v(i) = ((2i) mod 5)+1, capacity N; the
+% weighted sums are materialized per item, as the sat module
+% requires). Reference optima (0/1-knapsack DP): N=10 -> 20,
+% N=20 -> 40, N=40 -> 80, N=100 -> 200; the final model is verified
+% at runtime by an independent recomputation from X alone (weight
+% budget and value, plus P == the proven bound).
+%
+% Run modes (the program never changes):
+%   N=20 picat exs/satext/backpack_pvm.pi       NT=0: the built-in
+%                                               $max reference (serial)
+%   N=20 NT=4 picat exs/satext/backpack_pvm.pi  mode-4, 4 processes
+%   N=40 NT=8 picat exs/satext/backpack_pvm.pi
+%
+% N defaults to 20, NT to 0, when the env vars are absent.
+import sat.
+
+main =>
+    n_from_env(N),
+    nt_from_env(NT),
+    run(N, NT).
+
+main(Args) =>
+    ( Args = [],
+      n_from_env(N), nt_from_env(NT)
+    ; Args = [A1],
+      N = to_int(A1), nt_from_env(NT)
+    ; Args = [A1, A2],
+      N = to_int(A1), NT = to_int(A2)
+    ),
+    run(N, NT).
+
+run(N, 0) =>
+    % the built-in $max reference loop (what library users get
+    % today): first model, then repeated bound-lifted solves until
+    % the lifted instance is infeasible, then retrieval of an
+    % optimal model.
+    bp.c_wall_ms(T0),
+    bp_model0(N, X, Wd, Vd, P),
+    solve([$max(P)], [X, Wd, Vd, P]),
+    check_final(N, X, Wd, P, P),
+    bp.c_wall_ms(T1),
+    writef("backpack_pvm: N=%d serial $max: P=%d, items=%s, %d ms%n",
+           N, P, to_string(to_list(X)), T1 - T0),
+    halt.
+
+run(N, NT) =>
+    NT > 0,
+    bp.c_wall_ms(T0),
+    bnb(N, NT, 0, 0, T0),
+    halt.
+
+% the bound-lift loop: B is always a feasible value (some model
+% realizes it; 0 is realized by the all-zero model). Each session
+% either finds a model of value >= B+1 (reported by value, bound
+% lifted strictly) or exhausts the instance (B proven optimal).
+% Strict integer lifts, bounded above by 5N, make the loop
+% terminate. T0 is threaded so the leaf can time the whole run.
+bnb(N, NT, B, Iter, T0) =>
+    bp.pvm_fork(NT, 1, 0),
+    % one body for every process: a mode-1 worker resumes inside
+    % its delegated value (never through a worker_id branch), so the
+    % report sits where the search itself succeeds; a process whose
+    % territory holds no model of value >= B+1 fails the model and
+    % takes the true branch, which drops it out of the process at
+    % the collect (a worker never executes the root's post-collect
+    % code).
+    ( bp_model(N, B, X, Wd, Vd, P),
+      bp.pvm_report(P)
+    ; true ),
+    bp.pvm_collect(R),
+    ( R = 1,
+      bp.pvm_solution(Ps),
+      Ps > B,
+      writef("  lift %d: P %d -> %d%n", Iter + 1, B, Ps),
+      bnb(N, NT, Ps, Iter + 1, T0)
+    ; final(N, NT, B, Iter, T0) ).
+
+% the loop's leaf: B is proven optimal. One plain serial solve at
+% the proven bound re-derives an optimal model (B is feasible by
+% construction); the verify step recomputes weight and value from X
+% alone and asserts P == B. All of this runs OUTSIDE any session, so
+% the loop never carries a decoded term across a re-arm.
+final(N, NT, B, Iter, T0) =>
+    % retrieval is bounded at P #>= B: since B is proven optimal,
+    % any solution has value exactly B.
+    bp_vars(N, B, X, Wd, Vd, P),
+    solve([ff], [X, Wd, Vd, P]),
+    % plain conjunction (not an if-then-else): in this build an
+    % "Cond -> G1 ; G2" inside a predicate that runs after a
+    % re-armed session silently drops the goals that follow it in
+    % the process. A violated invariant fails the search plainly
+    % instead of calling a handler.
+    P == B,
+    check_final(N, X, Wd, P, B),
+    bp.c_wall_ms(T1),
+    writef("backpack_pvm: N=%d mode-4 NT=%d: P=%d, lifts=%d, items=%s, %d ms%n",
+           N, NT, B, Iter, to_string(to_list(X)), T1 - T0).
+
+% the session search: build the instance with the lifted bound,
+% open the delegation window around the solve only (so the CP
+% decision frames inside it are the delegable 0/1 labelings), solve,
+% close the window. The foreach above and the (model; true) fallback
+% containing this call stay serial.
+bp_model(N, B, X, Wd, Vd, P) =>
+    bp_vars(N, B + 1, X, Wd, Vd, P),
+    bp.pvm_delegate(1),
+    solve([ff], [X, Wd, Vd, P]),
+    bp.pvm_delegate(0).
+
+% the model at the proven bound (no lower bound of its own): used
+% for the serial $max reference and the final model retrieval.
+bp_model0(N, X, Wd, Vd, P) =>
+    bp_vars(N, 0, X, Wd, Vd, P),
+    true.
+
+% the instance with lower bound Lo: the backpack encoding plus
+% P #>= Lo (Lo = 0 for the reference/retrieval solves). The
+% weighted sums are materialized per item, as the sat module
+% requires (no value-list indexing or constant*dvar products inside
+% list comprehensions).
+bp_vars(N, Lo, X, Wd, Vd, P) =>
+    X = new_array(N),
+    X :: 0..1,
+    Wd = new_array(N),
+    Vd = new_array(N),
+    foreach (I in 1..N)
+        Wd[I] #= ((I-1) mod 5 + 1) * X[I],
+        Vd[I] #= ((2*I) mod 5 + 1) * X[I]
+    end,
+    sum(Wd) #<= N,
+    P #= sum(Vd),
+    P #>= Lo.
+
+check_final(N, X, Wd, P, B) =>
+    Wused = sum(Wd),
+    (Wused <= N) -> true ; handle_exception($weight_over(Wused), check_final),
+    Vsum = value_of(N, X),
+    (Vsum == P) -> true ; handle_exception($value_mismatch(P, Vsum), check_final),
+    (P == B) -> true ; handle_exception($not_optimal(P, B), check_final).
+
+% independent recomputation from X alone (the pattern, not the
+% model's arrays): the final model is verified against it.
+value_of(N, X, V) =>
+    L = [((2*I) mod 5 + 1) : I in 1..N, X[I] == 1],
+    V = sum(L).
+
+n_from_env(N) =>
+    ((bp.picat_getenv("N", S)) -> N = to_int(S) ; N = 20),
+    (N >= 3),
+    (N <= 100).
+
+nt_from_env(NT) =>
+    ((bp.picat_getenv("NT", S)) -> NT = to_int(S) ; NT = 0),
+    (NT >= 0),
+    (NT <= 4096).
