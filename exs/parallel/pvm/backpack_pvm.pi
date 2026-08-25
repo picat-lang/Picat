@@ -51,7 +51,7 @@
  % 50, 60, 80, 100 at NT in 0..16 (all vs the 0/1-knapsack DP
  % optima; NT >= 1 runs 3x, N=20 NT=8 additionally 200x).
 %
-% Problem and encoding: identical to backpack_ps.pi (item i has
+% Problem and encoding: identical to exs/satext/backpack_ps.pi (item i has
 % w(i) = ((i-1) mod 5)+1, v(i) = ((2i) mod 5)+1, capacity N; the
 % weighted sums are materialized per item, as the sat module
 % requires). Reference optima (0/1-knapsack DP): N=10 -> 20,
@@ -60,10 +60,10 @@
 % budget and value, plus P == the proven bound).
 %
 % Run modes (the program never changes):
-%   N=20 picat exs/satext/backpack_pvm.pi       NT=0: the built-in
+%   N=20 picat exs/parallel/pvm/backpack_pvm.pi       NT=0: the built-in
 %                                               $max reference (serial)
-%   N=20 NT=4 picat exs/satext/backpack_pvm.pi  mode-4, 4 processes
-%   N=40 NT=8 picat exs/satext/backpack_pvm.pi
+%   N=20 NT=4 picat exs/parallel/pvm/backpack_pvm.pi  mode-4, 4 processes
+%   N=40 NT=8 picat exs/parallel/pvm/backpack_pvm.pi
 %
 % N defaults to 20, NT to 0, when the env vars are absent.
 import sat.
