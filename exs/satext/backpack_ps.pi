@@ -9,12 +9,14 @@
 % capacity is N (average weight is 3). Objective: maximize total value
 % under the weight budget.
 %
-% Search: solve([$max(P)], ...) -- the precompiled branch-and-bound
-% of the built-in library (first model, then repeated bound-lifted
-% solves until the lifted instance is infeasible, then retrieval of
-% an optimal model). Every engine solve of that loop goes through
-% the swap point, so with SATEXT_SOLVER each loop iteration is run
-% by the external solver(s) -- a portfolio re-races each iteration.
+% Search: solve([$max(P)], ...) -- the precompiled native
+% optimizer of the built-in sat library. Its strategy is a binary
+% search over the objective value by default (the `split` option;
+% `seq` selects sequential search), so the number of internal
+% solves is O(log of the objective range), not one per objective
+% unit. Every internal solve goes through the swap point, so with
+% SATEXT_SOLVER each iteration is run by the external solver(s) --
+% a portfolio re-races each iteration.
 % On small instances remember that a portfolio only races when the
 % estimated CNF exceeds SATEXT_PRT_MIN (default 64 KiB); pass
 % SATEXT_PRT_MIN=1 to see the per-iteration races.

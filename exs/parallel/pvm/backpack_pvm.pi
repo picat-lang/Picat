@@ -42,11 +42,30 @@
  % record in the probe chain and make a scope exit drop the hand-off
  % to its live successor child -- a silent coverage gap and a wrong
  % "optimal" bound); (3) the scope-exit hand-off keys on the live
- % successor pid, not on ownership. Remaining known issue: a rare
- % (~1 in 200 at N=20 NT=8 in local stress) run hangs with the root
- % parked in its successor-chain wait; with PVM_DBG=1 a 15 s
- % watchdog dumps the wait state. See the "Mode 4" goal section of
- % docs/parsearch_report.tex.
+  % successor pid, not on ownership. Two rare residual issues remain,
+  % both load/timing dependent and NOT caught by the liveness veto,
+  % which only guarantees every worker FINISHED (not that the union
+  % of their territories covered the whole instance):
+  %   (a) a run hangs with the root parked in its successor-chain
+  %       wait (~1 in 200 at N=20 NT=8 in local stress); with
+  %       PVM_DBG=1 a 15 s watchdog dumps the wait state.
+  %   (b) a run can return a SPORADIC, TOO-LOW "optimum" (observed
+  %       P=31 then P=29 at N=20 NT=8, ~1 per 40 runs in a tight
+  %       loop; 0 in the original 200-run stress and 0 under
+  %       PVM_DBG=1): every worker finished, none reported a model
+  %       >= B+1, yet a model exists above B -- a silent coverage
+  %       gap of exactly the class fixed above, a residual
+  %       manifestation in the re-armed mode-1 hand-off. This is a
+  %       soundness bug to be fixed in emu/parvm.c; until then this
+  %       driver carries a driver-side serial self-check.
+  %
+  % SELF-CHECK (RECHECK=1 by default, RECHECK=0 off): after the loop
+  % proves B, the leaf re-solves the instance serially with
+  % P #>= B+1. Infeasible -> B confirmed. If a model is found, the
+  % verdict was spurious and a hard $recheck_veto run_time_error
+  % fires instead of printing a wrong P (costs one serial proving
+  % solve). The banded twin (backpack_band.pi) carries the same
+  % check. See the "Mode 4" goal section of docs/parsearch_report.tex.
  % Verified N x NT grid for this build: 10, 12, 14, 16, 20, 30, 40,
  % 50, 60, 80, 100 at NT in 0..16 (all vs the 0/1-knapsack DP
  % optima; NT >= 1 runs 3x, N=20 NT=8 additionally 200x).
@@ -65,7 +84,8 @@
 %   N=20 NT=4 picat exs/parallel/pvm/backpack_pvm.pi  mode-4, 4 processes
 %   N=40 NT=8 picat exs/parallel/pvm/backpack_pvm.pi
 %
-% N defaults to 20, NT to 0, when the env vars are absent.
+% N defaults to 20, NT to 0, RECHECK to 1 (the serial optimality
+% self-check; set RECHECK=0 to study the raw protocol without it).
 import sat.
 
 main =>
@@ -84,10 +104,12 @@ main(Args) =>
     run(N, NT).
 
 run(N, 0) =>
-    % the built-in $max reference loop (what library users get
-    % today): first model, then repeated bound-lifted solves until
-    % the lifted instance is infeasible, then retrieval of an
-    % optimal model.
+    % the built-in $max reference (what library users get today).
+    % This is the sat module, whose $max optimizer runs a binary
+    % search over the objective value by default (the `split`
+    % strategy in the sat solving options; `seq` selects a
+    % sequential search) -- NOT a literal +1 bound lift. Retrieval
+    % of the optimal model happens inside the built-in.
     bp.c_wall_ms(T0),
     bp_model0(N, X, Wd, Vd, P),
     solve([$max(P)], [X, Wd, Vd, P]),
@@ -100,7 +122,8 @@ run(N, 0) =>
 run(N, NT) =>
     NT > 0,
     bp.c_wall_ms(T0),
-    bnb(N, NT, 0, 0, T0),
+    recheck_on(R),
+    bnb(N, NT, 0, 0, T0, R),
     halt.
 
 % the bound-lift loop: B is always a feasible value (some model
@@ -108,8 +131,9 @@ run(N, NT) =>
 % either finds a model of value >= B+1 (reported by value, bound
 % lifted strictly) or exhausts the instance (B proven optimal).
 % Strict integer lifts, bounded above by 5N, make the loop
-% terminate. T0 is threaded so the leaf can time the whole run.
-bnb(N, NT, B, Iter, T0) =>
+% terminate. T0 and the re-check flag R are threaded so the leaf can
+% time the whole run and decide on the self-check.
+bnb(N, NT, B, Iter, T0, R) =>
     bp.pvm_fork(NT, 1, 0),
     % one body for every process: a mode-1 worker resumes inside
     % its delegated value (never through a worker_id branch), so the
@@ -121,20 +145,22 @@ bnb(N, NT, B, Iter, T0) =>
     ( bp_model(N, B, X, Wd, Vd, P),
       bp.pvm_report(P)
     ; true ),
-    bp.pvm_collect(R),
-    ( R = 1,
+    bp.pvm_collect(Rc),
+    ( Rc = 1,
       bp.pvm_solution(Ps),
       Ps > B,
       writef("  lift %d: P %d -> %d%n", Iter + 1, B, Ps),
-      bnb(N, NT, Ps, Iter + 1, T0)
-    ; final(N, NT, B, Iter, T0) ).
+      bnb(N, NT, Ps, Iter + 1, T0, R)
+    ; final(N, NT, B, Iter, T0, R) ).
 
 % the loop's leaf: B is proven optimal. One plain serial solve at
 % the proven bound re-derives an optimal model (B is feasible by
 % construction); the verify step recomputes weight and value from X
-% alone and asserts P == B. All of this runs OUTSIDE any session, so
-% the loop never carries a decoded term across a re-arm.
-final(N, NT, B, Iter, T0) =>
+% alone and asserts P == B. With the self-check (R = 1) a second
+% plain serial solve re-proves the verdict itself. All of this runs
+% OUTSIDE any session, so the loop never carries a decoded term
+% across a re-arm.
+final(N, NT, B, Iter, T0, 1) =>
     % retrieval is bounded at P #>= B: since B is proven optimal,
     % any solution has value exactly B.
     bp_vars(N, B, X, Wd, Vd, P),
@@ -146,9 +172,40 @@ final(N, NT, B, Iter, T0) =>
     % instead of calling a handler.
     P == B,
     check_final(N, X, Wd, P, B),
+    recheck(N, B),
+    report_final(N, NT, B, Iter, T0, 1, X).
+
+final(N, NT, B, Iter, T0, 0) =>
+    bp_vars(N, B, X, Wd, Vd, P),
+    solve([ff], [X, Wd, Vd, P]),
+    P == B,
+    check_final(N, X, Wd, P, B),
+    report_final(N, NT, B, Iter, T0, 0, X).
+
+report_final(N, NT, B, Iter, T0, R, X) =>
     bp.c_wall_ms(T1),
-    writef("backpack_pvm: N=%d mode-4 NT=%d: P=%d, lifts=%d, items=%s, %d ms%n",
-           N, NT, B, Iter, to_string(to_list(X)), T1 - T0).
+    writef("backpack_pvm: N=%d mode-4 NT=%d: P=%d, lifts=%d, items=%s, recheck=%d, %d ms%n",
+           N, NT, B, Iter, to_string(to_list(X)), R, T1 - T0).
+
+% the serial optimality self-check (on by default; RECHECK=0 off):
+% re-solve the instance with P #>= B+1 in the one process. If B is
+% truly optimal the instance is infeasible and the negation holds;
+% if a model IS found, the parallel verdict was spurious (the known
+% rare engine coverage gap in re-armed mode-1 sessions -- every
+% worker finished, none reported, yet a model exists above B), and
+% the terminal handle_exception raises a hard run_time_error
+% instead of letting a wrong P be printed. Liveness alone cannot
+% catch this: the gap is in the union of live workers' territories,
+% not in a dead worker. Costs one serial proving solve.
+recheck(N, B) =>
+    bp_vars(N, B + 1, Xw, Wdw, Vdw, Pw),
+    ( \+ solve([ff], [Xw, Wdw, Vdw, Pw])
+    -> true
+    ;
+      handle_exception($recheck_veto(N, B), true) ).
+
+recheck_on(R) =>
+    ((bp.picat_getenv("RECHECK", S)) -> R = to_int(S) ; R = 1).
 
 % the session search: build the instance with the lifted bound,
 % open the delegation window around the solve only (so the CP
