@@ -378,6 +378,7 @@ lab_fail0:
 #if PAR_THREADS
 lab_pvm_deleg_fail:
     pvm_deleg_wait(B);
+    pvm_dbg("STUBX", B, (long)pvm_last_deleg_status);
     /* st == 0: the delegated region's outcome is consumed (found or
        exhausted; a worker that got here with found set has already
        dropped out in pvm_deleg_wait). Either way the resume is the

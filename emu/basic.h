@@ -391,6 +391,7 @@ void pvm_slot_rearm(BPLONG_PTR ar);
 void pvm_scope_lost(BPLONG_PTR b);
 void pvm_reap_my_children(void);
 int pvm_deleg_wait(BPLONG_PTR f);
+void pvm_dbg(const char *tag, BPLONG_PTR ar, long extra);
 extern BPLONG pvm_rerun_site;
 extern BPLONG pvm_child_reentry;
 extern int pvm_last_deleg_status;

@@ -881,11 +881,54 @@ static int pvm_dbg_on(void)
     return on;
 }
 
-static void pvm_dbg(const char *tag, BPLONG_PTR ar, long extra)
+void pvm_dbg(const char *tag, BPLONG_PTR ar, long extra)
 {
     if (pvm_dbg_on())
         fprintf(stderr, "%s pid=%d ar=%p x=%ld\n", tag, (int)getpid(),
                 (void *)ar, extra);
+}
+
+static volatile int pvm_diag_inwait = 0;
+static volatile long pvm_diag_p = 0;
+static volatile long pvm_diag_n = 0;
+
+/* PVM_DBG watchdog: SIGALRM (15 s while armed) dumps, async-signal
+   safely via write(2), where a root/worker that should be spinning
+   its (a) wait loop actually is. */
+static void pvm_watchdog(int sig)
+{
+    char buf[2048];
+    int o = 0;
+    long i;
+    long hit = 0, claim = 0;
+    long tickmax = -1;
+
+    (void)sig;
+    alarm(15);
+    if (pvm_shm != NULL) {
+        for (i = 0; i < PVM_DONE_SLOTS; i++) {
+            long q = pvm_shm->pvm_done[i].pid;
+            if (q == pvm_diag_p) hit++;
+            if (q == -pvm_diag_p) claim++;
+            if (q != 0 && pvm_shm->pvm_done[i].tick > tickmax)
+                tickmax = pvm_shm->pvm_done[i].tick;
+        }
+        o += snprintf(buf + o, 2048 - (size_t)o,
+                      "DIAGWATCH pid=%d inwait=%d p=%ld n=%ld live=%ld "
+                      "free=%ld found=%d bad=%d hit=%ld claim=%ld "
+                      "tickmax=%ld shm=%p\n",
+                      (int)getpid(), pvm_diag_inwait, pvm_diag_p,
+                      pvm_diag_n, (long)pvm_shm->live,
+                      (long)pvm_shm->pool_free, (int)pvm_shm->found,
+                      (int)pvm_shm->bad, hit, claim, tickmax,
+                      (void *)pvm_shm);
+    } else {
+        o += snprintf(buf + o, 2048 - (size_t)o,
+                      "DIAGWATCH pid=%d inwait=%d p=%ld n=%ld shm=%p\n",
+                      (int)getpid(), pvm_diag_inwait, pvm_diag_p,
+                      pvm_diag_n, (void *)pvm_shm);
+    }
+    write(2, buf, (size_t)o);
 }
 
 /* Bump the shared waker word and wake parked (a) waiters. */
@@ -1071,6 +1114,10 @@ static void pvm_done_write(long pid, long st, long succ)
         pvm_shm->pvm_done[i].pid = pid;
         pvm_shm->pvm_done[i].tick =
             __sync_fetch_and_add(&pvm_shm->pvm_tick, 1);
+        if (pvm_dbg_on())
+            fprintf(stderr,
+                    "DONE-WRITE pid=%d slot=%ld st=%ld succ=%ld nsh=%p\n",
+                    (int)pid, i, st, succ, (void *)pvm_shm);
         pvm_pool_wake();
         return;
     }
@@ -1121,6 +1168,19 @@ static int pvm_done_lookup(long pid, long *st, long *succ)
             return 1;
         }
     return 0;
+}
+
+/* PVM_DBG: how many done slots currently (still) carry pid. */
+static long pvm_spin_donehits(long pid)
+{
+    long i, n = 0, neg = 0;
+
+    if (pvm_shm == NULL) return -1;
+    for (i = 0; i < PVM_DONE_SLOTS; i++) {
+        if (pvm_shm->pvm_done[i].pid == pid) n++;
+        if (pvm_shm->pvm_done[i].pid == -pid) neg++;
+    }
+    return (neg > 0) ? -(n + 1) : n;   /* -1-n: a claim (-pid) lingers */
 }
 
 /* Record my outcome, release my seat + process slot, drop the live
@@ -1483,21 +1543,35 @@ static int pvm_slot_alloc(BPLONG_PTR ar)
    slot on a re-fire would delegate "values" that are not values and
    park the owner mid-search (the q479 n10 R=0 corruption). Mark such
    frames so every later firing of the same address walks serially.
-   Conservative by design: a recycled local-stack address that later
-   hosts a fresh frame only COSTS a missed delegation. */
+    Conservative by design: a recycled local-stack address that later
+    hosts a fresh frame only COSTS a missed delegation. An existing
+    record is updated IN PLACE: a second entry for the same address
+    could sit earlier in the probe chain than the live delegation
+    record, and pvm_slot_lookup would then hand the scope exit a
+    tombstone (pid 0) while a live successor child is recorded
+    behind it -- the worker exits 0 instead of 77-handing-off, the
+    (a) waiter stops following the chain early, and the search
+    reports a false infeasible (wrong optimum). A live successor pid
+    survives the tombstone: the child is real and its region must
+    still be reported at the scope exit. */
 static void pvm_slot_tombstone(BPLONG_PTR ar)
 {
-    int s = pvm_slot_alloc(ar);
+    int s = pvm_slot_lookup(ar);
 
-    if (s < 0) return;
-    pvm_forked_ar[s] = (BPLONG)ar;
+    if (s < 0) {
+        s = pvm_slot_alloc(ar);
+        if (s < 0) return;
+        pvm_forked_ar[s] = (BPLONG)ar;
+        pvm_forked_pid[s] = 0;
+        pvm_forked_st[s] = -1;
+    }
     pvm_forked_re[s] = 0;
     pvm_forked_e1H[s] = 0;
     pvm_forked_e1T[s] = 0;
     pvm_forked_e1SF[s] = 0;
     pvm_forked_e1TOP[s] = 0;
-    pvm_forked_pid[s] = 0;
-    pvm_forked_st[s] = -1;
+    if (pvm_forked_pid[s] <= 0)
+        pvm_forked_st[s] = -1;
     pvm_forked_tried[s] = 0;
     pvm_forked_from[s] = 0;
     pvm_forked_mine[s] = 0;
@@ -1796,8 +1870,14 @@ int pvm_fork_frame(BPLONG_PTR ar, BPLONG_PTR p)
         int rs;
         long succ = 0;
 
+        /* a live successor is a fact even if the frame record was
+           tombstoned in the meantime (re-fired with drifted state):
+           the child still walks values nobody else covers, so the
+           hand-off is mandatory. Keying on mine here dropped the
+           hand-off whenever a duplicate tombstone entry shadowed
+           the live record -- the false-infeasible gap. */
         rs = pvm_slot_lookup((BPLONG_PTR)pvm_my_rootframe);
-        if (rs >= 0 && pvm_forked_mine[rs] && pvm_forked_pid[rs] > 0)
+        if (rs >= 0 && pvm_forked_pid[rs] > 0)
             succ = pvm_forked_pid[rs];
         pvm_dbg("SCOPE-EXIT", ar, (long)pvm_my_rootframe);
         if (succ)
@@ -2457,6 +2537,7 @@ int pvm_deleg_wait(BPLONG_PTR f)
             if (pvm_my_seat >= 0)
                 pvm_shm->pvm_seat[pvm_my_seat].wait = 0;
             if (dst == 0) {
+                pvm_dbg("WAIT-RES0", f, (long)consumed);
                 pvm_done_invalidate(consumed);
                 pvm_forked_pid[s] = 0;
                 pvm_forked_st[s] = 0;
@@ -2502,14 +2583,48 @@ int pvm_deleg_wait(BPLONG_PTR f)
         }
         if (pvm_dbg_on()) {
             static BPLONG last_lt = (BPLONG)-1;
+            static long spin_n = 0;
             if ((BPLONG)local_top != last_lt) {
                 fprintf(stderr, "WTCH pid=%d LT-chg %p -> %p\n",
                         (int)getpid(), (void *)last_lt,
                         (void *)local_top);
                 last_lt = (BPLONG)local_top;
             }
+            spin_n++;
+            if (spin_n == 100) {
+                long di, nfill = 0;
+                fprintf(stderr,
+                        "RING pid=%d nsh=%p waiting_p=%ld\n",
+                        (int)getpid(), (void *)pvm_shm, p);
+                for (di = 0; di < PVM_DONE_SLOTS; di++)
+                    if (pvm_shm->pvm_done[di].pid != 0) {
+                        nfill++;
+                        if (nfill <= 40)
+                            fprintf(stderr,
+                                    "  [%ld] pid=%ld st=%ld succ=%ld "
+                                    "tick=%ld\n",
+                                    di, (long)pvm_shm->pvm_done[di].pid,
+                                    (long)pvm_shm->pvm_done[di].st,
+                                    (long)pvm_shm->pvm_done[di].succ,
+                                    (long)pvm_shm->pvm_done[di].tick);
+                    }
+                fprintf(stderr, "  total filled=%ld\n", nfill);
+            }
+            if (spin_n <= 50 || spin_n % 500 == 0)
+                fprintf(stderr,
+                        "SPIN pid=%d p=%ld n=%ld live=%ld free=%ld "
+                        "found=%d bad=%d donehits=%ld\n",
+                        (int)getpid(), p, spin_n,
+                        (long)pvm_shm->live,
+                        (long)pvm_shm->pool_free,
+                        (int)pvm_shm->found, (int)pvm_shm->bad,
+                        (long)pvm_spin_donehits(p));
         }
+        pvm_diag_p = p;
+        pvm_diag_n++;
+        pvm_diag_inwait = 1;
         pvm_park_sleep();
+        pvm_diag_inwait = 0;
     }
 }
 
@@ -2555,9 +2670,60 @@ int c_pvm_fork()
         bp_exception = illegal_arguments;  /* nested sessions: unsupported */
         return BP_ERROR;
     }
+    {
+        int k;
+        /* re-arm hygiene: a session is one-shot and the previous
+           session's processes are all dead (its collect reaped
+           them), so every per-session record left standing is dead
+           weight. Stale entries were observed to hit recycled frame
+           addresses in the next session (a stale re-entry word, a
+           phantom pending/tombstone state), corrupting live frames
+           and the CP constraint store of a re-armed model build.
+           Clear the frame table and the per-process session state;
+           children inherit the cleared table through the fork. */
+        for (k = 0; k < PVM_FRAME_LOG; k++) {
+            pvm_forked_ar[k] = 0;
+            pvm_forked_re[k] = 0;
+            pvm_forked_e1H[k] = 0;
+            pvm_forked_e1T[k] = 0;
+            pvm_forked_e1SF[k] = 0;
+            pvm_forked_e1TOP[k] = 0;
+            pvm_forked_pid[k] = 0;
+            pvm_forked_st[k] = -1;
+            pvm_forked_tried[k] = 0;
+            pvm_forked_from[k] = 0;
+            pvm_forked_mine[k] = 0;
+            pvm_forked_root[k] = 0;
+            pvm_forked_tail[k] = 0;
+            pvm_forked_pending[k] = 0;
+        }
+        pvm_skip_count = 0;
+        pvm_skip_armed = 0;
+        pvm_skip_frame = 0;
+        pvm_e1_H = 0;
+        pvm_e1_T = 0;
+        pvm_e1_SF = 0;
+        pvm_e1_TOP = 0;
+        pvm_e1_re = 0;
+        pvm_rerun_site = 0;
+        pvm_child_reentry = 0;
+        pvm_my_seat = -1;
+        pvm_nchildren = 0;
+        pvm_child_bad = 0;
+        pvm_rent_nfires = 99;
+        pvm_rent_nfails = 99;
+        pvm_last_deleg_status = -1;
+    }
     if (pvm_open_shm() != BP_TRUE) {
         bp_exception = illegal_arguments;
         return BP_ERROR;
+    }
+    if (!pvm_is_fork_child && getenv("PVM_DBG") != NULL) {
+        struct sigaction sa;
+        memset(&sa, 0, sizeof(sa));
+        sa.sa_handler = pvm_watchdog;
+        sigaction(SIGALRM, &sa, NULL);
+        alarm(15);
     }
 
     pvm.nt = nt;
