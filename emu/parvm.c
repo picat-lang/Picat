@@ -892,6 +892,11 @@ static volatile int pvm_diag_inwait = 0;
 static volatile long pvm_diag_p = 0;
 static volatile long pvm_diag_n = 0;
 
+/* Monotonic time (us) the current (a) wait first saw its successor
+   (0 = re-armed by a p reassignment); drives the liveness backstop
+   in the wait loop. */
+static long pvm_wait_p_since_us = 0;
+
 /* PVM_DBG watchdog: SIGALRM (15 s while armed) dumps, async-signal
    safely via write(2), where a root/worker that should be spinning
    its (a) wait loop actually is. */
@@ -1369,6 +1374,52 @@ static void pvm_park_sleep(void)
         ts.tv_nsec -= 1000000000L;
     }
     syscall(SYS_futex, (void *)&pvm_shm->wake, FUTEX_WAIT, v, &ts, NULL, 0);
+}
+
+/* The park's timeout above is an absolute CLOCK_REALTIME deadline.
+   A BACKWARD step of the wall clock (observed in this container: the
+   host time syncs step the clock by minutes..hours at random) moves
+   that deadline into the future by the whole step, so a 5 ms park
+   can sleep for the duration of the step before timing out; if the
+   waited-for worker already died without a waker, the (a) wait then
+   hangs for that whole step (or forever if the successor never
+   records). A periodic signal from a CLOCK_MONOTONIC timer cuts any
+   such stall: it interrupts the futex (EINTR), the wait loop
+   re-checks its condition, and the liveness backstop in
+   pvm_deleg_wait turns a "successor gone without a record" miss into
+   a failed session instead of an unbounded wait. The handler is
+   empty on purpose (no action needed); the timer is armed once by
+   the first session arm and inherited by the COW children (fork
+   copies armed clocks), which protects the workers' waits too. */
+static timer_t pvm_keepalive_tmr = (timer_t)0;
+static void pvm_keepalive_noop(int sig)
+{
+    (void)sig;
+}
+static void pvm_keepalive_arm(void)
+{
+    static int armed = 0;
+    struct sigaction sa;
+    struct sigevent sev;
+    struct itimerspec its;
+
+    if (armed || pvm_is_fork_child)
+        return;
+    armed = 1;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = pvm_keepalive_noop;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sigaction(SIGURG, &sa, NULL);
+    memset(&sev, 0, sizeof(sev));
+    sev.sigev_notify = SIGEV_SIGNAL;
+    sev.sigev_signo = SIGURG;
+    if (timer_create(CLOCK_MONOTONIC, &sev, &pvm_keepalive_tmr) != 0)
+        return;
+    its.it_value.tv_sec = 0;
+    its.it_value.tv_nsec = 50000000L;  /* every 50 ms */
+    its.it_interval = its.it_value;
+    timer_settime(pvm_keepalive_tmr, 0, &its, NULL);
 }
 
 static int pvm_open_shm(void)
@@ -2529,6 +2580,7 @@ int pvm_deleg_wait(BPLONG_PTR f)
     __sync_fetch_and_add(&pvm_shm->pool_free, 1);
     pvm_dbg("A-WAIT", f, (long)p);
     p = (long)pvm_forked_pid[s];
+    pvm_wait_p_since_us = 0;
     for (;;) {
         if (pvm_done_lookup(p, &dst, &dsucc)) {
             long consumed = p;
@@ -2548,10 +2600,11 @@ int pvm_deleg_wait(BPLONG_PTR f)
                 /* keep waiting on the successor; my slot stays OUT
                    of the pool for the whole chain (released once at
                    entry, taken back once at exit -- any +1 here
-                   leaks the pool, which was the free<0 underflow) */
+                 leaks the pool, which was the free<0 underflow) */
                 pvm_done_invalidate(consumed);
                 p = dsucc;
                 pvm_forked_pid[s] = (BPLONG)p;
+                pvm_wait_p_since_us = 0;
                 if (pvm_my_seat >= 0)
                     pvm_shm->pvm_seat[pvm_my_seat].wait = 1;
                 continue;
@@ -2619,6 +2672,40 @@ int pvm_deleg_wait(BPLONG_PTR f)
                         (long)pvm_shm->pool_free,
                         (int)pvm_shm->found, (int)pvm_shm->bad,
                         (long)pvm_spin_donehits(p));
+        }
+        /* Liveness backstop (see pvm_keepalive_arm): the park above
+           is woken at most every 50 ms by the monotonic keepalive,
+           so a stall is bounded; if the waited-for successor has
+           died and left NO done record, no waker will ever come
+           (an orphaned grandchild whose parent died clean is
+           reaped by no one and flags nothing) -- fail the session
+           instead of waiting forever. A still-alive successor is
+           legitimate (between death and publish, or its own (a)
+           wait is simply slow): keep waiting. 200 ms of no
+           progress is far beyond any legitimate hand-off latency
+           in a healthy session. */
+        {
+            struct timespec mts;
+            long mnow;
+
+            clock_gettime(CLOCK_MONOTONIC, &mts);
+            mnow = (long)mts.tv_sec * 1000000L + (long)mts.tv_nsec / 1000L;
+            if (pvm_wait_p_since_us == 0)
+                pvm_wait_p_since_us = mnow;
+            if (mnow - pvm_wait_p_since_us >= 200000L &&
+                kill((pid_t)p, 0) == -1 && errno == ESRCH &&
+                !pvm_done_lookup(p, &dst, &dsucc)) {
+                pvm_done_invalidate(p);
+                pvm_child_bad = 1;
+                pvm_shm->bad = 1;
+                __sync_fetch_and_add(&pvm_shm->pool_free, -1);
+                if (pvm_my_seat >= 0)
+                    pvm_shm->pvm_seat[pvm_my_seat].wait = 0;
+                pvm_forked_pid[s] = 0;
+                pvm_forked_st[s] = 1;
+                pvm_last_deleg_status = 1;
+                return 1;
+            }
         }
         pvm_diag_p = p;
         pvm_diag_n++;
@@ -2757,6 +2844,7 @@ int c_pvm_fork()
             sa.sa_flags = SA_RESTART;
             sigaction(SIGCHLD, &sa, NULL);
         }
+        pvm_keepalive_arm();
         return BP_TRUE;
     }
 
