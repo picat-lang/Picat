@@ -338,6 +338,11 @@ typedef struct {
        waiters parked in pvm_deleg_wait. */
     volatile long pool_free;
     volatile long wake;
+    volatile long base; /* mode 2: the session's value base B
+                           (absolute values are B+1..B+A); -1 = the
+                           live-bound supersede is off (a plain fork) */
+    volatile long lb;    /* mode 2: max model value found in this
+                            session so far (absolute; 0 = none) */
     /* one frontier seat per live process, for the deepest-frontier
        fork gate: pid = 0 (idle) or the owner's pid; depth = frame
        address of the process's current frontier (deeper frames have

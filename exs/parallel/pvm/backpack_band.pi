@@ -10,6 +10,16 @@
 % empty band that sits above the new B. A round in which every band
 % reports empty proves B optimal (liveness veto as always: trusted
 % only when every worker reported; the collect refuses a dead one).
+ %
+ % Live bound (pvm_fork_lb): a band is worthless the moment another
+ % band finds a model at or above its top, so a worker band whose top
+ % falls at or below the max value found in the round stops at its
+ % next choice point, claiming the empty report for its band (which
+ % the lift and the tightened-U readout provably ignore). On the
+ % knapsack family the saving is at or below measurement noise --
+ % the hard work is the final all-empty proving round (no model to
+ % find) and the bands above the lift -- but the round no longer pays
+ % for doomed bands when the timing allows.
 %
 % Compare with backpack_pvm.pi: the same B&B loop, but each
 % iteration there is one mode-1 session racing a single bound B+1
@@ -75,7 +85,12 @@ banded(N, NT, B, U, Iter, T0) =>
         final(N, NT, B, Iter, T0)
     ;
       nchunks(NT, W, Nch),
-      bp.pvm_fork(NT, 2, W),
+      % live-bound round: a worker band whose top falls at or below
+      % the max value another band finds stops at its next choice
+      % point (it claims the empty report; the lift ignores bands at
+      % or below the new bound), so a lifting round pays only for the
+      % bands still above the lift.
+      bp.pvm_fork_lb(NT, 2, W, B),
       bp.pvm_worker_id(I),
       ( I > 0,
         bp.pvm_chunk(Lo, Hi),

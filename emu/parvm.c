@@ -45,6 +45,7 @@
 
 /* M2 cpreds (defined below, in both PAR_THREADS sections) */
 int c_pvm_fork(void);
+int c_pvm_fork_lb(void);
 int c_pvm_delegate(void);
 int c_pvm_worker_id(void);
 int c_pvm_chunk(void);
@@ -431,6 +432,43 @@ static int pvm_report_append(BPLONG t)
     n = pvm_enc_term(t, (BPLONG_PTR)pvm_sol_cache, 0, PVM_SOL_CAP);
     if (n < 0)
         return BP_ERROR;   /* not a ground term or too large */
+    if (pvm.mode == 2 && pvm_shm->base >= 0) {
+        /* live-bound publish (on the CLEAN encoding: the cache's
+           offsets are cache-relative until the shift below): a
+           2-int list report [Lo, V] with V > 0 carries the absolute
+           value of a found model; raise the session max so chunks
+           wholly below it can stop (the pvm_fork_frame check). A 0
+           is the "band empty" marker, not a model, and the other
+           drivers' report shapes (a bare count, longer lists) never
+           decode to [int, int > 0]. */
+        BPLONG_PTR c = (BPLONG_PTR)pvm_sol_cache;
+
+        if (n >= 6 && c[0] == (BPLONG)PVM_T_LIST &&
+            c[1] == (BPLONG)2) {
+            long o0 = (long)c[2], o1 = (long)c[3];
+            BPLONG vterm;
+            long v;
+
+            if (o0 < n && o1 + 1 < n &&
+                c[o0] == (BPLONG)PVM_T_INT &&
+                c[o1] == (BPLONG)PVM_T_INT &&
+                pvm_dec_term(c, o1, n, &vterm) == BP_TRUE &&
+                ISINT(vterm)) {
+                v = INTVAL(vterm);
+                if (v > 0)
+                    for (;;) {
+                        long cur = pvm_shm->lb;
+
+                        if (v <= cur) break;
+                        if (__sync_bool_compare_and_swap(
+                                &pvm_shm->lb, cur, v)) {
+                            pvm_dbg("LB-PUB", NULL, v);
+                            break;
+                        }
+                    }
+            }
+        }
+    }
     for (;;) {
         pos = pvm_shm->count;
         if (pos < 0 || pos + n + 1 > PVM_SOL_CAP) {
@@ -661,6 +699,7 @@ void Cboot_parvm()
     insert_cpred("c_par_vm_test", 1, c_par_vm_test);
     insert_cpred("pvm_delegate", 1, c_pvm_delegate);
     insert_cpred("pvm_fork", 3, c_pvm_fork);
+    insert_cpred("pvm_fork_lb", 4, c_pvm_fork_lb);
     insert_cpred("pvm_worker_id", 1, c_pvm_worker_id);
     insert_cpred("pvm_chunk", 2, c_pvm_chunk);
     insert_cpred("pvm_report", 1, c_pvm_report);
@@ -676,6 +715,13 @@ void Cboot_parvm()
  *   bp.pvm_fork(NT, Mode, A)   start a parallel session with NT search
  *       processes. Mode 1 = first solution, 2 = count all. A = the
  *       number of values of the partition variable (mode 2).
+ *   bp.pvm_fork_lb(NT, 2, A, B)  a mode-2 session with the live bound:
+ *       values are absolute B+1..B+A and a worker chunk wholly below
+ *       the max model value another worker reports stops (it claims
+ *       the empty report for its chunk, which the driver's bound lift
+ *       and above-lift readout provably ignore). For sessions that
+ *       lift a bound per found model and re-fork (e.g. the banded
+ *       knapsack driver); counting sessions must use pvm_fork.
  *   bp.pvm_worker_id(I)        this process's worker id (0 = root).
  *   bp.pvm_chunk(Lo,Hi)        this process's value slice for the
  *       partition variable (mode 2; the whole [1,A] for mode 1/root).
@@ -760,6 +806,14 @@ pvm_shm_t *pvm_shm = NULL;
 
 static char pvm_shm_name[64];
 static int pvm_is_fork_child = 0;
+
+/* Mode 2, live-bound sessions: 1 once this worker has reported in
+   the current session. The supersede exit must not claim a second
+   report for an already-reported chunk (a finder whose model sits
+   exactly at its own band top supersedes itself after reporting;
+   the root then sees Nch+1 reports and the driver's count check
+   fails). */
+static int pvm_m2_reported = 0;
 
 /* Delegation window (process-local, COW'd with the rest of the engine
    state): bp.pvm_delegate(1) before solve(), bp.pvm_delegate(0) after.
@@ -1253,6 +1307,40 @@ static void pvm_worker_die_found(void)
     pvm_worker_exit(0, 0);
 }
 
+/* Mode 2, live-bound session: my chunk's absolute top (base + w_hi)
+   lies at or below the max model value another worker already
+   reported (pvm_shm->lb). The driver will lift its bound to at least
+   that value and re-fork the round, so my verdict is valueless. Claim
+   the empty report for my chunk FIRST -- [w_lo, 0] -- so the root's
+   report count stays complete and the result shape is unchanged: a
+   0 never lifts a bound, and the driver's upper-end readout only
+   consults empty bands whose origin sits ABOVE the lifted bound,
+   while mine (base + w_lo <= base + w_hi <= lb) cannot. noreturn. */
+static void pvm_worker_superseded(void)
+{
+    BPLONG t = 0;
+
+    pvm_dbg("SUPERSEDED", NULL, pvm_shm->lb);
+    if (pvm_m2_reported)
+        goto out;   /* my chunk reported; a second report would break
+                       the driver's report count */
+    if (local_top - heap_top >= 8) {
+        BPLONG_PTR c1 = heap_top;
+        BPLONG_PTR c2 = heap_top + 2;
+
+        heap_top += 4;
+        FOLLOW(c1) = MAKEINT(pvm.w_lo);
+        FOLLOW(c1 + 1) = ADDTAG(c2, LST);
+        FOLLOW(c2) = MAKEINT(0);
+        FOLLOW(c2 + 1) = nil_sym;
+        t = ADDTAG(c1, LST);
+    }
+out:
+    if (t != 0)
+        pvm_report_append(t);
+    pvm_worker_exit(0, 0);
+}
+
 /* atexit for a forked worker (crash / picat-error exit path; the
    healthy endings _exit and skip it): flag my outcome unless I
    already registered it, quietly kill and reap my children (the
@@ -1444,6 +1532,8 @@ static int pvm_open_shm(void)
         pvm_shm->sol_len = -1;
         pvm_shm->pool_free = 0;
         pvm_shm->wake = 0;
+        pvm_shm->base = -1;
+        pvm_shm->lb = 0;
         pvm_shm->pvm_tick = 0;
         return BP_TRUE;
     }
@@ -1886,6 +1976,15 @@ int pvm_fork_frame(BPLONG_PTR ar, BPLONG_PTR p)
     }
 
     (void)p;
+    if (pvm_shm != NULL && pvm.armed && pvm.mode == 2 &&
+        pvm_is_fork_child) {
+        /* live-bound supersede: check on every choice point (this
+           hook fires on every FORK), one cached-line read. */
+        if (pvm_shm->base >= 0 &&
+            pvm_shm->lb >= pvm_shm->base + pvm.w_hi)
+            pvm_worker_superseded();   /* noreturn */
+        return 0;
+    }
     if (pvm_shm == NULL || !pvm.armed ||
         (pvm.mode != 1 && pvm.mode != 3))
         return 0;
@@ -2725,11 +2824,34 @@ BPLONG pvm_deleg_reentry(BPLONG_PTR f)
     return 0;
 }
 
+static int pvm_fork_arm(BPLONG nt, BPLONG mode, BPLONG aval,
+                        BPLONG base, int have_base);
+
 int c_pvm_fork()
 {
-    BPLONG nt = INTVAL(ARG(1, 3));
-    BPLONG mode = INTVAL(ARG(2, 3));
-    BPLONG aval = INTVAL(ARG(3, 3));
+    return pvm_fork_arm(INTVAL(ARG(1, 3)), INTVAL(ARG(2, 3)),
+                        INTVAL(ARG(3, 3)), 0, BP_FALSE);
+}
+
+/* Like pvm_fork, but a mode-2 run with the live bound: B is the
+   absolute value base of this session (the session's values are the
+   absolute B+1..B+A, the fork's A as usual), and a worker chunk
+   whose absolute top B+w_hi falls at or below the max model value
+   another worker reports stops right away (it claims the empty
+   report for its chunk and exits), so a round that lifts the bound
+   no longer pays for the now-doomed bands below the lift. Sessions
+   that do not lift a bound per report (counting drivers) must keep
+   using pvm_fork: their reports would publish values and their
+   partial results matter, so there is no safe early stop. */
+int c_pvm_fork_lb()
+{
+    return pvm_fork_arm(INTVAL(ARG(1, 4)), INTVAL(ARG(2, 4)),
+                        INTVAL(ARG(3, 4)), INTVAL(ARG(4, 4)), BP_TRUE);
+}
+
+static int pvm_fork_arm(BPLONG nt, BPLONG mode, BPLONG aval,
+                        BPLONG base, int have_base)
+{
     long i;
 
     pvm_sol_len = -1;  /* cleared at entry: a failed arm must not
@@ -2820,6 +2942,8 @@ int c_pvm_fork()
     pvm.w_lo = 1;
     pvm.w_hi = aval;
     pvm.armed = 1;
+    if (have_base && mode == 2)
+        pvm_shm->base = (long)base;   /* lb is 0 from pvm_open_shm */
 
     if (mode == 1 || mode == 3) {
         const char *fe;
@@ -2924,7 +3048,10 @@ int c_pvm_report()
         /* all-results: any ground term, appended to the session's
            result buffer; the root's pvm_collect hands back the list
            of all reported terms, in report order. */
-        return pvm_report_append(t);
+        if (pvm_report_append(t) != BP_TRUE)
+            return BP_ERROR;
+        pvm_m2_reported = 1;
+        return BP_TRUE;
     }
     /* mode 1/3: report the solution BY VALUE (any ground term; the
        first reporter wins by CAS on found; a second reporter is a
@@ -3133,17 +3260,34 @@ int c_pvm_delegate()
     return BP_TRUE;   /* no-op: single-engine targets have no delegation */
 }
 
+static int pvm_serial_fork_arm(BPLONG nt, BPLONG mode, BPLONG aval);
+
 int c_pvm_fork()
 {
-    BPLONG nt = INTVAL(ARG(1, 3));
-    BPLONG mode = INTVAL(ARG(2, 3));
-    BPLONG aval = INTVAL(ARG(3, 3));
+    return pvm_serial_fork_arm(INTVAL(ARG(1, 3)), INTVAL(ARG(2, 3)),
+                               INTVAL(ARG(3, 3)));
+}
 
+/* Single engine: the session runs inline in this process, so the
+   live bound has no one to stop; the base arg is read and ignored. */
+int c_pvm_fork_lb()
+{
+    BPLONG base = INTVAL(ARG(4, 4));
+
+    (void)base;
+    return pvm_serial_fork_arm(INTVAL(ARG(1, 4)), INTVAL(ARG(2, 4)),
+                               INTVAL(ARG(3, 4)));
+}
+
+static int pvm_serial_fork_arm(BPLONG nt, BPLONG mode, BPLONG aval)
+{
     if (nt < 1 || (mode != 1 && mode != 2 && mode != 3)) {
         bp_exception = illegal_arguments;
         return BP_ERROR;
     }
     pvm_serial_shm.live = 0;
+    pvm_serial_shm.base = -1;  /* live bound: off on single engines */
+    pvm_serial_shm.lb = 0;
     pvm_serial_shm.count = 0;
     pvm_serial_shm.found = 0;
     pvm_serial_shm.sol_len = -1;
@@ -3245,6 +3389,7 @@ void Cboot_parvm()
     insert_cpred("c_par_vm_test", 1, c_par_vm_test);
     insert_cpred("pvm_delegate", 1, c_pvm_delegate);
     insert_cpred("pvm_fork", 3, c_pvm_fork);
+    insert_cpred("pvm_fork_lb", 4, c_pvm_fork_lb);
     insert_cpred("pvm_worker_id", 1, c_pvm_worker_id);
     insert_cpred("pvm_chunk", 2, c_pvm_chunk);
     insert_cpred("pvm_report", 1, c_pvm_report);
