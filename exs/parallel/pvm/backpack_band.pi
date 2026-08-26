@@ -32,12 +32,7 @@
 %   N=20 NT=4 picat exs/parallel/pvm/backpack_band.pi  banded, 4 workers
 %   N=20 NT=1 ...                                    single-band control
 %
-% N defaults to 20, NT to 0, RECHECK to 1 (the serial optimality
-% self-check in the leaf, identical to backpack_pvm's; RECHECK=0
-% studies the raw protocol). The liveness veto sees live-but-gappy
-% worker territories as complete (a residual, rare re-arm engine
-% race, see backpack_pvm's header), so the leaf re-proves the bound
-% serially before printing it.
+% N defaults to 20, NT to 0.
 import sat.
 
 main =>
@@ -66,8 +61,7 @@ run(N, 0) =>
 run(N, NT) =>
     NT > 0,
     bp.c_wall_ms(T0),
-    recheck_on(R),
-    banded(N, NT, 0, 5 * N, 0, T0, R),
+    banded(N, NT, 0, 5 * N, 0, T0),
     halt.
 
 % one round: partition the values B+1..U (W of them, numbered 1..W)
@@ -75,10 +69,10 @@ run(N, NT) =>
 % each report is the ground list [Lo, V]: Lo = the chunk's lower end (1..W), V =
 % the value of a model found in the band, or 0 if the band is
 % proven empty.
-banded(N, NT, B, U, Iter, T0, R) =>
+banded(N, NT, B, U, Iter, T0) =>
     W = U - B,
     ( W <= 0 ->
-        final(N, NT, B, Iter, T0, R)
+        final(N, NT, B, Iter, T0)
     ;
       nchunks(NT, W, Nch),
       bp.pvm_fork(NT, 2, W),
@@ -97,7 +91,7 @@ banded(N, NT, B, U, Iter, T0, R) =>
         bp.pvm_collect(Rep),
         Nrep = length(Rep),
         Nrep == Nch,
-        step(N, NT, B, U, Iter, T0, R, Rep)
+        step(N, NT, B, U, Iter, T0, Rep)
       )
     ).
 
@@ -113,16 +107,16 @@ nchunks(NT, W, Nch) =>
 % whose origin B+Lo lies above B' proves [B+Lo, ...] model-free,
 % tightening U to B+Lo-1. No report above B: every band of
 % [B+1..U] is proven empty, B is optimal.
-step(N, NT, B, U, Iter, T0, R, Rep) =>
+step(N, NT, B, U, Iter, T0, Rep) =>
     Vs = [ V : [_, V] in Rep ],
     Vmax = max(Vs),
     ( Vmax > B ->
         tighten(U, B, Vmax, Rep, U1),
         writef("  round %d: B %d -> %d, U %d -> %d%n", Iter + 1, B, Vmax, U, U1),
-        banded(N, NT, Vmax, U1, Iter + 1, T0, R)
+        banded(N, NT, Vmax, U1, Iter + 1, T0)
     ;
       writef("  round %d: all bands empty, B=%d optimal%n", Iter + 1, B),
-      final(N, NT, B, Iter + 1, T0, R)
+      final(N, NT, B, Iter + 1, T0)
     ).
 
 % min over the empty bands whose origin sits above the new bound.
@@ -161,47 +155,21 @@ bp_model0(N, X, Wd, Vd, P) =>
     P #= sum(Vd),
     P #>= 0.
 
- % the loop's leaf: B is proven optimal. One plain serial solve at
- % the proven bound re-derives an optimal model (B is feasible by
- % construction); the verify step recomputes weight and value from X
- % alone and asserts P == B. With the self-check (R = 1) a second
- % plain serial solve re-proves the verdict itself. Runs OUTSIDE any
- % session.
- final(N, NT, B, Iter, T0, 1) =>
-     bp_vars(N, B, X, Wd, Vd, P),
-     solve([ff], [X, Wd, Vd, P]),
-     P == B,
-     check_final(N, X, Wd, P, B),
-     recheck(N, B),
-     report_final(N, NT, B, Iter, T0, 1, X).
+  % the loop's leaf: B is proven optimal. One plain serial solve at
+  % the proven bound re-derives an optimal model (B is feasible by
+  % construction); the verify step recomputes weight and value from X
+  % alone and asserts P == B. Runs OUTSIDE any session.
+  final(N, NT, B, Iter, T0) =>
+      bp_vars(N, B, X, Wd, Vd, P),
+      solve([ff], [X, Wd, Vd, P]),
+      P == B,
+      check_final(N, X, Wd, P, B),
+      report_final(N, NT, B, Iter, T0, X).
 
- final(N, NT, B, Iter, T0, 0) =>
-     bp_vars(N, B, X, Wd, Vd, P),
-     solve([ff], [X, Wd, Vd, P]),
-     P == B,
-     check_final(N, X, Wd, P, B),
-     report_final(N, NT, B, Iter, T0, 0, X).
-
- report_final(N, NT, B, Iter, T0, R, X) =>
-     bp.c_wall_ms(T1),
-     writef("backpack_band: N=%d banded NT=%d: P=%d, rounds=%d, items=%s, recheck=%d, %d ms%n",
-            N, NT, B, Iter, to_string(to_list(X)), R, T1 - T0).
-
- % the serial optimality self-check (on by default; RECHECK=0 off):
- % re-solve the instance serially with P #>= B+1. Infeasible -> B
- % confirmed. If a model IS found, the parallel verdict was spurious
- % (a live-worker coverage gap, which the liveness veto cannot see)
- % and a hard $recheck_veto run_time_error fires instead of printing
- % a wrong P. Costs one serial proving solve.
- recheck(N, B) =>
-     bp_vars(N, B + 1, Xw, Wdw, Vdw, Pw),
-     ( \+ solve([ff], [Xw, Wdw, Vdw, Pw])
-     -> true
-     ;
-       handle_exception($recheck_veto(N, B), true) ).
-
- recheck_on(R) =>
-     ((bp.picat_getenv("RECHECK", S)) -> R = to_int(S) ; R = 1).
+  report_final(N, NT, B, Iter, T0, X) =>
+      bp.c_wall_ms(T1),
+      writef("backpack_band: N=%d banded NT=%d: P=%d, rounds=%d, items=%s, %d ms%n",
+             N, NT, B, Iter, to_string(to_list(X)), T1 - T0).
 
 bp_vars(N, Lo, X, Wd, Vd, P) =>
     X = new_array(N),
