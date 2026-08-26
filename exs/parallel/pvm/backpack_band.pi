@@ -20,6 +20,20 @@
  % the hard work is the final all-empty proving round (no model to
  % find) and the bands above the lift -- but the round no longer pays
  % for doomed bands when the timing allows.
+ %
+ % Tree-partition proving round (opt-in, PVM_TREE=1): when the
+ % round's value range W is too thin for more than W value bands
+ % (W <= NT), the round can partition the LABELING TREE instead: the
+ % 2^m slices "X[1..m] = pattern" (m = ceil(log2 NT)) tile the
+ % assignment space, each worker proves its chunk of patterns
+ % model-free over the whole [B+1..U] range, and an all-empty round
+ % proves B optimal as before. A tree round cannot tighten U (the
+ % slices are not value intervals) -- irrelevant at that thinness,
+ % and a lift simply tightens B for the next round. Measured 1.0x-
+ % 5.4x SLOWER than the value-band round on this family whenever it
+ % fires, so it is behind the flag: the band round already runs W
+ % parallel workers, and a P=v band proof (P the most constrained
+ % variable) is cheaper than a whole-window slice proof.
 %
 % Compare with backpack_pvm.pi: the same B&B loop, but each
 % iteration there is one mode-1 session racing a single bound B+1
@@ -84,6 +98,21 @@ banded(N, NT, B, U, Iter, T0) =>
     ( W <= 0 ->
         final(N, NT, B, Iter, T0)
     ;
+      W <= NT,
+      % the value range is too thin for more than W value bands (and
+      % W of them at best).  With PVM_TREE=1 the round partitions the
+      % LABELING TREE instead: 2^m prefix-pattern slices of the
+      % search, each worker proving its slice model-free over the
+      % whole range.  Off by default: measured on this family (5
+      % reps, 2026-08-27) the slice round is 1.0x-5.4x SLOWER than
+      % the value-band round whenever it fires -- the band round
+      % already runs W parallel workers, and a P=v band proof is
+      % cheaper than a whole-window slice proof (P is the most
+      % constrained variable, so value is the right partition).
+      tree_on(T),
+      T > 0,
+      tree_round(N, NT, B, U, Iter, T0)
+    ;
       nchunks(NT, W, Nch),
       % live-bound round: a worker band whose top falls at or below
       % the max value another band finds stops at its next choice
@@ -138,6 +167,90 @@ step(N, NT, B, U, Iter, T0, Rep) =>
 tighten(U0, B, Vmax, Rep, U1) =>
     Cuts = [ B + Lo - 1 : [Lo, 0] in Rep, B + Lo > Vmax ],
     ( Cuts == [] -> U1 = U0 ; U1 = min(Cuts) ).
+
+% tree-partition round: A = 2^m slices, slice Pat (0..A-1) =
+% "X[1..m] equals the m-bit pattern Pat"; the slices tile the whole
+% assignment space, so an all-empty round proves [B+1..U] model-free
+% exactly as an all-empty band round (and the liveness veto covers
+% the verdict as always). Each worker owns a chunk of CONSECUTIVE
+% patterns and proves them one by one, reporting the max value found
+% (or 0). Plain pvm_fork, no live bound: a value found in one
+% pattern invalidates no other pattern (slices are not value-ordered).
+tree_round(N, NT, B, U, Iter, T0) =>
+    m_of(NT, M, A),
+    nchunks(NT, A, Nch),
+    bp.pvm_fork(NT, 2, A),
+    bp.pvm_worker_id(I),
+    ( I > 0,
+      bp.pvm_chunk(Lo, Hi),
+      tree_slices(N, B, U, M, Lo, Hi, Vres),
+      bp.pvm_report([Lo, Vres])
+    ;
+      bp.pvm_collect(Rep),
+      Nrep = length(Rep),
+      Nrep == Nch,
+      tree_step(N, NT, B, U, Iter, T0, Rep)
+    ).
+
+% the smallest m with 2^m >= NT, with A = 2^m (NT <= 16 here, so
+% m <= 4 and the prefix X[1..m] always exists).  Iterative doubling
+% (the parser of this build rejects a variable operand of **), and an
+% if-then-else body (this build never tries a same-head clause whose
+% guard follows a failed guard of the preceding same-head clause).
+m_of(NT, M, A) => m_of(NT, 0, 1, M, A).
+m_of(NT, MC, A, M, A2) =>
+  ( A >= NT -> M = MC, A2 = A
+  ; A < NT, m_of(NT, MC + 1, 2 * A, M, A2)
+  ).
+
+% prove every pattern in [PatLo, PatHi] model-free in [B+1..U];
+% Vres = max value found over the worker's patterns, or 0.  A failing
+% pattern is simply not collected: no accumulator variable (a bound
+% Vres = 0 would reject the first P > 0, the worker branch would fail
+% its guard sequence, and the worker would fall into the root arm).
+tree_slices(N, B, U, M, PatLo, PatHi, Vres) =>
+    Vs = [ P : Pat in (PatLo - 1) .. (PatHi - 1),
+           bp_tree(N, B, U, M, Pat, X, Wd, Vd, P) ],
+    ( Vs == [] -> Vres = 0 ; Vres = max(Vs) ).
+
+% the backpack encoding, the whole proving range instead of one
+% value band, plus the m-bit prefix of X[1..m] fixed to Pat.
+bp_tree(N, B, U, M, Pat, X, Wd, Vd, P) =>
+    X = new_array(N),
+    X :: 0..1,
+    foreach (I in 1..M)
+        BitI = bit_of(I, Pat),
+        X[I] #= BitI
+    end,
+    Wd = new_array(N),
+    Vd = new_array(N),
+    foreach (I in 1..N)
+        Wd[I] #= ((I-1) mod 5 + 1) * X[I],
+        Vd[I] #= ((2*I) mod 5 + 1) * X[I]
+    end,
+    sum(Wd) #<= N,
+    P #= sum(Vd),
+    P #>= B + 1,
+    P #=< U,
+    solve([ff], [X, Wd, Vd, P]).
+
+% the I-th bit (1-based) of Pat: bit 1 = least significant; halve
+% towards the bit instead of dividing by 2^(I-1).
+bit_of(1, Pat) = Pat mod 2.
+bit_of(I, Pat) = R => bit_of(I - 1, Pat // 2) = R.
+
+% root side: a tree round either lifts B (U kept: the slices carry
+% no tightening information) or proves B optimal.
+tree_step(N, NT, B, U, Iter, T0, Rep) =>
+    Vs = [ V : [_, V] in Rep ],
+    Vmax = max(Vs),
+    ( Vmax > B ->
+        writef("  round %d (tree): B %d -> %d%n", Iter + 1, B, Vmax),
+        banded(N, NT, Vmax, U, Iter + 1, T0)
+    ;
+      writef("  round %d (tree): all slices empty, B=%d optimal%n", Iter + 1, B),
+      final(N, NT, B, Iter + 1, T0)
+    ).
 
 % the band instance: the backpack encoding plus Lo <= P <= Hi.
 bp_band(N, Lo, Hi, X, Wd, Vd, P) =>
@@ -221,3 +334,7 @@ nt_from_env(NT) =>
     ((bp.picat_getenv("NT", S)) -> NT = to_int(S) ; NT = 0),
     (NT >= 0),
     (NT <= 4096).
+
+% opt-in tree-partition proving rounds (see the W <= NT branch of
+% banded/6 for the measurement notes): on when PVM_TREE is set.
+tree_on(T) => ((bp.picat_getenv("PVM_TREE", S)) -> T = 1 ; T = 0).
