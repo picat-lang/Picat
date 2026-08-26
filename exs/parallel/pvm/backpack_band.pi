@@ -204,14 +204,21 @@ m_of(NT, MC, A, M, A2) =>
   ).
 
 % prove every pattern in [PatLo, PatHi] model-free in [B+1..U];
-% Vres = max value found over the worker's patterns, or 0.  A failing
-% pattern is simply not collected: no accumulator variable (a bound
-% Vres = 0 would reject the first P > 0, the worker branch would fail
-% its guard sequence, and the worker would fall into the root arm).
+% Vres = max value found over the worker's patterns, or 0.  The max
+% is kept in a LOCAL accumulator (new binding, :=): a plain
+% Vres = max(Vres, P) would try 0 = P on the first model found and
+% fail the worker's guard sequence (root-arm fallthrough, bad flag),
+% and a := on an argument variable rebinds it only in this clause's
+% environment -- the caller would keep the old value.
 tree_slices(N, B, U, M, PatLo, PatHi, Vres) =>
-    Vs = [ P : Pat in (PatLo - 1) .. (PatHi - 1),
-           bp_tree(N, B, U, M, Pat, X, Wd, Vd, P) ],
-    ( Vs == [] -> Vres = 0 ; Vres = max(Vs) ).
+    V = 0,
+    foreach (Pat in (PatLo - 1) .. (PatHi - 1))
+        ( bp_tree(N, B, U, M, Pat, X, Wd, Vd, P)
+        -> V := max(V, P)
+        ; true
+        )
+    end,
+    Vres = V.
 
 % the backpack encoding, the whole proving range instead of one
 % value band, plus the m-bit prefix of X[1..m] fixed to Pat.
