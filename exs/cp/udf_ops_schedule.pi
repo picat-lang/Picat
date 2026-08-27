@@ -4,18 +4,25 @@
  *
  *  A min-cost production / stock problem over 3 days.
  *
- *    - a USER function  day_demand(N) = N*2+1   gives the demand of day N
- *    - we pick daily production  P_i  (>=0) and stock  S_i  (>=0)
- *    - user function used inside  #=  and  #>=   constraints, natural style:
+ *  - a USER function  day_demand(N) = N*2+1   gives the demand of day N
+ *  - we pick daily production  P_i  (>=0) and stock  S_i  (>=0)
+ *  - user function used inside  #=  and  #>=   constraints, natural style:
  *          S_1   #=  P_1
  *          P_1   #>= day_demand(1)
  *          S_i   #=  S_{i-1} + P_i - day_demand(i)
  *          Total #= P_1 + P_2 + P_3
- *    - minimise  Total.
+ *  - minimise  Total.
  *
- *  Run with:  picat  exs/cp/udf_ops_schedule.pi
- *             (the  udf_ops.pi  file sits next to this example; put
- *              PICATPATH=<picat>/lib  if you also import  udf  from lib)
+ *  RUN (the  udf  module lives in the repo's  lib  directory):
+ *
+ *    cd ~/snapshotable/picatconstrfunc/exs/cp
+ *    PICATPATH=~/snapshotable/picatconstrfunc/lib  ../../emu/picat  udf_ops_schedule.pi
+ *    # or, using picat's own flag instead of the env variable:
+ *    ../../emu/picat -path ~/snapshotable/picatconstrfunc/lib  udf_ops_schedule.pi
+ *    # expected:
+ *    #   min total production = 12
+ *    #   productions      = 3, 2, 7
+ *    #   day_demand(3) flattened = 3 * 2 + 1
  */
  import cp.
  import udf.

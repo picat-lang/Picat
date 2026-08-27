@@ -1,9 +1,6 @@
 /*
  *  User-defined functions in constraints  (using the  udf  module, lib/udf.pi)
  *
- *  Run with:  picat -path <picat>/lib  exs/cp/udf_functions.pi
- *  (the  udf  module lives in the standard library dir  lib/ ).
- *
  *  The  udf  module  (lib/udf.pi)  lets a user-written function be used in
  *  a CP / SAT / MIP / SMT arithmetic constraint.  Constraint expressions are
  *  treated as TERMS, so  f(X)  reaches udf without being evaluated; udf
@@ -13,6 +10,12 @@
  *  imported module, the cleanest "normal '#='" look is a one-line shim in
  *  YOUR OWN module (own-module definitions beat imported ones).  Functions may be
  *  compound (calling other udf functions) and structurally recursive.
+ *
+ *  RUN (the  udf  module lives in the repo's  lib  directory):
+ *    cd ~/snapshotable/picatconstrfunc/exs/cp
+ *    PICATPATH=~/snapshotable/picatconstrfunc/lib  ../../emu/picat  udf_functions.pi
+ *    # or  ../../emu/picat -path ~/snapshotable/picatconstrfunc/lib  udf_functions.pi
+ *    # expected:  X=7  Y=6  total([1,2,3])=1 + (2 + (3 + 0))
  */
  import cp.
  import udf.
