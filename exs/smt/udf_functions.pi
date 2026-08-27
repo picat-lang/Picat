@@ -2,10 +2,10 @@
  *  User-defined functions in constraints with the  smt  solver.
  *  Uses  lib/udf.pi  and the  smt  operator shims in  udf_ops_smt.pi.
  *
- *  RUN (the  udf  module lives in the repo's  lib  directory):
- *    cd ~/snapshotable/picatconstrfunc/exs/smt
- *    PICATPATH=~/snapshotable/picatconstrfunc/lib  ../../emu/picat  udf_functions.pi
- *    # or  ../../emu/picat -path ~/snapshotable/picatconstrfunc/lib  udf_functions.pi
+ *  RUN (<picat> = the Picat repository root):
+ *    cd <picat>/exs/smt
+ *    PICATPATH=<picat>/lib  ../../emu/picat  udf_functions.pi
+ *    # or  ../../emu/picat -path <picat>/lib  udf_functions.pi
  *  (needs an smt solver: Z3 or CVC4)
  */
  import smt.

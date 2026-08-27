@@ -13,12 +13,12 @@
  *          Total #= P_1 + P_2 + P_3
  *  - minimise  Total.
  *
- *  RUN (the  udf  module lives in the repo's  lib  directory):
+ *  RUN (<picat> = the Picat repository root):
  *
- *    cd ~/snapshotable/picatconstrfunc/exs/cp
- *    PICATPATH=~/snapshotable/picatconstrfunc/lib  ../../emu/picat  udf_ops_schedule.pi
+ *    cd <picat>/exs/cp
+ *    PICATPATH=<picat>/lib  ../../emu/picat  udf_ops_schedule.pi
  *    # or, using picat's own flag instead of the env variable:
- *    ../../emu/picat -path ~/snapshotable/picatconstrfunc/lib  udf_ops_schedule.pi
+ *    ../../emu/picat -path <picat>/lib  udf_ops_schedule.pi
  *    # expected:
  *    #   min total production = 12
  *    #   productions      = 3, 2, 7
