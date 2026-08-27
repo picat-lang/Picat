@@ -27,6 +27,15 @@ module udf.
             user function call into primitive arithmetic.  Works for cp, sat,
             mip, and smt because the result uses only primitive arithmetic.
 
+        evaluate(E) = Val
+            Like flatten/1 (so a user function call must be written  $f(...) ),
+            but then also EVALUATES the result to a number.  This requires the
+            expanded expression to be GROUND (no domain variables), so evaluate
+            is only meaningful OUTSIDE the constraint world:
+                udf.evaluate($total([1,2,3]))      =  6
+                udf.evaluate($day_demand(5))        =  11
+            For domain variables, use  #= / post / #=  instead.
+
         post(Rel, E1, E2)
             Expand E1 and E2 and post the constraint   E1 Rel E2
             (Rel in '#=', '#!=', '#<', '#>', '#=<', '#<=', '#>=').
@@ -34,6 +43,14 @@ module udf.
         set_max_depth(N)
             Bound on how deep a (possibly recursive) body may expand before
             the exception  udf_expansion_too_deep  is thrown.  Default 100.
+
+    The  $  marker.  udf functions are NOT Picat functions: they exist only
+    inside the udf registry and are matched as TERMS.  In a normal (non-
+    constraint) expression,  f(X)  is an ordinary call to a function  f/1
+    (which does not exist), so every use - in define heads, in define bodies,
+    and at call sites of flatten/evaluate/post - must be written with  $  .
+    Only the solver operators (#=  etc.) treat expressions as terms, and that is
+    precisely what the udf_ops.pi  shims re-implement.
 
     Two ways to use a registered function in a constraint:
 
@@ -65,6 +82,10 @@ module udf.
 
     flatten(E) = F =>
         F = expand(E, 0).
+
+    evaluate(E) = Val =>
+        F = udf.flatten(E),
+        Val is F.
 
     post(Rel, E1, E2) =>
         O1 = expand(E1, 0),

@@ -1,0 +1,125 @@
+\section{\label{ch:udf}User-defined functions in constraints}
+
+An arithmetic constraint expression\index{arithmetic constraint expression} is
+normally built from integers, domain variables, and a fixed set of arithmetic
+function symbols: \texttt{+}, \texttt{-}, \texttt{*}, \texttt{/},
+\texttt{//}, \texttt{div}, \texttt{mod}, \texttt{**}, \texttt{abs},
+\texttt{min}, \texttt{max}, \texttt{sum}, \texttt{prod},
+\texttt{count}, and \texttt{cond}.  (In addition, index notations,
+array comprehensions, and list comprehensions are interpreted as function
+calls.)  Any other call that appears in a constraint expression is left as an
+unevaluated\index{unevaluated} term, so a user-written function such as
+\texttt{sqr(X) = X*X} cannot be used directly in a constraint.
+
+The \texttt{udf}\index{\texttt{udf}} module (\texttt{lib/udf.pi}) adds
+support for user-defined functions in constraints.  It is a
+self-contained, extensible layer that works with all four constraint
+solvers (\texttt{cp}, \texttt{sat}, \texttt{smt}, and \texttt{mip}).
+A function is \emph{registered} in a symbolic registry, used as a term in
+a constraint, and \emph{expanded} into primitive arithmetic before the
+constraint is handed to the solver.
+
+\subsubsection{The dollar-sign requirement}
+
+The \texttt{udf} functions are not Picat functions: they exist only in the
+registry and are matched as \emph{terms}\index{term}.  In a normal
+(non-constraint) expression, \texttt{f(X)} is an ordinary call to a
+function \texttt{f/1}, which does not exist.  Consequently, every use
+--- in \texttt{define} heads, in \texttt{define} bodies, and at the call
+sites of \texttt{flatten}, \texttt{evaluate}, and \texttt{post} --- must
+be written with the term constructor \texttt{\$}.  Only the constraint
+operators (\texttt{\#=}, etc.) treat expressions as terms, and re-implementing
+those operators is precisely what the \texttt{udf.ops.pi} shims do.
+
+\subsubsection{The built-ins of the \texttt{udf} module}
+
+\begin{itemize}
+
+\item \texttt{define($Head$,$Body$)}: Register a user-defined function.
+      $Head$ is a pattern of the form \texttt{\$f($Arg_1$,\ldots,$Arg_n$)},
+      and $Body$ is the function body given as a \emph{term} (prefix
+      \texttt{\$}).  A function may have several (pattern) rules, and a body
+      may call other \texttt{udf} functions or itself (recursion), up to a
+      configurable expansion bound.  Example:
+      \texttt{udf.define(\$total([]), 0)},
+      \texttt{udf.define(\$total([H|T]), \$(H + total(T)))}.
+
+\item \texttt{flatten($E$) = $Out$}: Rewrite the constraint expression $E$,
+      expanding every registered user-function call into primitive
+      arithmetic.  The result $Out$ uses only the primitive function symbols,
+      so it can be used in any of the four solvers.
+
+\item \texttt{evaluate($E$) = $Val$}: Like \texttt{flatten/1}, but also
+      evaluates the result to a number.  This requires the expanded
+      expression to be \emph{ground} (free of domain variables), so
+      \texttt{evaluate} is only meaningful outside the constraint world:
+      \texttt{udf.evaluate(\$total([1,2,3]))} is \texttt{6}.  For
+      domain variables, use \texttt{\#=}, \texttt{post}, or the operator
+      shims instead.
+
+\item \texttt{post($Rel$,$E_1$,$E_2$)}: Expand $E_1$ and $E_2$ and
+      post the constraint $E_1$ $Rel$ $E_2$, where $Rel$ is one of
+      \verb+#=+, \verb+#!=+, \verb+#<+, \verb+#>+, \verb+#=<+,
+      \verb+#>=+ (and the synonym \verb+#<=+).
+      \texttt{udf.post('\#'=', Y, \$f(X))} is the explicit,
+      zero-boilerplate style.
+
+\item \texttt{set\_max\_depth($N$)}: Bound on how deep a (possibly
+      recursive) body may expand before the exception
+      \texttt{udf\_expansion\_too\_deep}\index{exception} is thrown.
+      The default is \texttt{100}.
+
+\end{itemize}
+
+\subsubsection{The normal operator style with \texttt{udf.ops.pi}}
+
+A solver operator cannot be overridden by an imported module, but a
+module's \emph{own} definitions take precedence over an imported solver's.
+The include file \texttt{lib/udf.ops.pi} provides a one-line shim for
+every arithmetic and Boolean constraint operator
+(\verb+#= #!= #< #=< #<= #> #>=+ and
+\verb+#~ #/\\ #^ #\\/ #=> #<=>+).  Adding
+(\texttt{include "udf.ops.pi"}) to the \emph{user's own} module makes
+the normal source style work:
+
+\begin{verbatim}
+    import cp.
+    import udf.
+    include "udf.ops.pi".
+
+    main =>
+        udf.define($day_demand(N), $(N*2+1)),
+        P1 :: 0..20,
+        P1 #>= $day_demand(1),          %  P1 >= 3
+        ...
+\end{verbatim}
+
+\subsubsection{Examples and how to run them}
+
+Two examples are provided in \texttt{exs/cp/}:
+\texttt{udf\_functions.pi} (a simple ``normal \texttt{\#=}'' example) and
+\texttt{udf\_ops\_schedule.pi} (a three-day production/stock scheduling
+problem that minimises total production, using a recursive user function
+\texttt{day\_demand/1} under \texttt{\#=} and \texttt{\#>=}).
+
+To run them, the \texttt{udf} module must be found on
+\texttt{PICATPATH}\index{PICATPATH}.  From the \texttt{exs/cp} directory:
+
+\begin{verbatim}
+    picat -path <picat>/lib  udf_functions.pi
+    PICATPATH=<picat>/lib  <picat>/emu/picat  udf_ops_schedule.pi
+\end{verbatim}
+
+where \texttt{<picat>/lib} is the repository's \texttt{lib} directory
+(\texttt{udf.ops.pi}, which the examples include, sits next to them and is
+found directly).
+
+\subsubsection{Limitations}
+
+Registering a function with \texttt{udf.define} makes it usable in
+constraints, but \texttt{udf.evaluate} requires the expanded expression to
+be ground.  Recursion is expanded structurally and is bounded by
+\texttt{set\_max\_depth}; a body that does not structurally shrink (for
+example, arithmetic recursion such as \texttt{f(N) = f(N-1)+1}) throws
+\texttt{udf\_expansion\_too\_deep}.  For such cases, write the function to
+reduce structurally (for instance, over a list).

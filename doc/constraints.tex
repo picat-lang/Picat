@@ -518,6 +518,7 @@ where $TmpFile$ is a file that stores the SMT-LIB2-format constraints, and $SolF
 \item \texttt{tmp($File$)}: Dump the SMT-LIB2 format to $File$ rather than the default file ``\_\_tmp.smt2'', before calling the smt solver. The name $File$  must be a string or an atom that has the extension name ``.smt2''. When this file name is specified, the smt solver will save the solution into a file name that has the same main name as $File$ but the extension name ``.sol''.
 \item \texttt{z3}: \index{\texttt{z3}}Instruct Picat to use the z3 SMT solver. When no SMT solver is specified, Picat first searches for the command \texttt{z3}, and when \texttt{z3} cannot be found it continues to search for the command \texttt{cvc4}.
 \end{itemize}
+\input{udf.tex}
 \ignore{
 \end{document}
 }
