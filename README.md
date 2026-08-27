@@ -158,6 +158,46 @@ for editor/LSP integration. Self-test:
   interface (`emu/kissat_picat.c`, `emu/cpreds.c`, `emu/common.mak`)
   adjusted to carry the satext layer
 
+## 6. User-defined functions in constraints — very experimental (`udf`)
+
+The `udf` module (`lib/udf.pi`) lets you use *your own* functions inside
+constraint expressions, which the built-in solvers do not support.
+**This is very experimental and the syntax is not yet ideal.** In
+particular, `f(X)` in a normal (non-constraint) expression is an
+ordinary function call, so `udf.define($f(X), ...)` registers the
+function as a *term* and every use must be written `$f(X)`.
+
+**Why an operator file is needed.** A solver's own `#=`, `#>=`, … treat
+expressions as terms, so they cannot expand a user function. The feature
+therefore ships one small *operator file* per solver — `udf_ops.pi`
+(`cp`), `udf_ops_sat.pi`, `udf_ops_mip.pi`, `udf_ops_smt.pi` —
+that you `include` in *your own* module: it redefines `#=`, `#!=`,
+`#<`, `#=<`, `#<=`, `#>`, `#>=` (and the Boolean `#~ #/\ #^ #\/ #=> #<=>`)
+to first expand the user functions and then delegate back to the solver.
+
+Tiny example (`cp`), using normal constraint notation:
+
+```picat
+import cp.
+import udf.
+include "udf_ops.pi".        % defines the operator shims (see above)
+
+main =>
+    udf.define($dbl(X), $(X*2)),
+    X :: 1..9,
+    X #= $dbl(3),            % dbl(3) = 3*2 = 6  ->  X = 6
+    solve([], [X]),
+    println(X).
+```
+
+The `udf` documentation lives in `doc/udf.tex`.
+The `udf` examples are:
+`exs/cp/udf_functions.pi`,
+`exs/cp/udf_ops_schedule.pi`,
+`exs/sat/udf_functions.pi`,
+`exs/mip/udf_functions.pi`,
+`exs/smt/udf_functions.pi`.
+
 __Current version 3.9#11.__
 
 Picat is a simple, and yet powerful, logic-based
