@@ -6,7 +6,7 @@
 % (E[1] least significant = the fastest decision frame, the same order
 % the engine's chunk walk counts, cf. queens_count2's
 % Q[1] + N*(Q[2]-1) joint value).
-% T must equal 2^M (or 0): with T = 2^M each static chunk is a SINGLE
+% STATIC (DYN=0): with T = 2^M each static chunk is a SINGLE
 % bit-pattern value V (as in queens_count2's 17 x 17 = 289 single pairs),
 % and the worker restricts its slice by unit constraints
 %     E[j] #= the j-th bit of V   (j = 1..M, E[1] the low bit)
@@ -14,26 +14,53 @@
 % joint value. The 2^M prefix regions tile the search space exactly:
 % every full assignment matches exactly one region, so the UNSAT verdict
 % (all regions proven empty, liveness-vetoed) is sound.
+% DYNAMIC (DYN=1): T workers share one pool; each worker draws the next
+% pattern value from the engine's shared cursor (bp.pvm_claim) instead
+% of a static chunk assignment, builds the instance ONCE, and per claim
+% posts/undoes only the per-claim prefix units (outlook item 5). The
+% cursor hands out exactly the full window, so coverage is complete by
+% construction and the root's length check is a veto, not a proof.
 %
 % Env: K, N (N must be set explicitly for K != 3), T (workers;
-% 0 = plain serial oracle; for T > 0, M must satisfy 2^M = T),
-% M (bitpack width).
+% 0 = plain serial oracle), M (bitpack width; the value set is 1..2^M),
+% O (window base: the run covers pattern values O+1..O+T (static) or
+% O+1..O+2^M (dynamic); default 0), DYN (0 = static chunks,
+% 1 = cursor claims; default 0).
 %
 %   K=3 N=5 T=4 M=2 picat ramsey_m2.pi     % sum of 4 chunk counts = serial count
 %   K=3 N=6 T=8 M=3 picat ramsey_m2.pi     % UNSAT: all chunks 0
-%   K=4 N=18 T=256 M=8 picat ramsey_m2.pi  % the R(4,4) cell
+%   K=4 N=18 T=256 M=8 picat ramsey_m2.pi  % the R(4,4) cell (static)
+%   K=4 N=18 T=256 M=12 DYN=1 picat ramsey_m2.pi   % the R(4,4) cell (dynamic)
 %
-% The R(4,4) cell (measured on this machine, one batch): the built-in
-% serial run makes no progress (no verdict in a 2 h budget; the mode-3
-% driver records no progress in 25 s single-core), but the whole-tree
-% UNSAT proof completes via the joint partition:
-%   T=16  M=4:  UNSAT in 1844.5 s (all 16 chunks empty)
-%   T=128 M=7:  UNSAT in 176.9  s (all 128 chunks empty)
-%   T=256 M=8:  UNSAT in 118.3  s (all 256 chunks empty)
-% 16x workers -> 15.6x wall reduction: the wall is the single hardest
-% chunk, which shrinks by 2^m per added partition bit. Tiling soundness
-% (exact chunk-count sums) verified on K=3: N=4: 8 = 3+5 = 1+3+2+2 =
-% 0+1+1+1+2+1+2+0; N=5: 12 = 2+2+4+4; N=6: UNSAT at T=8 all-zero.
+% The R(4,4) cell (one batch each, 384-thread EPYC, this session):
+% the built-in serial run makes no progress (no verdict in a 2 h
+% budget), but the whole-tree UNSAT proof completes via the joint
+% partition:
+%   static  T=16  M=4:  UNSAT in 1844.5 s
+%   static  T=128 M=7:  UNSAT in 176.9  s
+%   static  T=256 M=8:  UNSAT in 112.1 s (a prior batch: 118.3 s; the
+%                       256 chunk costs are nearly uniform: median
+%                       89.2 s, 193 of 256 over 60 s, total ~20.5k s)
+%   dynamic T=256 M=12: UNSAT in  69.6 s (4096 leaves; all 256 workers
+%                       finish within [64.6..69.5] s, sigma 1.1 s)
+%   dynamic T=384 M=12: UNSAT in  59.3 s
+%   dynamic T=256 M=14: UNSAT in  63.3 s (16384 leaves; sigma 0.3 s)
+%   dynamic T=384 M=14: UNSAT in  53.3 s  <- best: 2.10x over the
+%                       static M=8 wall of the same batch
+%   dynamic T=384 M=15: UNSAT in  58.3 s  (the knee: deeper partition
+%                       no longer beats per-claim overhead)
+% The gains come from (a) the finer partition, which does LESS total
+% work (12-bit leaves: ~16.7k s; 14-bit: ~14.8k s vs ~20.5k s for
+% 8-bit chunks), and (b) near-perfect claim balance (makespan within
+% ~7% of total/workers). Splitting the static-batch's hardest 8-bit
+% chunk alone (112 s) into its 16 twelve-bit leaves: max leaf 5.96 s,
+% sum 56.7 s.
+% Tiling soundness (exact chunk-count sums) verified on K=3: N=4:
+% 8 = 3+5 = 1+3+2+2 = 0+1+1+1+2+1+2+0; N=5: 12 = 2+2+4+4; N=6: UNSAT
+% at T=8 all-zero. Dynamic soundness (DYN=1), K=3: N=4 at T=2/M=3,
+% N=5 at T=4/M=2, T=8/M=4, T=4/M=5 (32 claims over 4 workers), N=6 at
+% T=8/M=3 and T=4/M=4 --- all exact (SAT sums / all-zero UNSAT); a
+% 2-worker/4-claim microtest hands out 1..4 exactly once each.
 
 import sat.
 
@@ -42,37 +69,100 @@ main =>
     n_from_env(K, N),
     t_from_env(T),
     m_from_env(M),
+    o_from_env(O),
+    dyn_from_env(DYN),
     C2 = pow2(M),
-    ( T > 0 ->
-        ( T = C2 -> true
-        ; handle_exception($t_must_equal_2_to_m(T, C2), main) )
-    ; true ),
-    ( T > 0 -> Tag = " (mode 2)" ; Tag = " (serial oracle)" ),
+    ( DYN > 0 ->
+        true          % the dynamic window is the full 1..C2 set
+    ;
+        ( O + T <= C2 -> true
+        ; handle_exception($o_plus_t_must_be_le_2_to_m(O, T, C2), main) ) ),
+    ( DYN > 0 -> Tag = " (dyn mode 2)"
+    ; ( T > 0 -> Tag = " (mode 2)" ; Tag = " (serial oracle)" ) ),
+    ( DYN > 0 -> P1 = 1, P2 = C2 ; P1 = O + 1, P2 = O + T ),
     bp.c_wall_ms(T0),
-    writef("=== ramsey_m2: K=%d N=%d T=%d M=%d (chunks of 1..%d), %d edge vars%s%n",
-        K, N, T, M, C2, N * (N - 1) // 2, Tag),
-    ( T > 0,
-        bp.pvm_fork(T, 2, C2),
+    writef("=== ramsey_m2: K=%d N=%d T=%d M=%d O=%d DYN=%d (patterns %d..%d), %d edge vars%s%n",
+        K, N, T, M, O, DYN, P1, P2, N * (N - 1) // 2, Tag),
+    ( (T > 0, DYN == 0),
+        bp.pvm_fork(T, 2, T),
         bp.pvm_worker_id(I),
         ( I > 0,
             bp.pvm_chunk(Lo, Hi),
             ( Hi = Lo -> true
             ; handle_exception($chunk_not_single(Lo, Hi), main) ),
-            slice_count(K, N, M, Lo, C),
-            writef("worker %d: chunk [%d..%d] count=%d%n", I, Lo, Hi, C),
+            bp.c_wall_ms(Ws),
+            slice_count(K, N, M, O + Lo, C),
+            bp.c_wall_ms(We),
+            writef("worker %d: chunk [%d..%d] count=%d ms=%d%n", I, Lo, Hi, C, We - Ws),
             bp.pvm_report(C)
         ;
             bp.pvm_collect(Counts),
             Csum = sum(Counts),
             bp.c_wall_ms(T1),
-            root_verdict(K, N, T0, T1, T, Csum, Counts)
+            root_verdict(K, N, T0, T1, T, O, C2, Csum, Counts)
+        )
+    ; ( T > 0, DYN > 0 ),
+        bp.pvm_fork(T, 2, T),
+        bp.pvm_worker_id(I),
+        ( I > 0,
+            dyn_worker(K, N, M, O, C2, I)
+        ;
+            bp.pvm_collect(Counts),
+            Len = length(Counts),
+            ( Len = C2 -> true
+            ; handle_exception($dynamic_window_incomplete(Len, C2), main) ),
+            Csum = sum(Counts),
+            bp.c_wall_ms(T1),
+            dyn_verdict(K, N, T0, T1, T, C2, Csum, Counts)
         )
     ;
-        slice_count(K, N, M, 1, Csum),
+        slice_count(K, N, M, O + 1, Csum),
         bp.c_wall_ms(T1),
         serial_verdict(K, N, T0, T1, Csum)
     ),
     halt.
+
+% the dynamic worker: build the instance ONCE, then claim pattern
+% values from the shared cursor until exhausted; per claim only the
+% prefix units are posted (and backtracked away) on the shared store.
+dyn_worker(K, N, M, O, A, I) =>
+    MM = K * (K - 1) // 2,
+    NPairs = N * (N - 1) // 2,
+    subsets(K, N, AllSets),
+    E = new_array(NPairs),
+    E :: 0..1,
+    no_k_sets(N, K, MM, AllSets, E),
+    degree_order(N, E, D),
+    bp.c_wall_ms(Ws),
+    claimwork(K, N, M, O, A, E, D),
+    bp.c_wall_ms(We),
+    writef("worker %d: claims done in %d ms%n", I, We - Ws).
+
+% Per-claim loop: branch 1 claims one pattern, runs claimone (total:
+% exactly one report, and it retracts its own prefix units before
+% returning), and recurses with a fresh claim. Exhaustion (claim 0)
+% is branch 2: the loop commits.
+claimwork(K, N, M, O, A, E, D) =>
+    ( bp.pvm_claim(A, V),
+      V > 0,
+      claimone(K, N, M, O, V, E, D),
+      claimwork(K, N, M, O, A, E, D)
+    ;
+      true ).
+
+% One report exactly once. The prefix units are posted conditionally
+% (an infeasible unit just makes the store infeasible -> count 0);
+% the trailing fail backtracks to THIS disjunction, retracting the
+% units, and the bare-true branch 2 then commits the call.
+claimone(K, N, M, O, V, E, D) =>
+    ( ( prefix(M, E, O + V) -> true
+      ; true ),
+      (C = count_all(solve([], [E, D])) -> true
+      ; C = 0),
+      bp.pvm_report(C),
+      fail
+    ;
+      true ).
 
 % the instance, plus (for M > 0) the unit prefix E[j] #= bit_j(Lo);
 % C = #models of the slice
@@ -100,13 +190,32 @@ prefix(J, E, V) =>
 pow2(0) = 1.
 pow2(I) = 2 * pow2(I - 1).
 
-root_verdict(K, N, T0, T1, T, Csum, Counts) =>
+root_verdict(K, N, T0, T1, T, O, C2, Csum, Counts) =>
     ( Csum > 0 ->
         writef("SAT (mode 2): %d workers, %d models in total in %d ms -- a (K,K)-Ramsey graph on %d vertices exists, R(%d,%d) >= %d (witness: rerun ramsey_pvm)%n",
             T, Csum, T1 - T0, N, K, K, N + 1)
     ;
+        unsat_line(K, N, T, T1 - T0, O, C2)
+    ),
+    writeln(Counts).
+
+% whole-decree only on full window coverage; otherwise a window note
+unsat_line(K, N, T, Ms, O, C2) =>
+    ( O + T = C2 ->
         writef("UNSAT (mode 2): %d workers, all %d chunks proven empty in %d ms -- every graph on %d vertices has a %d-clique or an independent %d-set, i.e. R(%d,%d) <= %d%n",
-            T, T, T1 - T0, N, K, K, K, K, N)
+            T, T, Ms, N, K, K, K, K, N)
+    ;
+        writef("UNSAT window (mode 2): %d workers, patterns %d..%d proven empty in %d ms (partial coverage %d of %d: no whole-tree verdict)%n",
+            T, O + 1, O + T, Ms, O + T, C2)
+    ).
+
+dyn_verdict(K, N, T0, T1, T, A, Csum, Counts) =>
+    ( Csum > 0 ->
+        writef("SAT (dyn mode 2): %d workers, %d models over %d claimed patterns in %d ms -- a (K,K)-Ramsey graph on %d vertices exists, R(%d,%d) >= %d (witness: rerun ramsey_pvm)%n",
+            T, Csum, A, T1 - T0, N, K, K, N + 1)
+    ;
+        writef("UNSAT (dyn mode 2): %d workers, all %d claimed patterns proven empty in %d ms -- every graph on %d vertices has a %d-clique or an independent %d-set, i.e. R(%d,%d) <= %d%n",
+            T, A, T1 - T0, N, K, K, K, K, N)
     ),
     writeln(Counts).
 
@@ -137,6 +246,14 @@ t_from_env(T) =>
 m_from_env(M) =>
     ((bp.picat_getenv("M", S)) -> M = to_int(S) ; M = 0),
     (M >= 0 -> true ; handle_exception($m_expected_at_least_0(M), main)).
+
+o_from_env(O) =>
+    ((bp.picat_getenv("O", S)) -> O = to_int(S) ; O = 0),
+    (O >= 0 -> true ; handle_exception($o_expected_at_least_0(O), main)).
+
+dyn_from_env(DYN) =>
+    ((bp.picat_getenv("DYN", S)) -> DYN = to_int(S) ; DYN = 0),
+    (DYN >= 0 -> true ; handle_exception($dyn_expected_at_least_0(DYN), main)).
 
 % 1-based array index of the edge (I,J), 0 <= I < J < N
 pair_idx(I, J, N) =

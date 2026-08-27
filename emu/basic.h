@@ -342,7 +342,12 @@ typedef struct {
                            (absolute values are B+1..B+A); -1 = the
                            live-bound supersede is off (a plain fork) */
     volatile long lb;    /* mode 2: max model value found in this
-                            session so far (absolute; 0 = none) */
+                             session so far (absolute; 0 = none) */
+    volatile long claim; /* mode 2 dynamic: shared slice cursor.
+                             pvm_claim(Max) atomically fetch-adds 1
+                             and returns cur+1 while cur < Max, else
+                             0 (exhausted). The first Max calls hand
+                             out exactly 1..Max, each exactly once. */
     /* one frontier seat per live process, for the deepest-frontier
        fork gate: pid = 0 (idle) or the owner's pid; depth = frame
        address of the process's current frontier (deeper frames have

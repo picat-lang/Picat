@@ -6,7 +6,7 @@ This folder holds the parallel-search example sets, by branch:
   folder's root: `par_*`, `threads_*`, `pp_*`, `bench_*`. See the
   sections below ("What the branch adds" ... "Measured numbers").
 * **`parsearch` branch** (fork-based OR-parallel CP search,
-  `bp.pvm_fork/report/collect/chunk/worker_id`) — the complete source
+  `bp.pvm_fork/report/collect/chunk/worker_id/claim`) — the complete source
   of every model used in the `parsearch` engineering report
   (docs/ report "OR-Parallel Constraint Search in Picat 3.9"), in
   **`pvm/`**. One file per configuration; the filename encodes
@@ -20,7 +20,11 @@ finish it. Mode 1 = the $C=1$ OR split; mode 2 = static value-chunk
 all-results (`bp.pvm_worker_id(I)` + `bp.pvm_chunk(Lo, Hi)` in each
 worker; each worker `pvm_report`s its result -- any ground term -- and
 the root's `pvm_collect(R)` returns the LIST of all reported results,
-in report order, which the parent then uses explicitly, e.g. sums);
+in report order, which the parent then uses explicitly, e.g. sums; a
+DYNAMIC variant -- `bp.pvm_claim(Max, V)` hands out `1..Max` exactly
+once each from a shared cursor and a pool of workers loops
+claim--solve--report, balancing uneven slice costs without re-forking,
+the R(4,4)=18 cell runs it in `pvm/ramsey_m2.pi` with `DYN=1`) ;
 mode 3 = first-solution with value chunks of size $C$. For
 modes 1/3 the solution is **reported by value**: the finding process
 calls `pvm_report(Sol)` with the solution term (any ground term:

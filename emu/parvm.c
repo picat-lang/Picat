@@ -49,6 +49,7 @@ int c_pvm_fork_lb(void);
 int c_pvm_delegate(void);
 int c_pvm_worker_id(void);
 int c_pvm_chunk(void);
+int c_pvm_claim(void);
 int c_pvm_report(void);
 int c_pvm_collect(void);
 int c_pvm_solution(void);
@@ -702,6 +703,7 @@ void Cboot_parvm()
     insert_cpred("pvm_fork_lb", 4, c_pvm_fork_lb);
     insert_cpred("pvm_worker_id", 1, c_pvm_worker_id);
     insert_cpred("pvm_chunk", 2, c_pvm_chunk);
+    insert_cpred("pvm_claim", 2, c_pvm_claim);
     insert_cpred("pvm_report", 1, c_pvm_report);
     insert_cpred("pvm_collect", 1, c_pvm_collect);
     insert_cpred("pvm_solution", 1, c_pvm_solution);
@@ -1534,6 +1536,7 @@ static int pvm_open_shm(void)
         pvm_shm->wake = 0;
         pvm_shm->base = -1;
         pvm_shm->lb = 0;
+        pvm_shm->claim = 0;
         pvm_shm->pvm_tick = 0;
         return BP_TRUE;
     }
@@ -3036,6 +3039,34 @@ int c_pvm_chunk()
     return BP_TRUE;
 }
 
+/* Mode 2, dynamic chunks (outlook item 5): claim the next slice of
+   the session's 1..Max value set from the shared cursor, BEFORE
+   doing and publishing its outcome. A worker that finishes early
+   keeps claiming (the static [w_lo,w_hi] bounds are ignored by a
+   dynamic driver), so uneven slice costs balance themselves instead
+   of stranding the fast workers. The cursor-CAS pattern is the
+   result buffer's: each value is handed out exactly once, and the
+   first Max calls return exactly 1..Max (later calls return 0 =
+   exhausted). */
+int c_pvm_claim()
+{
+    BPLONG maxv = ARG(1, 2);
+    BPLONG r = ARG(2, 2);
+    long max, cur;
+
+    DEREF(maxv);
+    DEREF(r);
+    if (pvm_shm == NULL || !pvm.armed) {
+        bp_exception = illegal_arguments;
+        return BP_ERROR;
+    }
+    max = INTVAL(maxv);
+    cur = __sync_fetch_and_add(&pvm_shm->claim, 1);
+    if (cur < max) { ASSIGN_f_atom(r, MAKEINT(cur + 1)); }
+    else { ASSIGN_f_atom(r, MAKEINT(0)); }
+    return BP_TRUE;
+}
+
 int c_pvm_report()
 {
     BPLONG t = ARG(1, 1);
@@ -3288,6 +3319,7 @@ static int pvm_serial_fork_arm(BPLONG nt, BPLONG mode, BPLONG aval)
     pvm_serial_shm.live = 0;
     pvm_serial_shm.base = -1;  /* live bound: off on single engines */
     pvm_serial_shm.lb = 0;
+    pvm_serial_shm.claim = 0;
     pvm_serial_shm.count = 0;
     pvm_serial_shm.found = 0;
     pvm_serial_shm.sol_len = -1;
@@ -3320,6 +3352,28 @@ int c_pvm_chunk()
     DEREF(hi);
     ASSIGN_f_atom(lo, MAKEINT(1));
     ASSIGN_f_atom(hi, MAKEINT(pvm.aval));
+    return BP_TRUE;
+}
+
+/* Single engine: the claim cursor is private, so a plain (lock-free)
+   increment is atomic by exclusion. Same 1..Max-else-0 contract. */
+int c_pvm_claim()
+{
+    BPLONG maxv = ARG(1, 2);
+    BPLONG r = ARG(2, 2);
+    long max, cur;
+
+    DEREF(maxv);
+    DEREF(r);
+    if (pvm_shm == NULL || !pvm.armed) {
+        bp_exception = illegal_arguments;
+        return BP_ERROR;
+    }
+    max = INTVAL(maxv);
+    cur = pvm_shm->claim;
+    pvm_shm->claim = cur + 1;
+    if (cur < max) { ASSIGN_f_atom(r, MAKEINT(cur + 1)); }
+    else { ASSIGN_f_atom(r, MAKEINT(0)); }
     return BP_TRUE;
 }
 
@@ -3392,6 +3446,7 @@ void Cboot_parvm()
     insert_cpred("pvm_fork_lb", 4, c_pvm_fork_lb);
     insert_cpred("pvm_worker_id", 1, c_pvm_worker_id);
     insert_cpred("pvm_chunk", 2, c_pvm_chunk);
+    insert_cpred("pvm_claim", 2, c_pvm_claim);
     insert_cpred("pvm_report", 1, c_pvm_report);
     insert_cpred("pvm_collect", 1, c_pvm_collect);
     insert_cpred("pvm_solution", 1, c_pvm_solution);
