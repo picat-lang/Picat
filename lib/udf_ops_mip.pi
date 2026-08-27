@@ -1,0 +1,36 @@
+% =====================================================================
+%  udf_ops_mip.pi  -  mip version of  udf_ops.pi : makes user-defined
+%  functions (udf) usable with the  mip  solver's constraint operators.
+%
+%  This is an INCLUDE file, NOT a module.  Add it verbatim to YOUR OWN
+%  module so that its definitions take precedence over the imported solver's:
+%
+%       import mip.
+%       import udf.
+%       include "udf_ops_mip.pi".
+%
+%  It defines one-line shims for the mip arithmetic and Boolean constraint
+%  operators (#= #!= #< #=< #<= #> #>= and #~ #/\ #^ #\/ #=> #<=>).
+%  Each shim expands any user-function calls (udf.flatten) and then
+%  delegates back to  mip's  operator, so
+%
+%       Y #= $area(W,H),   $cost(N) #=< Budget,   ...
+%
+%  all work with a user function on either/both sides.
+%
+%  Alternative, zero-boilerplate form:  udf.post(Rel, E1, E2).
+% =====================================================================
+
+'#='(L,R)     => mip.'#='(udf.flatten(L), udf.flatten(R)).
+'#!='(L,R)    => mip.'#!='(udf.flatten(L), udf.flatten(R)).
+'#>'(L,R)      => mip.'#>'(udf.flatten(L), udf.flatten(R)).
+'#>='(L,R)     => mip.'#>='(udf.flatten(L), udf.flatten(R)).
+'#<'(L,R)      => mip.'#<'(udf.flatten(L), udf.flatten(R)).
+'#=<'(L,R)     => mip.'#=<'(udf.flatten(L), udf.flatten(R)).
+'#<='(L,R)     => mip.'#=<'(udf.flatten(L), udf.flatten(R)).    % synonym of  #=<
+'#~'(X)       => mip.'#~'(udf.flatten(X)).
+'#/\\'(L,R)   => mip.'#/\\'(udf.flatten(L), udf.flatten(R)).
+'#^'(L,R)     => mip.'#^'(udf.flatten(L), udf.flatten(R)).
+'#\\/'(L,R)   => mip.'#\\/'(udf.flatten(L), udf.flatten(R)).
+'#=>'(L,R)    => mip.'#=>'(udf.flatten(L), udf.flatten(R)).
+'#<=>'(L,R)   => mip.'#<=>'(udf.flatten(L), udf.flatten(R)).

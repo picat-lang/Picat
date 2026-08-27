@@ -84,8 +84,7 @@ module udf.
         F = expand(E, 0).
 
     evaluate(E) = Val =>
-        F = udf.flatten(E),
-        Val is F.
+        Val = udf.flatten(E) * 1.
 
     post(Rel, E1, E2) =>
         O1 = expand(E1, 0),

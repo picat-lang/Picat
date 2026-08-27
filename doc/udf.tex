@@ -75,8 +75,11 @@ those operators is precisely what the \texttt{udf.ops.pi} shims do.
 
 A solver operator cannot be overridden by an imported module, but a
 module's \emph{own} definitions take precedence over an imported solver's.
-The include file \texttt{lib/udf.ops.pi} provides a one-line shim for
-every arithmetic and Boolean constraint operator
+which solver.  The include files
+\texttt{lib/udf.ops.pi} (cp), \texttt{udf.ops\_sat.pi},
+\texttt{udf.ops\_mip.pi}, and \texttt{udf.ops\_smt.pi}
+each provide a one-line shim for every arithmetic and Boolean constraint
+operator of that solver
 (\verb+#= #!= #< #=< #<= #> #>=+ and
 \verb+#~ #/\\ #^ #\\/ #=> #<=>+).  Adding
 (\texttt{include "udf.ops.pi"}) to the \emph{user's own} module makes
@@ -96,13 +99,12 @@ the normal source style work:
 
 \subsubsection{Examples and how to run them}
 
-Two examples are provided in \texttt{exs/cp/}:
-\texttt{udf\_functions.pi} (a simple ``normal \texttt{\#=}'' example) and
-\texttt{udf\_ops\_schedule.pi} (a three-day production/stock scheduling
-problem that minimises total production, using a recursive user function
-\texttt{day\_demand/1} under \texttt{\#=} and \texttt{\#>=}).
-
-To run them, the \texttt{udf} module must be found on
+Two examples are provided in each of \texttt{exs/cp/},
+\texttt{exs/sat/}, \texttt{exs/mip/}, and \texttt{exs/smt/}
+(\texttt{udf\_functions.pi}); \texttt{exs/cp/udf\_ops\_schedule.pi}
+adds a three-day production/stock scheduling problem that minimises
+total production, using a recursive user function
+\texttt{day\_demand/1} under \texttt{\#=} and \texttt{\#>=}.
 \texttt{PICATPATH}\index{PICATPATH}.  From the \texttt{exs/cp} directory:
 
 \begin{verbatim}
