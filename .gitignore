@@ -21,3 +21,6 @@ webasm/build/
 # webasm headless harness run products
 webasm/headless/native_cwd/
 webasm/headless/results.csv
+
+# local PDF rendering of the pvm README (personal, not to be committed)
+exs/parallel/pvm/README.pdf
