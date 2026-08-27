@@ -1,0 +1,43 @@
+/*
+ *  Example 2 (more complex) - user-defined functions in constraints with
+ *  every solver operator, via the  include "udf_ops.pi"  shims.
+ *
+ *  A min-cost production / stock problem over 3 days.
+ *
+ *    - a USER function  day_demand(N) = N*2+1   gives the demand of day N
+ *    - we pick daily production  P_i  (>=0) and stock  S_i  (>=0)
+ *    - user function used inside  #=  and  #>=   constraints, natural style:
+ *          S_1   #=  P_1
+ *          P_1   #>= day_demand(1)
+ *          S_i   #=  S_{i-1} + P_i - day_demand(i)
+ *          Total #= P_1 + P_2 + P_3
+ *    - minimise  Total.
+ *
+ *  Run with:  picat  exs/cp/udf_ops_schedule.pi
+ *             (the  udf_ops.pi  file sits next to this example; put
+ *              PICATPATH=<picat>/lib  if you also import  udf  from lib)
+ */
+ import cp.
+ import udf.
+ include "udf_ops.pi".
+
+ main =>
+     % ---- register the user function used in constraints ----
+     udf.define($day_demand(N), $(N*2+1)),
+
+     P1 :: 0..20,  P2 :: 0..20,  P3 :: 0..20,
+     S1 :: 0..20,  S2 :: 0..20,  S3 :: 0..20,
+     Total :: 0..200,
+
+     % ---- constraints, in the normal source style, using  udf_ops.pi ----
+     S1 #= P1,
+     P1 #>= $day_demand(1),
+     S2 #= S1 + P2 - $day_demand(2),
+     S3 #= S2 + P3 - $day_demand(3),
+     S1 #>= 0,  S2 #>= 0,  S3 #>= 0,
+     Total #= P1 + P2 + P3,
+
+     solve([$min(Total)], [P1, P2, P3, S1, S2, S3, Total]),
+     printf("min total production = %w%n", Total),
+     printf(" productions      = %w, %w, %w%n", P1, P2, P3),
+     printf(" day_demand(3) flattened = %w%n", udf.flatten($day_demand(3))).

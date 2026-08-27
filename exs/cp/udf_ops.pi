@@ -1,0 +1,40 @@
+% =====================================================================
+%  udf_ops.pi  -  use user-defined functions (udf) with every solver
+%                  constraint operator, written in the normal source style.
+%
+%  This is an INCLUDE file, NOT a module.  Add it verbatim to YOUR OWN
+%  module so that its definitions take precedence over the imported solver's:
+%
+%       import cp.          % or sat / mip / smt
+%       import udf.
+%       include "udf_ops.pi".
+%
+%  It defines one-line shims for every arithmetic and Boolean constraint
+%  operator (picat_compact_ref.txt:  arithmetic  #= #!= #< #=< #<= #> #>=
+%  ; Boolean  #~ #/\ #^ #\/ #=> #<=> ).  Each shim expands any
+%  user-function calls in its arguments (udf.flatten) and then delegates
+%  back to the solver's own operator, so e.g.
+%
+%       Y #= $area(W,H),
+%       $cost(N) #=< Budget,
+%       B #<=> (X #>= $min_allowed)
+%
+%  all work with a user function on either/both sides and under the Boolean
+%  operators too.
+%
+%  Alternative, zero-boilerplate form:  udf.post(Rel, E1, E2).
+% =====================================================================
+
+'#='(L,R)     => cp.'#='(udf.flatten(L), udf.flatten(R)).
+'#!='(L,R)    => cp.'#!='(udf.flatten(L), udf.flatten(R)).
+'#>'(L,R)      => cp.'#>'(udf.flatten(L), udf.flatten(R)).
+'#>='(L,R)     => cp.'#>='(udf.flatten(L), udf.flatten(R)).
+'#<'(L,R)      => cp.'#<'(udf.flatten(L), udf.flatten(R)).
+'#=<'(L,R)     => cp.'#=<'(udf.flatten(L), udf.flatten(R)).
+'#<='(L,R)     => cp.'#=<'(udf.flatten(L), udf.flatten(R)).    % synonym of  #=<
+'#~'(X)       => cp.'#~'(udf.flatten(X)).
+'#/\\'(L,R)   => cp.'#/\\'(udf.flatten(L), udf.flatten(R)).
+'#^'(L,R)     => cp.'#^'(udf.flatten(L), udf.flatten(R)).
+'#\\/'(L,R)   => cp.'#\\/'(udf.flatten(L), udf.flatten(R)).
+'#=>'(L,R)    => cp.'#=>'(udf.flatten(L), udf.flatten(R)).
+'#<=>'(L,R)   => cp.'#<=>'(udf.flatten(L), udf.flatten(R)).
