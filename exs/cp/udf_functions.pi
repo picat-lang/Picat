@@ -1,0 +1,32 @@
+/*
+ *  User-defined functions in constraints  (using the  udf  module, lib/udf.pi)
+ *
+ *  Run with:  picat -path <picat>/lib  exs/cp/udf_functions.pi
+ *  (the  udf  module lives in the standard library dir  lib/ ).
+ *
+ *  cp / sat / mip / smt constraints only accept the built-in arithmetic
+ *  function symbols, so a user function call in a constraint expression is
+ *  otherwise left unevaluated.  The  udf  module rewrites such calls into
+ *  primitive arithmetic:
+ *      - functions may be compound (they may call other udf functions),
+ *      - a call  f(A1,...,An)  is expanded by structural pattern-matching,
+ *        so recursion can be written like  f([],..)  and  f([H|T],..) .
+ */
+ import cp.
+ import udf.
+
+ main =>
+     % ---- register user functions usable in constraints ----
+     udf.define($sum_prod(K, X), $(X + 3*K)),       % compound expression
+     udf.define($total([]), 0),                         % structural recursion
+     udf.define($total([H|T]), $(H + total(T))),
+
+     % ---- use them in constraints ----
+     X :: 1..9,
+     udf.post('#=', 11, $sum_prod(2, X)),   % X + 3*2 = 11  ->  X = 5
+     Y :: 1..9,
+     udf.post('#=', $total([1,2,3]), Y),     % 1+2+3 = 6       ->  Y = 6
+
+     solve([], [X, Y]),
+     T = udf.flatten($total([1,2,3])),
+     printf("X=%w  Y=%w  total([1,2,3])=%w%n", X, Y, T).
