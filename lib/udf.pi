@@ -35,15 +35,29 @@ module udf.
             Bound on how deep a (possibly recursive) body may expand before
             the exception  udf_expansion_too_deep  is thrown.  Default 100.
 
+    Two ways to use a registered function in a constraint:
+
+        (a) explicit:   udf.post('#=', Y, $f(X))     (works everywhere)
+
+        (b) natural L R style in YOUR OWN module:  a one-line shim per
+            relation, e.g.
+                '#='(L,R) => cp.'#='(udf.flatten(L), udf.flatten(R)).
+            A module's own definitions beat an imported solver's, so
+                Y #= $f(X)
+            expands f and delegates back to the solver.  (An imported
+            module cannot override the solver's  #= .)
+
     Example (cp):
 
         import cp.
         import udf.
 
+        '#='(L,R) => cp.'#='(udf.flatten(L), udf.flatten(R)).
+
         main =>
             udf.define($tri(W,H), $W*H//2),
             X :: 1..5,  Y :: 1..5,
-            udf.post('#=', 10, $tri(X,Y)),
+            T #= $tri(X,Y),
             println(solve([], [X,Y])).
 */
 
