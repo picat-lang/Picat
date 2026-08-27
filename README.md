@@ -175,7 +175,8 @@ that you `include` in *your own* module: it redefines `#=`, `#!=`,
 `#<`, `#=<`, `#<=`, `#>`, `#>=` (and the Boolean `#~ #/\ #^ #\/ #=> #<=>`)
 to first expand the user functions and then delegate back to the solver.
 
-Tiny example (`cp`), using normal constraint notation:
+Tiny example (`cp`), using normal constraint notation (this is
+`exs/cp/udf_test.pi`):
 
 ```picat
 import cp.
@@ -183,11 +184,13 @@ import udf.
 include "udf_ops.pi".        % defines the operator shims (see above)
 
 main =>
-    udf.define($dbl(X), $(X*2)),
-    X :: 1..9,
-    X #= $dbl(3),            % dbl(3) = 3*2 = 6  ->  X = 6
-    solve([], [X]),
-    println(X).
+    % register the user function used in constraints:
+    udf.define($inc(N), $(N+1)),
+    X :: 0..10,
+    $inc(X) #= 6,            % inc(X) = X+1 = 6  ->  X = 5
+    solve([X]),
+    println(X),               % 5
+    println(udf.evaluate($inc(X))).   % 6
 ```
 
 The `udf` documentation lives in `doc/udf.tex`.
