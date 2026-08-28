@@ -160,7 +160,7 @@ for editor/LSP integration. Self-test:
 
 ## 6. User-defined functions in constraints — very experimental (`udf`)
 
-The `udf` module (`lib/udf.pi`) lets you use *your own* functions inside
+The `udf` module (`lib2/udf.pi`) lets you use *your own* functions inside
 constraint expressions, which the built-in solvers do not support.
 **This is very experimental and the syntax is not yet ideal.** In
 particular, `f(X)` in a normal (non-constraint) expression is an

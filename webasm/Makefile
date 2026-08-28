@@ -154,11 +154,10 @@ ASPIC_PRELOADS := \
   --preload-file ../aspic/aspic_runtime_template.pi@/aspic_runtime_template.pi
 
 UDF_PRELOADS := \
-  --preload-file ../lib/udf.pi@/udf.pi \
-  --preload-file ../lib/udf.pi@/lib2/udf.pi \
-  --preload-file ../lib/udf.pi@/examples/udf.pi \
-  --preload-file ../lib/udf_ops.pi@/examples/udf_ops.pi \
-  --preload-file ../lib/udf_ops.pi@/udf_ops.pi
+  --preload-file ../lib2/udf.pi@/udf.pi \
+  --preload-file ../lib2/udf.pi@/examples/udf.pi \
+  --preload-file ../lib2/udf_ops.pi@/examples/udf_ops.pi \
+  --preload-file ../lib2/udf_ops.pi@/udf_ops.pi
 
 EMFLAGS := -sMODULARIZE=1 -sEXPORT_NAME=PicatWasm \
             -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=16777216 \

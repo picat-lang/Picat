@@ -11,7 +11,7 @@ calls.)  Any other call that appears in a constraint expression is left as an
 unevaluated\index{unevaluated} term, so a user-written function such as
 \texttt{sqr(X) = X*X} cannot be used directly in a constraint.
 
-The \texttt{udf}\index{\texttt{udf}} module (\texttt{lib/udf.pi}) adds
+The \texttt{udf}\index{\texttt{udf}} module (\texttt{lib2/udf.pi}) adds
 support for user-defined functions in constraints.  It is a
 self-contained, extensible layer that works with all four constraint
 solvers (\texttt{cp}, \texttt{sat}, \texttt{smt}, and \texttt{mip}).
@@ -76,7 +76,7 @@ those operators is precisely what the \texttt{udf.ops.pi} shims do.
 A solver operator cannot be overridden by an imported module, but a
 module's \emph{own} definitions take precedence over an imported solver's.
 which solver.  The include files
-\texttt{lib/udf.ops.pi} (cp), \texttt{udf.ops\_sat.pi},
+\texttt{lib2/udf.ops.pi} (cp), \texttt{udf.ops\_sat.pi},
 \texttt{udf.ops\_mip.pi}, and \texttt{udf.ops\_smt.pi}
 each provide a one-line shim for every arithmetic and Boolean constraint
 operator of that solver
@@ -108,12 +108,13 @@ total production, using a recursive user function
 \texttt{PICATPATH}\index{PICATPATH}.  From the \texttt{exs/cp} directory:
 
 \begin{verbatim}
-    picat -path <picat>/lib  udf_functions.pi
-    PICATPATH=<picat>/lib  <picat>/emu/picat  udf_ops_schedule.pi
+    picat -path <picat>/lib2  udf_functions.pi
+    PICATPATH=<picat>/lib2  <picat>/emu/picat  udf_ops_schedule.pi
 \end{verbatim}
 
-where \texttt{<picat>/lib} is the repository's \texttt{lib} directory
-(\texttt{udf.ops.pi}, which the examples include, sits next to them and is
+where \texttt{<picat>/lib2} is the repository's precompiled standard
+\texttt{lib2} directory (the udf operator file the examples
+\texttt{include}, \texttt{udf\_ops*.pi}, sits next to the examples and is
 found directly).
 
 \subsubsection{Limitations}

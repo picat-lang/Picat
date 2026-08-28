@@ -1,7 +1,7 @@
 /*
- *  User-defined functions in constraints  (using the  udf  module, lib/udf.pi)
+ *  User-defined functions in constraints  (using the  udf  module, lib2/udf.pi)
  *
- *  The  udf  module  (lib/udf.pi)  lets a user-written function be used in
+ *  The  udf  module  (lib2/udf.pi)  lets a user-written function be used in
  *  a CP / SAT / MIP / SMT arithmetic constraint.  Constraint expressions are
  *  treated as TERMS, so  f(X)  reaches udf without being evaluated; udf
  *  expands it into primitive arithmetic before handing it to the solver.
@@ -13,8 +13,8 @@
  *
  *  RUN (<picat> = the Picat repository root):
  *    cd <picat>/exs/cp
- *    PICATPATH=<picat>/lib  ../../emu/picat  udf_functions.pi
- *    # or  ../../emu/picat -path <picat>/lib  udf_functions.pi
+ *    PICATPATH=<picat>/lib2  ../../emu/picat  udf_functions.pi
+ *    # or  ../../emu/picat -path <picat>/lib2  udf_functions.pi
  *    # expected:  X=7  Y=6  total([1,2,3])=1 + (2 + (3 + 0))
  */
  import cp.

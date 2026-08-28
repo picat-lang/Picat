@@ -1,11 +1,11 @@
 /*
  *  User-defined functions in constraints with the  mip  solver.
- *  Uses  lib/udf.pi  and the  mip  operator shims in  udf_ops_mip.pi.
+ *  Uses  lib2/udf.pi  and the  mip  operator shims in  udf_ops_mip.pi.
  *
  *  RUN (<picat> = the Picat repository root):
  *    cd <picat>/exs/mip
- *    PICATPATH=<picat>/lib  ../../emu/picat  udf_functions.pi
- *    # or  ../../emu/picat -path <picat>/lib  udf_functions.pi
+ *    PICATPATH=<picat>/lib2  ../../emu/picat  udf_functions.pi
+ *    # or  ../../emu/picat -path <picat>/lib2  udf_functions.pi
  *  (needs a mip solver: Gurobi, Cbc, or GLPK)
  */
  import mip.
