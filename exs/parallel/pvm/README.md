@@ -28,6 +28,15 @@ speedup entirely (see the table: it is load-sensitive). Long runs
 
 ## Achieved accelerations (method, mode, parameters)
 
+Best measured speedup per mode (one entry each; the full cell matrix
+below):
+
+- mode 1 (C=1 OR split / lifting): **1.22×** — knapsack N=80, mode-1 bound-lift (`backpack_pvm`, NT=16)
+- mode 2 (static value partition, all-results): **14.7×** — n-Queens counting N=16, NT=16 (229.5 s → 15.6 s)
+- mode 2 + `pvm_claim` pool (dynamic chunks): **2.30×** — R(4,4) ≤ 18 whole-tree UNSAT, 384 workers × 2^14 leaves vs the same-batch static (61.5 s vs 141.3 s; 2.10× on the quiet batch)
+- mode 3 (value-chunked first solution): **1.54×** — n-Queens N=479, 16 workers, C=16 (quiet batch; load-sensitive, ~1.0× hot)
+- mode 4 (bound-lifted B&B, banded): **2.34×** — knapsack N=80, NT=16 (`backpack_band`)
+
 | Problem / test case | Method & mode | Parameters | Serial | Parallel | Speedup |
 |---|---|---|---|---|---|
 | n-Queens first solution, N = 479 | mode 3 — value-chunked search | NT = 16, C = 16 (`queens_first.pi 479 16 3 16`) | 6.90–8.13 s (quiet node) / 4.78–4.86 s (hot node, 2026-08-28 remeasurement) | 5.27 s quiet (battery best cells 4.92–5.49 s) / 4.87–5.31 s hot | **1.14–1.54× on the quiet node; load-sensitive — ~1.0× (flat) on the hot node**. The parallelizable work is only the failing Q4 prefix; when the serial baseline is fast there is no gain left to take |
