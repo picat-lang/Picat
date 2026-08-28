@@ -19,6 +19,11 @@ LFLAGS = -lm -lpthread
 
 include common.mak
 
+# The satext external-solver flow (SATEXT_SHIM / large CNFs) execs the
+# satshim helper next to the picat binary; make it a picat prerequisite
+# so a plain `make clean && make` never ships a picat without its shim.
+picat$(EXT): satshim
+
 # --- build stamp for the interactive banner ------------------------------
 # The banner (main.c printf, init.c --version) records the commit the
 # binary was built from.  The stamp is known only at compile time and a
