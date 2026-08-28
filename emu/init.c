@@ -122,7 +122,7 @@ void init_toam(int argc, char *argv[])
                     exit(0);
                 } else if (*(str+2) == 'v' || strcmp(str+2, "version") == 0) {
                     printf("Picat experimental, built on %s (commit %s), "
-                           "based on Picat 3.9#11\n", PICAT_BUILD_DATE,
+                           "based on Picat 3.9#12\n", PICAT_BUILD_DATE,
                            PICAT_BUILD_COMMIT);
                     exit(0);
                 }

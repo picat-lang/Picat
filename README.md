@@ -226,7 +226,7 @@ The `udf` examples are:
 `exs/mip/udf_functions.pi`,
 `exs/smt/udf_functions.pi`.
 
-__Current version 3.9#11.__
+__Current version 3.9#12.__
 
 Picat is a simple, and yet powerful, logic-based
 multi-paradigm programming language aimed for
