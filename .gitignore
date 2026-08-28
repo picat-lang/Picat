@@ -3,6 +3,9 @@ emu/*.o
 emu/picat
 emu/picat*
 *.log
+emu/gitstamp.h
+emu/.gitstamp.tmp
+webasm/.gitstamp.tmp
 
 # compiled module caches
 *.qi

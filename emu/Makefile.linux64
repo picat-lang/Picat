@@ -8,14 +8,6 @@ CCC=$(CC) -c
 CPPC=$(CPP) -c
 	
 CFLAGS = -O3 -fno-strict-aliasing -finline-functions -fomit-frame-pointer -Dunix -DLINUX -DPOSIX -Wno-error=unused-label #Linux,#HP
-GIT_SHORT ?= $(shell git rev-parse --short HEAD 2>/dev/null)
-ifeq ($(GIT_SHORT),)
-GIT_SHORT := unknown
-endif
-GIT_DATE ?= $(shell date +%Y/%m/%d)
-CFLAGS += -DPICAT_BUILD_COMMIT='"$(GIT_SHORT)"' \
-          -DPICAT_BUILD_DATE='"$(GIT_DATE)"' \
-          -DPICAT_NATIVE_BANNER_SUPPRESS
 #CFLAGS = -O4 -Dunix -DBSD             #SunOS
 #CFLAGS = -O3 -fno-strict-aliasing -Dunix -DLINUX -DPOSIX -DCYGWIN #Linux,#HP
 #CFLAGS = -O4 -Dunix -DPOSIX           #HP
@@ -26,6 +18,28 @@ CFLAGS += -DPICAT_BUILD_COMMIT='"$(GIT_SHORT)"' \
 LFLAGS = -lm -lpthread
 
 include common.mak
+
+# --- build stamp for the interactive banner ------------------------------
+# The banner (main.c printf, init.c --version) records the commit the
+# binary was built from.  The stamp is known only at compile time and a
+# build after the next commit would otherwise recompile nothing, so
+# gitstamp.h is regenerated whenever HEAD changes and main.o/init.o
+# (the two objects that carry the stamp) depend on it.  Declared AFTER
+# common.mak so that picat remains the default goal.
+GIT_STAMP = gitstamp.h
+GIT_DATE  ?= $(shell date +%Y/%m/%d)
+CFLAGS += -DPICAT_BUILD_COMMIT='"$(shell cat $(GIT_STAMP) 2>/dev/null || echo unknown)"' \
+          -DPICAT_BUILD_DATE='"$(GIT_DATE)"' \
+          -DPICAT_NATIVE_BANNER_SUPPRESS
+
+main.o init.o: $(GIT_STAMP)
+
+$(GIT_STAMP): FORCE
+	git rev-parse --short HEAD 2>/dev/null > .gitstamp.tmp || echo unknown > .gitstamp.tmp
+	@if cmp -s .gitstamp.tmp $@ 2>/dev/null; then rm -f .gitstamp.tmp; \
+	else rm -f $@ && mv .gitstamp.tmp $@; echo "banner stamp: $$(cat $@)"; fi
+
+.PHONY: FORCE
 
 #-----------------------------------------------------------------------------
 # ULTRAOPTIMISATION -- native build-time optimization switch.

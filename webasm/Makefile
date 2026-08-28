@@ -34,8 +34,20 @@ DIST    := dist
 # built, with '+' appended if the tree is dirty at build time --
 # identifies a deployed dist/ against the git history.  "unknown"
 # when the checkout is not a git repo.
-BUILD_ID := $(shell git -C .. rev-parse --short=12 HEAD 2>/dev/null)
-BUILD_ID := $(if $(strip $(BUILD_ID)),$(BUILD_ID)$(if $(shell git -C .. status --porcelain 2>/dev/null),+),unknown)
+# The id itself lives in $(GIT_STAMP): a build after the next commit
+# would otherwise relink nothing, so the file is regenerated whenever
+# HEAD changes and dist/picat.js depends on it.  '+': live dirty-tree
+# check, evaluated at link time, never part of the stamp.
+GIT_STAMP := $(BUILDDIR)/gitstamp
+BUILD_ID  = $(shell cat $(GIT_STAMP) 2>/dev/null || echo unknown)$(if $(shell git -C .. status --porcelain 2>/dev/null | head -c1),+,"")
+.DEFAULT_GOAL := all
+
+$(GIT_STAMP): FORCE
+	git -C .. rev-parse --short=12 HEAD 2>/dev/null > .gitstamp.tmp || echo unknown > .gitstamp.tmp
+	@if cmp -s .gitstamp.tmp $@ 2>/dev/null; then rm -f .gitstamp.tmp; \
+	else rm -f $@ && mv .gitstamp.tmp $@; echo "build stamp: $$(cat $@)"; fi
+
+.PHONY: FORCE
 
 # Compile exactly the object list of the native build (emu/common.mak),
 # minus the pieces that cannot run in a browser:
@@ -226,7 +238,7 @@ $(STAGE)/kissat/kis_%.o: $(STAGE)/kissat/src/%.c
 
 # ---- link -------------------------------------------------------------
 $(DIST)/picat.js: $(STAGE)/stamp $(OBJS) browser/index.html \
-                  $(wildcard examples/*) $(DATA_SRC) $(ASPICTOOLS)
+                  $(wildcard examples/*) $(DATA_SRC) $(ASPICTOOLS) $(GIT_STAMP)
 	mkdir -p $(DIST)
 	$(EMCC) $(CFLAGS) $(OBJS) $(EMFLAGS) -o $@
 	sed 's/__PICAT_BUILD_ID__/$(BUILD_ID)/g' browser/index.html > $(DIST)/index.html
