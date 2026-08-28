@@ -155,8 +155,6 @@ ASPIC_PRELOADS := \
 
 UDF_PRELOADS := \
   --preload-file ../lib2/udf.pi@/udf.pi \
-  --preload-file ../lib2/udf.pi@/examples/udf.pi \
-  --preload-file ../lib2/udf_ops.pi@/examples/udf_ops.pi \
   --preload-file ../lib2/udf_ops.pi@/udf_ops.pi
 
 EMFLAGS := -sMODULARIZE=1 -sEXPORT_NAME=PicatWasm \
