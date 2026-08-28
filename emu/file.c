@@ -1449,6 +1449,19 @@ int b_GET0_f(BPLONG op)
     return 1;
 }
 
+int c_GET0_terminal()
+{
+    BPLONG op, n;
+    op = ARG(1, 1);
+    if (picat_terminal != NULL){
+        n = getc(picat_terminal);
+        unify(op, MAKEINT(n));
+        return 1;
+    }
+    unify(op, MAKEINT(10));
+    return 1;  /* nothing is read */
+}
+
 /* deprecated */
 int b_PEEK_BYTE_f(BPLONG op)
 {

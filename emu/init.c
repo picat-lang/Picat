@@ -231,6 +231,13 @@ void init_toam(int argc, char *argv[])
 #endif
     initialize_free_records();
     init_picat_global_maps();
+
+#ifdef WIN32
+        picat_terminal = fopen("CON", "r");
+#else
+        picat_terminal = fopen("/dev/tty", "r");
+#endif
+
     inst_begin = 0;
     bp_exception = illegal_arguments;
 }  /* end of init_toam */

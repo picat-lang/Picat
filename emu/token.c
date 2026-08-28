@@ -635,7 +635,8 @@ int read_utf8_character(FILE * card, int q) {
     BP_GETC(card, c);
     if (c < 0) {  /* EOF */
         lastc = c;
-        return handleEndInQuoted();
+        // return handleEndInQuoted();
+        return c;
     }
     if (q == -1) return c;
     if (c == q) {
@@ -701,7 +702,8 @@ int read_utf8_character(FILE * card, int q) {
     case EOF:
         clearerr(curr_in);
         //    return handleEndInQuoted(q,-1);
-        return handleEndInQuoted();
+        //    return handleEndInQuoted();
+        return EOF;
     case '\r':
     {
         char dummy;
@@ -1426,7 +1428,7 @@ START:
         return PUNCT;
 
     case ATMQT:
-        while ((d = read_utf8_character(card, c)) >= 0 && bp_exception == (BPLONG)NULL) {
+        while ((d = read_utf8_character(card, c)) >= 0) {
             UTF8_CODEPOINT_TO_STR(d, s, n);
         }
         //              TOKEN_CHECK_EXCEPTION();
@@ -1438,7 +1440,7 @@ START:
     case LISQT:
         /* check for potential heap overflow */
         list_head = newpair = heap_top;
-        while ((d = read_utf8_character(card, c)) >= 0 && bp_exception == (BPLONG)NULL) {
+         while ((d = read_utf8_character(card, c)) >= 0) {
             if (local_top-heap_top <= LARGE_MARGIN) {
                 myquit(STACK_OVERFLOW, "tk");
             }
@@ -1841,7 +1843,7 @@ START:
         return PUNCT;
 
     case ATMQT:
-        while ((d = read_utf8_character_string(c)) >= 0 && bp_exception == (BPLONG)NULL) {
+        while ((d = read_utf8_character_string(c)) >= 0) {
             UTF8_CODEPOINT_TO_STR(d, s, n);
         }
         //  TOKEN_CHECK_EXCEPTION_STRING();
@@ -1852,7 +1854,7 @@ START:
     case LISQT:
         /* check for potential heap overflow */
         list_head = newpair = heap_top;
-        while ((d = read_utf8_character_string(c)) >= 0 && bp_exception == (BPLONG)NULL) {
+        while ((d = read_utf8_character_string(c)) >= 0) {
             if (local_top - heap_top <= LARGE_MARGIN) {
                 myquit(STACK_OVERFLOW, "tk");
             }
@@ -2143,21 +2145,21 @@ int c_update_term_start_line_no() {
 
 int c_report_syntax_error() {
     BPLONG i, j, NTokensBefore, here_out;
-    BPLONG char_no = 0;
+    BPLONG char_no = 0, line_count = 0;
 
     NTokensBefore = ARG(1, 1); DEREF(NTokensBefore); NTokensBefore = INTVAL(NTokensBefore);
-    /*
+/*
       printf("report_syntax_error %d\n", NTokensBefore);
       printf("term_start_pool_index = %ld\n", term_start_pool_index);
       printf("chars_pool_index = %ld\n",  chars_pool_index);
-    */
+*/
     if (NTokensBefore > MAX_TOKENS_IN_TERM){
         NTokensBefore = 0;
     }
 
     here_out = 0;
     if (NTokensBefore == 0) here_out = 1;
-    for (i = term_start_pool_index; i < chars_pool_index; i++) {
+    for (i = term_start_pool_index; i < chars_pool_index && line_count <= 5; i++) {
         if (NTokensBefore != 0 && i == token_start_pos[NTokensBefore]) {
 #ifndef WIN32
             fputs("\033\[31m <<HERE>> \033\[39m\n", stderr);
@@ -2168,7 +2170,10 @@ int c_report_syntax_error() {
             here_out = 1;
         }
         fputc(chars_pool[i], stderr);
-        if (chars_pool[i] == '\n') char_no = 0; else char_no++;
+        if (chars_pool[i] == '\n'){
+             char_no = 0; 
+            if (here_out == 1) line_count++;
+        } else char_no++;
     }
     if (here_out == 0) fputs("<<HERE>>", stderr);
 

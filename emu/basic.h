@@ -437,7 +437,7 @@ extern BPLONG global_call_number;
 extern BPLONG number_of_spy_points;
 extern UW16 dg_flag_word;
 
-extern FILE *curr_in, *curr_out;
+extern FILE *curr_in, *curr_out, *picat_terminal;
 
 extern PAR_TLS BPLONG stack_size, trail_size;  /* declared in init.c */
 extern BPLONG stack_size_limit, parea_size, findall_area_size;
