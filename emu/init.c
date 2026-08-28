@@ -35,6 +35,9 @@ int access(const char *pathname, int mode);
 #ifndef PICAT_BUILD_COMMIT
 #define PICAT_BUILD_COMMIT "unknown"
 #endif
+#ifndef PICAT_BUILD_DATE
+#define PICAT_BUILD_DATE "unknown"
+#endif
 
 BPLONG stack_size_limit = 1000000000;
 #ifdef BPSOLVER
@@ -118,8 +121,9 @@ void init_toam(int argc, char *argv[])
                     print_picat_usage();
                     exit(0);
                 } else if (*(str+2) == 'v' || strcmp(str+2, "version") == 0) {
-                    printf("Picat experimental, commit %s, based on "
-                           "Picat 3.9#11\n", PICAT_BUILD_COMMIT);
+                    printf("Picat experimental, built on %s (commit %s), "
+                           "based on Picat 3.9#11\n", PICAT_BUILD_DATE,
+                           PICAT_BUILD_COMMIT);
                     exit(0);
                 }
                 /*

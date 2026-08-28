@@ -12,7 +12,10 @@ GIT_SHORT ?= $(shell git rev-parse --short HEAD 2>/dev/null)
 ifeq ($(GIT_SHORT),)
 GIT_SHORT := unknown
 endif
-CFLAGS += -DPICAT_BUILD_COMMIT='"$(GIT_SHORT)"' -DPICAT_NATIVE_BANNER_SUPPRESS
+GIT_DATE ?= $(shell date +%Y/%m/%d)
+CFLAGS += -DPICAT_BUILD_COMMIT='"$(GIT_SHORT)"' \
+          -DPICAT_BUILD_DATE='"$(GIT_DATE)"' \
+          -DPICAT_NATIVE_BANNER_SUPPRESS
 #CFLAGS = -O4 -Dunix -DBSD             #SunOS
 #CFLAGS = -O3 -fno-strict-aliasing -Dunix -DLINUX -DPOSIX -DCYGWIN #Linux,#HP
 #CFLAGS = -O4 -Dunix -DPOSIX           #HP
