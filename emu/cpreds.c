@@ -1134,6 +1134,7 @@ void Cboot() {
 
     insert_cpred("c_bigint_sign_size", 3, c_bigint_sign_size);
 
+    insert_cpred("c_GET0_terminal", 1, c_GET0_terminal);
     /* insert_cpred("show_susp_frames",0,show_susp_frames); */
 
     Cboot_numbervars();

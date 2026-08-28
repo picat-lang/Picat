@@ -114,7 +114,7 @@ void init_toam(int argc, char *argv[])
                     print_picat_usage();
                     exit(0);
                 } else if (*(str+2) == 'v' || strcmp(str+2, "version") == 0) {
-                    printf("Picat version 3.9#11\n");
+                    printf("Picat version 3.9#12\n");
                     exit(0);
                 }
                 /*
@@ -222,6 +222,13 @@ void init_toam(int argc, char *argv[])
 #endif
     initialize_free_records();
     init_picat_global_maps();
+
+#ifdef WIN32
+        picat_terminal = fopen("CON", "r");
+#else
+        picat_terminal = fopen("/dev/tty", "r");
+#endif
+
     inst_begin = 0;
     bp_exception = illegal_arguments;
 }  /* end of init_toam */

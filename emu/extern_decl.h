@@ -789,6 +789,7 @@ extern int b_TAB_c(BPLONG op);
 extern int b_GET_BYTE_f(BPLONG op);
 extern int b_GET_CODE_f(BPLONG op);
 extern int b_GET0_f(BPLONG op);
+extern int c_GET0_terminal();
 extern int b_PEEK_BYTE_f(BPLONG op);
 extern int b_PEEK_CODE_f(BPLONG op);
 extern int c_UNGETC(void);

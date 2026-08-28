@@ -36,6 +36,7 @@ BPLONG number_of_spy_points = 0;
 UW16 dg_flag_word;
 
 FILE *curr_in, *curr_out;
+FILE *picat_terminal = NULL;
 
 BPLONG n_backtracks = 0;
 BPLONG_PTR stack_low_addr;
