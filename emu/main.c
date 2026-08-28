@@ -8,6 +8,9 @@
  ********************************************************************/
 
 #include "bprolog.h"
+#ifndef PICAT_BUILD_COMMIT
+#define PICAT_BUILD_COMMIT "unknown"
+#endif
 int main(int argc, char *argv[]);
 static INLINE int bprolog_main(int argc, char *argv[]);
 
@@ -23,6 +26,11 @@ int bprolog_main(int argc, char *argv[])
 #ifdef PICAT
         if (main_args != nil_sym) {
             use_gl_getline = 0;
+        }
+        else {
+            printf("Picat experimental, commit %s, based on Picat "
+                   "3.9#11, (C) picat-lang.org, 2013-2026\n",
+                   PICAT_BUILD_COMMIT);
         }
 #endif
         bp_call_term(ADDTAG(insert_sym("$bp_first_call", 14, 0), ATM));
