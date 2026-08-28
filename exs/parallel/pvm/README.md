@@ -57,45 +57,70 @@ verdicts and the relative ordering: 2.30× there versus 2.10× quiet.
 
 ```sh
 # 1. first solution, N=479 (serial baseline vs best mode-3 cell)
-picat exs/parallel/pvm/queens_first.pi 479                # serial baseline: 4.78-4.86 s hot / 6.90-8.13 s quiet
-picat exs/parallel/pvm/queens_first.pi 479 16 3 16        # mode 3, NT=16, C=16, PIN=0: 4.87-5.31 s hot / 4.92-5.49 s quiet; 1.14-1.54x quiet, ~1.0x hot
-picat exs/parallel/pvm/queens_first.pi 479 16 1 1         # mode 1 (C=1 OR split): 9.3 s hot / 16.2-17.8 s quiet; 0.51x hot / 0.46-0.50x quiet (slower than serial)
+# serial baseline: 4.78-4.86 s hot / 6.90-8.13 s quiet
+picat exs/parallel/pvm/queens_first.pi 479
+# mode 3, NT=16, C=16, PIN=0: 4.87-5.31 s hot / 4.92-5.49 s quiet; 1.14-1.54x quiet, ~1.0x hot
+picat exs/parallel/pvm/queens_first.pi 479 16 3 16
+# mode 1 (C=1 OR split): 9.3 s hot / 16.2-17.8 s quiet; 0.51x hot / 0.46-0.50x quiet (slower than serial)
+picat exs/parallel/pvm/queens_first.pi 479 16 1 1
 
 # 2. counting, N=16 (near-linear to NT = N; exact OEIS A000170 total)
-picat exs/parallel/pvm/queens_count.pi 16 16              # 15.6 s -> 14772512; 14.7x quiet / 14.6x hot vs the 229 s serial
-picat exs/parallel/pvm/queens_count.pi 16 8               # 31.7 s hot / 62 s quiet; 7.2x hot / 3.7x quiet
-picat exs/parallel/pvm/queens_count.pi 16 0               # serial: 228.6-229.5 s (the 1x baseline)
-# joint partition over the first two queens (up to N*N workers):
-picat exs/parallel/pvm/queens_count2.pi 17 289            # 18.7 s hot -> 95815104; ~80x estimated vs the ~25 min serial (not run)
-picat exs/parallel/pvm/queens_count2.pi 8 35              # <1 s worked example -> b = 92
+# 15.6 s -> 14772512; 14.7x quiet / 14.6x hot vs the 229 s serial
+picat exs/parallel/pvm/queens_count.pi 16 16
+# 31.7 s hot / 62 s quiet; 7.2x hot / 3.7x quiet
+picat exs/parallel/pvm/queens_count.pi 16 8
+# serial: 228.6-229.5 s (the 1x baseline)
+picat exs/parallel/pvm/queens_count.pi 16 0
+# joint partition over the first two queens (up to N*N workers)
+# 18.7 s hot -> 95815104; ~80x estimated vs the ~25 min serial (not run)
+picat exs/parallel/pvm/queens_count2.pi 17 289
+# <1 s worked example -> b = 92
+picat exs/parallel/pvm/queens_count2.pi 8 35
 
 # 3. knapsack (env-driven; NT=0 = serial built-in $max reference)
-NT=0  N=100 picat exs/parallel/pvm/backpack_band.pi       # serial reference: 8.2 s (the 1x baseline)
-NT=16 N=100 picat exs/parallel/pvm/backpack_band.pi       # banded mode-4 rounds: 4.05 s; 2.04x quiet / 2.03x hot
-NT=16 N=80  picat exs/parallel/pvm/backpack_band.pi       # 1.09 s; 2.34x quiet / 2.33x hot
-NT=16 N=100 picat exs/parallel/pvm/backpack_pvm.pi        # same problem, mode-1 lifting protocol: ~1.0x at N=100, 1.22x at N=80
+# serial reference: 8.2 s (the 1x baseline)
+NT=0  N=100 picat exs/parallel/pvm/backpack_band.pi
+# banded mode-4 rounds: 4.05 s; 2.04x quiet / 2.03x hot
+NT=16 N=100 picat exs/parallel/pvm/backpack_band.pi
+# 1.09 s; 2.34x quiet / 2.33x hot
+NT=16 N=80  picat exs/parallel/pvm/backpack_band.pi
+# same problem, mode-1 lifting protocol: ~1.0x at N=100, 1.22x at N=80
+NT=16 N=100 picat exs/parallel/pvm/backpack_pvm.pi
 
 # 4. (K,K)-Ramsey cells (env K =, N =, T = worker count)
-K=3 N=6 T=8  picat exs/parallel/pvm/ramsey_pvm.pi         # UNSAT 2-6 ms -> R(3,3) <= 6; with K=3 N=5 SAT -> R(3,3) = 6; ~1x (millisecond cells)
-K=4 N=17 T=8 picat exs/parallel/pvm/ramsey_pvm.pi         # SAT 111 ms: R(4,4) >= 18 witness
-K=4 N=16 T=8 picat exs/parallel/pvm/ramsey_pvm.pi         # SAT ~0.1-0.5 s: the 8-regular critical graph
+# UNSAT 2-6 ms -> R(3,3) <= 6; with K=3 N=5 SAT -> R(3,3) = 6; ~1x (millisecond cells)
+K=3 N=6 T=8  picat exs/parallel/pvm/ramsey_pvm.pi
+# SAT 111 ms: R(4,4) >= 18 witness
+K=4 N=17 T=8 picat exs/parallel/pvm/ramsey_pvm.pi
+# SAT ~0.1-0.5 s: the 8-regular critical graph
+K=4 N=16 T=8 picat exs/parallel/pvm/ramsey_pvm.pi
 
 # 5. R(4,4) <= 18 whole-tree UNSAT proof (env K= N= T= M=; ~2 min - 31 min)
-K=4 N=18 T=16  M=4  picat exs/parallel/pvm/ramsey_m2.pi   # static: 1844.5 s; 15.6x more wall than T=256 for 16x fewer workers
-K=4 N=18 T=128 M=7  picat exs/parallel/pvm/ramsey_m2.pi   # static: 176.9 s quiet
-K=4 N=18 T=256 M=8  picat exs/parallel/pvm/ramsey_m2.pi   # static: 112.1 s quiet / 141.3 s hot; >60x the 2 h serial floor
+# static: 1844.5 s; 15.6x more wall than T=256 for 16x fewer workers
+K=4 N=18 T=16  M=4  picat exs/parallel/pvm/ramsey_m2.pi
+# static: 176.9 s quiet
+K=4 N=18 T=128 M=7  picat exs/parallel/pvm/ramsey_m2.pi
+# static: 112.1 s quiet / 141.3 s hot; >60x the 2 h serial floor
+K=4 N=18 T=256 M=8  picat exs/parallel/pvm/ramsey_m2.pi
 # dynamic chunks: T = pool size, 2^M leaves claimed from the shared cursor
-K=4 N=18 T=256 M=12 DYN=1 picat exs/parallel/pvm/ramsey_m2.pi   # 69.6 s quiet; 1.61x vs the 112.1 s static
-K=4 N=18 T=384 M=12 DYN=1 picat exs/parallel/pvm/ramsey_m2.pi   # 59.3 s quiet / 69.4 s hot; 1.89x / 2.04x vs the same-batch static
-K=4 N=18 T=256 M=14 DYN=1 picat exs/parallel/pvm/ramsey_m2.pi   # 63.3 s quiet / 70.4 s hot; 1.77x / 2.01x vs static
-K=4 N=18 T=384 M=14 DYN=1 picat exs/parallel/pvm/ramsey_m2.pi   # 53.3 s quiet / 61.5 s hot; 2.10x / 2.30x vs static  <- best
-K=4 N=18 T=384 M=15 DYN=1 picat exs/parallel/pvm/ramsey_m2.pi   # 58.3 s quiet / 67.8 s hot; 1.92x / 2.08x (the knee)
+# 69.6 s quiet; 1.61x vs the 112.1 s static
+K=4 N=18 T=256 M=12 DYN=1 picat exs/parallel/pvm/ramsey_m2.pi
+# 59.3 s quiet / 69.4 s hot; 1.89x / 2.04x vs the same-batch static
+K=4 N=18 T=384 M=12 DYN=1 picat exs/parallel/pvm/ramsey_m2.pi
+# 63.3 s quiet / 70.4 s hot; 1.77x / 2.01x vs static
+K=4 N=18 T=256 M=14 DYN=1 picat exs/parallel/pvm/ramsey_m2.pi
+# 53.3 s quiet / 61.5 s hot; 2.10x / 2.30x vs static  <- best
+K=4 N=18 T=384 M=14 DYN=1 picat exs/parallel/pvm/ramsey_m2.pi
+# 58.3 s quiet / 67.8 s hot; 1.92x / 2.08x (the knee)
+K=4 N=18 T=384 M=15 DYN=1 picat exs/parallel/pvm/ramsey_m2.pi
 # window offset O (patterns O+1..O+T) for probing sub-regions, e.g. the
 # 16 twelve-bit leaves of 8-bit pattern 170 (the batch's hardest chunk):
-K=4 N=18 T=16 M=12 O=2720 picat exs/parallel/pvm/ramsey_m2.pi   # 16 leaves 1.5-6.0 s each, sum 56.7 s (a probe window, not a speedup row)
+# 16 leaves 1.5-6.0 s each, sum 56.7 s (a probe window, not a speedup row)
+K=4 N=18 T=16 M=12 O=2720 picat exs/parallel/pvm/ramsey_m2.pi
 
 # 6. report-codec capability check (any ground term crossing the boundary)
-picat exs/parallel/pvm/term_report.pi                     # <1 s -> 1 / <term> / pass
+# <1 s -> 1 / <term> / pass
+picat exs/parallel/pvm/term_report.pi
 ```
 
 ## Parameter reference (per sample)
