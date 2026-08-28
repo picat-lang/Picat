@@ -1,0 +1,36 @@
+% =====================================================================
+%  udf_ops_smt.pi  -  smt version of  udf_ops.pi : makes user-defined
+%  functions (udf) usable with the  smt  solver's constraint operators.
+%
+%  This is an INCLUDE file, NOT a module.  Add it verbatim to YOUR OWN
+%  module so that its definitions take precedence over the imported solver's:
+%
+%       import smt.
+%       import udf.
+%       include "udf_ops_smt.pi".
+%
+%  It defines one-line shims for the smt arithmetic and Boolean constraint
+%  operators (#= #!= #< #=< #<= #> #>= and #~ #/\ #^ #\/ #=> #<=>).
+%  Each shim expands any user-function calls (udf.flatten) and then
+%  delegates back to  smt's  operator, so
+%
+%       Y #= $area(W,H),   $cost(N) #=< Budget,   ...
+%
+%  all work with a user function on either/both sides.
+%
+%  Alternative, zero-boilerplate form:  udf.post(Rel, E1, E2).
+% =====================================================================
+
+'#='(L,R)     => smt.'#='(udf.flatten(L), udf.flatten(R)).
+'#!='(L,R)    => smt.'#!='(udf.flatten(L), udf.flatten(R)).
+'#>'(L,R)      => smt.'#>'(udf.flatten(L), udf.flatten(R)).
+'#>='(L,R)     => smt.'#>='(udf.flatten(L), udf.flatten(R)).
+'#<'(L,R)      => smt.'#<'(udf.flatten(L), udf.flatten(R)).
+'#=<'(L,R)     => smt.'#=<'(udf.flatten(L), udf.flatten(R)).
+'#<='(L,R)     => smt.'#=<'(udf.flatten(L), udf.flatten(R)).    % synonym of  #=<
+'#~'(X)       => smt.'#~'(udf.flatten(X)).
+'#/\\'(L,R)   => smt.'#/\\'(udf.flatten(L), udf.flatten(R)).
+'#^'(L,R)     => smt.'#^'(udf.flatten(L), udf.flatten(R)).
+'#\\/'(L,R)   => smt.'#\\/'(udf.flatten(L), udf.flatten(R)).
+'#=>'(L,R)    => smt.'#=>'(udf.flatten(L), udf.flatten(R)).
+'#<=>'(L,R)   => smt.'#<=>'(udf.flatten(L), udf.flatten(R)).

@@ -1,0 +1,12 @@
+ import cp.
+ import udf.
+ include "udf_ops.pi".
+
+ main =>
+     % ---- register the user function used in constraints ----
+     udf.define($inc(N), $(N+1)),
+     X::0..10,
+     sum([$inc(A+X):A in 0..3])#=14,
+     solve([X]),
+     println(X),
+     println(udf.evaluate($inc(X))).

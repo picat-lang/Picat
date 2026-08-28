@@ -1,0 +1,152 @@
+module udf.
+
+/*  udf -  user-defined functions in constraints.
+
+    Picat's CP/SAT/MIP/SMT arithmetic constraints (#= #!= #< #> #=< #>= ...)
+    only accept the fixed set of arithmetic function symbols
+    ( + - * / // div mod ** abs min max sum prod count cond ).
+    Any other call in a constraint expression is left as an unevaluated term,
+    so a user function body (e.g. f(X)=X*2) cannot be used in a
+    constraint expression directly.
+
+    This module adds that capability through a self-contained, extensible layer
+    that works with every one of the four constraint solvers:
+
+        define(Head, Body)
+            Register a user function.  Head is a pattern  $f(Arg,...)  and
+            Body is the body as a TERM (prefix $).  Because the arguments
+            of a predicate call are evaluated, both the head and any nested user
+            function call inside a body must be prefixed with $.
+
+            A function may have several (pattern) rules, and a body may call
+            other user functions or itself (recursion), up to a configurable
+            expansion bound.
+
+        flatten(E) = Out
+            Rewrite the constraint expression E, expanding every registered
+            user function call into primitive arithmetic.  Works for cp, sat,
+            mip, and smt because the result uses only primitive arithmetic.
+
+        evaluate(E) = Val
+            Like flatten/1 (so a user function call must be written  $f(...) ),
+            but then also EVALUATES the result to a number.  This requires the
+            expanded expression to be GROUND (no domain variables), so evaluate
+            is only meaningful OUTSIDE the constraint world:
+                udf.evaluate($total([1,2,3]))      =  6
+                udf.evaluate($day_demand(5))        =  11
+            For domain variables, use  #= / post / #=  instead.
+
+        post(Rel, E1, E2)
+            Expand E1 and E2 and post the constraint   E1 Rel E2
+            (Rel in '#=', '#!=', '#<', '#>', '#=<', '#<=', '#>=').
+
+        set_max_depth(N)
+            Bound on how deep a (possibly recursive) body may expand before
+            the exception  udf_expansion_too_deep  is thrown.  Default 100.
+
+    The  $  marker.  udf functions are NOT Picat functions: they exist only
+    inside the udf registry and are matched as TERMS.  In a normal (non-
+    constraint) expression,  f(X)  is an ordinary call to a function  f/1
+    (which does not exist), so every use - in define heads, in define bodies,
+    and at call sites of flatten/evaluate/post - must be written with  $  .
+    Only the solver operators (#=  etc.) treat expressions as terms, and that is
+    precisely what the udf_ops.pi  shims re-implement.
+
+    Two ways to use a registered function in a constraint:
+
+        (a) explicit:   udf.post('#=', Y, $f(X))     (works everywhere)
+
+        (b) natural L R style in YOUR OWN module:  a one-line shim per
+            relation, e.g.
+                '#='(L,R) => cp.'#='(udf.flatten(L), udf.flatten(R)).
+            A module's own definitions beat an imported solver's, so
+                Y #= $f(X)
+            expands f and delegates back to the solver.  (An imported
+            module cannot override the solver's  #= .)
+
+    Example (cp):
+
+        import cp.
+        import udf.
+
+        '#='(L,R) => cp.'#='(udf.flatten(L), udf.flatten(R)).
+
+        main =>
+            udf.define($tri(W,H), $W*H//2),
+            X :: 1..5,  Y :: 1..5,
+            T #= $tri(X,Y),
+            println(solve([], [X,Y])).
+*/
+
+    %%%%%% public interface %%%%%%
+
+    flatten(E) = F =>
+        F = expand(E, 0).
+
+    evaluate(E) = Val =>
+        Val = udf.flatten(E) * 1.
+
+    post(Rel, E1, E2) =>
+        O1 = expand(E1, 0),
+        O2 = expand(E2, 0),
+        Goal =.. [Rel, O1, O2],
+        call(Goal).
+
+    set_max_depth(N) =>
+        M = get_heap_map(udf),
+        put(M, max_depth, N).
+
+    define(Head, Body) =>
+        M = get_heap_map(udf),
+        Key = {name(Head), arity(Head)},
+        Rules = get(M, Key, []),
+        put(M, Key, Rules ++ [{Head, Body}]).
+
+    %%%%%% expansion core %%%%%%
+    private
+
+    expand(T, D) = F =>
+        ( var(T) -> F = T
+        ; number(T) -> F = T
+        ; list(T) -> F = [X : E in T, X = expand(E, D)]
+        ; D > max_depth() -> throw(udf_expansion_too_deep)
+        ; F = expand_struct(T, D)
+        ).
+
+    expand_struct(T, D) = F =>
+        T =.. [Name | As],
+        ( is_prim(Name) ->
+            As2 = [A : Arg in As, A = expand(Arg, D)],
+            F =.. [Name | As2]
+          ;
+            F = apply_rule(T, D)
+        ).
+
+    apply_rule(T, D) = F =>
+        T =.. [Fn | Args],
+        M = get_heap_map(udf),
+        Rules = get(M, {Fn, length(Args)}, []),
+        F = match_rule(Rules, Args, D).
+
+    match_rule([{Head, Body} | More], Args, D) = F =>
+        P = copy_term({Head, Body}),
+        P = {CH, CB},
+        CH =.. [_ | HArgs],
+        ( HArgs = Args ->
+            F = expand(CB, D + 1)
+          ;
+            F = match_rule(More, Args, D)
+        ).
+
+    match_rule([], _Args, _D) = throw(udf_undefined_or_nonmatching_function) =>
+        true.
+
+    max_depth() = D =>
+        M = get_heap_map(udf),
+        D = get(M, max_depth, 100).
+
+    is_prim(Name) => membchk(Name,
+                          [+, -, *, /, //, /<, />, div, mod, **, abs,
+                           min, max, sum, prod, count, cond,
+                           '#=' , '#!=', '#<', '#=<', '#<=', '#>', '#>=',
+                           '#<=>', '#=>', '#/\\', '#\\/', '#^', '#~']).

@@ -1,0 +1,23 @@
+/*
+ *  User-defined functions in constraints with the  mip  solver.
+ *  Uses  lib/udf.pi  and the  mip  operator shims in  udf_ops_mip.pi.
+ *
+ *  RUN (<picat> = the Picat repository root):
+ *    cd <picat>/exs/mip
+ *    PICATPATH=<picat>/lib  ../../emu/picat  udf_functions.pi
+ *    # or  ../../emu/picat -path <picat>/lib  udf_functions.pi
+ *  (needs a mip solver: Gurobi, Cbc, or GLPK)
+ */
+ import mip.
+ import udf.
+ include "udf_ops_mip.pi".
+
+ main =>
+     % register user functions usable in constraints
+     udf.define($sum_prod(K, X), $(X + 3*K)),     % compound:  X + 3*K
+
+     % ---- normal source style, thanks to udf_ops_mip.pi ----
+     X :: 1..20,
+     X #= $sum_prod(2, 1),          % X = 1 + 3*2 = 7
+     solve([], [X]),
+     printf("X=%w  flattened sum_prod(2,1)=%w%n", X, udf.flatten($sum_prod(2,1))).

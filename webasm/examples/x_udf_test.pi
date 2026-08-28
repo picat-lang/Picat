@@ -1,0 +1,26 @@
+% x_udf_test.pi -- YOUR-OWN functions inside constraint expressions (udf).
+%
+% The `udf` module (lib/udf.pi) lets you use your own functions inside
+% constraint expressions, which is NOT an official Picat feature (the built-in
+% #= etc. only accept a fixed set of arithmetic function symbols), and pieces
+% of the syntax are not final.  A user function is registered as a TERM
+% (hence the `$` in `$inc(X)`), and the constraint operators are redefined
+% by a per-solver include file (`udf_ops.pi` for cp).  See lib/udf.pi.
+%
+% This is packed for the browser like the aspic example: the udf module and
+% the operator shims are preloaded into the same folder as the program
+% (/examples/), which is where `import udf.` and `include "udf_ops.pi"`
+% look.
+
+import cp.
+import udf.
+include "udf_ops.pi".
+
+main =>
+    % register the user function used in constraints:
+    udf.define($inc(N), $(N+1)),
+    X :: 0..10,
+    $inc(X) #= 6,                % inc(X) = X+1 = 6  ->  X = 5
+    solve([X]),
+    println(X),                    % 5
+    println(udf.evaluate($inc(X))).   % 6

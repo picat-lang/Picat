@@ -1,0 +1,41 @@
+/*
+ *  User-defined functions in constraints  (using the  udf  module, lib/udf.pi)
+ *
+ *  The  udf  module  (lib/udf.pi)  lets a user-written function be used in
+ *  a CP / SAT / MIP / SMT arithmetic constraint.  Constraint expressions are
+ *  treated as TERMS, so  f(X)  reaches udf without being evaluated; udf
+ *  expands it into primitive arithmetic before handing it to the solver.
+ *
+ *  Because a quoted ':='-style solver predicate cannot be overridden by an
+ *  imported module, the cleanest "normal '#='" look is a one-line shim in
+ *  YOUR OWN module (own-module definitions beat imported ones).  Functions may be
+ *  compound (calling other udf functions) and structurally recursive.
+ *
+ *  RUN (<picat> = the Picat repository root):
+ *    cd <picat>/exs/cp
+ *    PICATPATH=<picat>/lib  ../../emu/picat  udf_functions.pi
+ *    # or  ../../emu/picat -path <picat>/lib  udf_functions.pi
+ *    # expected:  X=7  Y=6  total([1,2,3])=1 + (2 + (3 + 0))
+ */
+ import cp.
+ import udf.
+
+ % ---- one-line shim: enables the normal  L #= R  style in THIS module ----
+ % (add the same clause for #!= #< #> #=< #>= #<= if you use those)
+ '#='(L,R) =>
+     cp.'#='(udf.flatten(L), udf.flatten(R)).
+
+ main =>
+     % register user functions usable in constraints
+     udf.define($sum_prod(K, X), $(X + 3*K)),   % compound: X + 3*K
+     udf.define($total([]), 0),                     % structural recursion
+     udf.define($total([H|T]), $(H + total(T))),
+
+     % ---- normal '#' style, using the shim above ----
+     X :: 1..20,
+     X #= $sum_prod(2, 1),           % X = 1 + 3*2 = 7
+     Y :: 1..20,
+     Y #= $total([1,2,3]),            % Y = 1+2+3   = 6
+
+     solve([], [X, Y]),
+     printf("X=%w  Y=%w  total([1,2,3])=%w%n", X, Y, udf.flatten($total([1,2,3]))).
