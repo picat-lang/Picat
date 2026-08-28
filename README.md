@@ -121,7 +121,32 @@ methodology and runnable harness are in
 Details (build, run loop, exclusions, example set, headless runs):
 [webasm/README.md](webasm/README.md)
 
-## 3. Concurrency for native Picat — new modules `par`, `thread`, `pp`
+## 3. Parallel search inside the CP solver — `pvm` (fork-based)
+
+An existing CP search can be parallelised by wrapping it in the
+`bp.pvm_*` builtins (`fork / delegate / claim / report / collect /
+solution`): the interpreter distributes the search over up to 4096
+fork()-ed copy-on-write workers, whose only inter-process state is one
+POSIX shared-memory block plus `waitpid`.  Measured on a 384-thread
+dual-socket EPYC node:
+
+- exhaustive counting is the near-linear regime: **14.7×** (n-Queens
+  counting N=16, 16 workers, 229.5 s → 15.6 s; ~80× estimated at
+  289 workers);
+- dynamic work-stealing over the frontier: **2.30×** for a whole-tree
+  unsatisfiability proof (R(4,4) ≤ 18, 384 workers claiming 2^14
+  leaves);
+- parallel branch-and-bound with periodic re-partitioning: **2.34×**
+  (0/1 knapsack N=80, 16 workers);
+- first-solution finds are load-sensitive (0.51–1.54× across node
+  loads — the parallelisable part is only the failing prefix).
+
+The full acceleration matrix (method, mode, parameters) with exact
+reproducing commands:
+[exs/parallel/pvm/README.md](exs/parallel/pvm/README.md);
+protocol reference: [exs/parallel/README.md](exs/parallel/README.md).
+
+## 4. Concurrency for native Picat — new modules `par`, `thread`, `pp`
 
 - `import par.` — data-parallel aggregates over lists/arrays of
   64-bit integers (wrapping mod 2^64): `par_sum(X)=S`, `par_prod`,
@@ -142,7 +167,7 @@ The modules live in `lib2/`, so run with:
 Examples and the benchmark runner `bench_parallel.sh`:
 [exs/parallel/README.md](exs/parallel/README.md)
 
-## 4. Picat syntax checker — new folder `lsp/`
+## 5. Picat syntax checker — new folder `lsp/`
 
 `lsp/picat_syntax_check.py FILE.pi [MORE ...]` reports
 line/column-accurate syntax diagnostics (unbalanced delimiters,
@@ -151,14 +176,14 @@ literals, ...) where the Picat parser would only say `error` — useful
 for editor/LSP integration. Self-test:
 `python3 lsp/run_mutation_tests.py`.
 
-## 5. Smaller changes
+## 6. Smaller changes
 
 - `.gitignore`: editor backups (`*~`) and `.snapshots/`
 - internal: 64-bit bigint constructors (`emu/bigint.c`); the SAT
   interface (`emu/kissat_picat.c`, `emu/cpreds.c`, `emu/common.mak`)
   adjusted to carry the satext layer
 
-## 6. User-defined functions in constraints — very experimental (`udf`)
+## 7. User-defined functions in constraints — very experimental (`udf`)
 
 The `udf` module (`lib2/udf.pi`) lets you use *your own* functions inside
 constraint expressions, which the built-in solvers do not support.
