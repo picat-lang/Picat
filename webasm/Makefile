@@ -39,7 +39,7 @@ DIST    := dist
 # HEAD changes and dist/picat.js depends on it.  '+': live dirty-tree
 # check, evaluated at link time, never part of the stamp.
 GIT_STAMP := $(BUILDDIR)/gitstamp
-BUILD_ID  = $(shell cat $(GIT_STAMP) 2>/dev/null || echo unknown)$(if $(shell git -C .. status --porcelain 2>/dev/null | head -c1),+,"")
+BUILD_ID  = $(shell cat $(GIT_STAMP) 2>/dev/null || echo unknown)$(if $(shell git -C .. status --porcelain 2>/dev/null | head -c1),+)
 .DEFAULT_GOAL := all
 
 $(GIT_STAMP): FORCE
