@@ -6,10 +6,9 @@
 % symbols;  sat2 is a disk-compiled clone of lib/sat that additionally
 % expands user functions registered via  udf_define - inside the
 % constraint operators (#= #!= #>= #<=> #=> #/\ #\/ #^ #~ ...), in
-% reified terms, and via  udf_post / udf_evaluate - with no separate
-% udf module and no per-operator shims.  Like plain sat, solve has no
-% $min/$max objective: it enumerates solutions.  The syntax is not
-% final.
+% reified terms, inside  $min/$max  objectives of  solve, and via
+% udf_post / udf_evaluate - with no separate udf module and no
+% per-operator shims.  The syntax is not final.
 %
 % Packed for the browser like the aspic/udf/cp2 examples:  lib/sat2.pi
 % and its source dependencies (common_constr.pi, cp_sat_mip_smt.pi)
@@ -76,4 +75,9 @@
 
       % ---- 8) ground evaluation of nested udfs ----
       V8 = udf_evaluate($inc($sq(4)) + 1),
-      printf("8) $inc($sq(4)) + 1         = %w%n", V8).
+      printf("8) $inc($sq(4)) + 1         = %w%n", V8),
+
+      % ---- 9) udfs in the objective function of  solve  ($min/$max) ----
+      O :: 0..5,
+      solve([$max($sq(O))], [O]),
+      printf("9) max $sq(O) over 0..5      => O = %w%n", O).

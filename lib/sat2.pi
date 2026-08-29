@@ -218,12 +218,25 @@ solve(Options,Vars) =>
     ;
         Options5 = Options4
     ),
-    bp.sat_solve(Options5,VList).
+    Options6 = [O : O5 in Options5, opt_flat(O5,O)],
+    bp.sat_solve(Options6,VList).
 
 solve_all(Vars) = solve_all([],Vars).
 
 solve_all(Options,Vars) =
     findall(Vars, solve(Options,Vars)).
+
+% Flatten a  $min/$max  objective so that user-function calls in it are
+% expanded before  bp.sat_solve  (which takes its argument as a plain
+% constraint expression) sees it.  Any other option is passed through.
+opt_flat(Term, Out) =>
+    ( Term =.. [$min | [F]]
+    -> F1 = uf_flatten(F), Out =.. [$min | [F1]]
+    ; Term =.. [$max | [F]]
+    -> F1 = uf_flatten(F), Out =.. [$max | [F1]]
+    ;
+      Out = Term
+    ).
 
 global_cardinality(List,Pairs) =>
     (bp.check_pairs(Pairs) -> true; handle_exception($pairs_expected(Pairs), global_cardinality)),
@@ -685,9 +698,9 @@ matrix_element0(M,I,J,MIJ) =>
 sat2_marker() => printf("DISK-SAT2 IN USE\n").
 
 % %%%%%%%%%%%%%%%%%%%% sat2 udf integration %%%%%%%%%%%%%%%%%%%%
-% The operators above expand registered user-function calls
-% automatically when a constraint is posted.  The registry is the
-% global heap map keyed by the atom 'udf' - the SAME registry
+% The operators above and the  $min/$max  objectives of  solve
+% expand registered user-function calls automatically.  The registry
+% is the global heap map keyed by the atom 'udf' - the SAME registry
 % lib2/udf.pi uses, so a  user-side  udf.define(...)  is visible
 % here too.
 

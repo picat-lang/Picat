@@ -3,10 +3,9 @@
   %   sh exs/sat/run_sat2_udf.sh          (or:  run_sat2_udf.sh sat2_udf_native)
   %
   % One import, no lib2/udf, no operator shim, no include.  sat2's own
-  % constraint operators expand registered user functions automatically
-  % when the constraint is posted.  (SAT has no  $min/$max  objectives -
-  % solve  enumerates solutions, so udfs matter in the constraints and
-  % in the reified terms, which is what the demos below show.)
+  % constraint operators,  solve  objectives,  udf_post  and
+  % udf_evaluate  expand registered user functions automatically.
+  % Demonstrates:
   %
   %   1) udf in a bare  #=            (natural style, no boilerplate)
   %   2) compound udf                 ($cost calls $sq)
@@ -16,6 +15,7 @@
   %   6) udf negated with  #~
   %   7) udf_post for explicit posting of (flattened) relations
   %   8) udf_evaluate for ground evaluation
+  %   9) udfs in the  $min/$max  objective of  solve
   %
   % Notes (empirically observed in this 3.9#12 build):
   %   * udf_define parameters are live variables:  register_udfs/0  scopes
@@ -87,4 +87,9 @@
 
       % ---- 8) ground evaluation of nested udfs ----
       V8 = udf_evaluate($inc($sq(4)) + 1),
-      printf("8) $inc($sq(4)) + 1         = %w%n", V8).
+      printf("8) $inc($sq(4)) + 1         = %w%n", V8),
+
+      % ---- 9) udfs in the objective function of  solve  ($min/$max) ----
+      O :: 0..5,
+      solve([$max($sq(O))], [O]),
+      printf("9) max $sq(O) over 0..5      => O = %w%n", O).
