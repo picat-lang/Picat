@@ -14,7 +14,7 @@ BASE=$(cd "$(dirname "$0")" && cd ../.. && pwd)
 T=$(mktemp -d /tmp/sat2test.XXXXXX)
 mkdir -p $T/lib
 ln -sf $BASE/lib/*.pi $T/lib/
-cp $BASE/lib/cp_sat_mip_smt.pi $T/
+cp $BASE/lib/cp_sat_mip_smt.pi $BASE/lib/global_reif.pi $T/
 cd $T || exit 1
 if [ $# -gt 0 ]; then set -- $@; else
   set -- sat2_udf_native

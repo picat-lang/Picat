@@ -1,0 +1,382 @@
+% common reified / test variants of the "flat" global constraints.
+%
+% For a global constraint  g(Args)  the predicate pairs below
+%   g_reif(Args, B)
+%   g_test(Args, B)
+% are normal constraints (the arguments need not be grounded) such that
+%   B = 1   iff   g(Args)  holds,
+% i.e.  B  is a boolean reification of the constraint.  g_test is a
+% synonym for  g_reif  (the "test" reading:  B  is 1 iff the predicate
+% succeeds).  The definitions are store-independent plain Picat, built
+% from reified  #= #!= #< #=< #>= #>  sub-constraints of dvar operands,
+% combined with  min  (AND) and  max  (OR) over the resulting dvars.
+%
+% Provided:
+%   all_different, all_distinct, all_different_except_0,
+%   increasing, increasing_strict, decreasing, decreasing_strict,
+%   lex_le (equal lengths), lex_lt (equal lengths),
+%   scalar_product, element, element0,
+%   table_in (rows may be lists or tuples), table_notin,
+%   count(V,FDVars,Rel,N,.).
+%
+% The procedural globals (hcp, scc/_d/_grid, tree, acyclic/_d, circuit,
+% subcircuit/_grid, regular, cumulative, diffn, serialized,
+% disjunctive_tasks, assignment) would reify only at the C propagator
+% level and are NOT provided by this file.
+
+% ---------- helpers ----------
+
+% as_list(C) = L :  C is a list or an array;  L is its list form.
+as_list(C) = L, list(C) =>
+    L = C.
+as_list(C) = L, array(C) =>
+    L = to_list(C).
+as_list(C) = _L =>
+    throw($list_or_array_expected(C)).
+
+% ---------- all_different / all_distinct ----------
+
+% one boolean per unordered pair, AND-folded
+pdiff(I, N, Ls, Acc, B) =>
+    ( N < I -> B #= Acc
+    ; pdiff2(I+1, N, Ls, I, Acc, B)
+    ).
+pdiff2(J, N, Ls, I, Acc, B) =>
+    ( J > N -> pdiff(I+1, N, Ls, Acc, B)
+    ; Pik :: 0..1,
+      Pik #<=> (Ls[I] #!= Ls[J]),
+      Acc2 :: 0..1,
+      Acc2 #<=> (Acc #/\ Pik),
+      pdiff2(J+1, N, Ls, I, Acc2, B)
+    ).
+
+% all_different_reif(Xs,B):  B #<=> all_different(Xs).
+all_different_reif(Xs, B) =>
+    as_list(Xs) = Ls,
+    len(Ls) = N,
+    ( N =< 1 -> B #= 1
+    ; Z0 :: 0..1,
+      Z0 #= 1,
+      pdiff(1, N, Ls, Z0, B)
+    ).
+all_different_test(Xs, B) => all_different_reif(Xs, B).
+
+% all_distinct satisfies the same set of solutions as all_different
+% (stronger consistency, identical semantics), so the reifications
+% coincide.
+all_distinct_reif(Xs, B) => all_different_reif(Xs, B).
+all_distinct_test(Xs, B) => all_different_test(Xs, B).
+
+pdiffx(I, N, Ls, Acc, B) =>
+    ( N < I -> B #= Acc
+    ; pdiff2x(I+1, N, Ls, I, Acc, B)
+    ).
+pdiff2x(J, N, Ls, I, Acc, B) =>
+    ( J > N -> pdiffx(I+1, N, Ls, Acc, B)
+    ; Pik :: 0..1,
+      Pik #<=> (Ls[I] #= 0 #\/ Ls[J] #= 0 #\/ Ls[I] #!= Ls[J]),
+      Acc2 :: 0..1,
+      Acc2 #<=> (Acc #/\ Pik),
+      pdiff2x(J+1, N, Ls, I, Acc2, B)
+    ).
+
+% all_different_except_0_reif(Xs,B): B #<=> non-zero values all different.
+all_different_except_0_reif(Xs, B) =>
+    as_list(Xs) = Ls,
+    len(Ls) = N,
+    ( N =< 1 -> B #= 1
+    ; Z0 :: 0..1,
+      Z0 #= 1,
+      pdiffx(1, N, Ls, Z0, B)
+    ).
+all_different_except_0_test(Xs, B) => all_different_except_0_reif(Xs, B).
+
+% ---------- monotone orders ----------
+
+monof(K, N, Ls, Acc, B) =>
+    ( K <= N -> Kk :: 0..1,
+                 Kk #<=> (Ls[K-1] #=< Ls[K]),
+                 Acc2 :: 0..1,
+                 Acc2 #<=> (Acc #/\ Kk),
+                 monof(K+1, N, Ls, Acc2, B)
+    ; B #= Acc
+    ).
+
+monofs(K, N, Ls, Acc, B) =>
+    ( K <= N -> Kk :: 0..1,
+                 Kk #<=> (Ls[K-1] #< Ls[K]),
+                 Acc2 :: 0..1,
+                 Acc2 #<=> (Acc #/\ Kk),
+                 monofs(K+1, N, Ls, Acc2, B)
+    ; B #= Acc
+    ).
+
+monod(K, N, Ls, Acc, B) =>
+    ( K <= N -> Kk :: 0..1,
+                 Kk #<=> (Ls[K-1] #>= Ls[K]),
+                 Acc2 :: 0..1,
+                 Acc2 #<=> (Acc #/\ Kk),
+                 monod(K+1, N, Ls, Acc2, B)
+    ; B #= Acc
+    ).
+
+monofsx(K, N, Ls, Acc, B) =>
+    ( K <= N -> Kk :: 0..1,
+                 Kk #<=> (Ls[K-1] #> Ls[K]),
+                 Acc2 :: 0..1,
+                 Acc2 #<=> (Acc #/\ Kk),
+                 monofsx(K+1, N, Ls, Acc2, B)
+    ; B #= Acc
+    ).
+
+% increasing_reif(L,B):  B #<=> L[1] #=< L[2] #=< ... .
+increasing_reif(L, B) =>
+    as_list(L) = Ls,
+    len(Ls) = N,
+    ( N =< 1 -> B #= 1
+    ; Z0 :: 0..1,
+      Z0 #= 1,
+      monof(2, N, Ls, Z0, B)
+    ).
+increasing_test(L, B) => increasing_reif(L, B).
+
+increasing_strict_reif(L, B) =>
+    as_list(L) = Ls,
+    len(Ls) = N,
+    ( N =< 1 -> B #= 1
+    ; Z0 :: 0..1,
+      Z0 #= 1,
+      monofs(2, N, Ls, Z0, B)
+    ).
+increasing_strict_test(L, B) => increasing_strict_reif(L, B).
+
+decreasing_reif(L, B) =>
+    as_list(L) = Ls,
+    len(Ls) = N,
+    ( N =< 1 -> B #= 1
+    ; Z0 :: 0..1,
+      Z0 #= 1,
+      monod(2, N, Ls, Z0, B)
+    ).
+decreasing_test(L, B) => decreasing_reif(L, B).
+
+decreasing_strict_reif(L, B) =>
+    as_list(L) = Ls,
+    len(Ls) = N,
+    ( N =< 1 -> B #= 1
+    ; Z0 :: 0..1,
+      Z0 #= 1,
+      monofsx(2, N, Ls, Z0, B)
+    ).
+decreasing_strict_test(L, B) => decreasing_strict_reif(L, B).
+
+% ---------- lexicographic (equal-length lists) ----------
+
+% lex_le_reif(L1,L2,B):  B #<=> L1 is lexicographically <= L2.
+% Reif[i] = "A[i..N] lex<= C[i..N]";  B = Reif[1].
+lex_le_reif(L1, L2, B) =>
+    as_list(L1) = A,
+    as_list(L2) = C,
+    len(A) == len(C),
+    len(C) = N,
+    ( N == 0 -> B #= 1
+    ; N == 1 -> Reif = new_array(1),
+                Reif :: 0..1,
+                Reif[1] #<=> (A[1] #=< C[1]),
+                B #= Reif[1]
+    ; Reif = new_array(N),
+      Reif :: 0..1,
+      Reif[N] #<=> (A[N] #=< C[N]),
+      foreach(I in 2..N-1)
+          Reif[I] #<=> (A[I] #< C[I] #\/ (A[I] #= C[I] #/\ Reif[I+1]))
+      end,
+      Reif[1] #<=> (A[1] #< C[1] #\/ (A[1] #= C[1] #/\ Reif[2])),
+      B #= Reif[1]
+    ).
+lex_le_test(L1, L2, B) => lex_le_reif(L1, L2, B).
+
+% lex_lt_reif(L1,L2,B):  B #<=> L1 is lexicographically < L2.
+% Reif[i] = "A[i..N] lex< C[i..N]";  B = Reif[1].
+lex_lt_reif(L1, L2, B) =>
+    as_list(L1) = A,
+    as_list(L2) = C,
+    len(A) == len(C),
+    len(C) = N,
+    ( N == 0 -> B #= 0
+    ; N == 1 -> Reif = new_array(1),
+                Reif :: 0..1,
+                Reif[1] #<=> (A[1] #< C[1]),
+                B #= Reif[1]
+    ; Reif = new_array(N),
+      Reif :: 0..1,
+      Reif[N] #<=> (A[N] #< C[N]),
+      foreach(I in 2..N-1)
+          Reif[I] #<=> (A[I] #< C[I] #\/ (A[I] #= C[I] #/\ Reif[I+1]))
+      end,
+      Reif[1] #<=> (A[1] #< C[1] #\/ (A[1] #= C[1] #/\ Reif[2])),
+      B #= Reif[1]
+    ).
+lex_lt_test(L1, L2, B) => lex_lt_reif(L1, L2, B).
+
+% ---------- scalar_product ----------
+
+% sp_acc:  D #= sum of A[k]*X[k] over 1..K.
+sp_acc(0, _A, _X, D) =>
+    D #= 0.
+sp_acc(K, A, X, D) =>
+    sp_acc(K-1, A, X, D1),
+    D #= D1 + A[K]*X[K].
+
+scalar_product_reif(A, X, '#=',    Product, B) =>
+    as_list(A) = AA,
+    sp_acc(len(AA), AA, X, D),
+    B #<=> (D #= Product).
+scalar_product_reif(A, X, '#!=',   Product, B) =>
+    as_list(A) = AA,
+    sp_acc(len(AA), AA, X, D),
+    B #<=> (D #!= Product).
+scalar_product_reif(A, X, '#\\=',  Product, B) =>
+    as_list(A) = AA,
+    sp_acc(len(AA), AA, X, D),
+    B #<=> (D #\= Product).
+scalar_product_reif(A, X, '#>',    Product, B) =>
+    as_list(A) = AA,
+    sp_acc(len(AA), AA, X, D),
+    B #<=> (D #> Product).
+scalar_product_reif(A, X, '#>=',   Product, B) =>
+    as_list(A) = AA,
+    sp_acc(len(AA), AA, X, D),
+    B #<=> (D #>= Product).
+scalar_product_reif(A, X, '#<',    Product, B) =>
+    as_list(A) = AA,
+    sp_acc(len(AA), AA, X, D),
+    B #<=> (D #< Product).
+scalar_product_reif(A, X, '#=<',   Product, B) =>
+    as_list(A) = AA,
+    sp_acc(len(AA), AA, X, D),
+    B #<=> (D #=< Product).
+scalar_product_reif(A, X, '#<=',   Product, B) =>
+    as_list(A) = AA,
+    sp_acc(len(AA), AA, X, D),
+    B #<=> (D #<= Product).
+scalar_product_test(A, X, Rel, Product, B) => scalar_product_reif(A, X, Rel, Product, B).
+
+% ---------- element / element0 ----------
+
+% element_reif(I,L,V,B):  B #<=> element(I,L,V)  (I is 1-based, kept in
+% the domain 1..N).  The looked-up value is held in a dvar  W  pinned
+% by the ordinary element constraint, so only  V #= W  is reified.
+element_reif(I, L, V, B) =>
+    as_list(L) = Ls,
+    len(Ls) = N,
+    I :: 1..N,
+    Wlo = min([fd_min(E) : E in Ls]),
+    Whi = max([fd_max(E) : E in Ls]),
+    W :: Wlo..Whi,
+    element(I, Ls, W),
+    B #<=> (V #= W).
+element_test(I, L, V, B) => element_reif(I, L, V, B).
+
+% element0_reif(I,L,V,B):  B #<=> element0(I,L,V)  (I is 0-based, kept
+% in the domain 0..N-1).
+element0_reif(I, L, V, B) =>
+    as_list(L) = Ls,
+    len(Ls) = N,
+    I :: 0..N-1,
+    Wlo = min([fd_min(E) : E in Ls]),
+    Whi = max([fd_max(E) : E in Ls]),
+    W :: Wlo..Whi,
+    element0(I, Ls, W),
+    B #<=> (V #= W).
+element0_test(I, L, V, B) => element0_reif(I, L, V, B).
+
+% ---------- table_in / table_notin ----------
+
+% table_in_reif(Vars,Tuples,B):  B #<=> Vars matches some row of Tuples
+% (a row may be a list or a tuple, both are indexable).
+table_in_reif(Vars, Tuples, B) =>
+    as_list(Vars) = Vs,
+    ( Tuples == [] -> B #= 0
+    ; Ss = [row_bool(Vs, T) : T in Tuples],
+      max(Ss) #= B
+    ).
+table_in_test(Vars, Tuples, B) => table_in_reif(Vars, Tuples, B).
+
+% table_notin_reif(Vars,Tuples,B):  B #<=> Vars matches no row of Tuples.
+table_notin_reif(Vars, Tuples, B) =>
+    table_in_reif(Vars, Tuples, In),
+    B #= 1 - In.
+table_notin_test(Vars, Tuples, B) => table_notin_reif(Vars, Tuples, B).
+
+% row_bool(Vs,T) = S :  S #<=> Vs[1..N] = T[1..N].  Each row value is
+% pinned in a single-domain dvar  Wk  (domain  T[K]..T[K])  so that
+% only dvar #= dvar comparisons enter the reifications;  the per-field
+% reifications are combined with a  #/\  fold.
+row_bool(Vs, T) = S =>
+    N = len(Vs),
+    Z0 :: 0..1,
+    Z0 #= 1,
+    and_row(1, N, Vs, T, Z0, S).
+and_row(K, N, Vs, T, Acc, S) =>
+    ( K > N -> S #= Acc
+    ; Wk :: T[K]..T[K],
+      Kk :: 0..1,
+      Kk #<=> (Vs[K] #= Wk),
+      Acc2 :: 0..1,
+      Acc2 #<=> (Acc #/\ Kk),
+      and_row(K+1, N, Vs, T, Acc2, S)
+    ).
+
+% ---------- count ----------
+
+% count_reif(V,FDVars,Rel,N,B):  B #<=> count(V,FDVars,Rel,N), i.e.
+% ( #{ X in FDVars | X = V }  Rel  N ).
+cnt_sum(0, _V, _Ls, D) =>
+    D #= 0.
+cnt_sum(K, V, Ls, D) =>
+    Bk :: 0..1,
+    Bk #<=> (Ls[K] #= V),
+    D1 #= D - Bk,
+    cnt_sum(K-1, V, Ls, D1).
+
+count_reif(V, FDVars, '#=',    N, B) =>
+    as_list(FDVars) = Ls,
+    D :: 0..len(Ls),
+    cnt_sum(len(Ls), V, Ls, D),
+    B #<=> (D #= N).
+count_reif(V, FDVars, '#!=',   N, B) =>
+    as_list(FDVars) = Ls,
+    D :: 0..len(Ls),
+    cnt_sum(len(Ls), V, Ls, D),
+    B #<=> (D #!= N).
+count_reif(V, FDVars, '#\\=',  N, B) =>
+    as_list(FDVars) = Ls,
+    D :: 0..len(Ls),
+    cnt_sum(len(Ls), V, Ls, D),
+    B #<=> (D #\= N).
+count_reif(V, FDVars, '#>',    N, B) =>
+    as_list(FDVars) = Ls,
+    D :: 0..len(Ls),
+    cnt_sum(len(Ls), V, Ls, D),
+    B #<=> (D #> N).
+count_reif(V, FDVars, '#>=',   N, B) =>
+    as_list(FDVars) = Ls,
+    D :: 0..len(Ls),
+    cnt_sum(len(Ls), V, Ls, D),
+    B #<=> (D #>= N).
+count_reif(V, FDVars, '#<',    N, B) =>
+    as_list(FDVars) = Ls,
+    D :: 0..len(Ls),
+    cnt_sum(len(Ls), V, Ls, D),
+    B #<=> (D #< N).
+count_reif(V, FDVars, '#=<',   N, B) =>
+    as_list(FDVars) = Ls,
+    D :: 0..len(Ls),
+    cnt_sum(len(Ls), V, Ls, D),
+    B #<=> (D #=< N).
+count_reif(V, FDVars, '#<=',   N, B) =>
+    as_list(FDVars) = Ls,
+    D :: 0..len(Ls),
+    cnt_sum(len(Ls), V, Ls, D),
+    B #<=> (D #<= N).
+count_test(V, FDVars, Rel, N, B) => count_reif(V, FDVars, Rel, N, B).

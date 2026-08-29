@@ -1,0 +1,158 @@
+% Reified ("_reif") and test ("_test") variants of the flat global
+% constraints, via the shared definition in  lib/global_reif.pi
+% (included by module sat2).  For every predicate
+%
+%   g_reif(Args, B) /  g_test(Args, B)
+%
+%  B  is a boolean dvar with  B = 1  iff  g(Args)  holds;  the
+% arguments need not be grounded.  The test below enumerates all
+% solutions of small instances and counts the  B = 1  solutions,
+% comparing against hand-computed expectations.
+%
+%   node headless/run_pi.js examples/x_reif_sat2_native.pi
+
+import sat2.
+
+% -- local counting helper -------------------------------------------
+n1(P) = C => n1(P, C, 0).
+n1([], C, C0) => C = C0.
+n1([1 | T], C, C0) => n1(T, C, C0+1).
+n1([_ | T], C, C0) => n1(T, C, C0).
+
+% -- one enumeration per predicate -----------------------------------
+t01() =>
+    A :: 0..2, B_ :: 0..2, C :: 0..2,
+    all_different_reif([A, B_, C], By),
+    P = findall(By, solve([A, B_, C, By])),
+    printf("01 alldiff 3v0..2      : total=%d B1=%d (expect 27/6)%n",
+        length(P), n1(P)).
+t02() =>
+    A :: 0..2, B_ :: 0..2, C :: 0..2,
+    all_distinct_test([A, B_, C], By),
+    P = findall(By, solve([A, B_, C, By])),
+    printf("02 alldistinct 3v0..2  : total=%d B1=%d (expect 27/6)%n",
+        length(P), n1(P)).
+t03() =>
+    A :: 0..1, B_ :: 0..1,
+    all_different_except_0_reif([A, B_], By),
+    P = findall(By, solve([A, B_, By])),
+    printf("03 alldiff_x0 2v0..1   : total=%d B1=%d (expect 4/3)%n",
+        length(P), n1(P)).
+t04() =>
+    A :: 0..1, B_ :: 0..1, C :: 0..1,
+    increasing_reif([A, B_, C], By),
+    P = findall(By, solve([A, B_, C, By])),
+    printf("04 increasing 3v0..1   : total=%d B1=%d (expect 8/4)%n",
+        length(P), n1(P)).
+t05() =>
+    A :: 0..2, B_ :: 0..2, C :: 0..2,
+    increasing_strict_reif([A, B_, C], By),
+    P = findall(By, solve([A, B_, C, By])),
+    printf("05 inc_strict 3v0..2   : total=%d B1=%d (expect 27/1)%n",
+        length(P), n1(P)).
+t06() =>
+    A :: 0..1, B_ :: 0..1, C :: 0..1,
+    decreasing_test([A, B_, C], By),
+    P = findall(By, solve([A, B_, C, By])),
+    printf("06 decreasing 3v0..1   : total=%d B1=%d (expect 8/4)%n",
+        length(P), n1(P)).
+t07() =>
+    A :: 0..2, B_ :: 0..2, C :: 0..2,
+    decreasing_strict_reif([A, B_, C], By),
+    P = findall(By, solve([A, B_, C, By])),
+    printf("07 dec_strict 3v0..2   : total=%d B1=%d (expect 27/1)%n",
+        length(P), n1(P)).
+t08() =>
+    A1 :: 0..1, A2 :: 0..1,
+    B1 :: 0..1, B2 :: 0..1,
+    lex_le_reif([A1, A2], [B1, B2], By),
+    P = findall(By, solve([A1, A2, B1, B2, By])),
+    printf("08 lex_le 2x2v0..1     : total=%d B1=%d (expect 16/10)%n",
+        length(P), n1(P)).
+t09() =>
+    A1 :: 0..1, A2 :: 0..1,
+    B1 :: 0..1, B2 :: 0..1,
+    lex_lt_reif([A1, A2], [B1, B2], By),
+    P = findall(By, solve([A1, A2, B1, B2, By])),
+    printf("09 lex_lt 2x2v0..1     : total=%d B1=%d (expect 16/6)%n",
+        length(P), n1(P)).
+t10() =>
+    X :: 0..1, Y :: 0..1,
+    scalar_product_reif([1, 1], [X, Y], '#=', 1, By),
+    P = findall(By, solve([X, Y, By])),
+    printf("10 scalprod #= 1       : total=%d B1=%d (expect 4/2)%n",
+        length(P), n1(P)).
+t11() =>
+    X :: 0..1, Y :: 0..1,
+    scalar_product_test([1, 1], [X, Y], '#>', 1, By),
+    P = findall(By, solve([X, Y, By])),
+    printf("11 scalprod #> 1       : total=%d B1=%d (expect 4/1)%n",
+        length(P), n1(P)).
+t12() =>
+    I :: 1..3,
+    V :: 0..40,
+    element_reif(I, [10, 20, 30], V, By),
+    P = findall(By, solve([I, V, By])),
+    printf("12 element 3-int list  : total=%d B1=%d (expect 123/3)%n",
+        length(P), n1(P)).
+t13() =>
+    I :: 0..2,
+    V :: 0..40,
+    element0_reif(I, [10, 20, 30], V, By),
+    P = findall(By, solve([I, V, By])),
+    printf("13 element0 3-int list : total=%d B1=%d (expect 123/3)%n",
+        length(P), n1(P)).
+t14() =>
+    U :: 0..3, W :: 0..3,
+    table_in_reif([U, W], [(1, 2), (3, 0)], By),
+    P = findall(By, solve([U, W, By])),
+    printf("14 table_in tuple rows : total=%d B1=%d (expect 16/2)%n",
+        length(P), n1(P)).
+t15() =>
+    U :: 0..3, W :: 0..3,
+    table_in_test([U, W], [[1, 2], [3, 0]], By),
+    P = findall(By, solve([U, W, By])),
+    printf("15 table_in list rows  : total=%d B1=%d (expect 16/2)%n",
+        length(P), n1(P)).
+t16() =>
+    U :: 0..3, W :: 0..3,
+    table_notin_reif([U, W], [(1, 2), (3, 0)], By),
+    P = findall(By, solve([U, W, By])),
+    printf("16 table_notin         : total=%d B1=%d (expect 16/14)%n",
+        length(P), n1(P)).
+t17() =>
+    X :: 0..3, Y :: 0..3, Z :: 0..3,
+    count_reif(1, [X, Y, Z], '#=', 2, By),
+    P = findall(By, solve([X, Y, Z, By])),
+    printf("17 count #= 2          : total=%d B1=%d (expect 64/9)%n",
+        length(P), n1(P)).
+t18() =>
+    X :: 0..3, Y :: 0..3, Z :: 0..3,
+    count_reif(1, [X, Y, Z], '#>', 1, By),
+    P = findall(By, solve([X, Y, Z, By])),
+    printf("18 count #> 1          : total=%d B1=%d (expect 64/10)%n",
+        length(P), n1(P)).
+t19() =>
+    A :: 1..2, B_ :: 1..2, C :: 1..2,
+    By :: 0..1,
+    By #= 1,
+    all_different_reif([A, B_, C], By),
+    P2 = findall({A, B_, C}, solve([A, B_, C, By])),
+    printf("19 alldiff forced B=1  : total=%d (expect 0)%n", length(P2)).
+t20() =>
+    A :: 1..2, B_ :: 1..2, C :: 1..2,
+    By :: 0..1,
+    By #= 0,
+    all_different_reif([A, B_, C], By),
+    P2 = findall({A, B_, C}, solve([A, B_, C, By])),
+    printf("20 alldiff forced B=0  : total=%d (expect 8)%n", length(P2)).
+
+% NOTE:  t19  (an infeasible enumeration) must run LAST:  this 3.9#12
+% emu build leaks search state after an unsatisfiable  solve,  and
+% every later  findall  then reports 0 solutions  (reproducible
+% without any reification:  3-cycle 2-coloring  then  findall).
+main() =>
+    t01(), t02(), t03(), t04(), t05(), t06(),
+    t07(), t08(), t09(), t10(), t11(), t12(),
+    t13(), t14(), t15(), t16(), t17(), t18(),
+    t20(), t19().
