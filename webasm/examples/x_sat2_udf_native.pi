@@ -43,10 +43,10 @@
 
       % ---- 3) structurally recursive udf ----
       R :: 0..100,
-      R #= $total([1, 2, 3]),
+      10 #= $total([1, R, 3]),
       solve([R]),
-      V3 = udf_evaluate($total([1, 2, 3])),
-      printf("3) R #= $total([1,2,3])     => R = %w (evaluate = %w)%n", R, V3),
+      V3 = udf_evaluate($total([1, R, 3])),
+      printf("3) 10 #= $total([1,R,3])    => R = %w (evaluate = %w)%n", R, V3),
 
       % ---- 4) udf in a reified constraint (SAT-specific) ----
       A :: 0..4,
