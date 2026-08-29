@@ -1,0 +1,73 @@
+% x_cp2_udf_native.pi -- user-defined functions (udf) in constraint
+% expressions, using the cp2 module (lib/cp2.pi) directly.
+%
+% VERY EXPERIMENTAL - NOT an official part of Picat.  The standard
+% constraint operators (#= etc.) only accept a fixed set of arithmetic
+% symbols;  cp2 is a disk-compiled clone of lib/cp that additionally
+% expands user functions registered via  udf_define - inside  #=  (and
+% the other constraint operators), inside  $min/$max  objectives of
+%  solve, and via  udf_post / udf_evaluate - with no separate udf
+% module and no per-operator shims.  The syntax is not final.
+%
+% Packed for the browser like the aspic/udf examples:  lib/cp2.pi and
+% its source dependencies (common_constr.pi, cp_sat_mip_smt.pi) are
+% preloaded at the filesystem root ("/"), the wasm CWD where
+%  import cp2.  and  include "..."  look.  The in-image precompiled  cp
+% module (imported by cp2) needs no source.  See webasm/Makefile.
+
+  import cp2.
+
+  % ---- register the user functions (global heap-map registry) ----
+  register_udfs() =>
+      udf_define($inc(N), $(N + 1)),
+      udf_define($sq(U), $U * U),
+      udf_define($cost(P, K), $(P * K + sq(P))),       % compound: calls sq
+      udf_define($total([]), 0),                        % structural recursion
+      udf_define($total([H | T]), $(H + total(T))).
+
+  main =>
+      register_udfs(),
+
+      % ---- 1) natural style: udf in a bare  #=  ----
+      X :: 0..10,
+      $inc(X) #= 6,
+      solve([X]),
+      printf("1) $inc(X) #= 6              => X = %w%n", X),
+
+      % ---- 2) compound udf with a  #>=  constraint ----
+      Y :: 0..50,
+      Y #>= $cost(3, 2),
+      solve([Y]),
+      printf("2) Y #>= $cost(3, 2)         => Y = %w%n", Y),
+
+      % ---- 3) structurally recursive udf ----
+      R :: 0..100,
+      R #= $total([1, 2, 3]),
+      solve([R]),
+      V3 = udf_evaluate($total([1, 2, 3])),
+      printf("3) R #= $total([1,2,3])      => R = %w (evaluate = %w)%n", R, V3),
+
+      % ---- 4) udf inside a list comprehension (sum) ----
+      % (T reuses a $total parameter name - harmless, the rule lives in
+      %  register_udfs/0's own variable scope)
+      T :: 0..10,
+      sum([$inc(I + T): I in 0..3]) #= 14,
+      solve([T]),
+      printf("4) sum([$inc(I+T):I in 0..3]) #= 14 => T = %w%n", T),
+
+      % ---- 5) udfs in the objective function of  solve ----
+      A :: 1..5, B :: 1..5,
+      A + B #= 6,
+      solve([$min(sq(A) + sq(B))], [A, B]),
+      V5 = udf_evaluate($sq(A)) + udf_evaluate($sq(B)),
+      printf("5) min sq(A) + sq(B), A+B=6  => A = %w B = %w value = %w%n", A, B, V5),
+
+      % ---- 6) explicit posting of a relation with udf arguments ----
+      Z :: 0..10,
+      udf_post('#=', $sq(Z), 9),
+      solve([Z]),
+      printf("6) udf_post('#=', $sq(Z), 9) => Z = %w%n", Z),
+
+      % ---- 7) ground evaluation of nested udfs ----
+      V7 = udf_evaluate($inc($sq(4)) + 1),
+      printf("7) $inc($sq(4)) + 1          = %w%n", V7).

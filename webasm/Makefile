@@ -169,6 +169,17 @@ UDF_PRELOADS := \
   --preload-file ../lib2/udf.pi@/udf.pi \
   --preload-file ../lib2/udf_ops.pi@/udf_ops.pi
 
+# cp2 (lib/cp2.pi, a disk-compiled clone of cp with built-in udf
+# expansion) and its source dependencies, for the  x_cp2_udf_native.pi
+# example.  As with the udf files these land at the filesystem root: the
+# wasm CWD is "/", where  import cp2.  and  include "cp_sat_mip_smt.pi"
+# look.  The precompiled in-image  cp  module (imported by cp2) needs no
+# source here.
+CP2_PRELOADS := \
+  --preload-file ../lib/cp2.pi@/cp2.pi \
+  --preload-file ../lib/common_constr.pi@/common_constr.pi \
+  --preload-file ../lib/cp_sat_mip_smt.pi@/cp_sat_mip_smt.pi
+
 EMFLAGS := -sMODULARIZE=1 -sEXPORT_NAME=PicatWasm \
             -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=16777216 \
             -sINITIAL_MEMORY=67108864 \
@@ -180,6 +191,7 @@ EMFLAGS := -sMODULARIZE=1 -sEXPORT_NAME=PicatWasm \
             --preload-file $(LIB2)@/lib2 \
             --preload-file examples@/examples \
             $(UDF_PRELOADS) \
+            $(CP2_PRELOADS) \
             $(ASPIC_PRELOADS) \
             $(DATA_PRELOADS) \
             -lc++ -lc++abi
