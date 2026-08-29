@@ -1,0 +1,79 @@
+% x_sat2_udf_native.pi -- user-defined functions (udf) in SAT
+% constraints, using the sat2 module (lib/sat2.pi) directly.
+%
+% VERY EXPERIMENTAL - NOT an official part of Picat.  The standard
+% constraint operators (#= etc.) only accept a fixed set of arithmetic
+% symbols;  sat2 is a disk-compiled clone of lib/sat that additionally
+% expands user functions registered via  udf_define - inside the
+% constraint operators (#= #!= #>= #<=> #=> #/\ #\/ #^ #~ ...), in
+% reified terms, and via  udf_post / udf_evaluate - with no separate
+% udf module and no per-operator shims.  Like plain sat, solve has no
+% $min/$max objective: it enumerates solutions.  The syntax is not
+% final.
+%
+% Packed for the browser like the aspic/udf/cp2 examples:  lib/sat2.pi
+% and its source dependencies (common_constr.pi, cp_sat_mip_smt.pi)
+% are preloaded at the filesystem root ("/"), the wasm CWD where
+%  import sat2.  and  include "..."  look.  The in-image precompiled
+%  sat  module (imported by sat2) needs no source.  See webasm/Makefile.
+
+  import sat2.
+
+  % ---- register the user functions (global heap-map registry) ----
+  register_udfs() =>
+      udf_define($inc(N), $(N + 1)),
+      udf_define($sq(U), $U * U),
+      udf_define($cost(P, K), $(P * K + sq(P))),       % compound: calls sq
+      udf_define($total([]), 0),                        % structural recursion
+      udf_define($total([H | T]), $(H + total(T))).
+
+  main =>
+      register_udfs(),
+
+      % ---- 1) natural style: udf in a bare  #=  ----
+      X :: 0..10,
+      $inc(X) #= 6,
+      solve([X]),
+      printf("1) $inc(X) #= 6              => X = %w%n", X),
+
+      % ---- 2) compound udf ----
+      V :: 0..100,
+      V #= $cost(3, 2),
+      solve([V]),
+      printf("2) V #= $cost(3, 2)         => V = %w%n", V),
+
+      % ---- 3) structurally recursive udf ----
+      R :: 0..100,
+      R #= $total([1, 2, 3]),
+      solve([R]),
+      V3 = udf_evaluate($total([1, 2, 3])),
+      printf("3) R #= $total([1,2,3])     => R = %w (evaluate = %w)%n", R, V3),
+
+      % ---- 4) udf in a reified constraint (SAT-specific) ----
+      A :: 0..4,
+      B :: 0..1,
+      B #<=> $sq(A) #>= 4,
+      solve_all([A, B]) = S,
+      printf("4) B #<=> $sq(A) #>= 4      => %w%n", S),
+
+      % ---- 5) udfs combined with boolean operators ----
+      U :: 0..3,
+      ($sq(U) #= 1) #\/ ($sq(U) #= 4),
+      solve_all([U]) = S5,
+      printf("5) (sq(U)=1) #\\/ (sq(U)=4) => %w%n", S5),
+
+      % ---- 6) negated udf ----
+      W :: 0..3,
+      #~($sq(W) #= 1),
+      solve_all([W]) = S6,
+      printf("6) #~(sq(W) #= 1)           => %w%n", S6),
+
+      % ---- 7) explicit posting of a relation with udf arguments ----
+      Z :: 0..10,
+      udf_post('#=', $sq(Z), 9),
+      solve([Z]),
+      printf("7) udf_post('#=', $sq(Z), 9) => Z = %w%n", Z),
+
+      % ---- 8) ground evaluation of nested udfs ----
+      V8 = udf_evaluate($inc($sq(4)) + 1),
+      printf("8) $inc($sq(4)) + 1         = %w%n", V8).

@@ -180,6 +180,16 @@ CP2_PRELOADS := \
   --preload-file ../lib/common_constr.pi@/common_constr.pi \
   --preload-file ../lib/cp_sat_mip_smt.pi@/cp_sat_mip_smt.pi
 
+# sat2 (lib/sat2.pi, a disk-compiled clone of sat with built-in udf
+# expansion) and its source dependencies, for the  x_sat2_udf_native.pi
+# example.  Lands at the filesystem root like the cp2 files.  The
+# precompiled in-image  sat  module (imported by sat2) needs no source
+# here; common_constr / cp_sat_mip_smt are shared with the cp2 block.
+SAT2_PRELOADS := \
+  --preload-file ../lib/sat2.pi@/sat2.pi \
+  --preload-file ../lib/common_constr.pi@/common_constr.pi \
+  --preload-file ../lib/cp_sat_mip_smt.pi@/cp_sat_mip_smt.pi
+
 EMFLAGS := -sMODULARIZE=1 -sEXPORT_NAME=PicatWasm \
             -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=16777216 \
             -sINITIAL_MEMORY=67108864 \
@@ -192,6 +202,7 @@ EMFLAGS := -sMODULARIZE=1 -sEXPORT_NAME=PicatWasm \
             --preload-file examples@/examples \
             $(UDF_PRELOADS) \
             $(CP2_PRELOADS) \
+            $(SAT2_PRELOADS) \
             $(ASPIC_PRELOADS) \
             $(DATA_PRELOADS) \
             -lc++ -lc++abi
