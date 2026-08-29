@@ -1,0 +1,85 @@
+  % User-defined functions in CP constraints - deep integration via cp2 ONLY.
+  %
+  %   sh exs/cp/run_cp2_udf.sh          (or:  run_cp2_udf.sh cp2_udf_native)
+  %
+  % One import, no lib2/udf, no operator shim, no include.  cp2's own
+  % constraint operators,  solve  objectives,  udf_post  and  udf_evaluate
+  % expand registered user functions automatically.  Demonstrates:
+  %
+  %   1) udf in a bare  #=            (natural style, no boilerplate)
+  %   2) compound udf  +  #>=         ($cost calls $sq)
+  %   3) structural recursion         ($total/1, base + recursive clauses)
+  %   4) udf in a list comprehension  (inside  sum/1)
+  %   5) udfs in the objective        ($min(...); terms inside $min are not
+  %                                    evaluated, so $ is not needed there)
+  %   6) udf_post for explicit posting of (flattened) relations
+  %   7) udf_evaluate for ground evaluation
+  %
+  % Notes (empirically observed in this 3.9#12 build):
+  %   * udf_define parameters are live variables:  register_udfs/0  scopes
+  %     them into a helper predicate so  main  can reuse any variable name
+  %     (a  not(not(...))  wrapper would not work - the negation rolls the
+  %     heap-map registration back).
+  %   * $f(X) op $g(Y)  (two $-quoted calls around an operator) does not
+  %     parse; keep one $-quoted call per term, or use unquoted names
+  %     inside  $min/$max.
+  %   * println is  println(Term)  or  println(FD, Term)  where FD is a
+  %     file-descriptor integer - it takes no string+term form; the
+  %     multi-value output below therefore uses  printf.
+
+  import cp2.
+
+  % ---- register the user functions (global heap-map registry) ----
+  register_udfs() =>
+      udf_define($inc(N), $(N + 1)),
+      udf_define($sq(U), $U * U),
+      udf_define($cost(P, K), $(P * K + sq(P))),       % compound: calls sq
+      udf_define($total([]), 0),                        % structural recursion
+      udf_define($total([H | T]), $(H + total(T))).
+
+  main =>
+      register_udfs(),
+
+      % ---- 1) natural style: udf in a bare  #=  ----
+      X :: 0..10,
+      $inc(X) #= 6,
+      solve([X]),
+      printf("1) $inc(X) #= 6              => X = %w%n", X),
+
+      % ---- 2) compound udf with a  #>=  constraint ----
+      Y :: 0..50,
+      Y #>= $cost(3, 2),
+      solve([Y]),
+      printf("2) Y #>= $cost(3, 2)         => Y = %w%n", Y),
+
+      % ---- 3) structurally recursive udf ----
+      R :: 0..100,
+      R #= $total([1, 2, 3]),
+      solve([R]),
+      V3 = udf_evaluate($total([1, 2, 3])),
+      printf("3) R #= $total([1,2,3])      => R = %w (evaluate = %w)%n", R, V3),
+
+      % ---- 4) udf inside a list comprehension (sum) ----
+      % (T reuses a $total parameter name - harmless, the rule lives in
+      %  register_udfs/0's own variable scope)
+      T :: 0..10,
+      sum([$inc(I + T): I in 0..3]) #= 14,
+      solve([T]),
+      printf("4) sum([$inc(I+T):I in 0..3]) #= 14 => T = %w%n", T),
+
+      % ---- 5) udfs in the objective function of  solve ----
+      A :: 1..5, B :: 1..5,
+      A + B #= 6,
+      solve([$min(sq(A) + sq(B))], [A, B]),
+      V5 = udf_evaluate($sq(A)) + udf_evaluate($sq(B)),
+      printf("5) min sq(A) + sq(B), A+B=6  => A = %w B = %w value = %w%n", A, B, V5),
+
+      % ---- 6) explicit posting of a relation with udf arguments ----
+      Z :: 0..10,
+      udf_post('#=', $sq(Z), 9),
+      solve([Z]),
+      printf("6) udf_post('#=', $sq(Z), 9) => Z = %w%n", Z),
+
+      % ---- 7) ground evaluation of nested udfs ----
+      V7 = udf_evaluate($inc($sq(4)) + 1),
+      printf("7) $inc($sq(4)) + 1          = %w%n", V7).
