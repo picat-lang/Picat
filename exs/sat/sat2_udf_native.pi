@@ -1,6 +1,6 @@
   % User-defined functions in SAT constraints - deep integration via sat2 ONLY.
   %
-  %   sh exs/sat/run_sat2_udf.sh          (or:  run_sat2_udf.sh sat2_udf_native)
+  %   PICATPATH=lib timeout 600 emu/picat exs/sat/sat2_udf_native.pi   (from the repo root)
   %
   % One import, no lib2/udf, no operator shim, no include.  sat2's own
   % constraint operators,  solve  objectives,  udf_post  and

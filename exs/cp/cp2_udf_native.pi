@@ -1,6 +1,6 @@
   % User-defined functions in CP constraints - deep integration via cp2 ONLY.
   %
-  %   sh exs/cp/run_cp2_udf.sh          (or:  run_cp2_udf.sh cp2_udf_native)
+  %   PICATPATH=lib timeout 600 emu/picat exs/cp/cp2_udf_native.pi   (from the repo root)
   %
   % One import, no lib2/udf, no operator shim, no include.  cp2's own
   % constraint operators,  solve  objectives,  udf_post  and  udf_evaluate

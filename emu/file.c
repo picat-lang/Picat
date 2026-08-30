@@ -489,8 +489,10 @@ char *expand_file_name(char *s1) {
    (PICATPATH_LIST, falling back to PICATPATH).  The compiled standard
    library also builds path-qualified names by prefixing PICATPATH —
    which init.c normalizes to the FIRST list component for a
-   multipath value — as if it were one directory;  such misses are
-   retried with every directory component.  Names that exist where
+   multipath value — as if it were one directory, and it prefixes
+   include names with the top-level file's directory;  such misses
+   are retried with every directory component (respectively:  the
+   basename tried in every directory).  Names that exist where
    asked, or that do not match those shapes, are left untouched;
    write/append opens never call this. */
 static int picatpath_read_fallback(void)
@@ -516,28 +518,35 @@ static int picatpath_read_fallback(void)
         size_t listlen = strlen(pp);
         const char *colon = strchr(pp, ':');
         size_t plen = (colon != NULL) ? (size_t)(colon - pp) : listlen;
+        size_t prefix_len;
         const char *rest;
         if (strncmp(full_file_name, pp, listlen) == 0
-            && full_file_name[listlen] == '/') {
-            /* whole-list literal prefix (old bytecode shape) */
-            if (sys_access(full_file_name, F_OK) == 0)
-                return 0;              /* found as asked */
-            rest = full_file_name + listlen + 1;
-        } else if (strncmp(full_file_name, pp, plen) == 0
-            && full_file_name[plen] == '/') {
-            /* first-component prefix (bytecode shape after the
-               PICATPATH/PICATPATH_LIST normalization in init.c)  */
-            if (sys_access(full_file_name, F_OK) == 0)
-                return 0;              /* found as asked */
-            rest = full_file_name + plen + 1;
-        } else {
-            return 0;                 /* not a PICATPATH-prefixed name */
-        }
+            && full_file_name[listlen] == '/')
+            prefix_len = listlen;      /* whole-list literal prefix (old shape) */
+        else if (strncmp(full_file_name, pp, plen) == 0
+            && full_file_name[plen] == '/')
+            prefix_len = plen;         /* first-component prefix (shape after
+                                          the init.c normalization)  */
+        else if (full_file_name[0] != '/') {
+            /* include shape  "<dir-of-main-file>/<file>":  the bytecode
+               prefixes include names with the top-level file's directory
+               rather than with a PICATPATH dir;  retry the basename in
+               each PICATPATH dir. */
+            const char *sl = strrchr(full_file_name, '/');
+            if (sl == full_file_name || *(sl + 1) == '\0')
+                return 0;
+            strcpy(suffix, sl + 1);
+            goto walk;
+        } else
+            return 0;                 /* absolute name:  leave as is */
+        if (sys_access(full_file_name, F_OK) == 0)
+            return 0;              /* found as asked */
+        rest = full_file_name + prefix_len + 1;
         if (strchr(rest, '/') != NULL)
             return 0;              /* nested subdir:  leave as is */
         strcpy(suffix, rest);
     }
-
+walk:
     suffix_len = strlen(suffix);
     strncpy(pp_copy, pp, MAX_FILE_NAME_LEN - 1);
     pp_copy[MAX_FILE_NAME_LEN - 1] = '\0';

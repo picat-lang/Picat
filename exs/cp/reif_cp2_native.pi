@@ -9,7 +9,7 @@
 % solutions of small instances and counts the  B = 1  solutions,
 % comparing against hand-computed expectations.
 %
-%   sh exs/cp/run_cp2_udf.sh reif_cp2_native
+%   PICATPATH=lib timeout 600 emu/picat exs/cp/reif_cp2_native.pi   (from the repo root)
 
 import cp2.
 

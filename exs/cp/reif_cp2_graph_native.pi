@@ -12,7 +12,7 @@
 %  for which the reif can force  B = 1  must equal the set of
 %  tuples satisfying the original  (hand-computed:  17, 18, 4, 11, 10).
 %
-%   sh exs/cp/run_cp2_udf.sh reif_cp2_graph_native
+%   PICATPATH=lib timeout 600 emu/picat exs/cp/reif_cp2_graph_native.pi   (from the repo root)
 
 import cp2.
 

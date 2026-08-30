@@ -9,7 +9,7 @@
 % solutions of small instances and counts the  B = 1  solutions,
 % comparing against hand-computed expectations.
 %
-%   sh exs/sat/run_sat2_udf.sh reif_sat2_native
+%   PICATPATH=lib timeout 600 emu/picat exs/sat/reif_sat2_native.pi   (from the repo root)
 
 import sat2.
 

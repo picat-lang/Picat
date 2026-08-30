@@ -19,7 +19,7 @@
 %  cp2).  The reif code is shared (lib/global_reif_graph.pi);  the
 %  hcp/scc/tree equivalences are verified by the cp2 battery.
 %
-%   sh exs/sat/run_sat2_udf.sh reif_sat2_graph_native
+%   PICATPATH=lib timeout 600 emu/picat exs/sat/reif_sat2_graph_native.pi   (from the repo root)
 
 import sat2.
 
