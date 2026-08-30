@@ -1,0 +1,229 @@
+% Phase 1a two-way battery:  sequential portfolio race (direct
+% dispatch) vs the PVM mode-1 portfolio race, over first-solution
+% strategies.
+%
+% From repo root, one line per case (NT = 0: serial only;  NT >= 1):
+%   PICATPATH=lib2 timeout 120 emu/picat exs/parallel/parblock/parblock_pvm_race.pi 1 4
+%   PICATPATH=lib2 timeout 120 emu/picat exs/parallel/parblock/parblock_pvm_race.pi 2 4
+%   PICATPATH=lib2 timeout 120 emu/picat exs/parallel/parblock/parblock_pvm_race.pi 3 4
+%
+%   case 1  strategies [asc-8Q, midout-8Q, infeasible]
+%   case 2  strategies [midout-8Q, infeasible]
+%   case 3  strategies [infeasible]        (exhaustion: R = 0)
+%   case 4  strategies [pin-unique-8Q, asc-8Q]
+%   case 5  strategies [infeasible, pin-unique-8Q, midout-8Q]
+%
+% Contract (parblock rulebook, async-refined on what the mode-1
+% substrate can actually guarantee -- see below):
+ %   - the tag travels INSIDE the reported value (a (Tag, Sol)
+ %     tuple -- see the codec note in race_clause), so the battery
+ %     checks what actually ran:
+%     * reported tag T is a strategy of this case;
+%     * the value is a VALID solution of strategy T's problem;
+%     * if T is the pin strategy (uniquely-solved problem), the
+%       value is asserted EXACTLY.
+%   - the serial reference (first feasible in written order) is
+%     printed alongside;  on the root-walked strategies it matches.
+%   - all-of-none -> exhausted (R = 0, case 3).
+%
+%   Substrate fact learned while building this (documented for 1b):
+%   the report goal sits OUTSIDE the delegated region (after the
+%   strategy returns), so a solution found in a WORKER's delegated
+%   territory is invisible -- that clause then fails on the root and
+%   the ROOT walks the next written-order strategy.  Hence the
+%   reported strategy is the first ROOT-COMPLETED one, not simply
+%   the first feasible;  tag determinism is a serial-mode property.
+%   (queens_first-style in-region reports have no such loss: there
+%   a worker reports its own discovery.)
+%
+% ENGINE BUG (emu-level, pre-existing, found while building this):
+% a dynamic apply/call AFTER a pvm_fork/pvm_collect session corrupts
+% the exit path -- apply segfaults at exit (toam+125k, after main
+% completes), call hangs; direct calls are clean.  This battery
+% therefore uses direct dispatch only.  Blocks 1b name-dispatch in
+% workers until fixed in emu.
+
+module parblock_pvm_race.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% strategies  %%%%%%%%%%%%%%%%%%%%%%%%%
+
+ord_a(N) = [C : C in 1..N].
+ord_b(N) = [C : C in N // 2 + 1..N] ++ [C : C in 1..N // 2].
+
+queens_ord(Ord, N, Qs) =>
+    qs1(1, N, [], Qs, Ord).
+qs1(Row, N, P, Qs, Ord) =>
+    ( Row = N + 1, Qs = P
+    ;
+      ( pick(Ord, C), safe(C, P), qs1(Row + 1, N, [C | P], Qs, Ord) ) ).
+pick([], _)   => fail.
+pick([H | T], X) =>
+    ( X = H ; pick(T, X) ).
+safe(C, P) => safe1(C, P, 1).
+safe1(C, [], D) => true.
+safe1(C, [Hh | T], D) =>
+    not(C = Hh),
+    not(C - Hh = D),
+    not(Hh - C = D),
+    safe1(C, T, D + 1).
+
+sol_a() = Qs => once(queens_ord(ord_a(8), 8, Qs)).    % ascending
+sol_b() = Qs => once(queens_ord(ord_b(8), 8, Qs)).    % middle-out
+none8(Qs) => once(queens_ord(ord_a(2), 2, Qs)).  % 2-Queens: no solution
+
+% 8-Queens with rows 1,2 pinned to 1,5:  unique solution
+% [4,2,7,3,6,8,5,1] (columns listed newest-row first, see pin8)
+pin8(R1, R2, Qs) =>
+    not(R1 = R2),
+    not(abs(R1 - R2) = 1),
+    pin_q(3, 8, [R2, R1], Qs).
+pin_q(Row, N, L, Qs) =>
+    ( Row = N + 1, Qs = L
+    ;
+      ( pick([C : C in 1..N], C), safe(C, L), pin_q(Row + 1, N, [C | L], Qs) ) ).
+sol_p() = Qs => once(pin8(1, 5, Qs)).
+uniq8() = [4, 2, 7, 3, 6, 8, 5, 1].   % the unique pin solution
+
+% a valid 8-Queens placement:  8 values, all in 1..8, sum 36,
+% sumsq 204 (a permutation), pairwise off the diagonals
+sumsq(Ns) = S =>
+    N2 = [X * X : X in Ns],
+    S = sum(N2).
+valid8(Qs) =>
+    Ns = [Qs[I] : I in 1..8],
+    len(Ns) = 8,
+    foreach (V in Ns)
+        V >= 1, V <= 8
+    end,
+    S = sum(Ns), S = 36,
+    Sq = sumsq(Ns), Sq = 204,
+    foreach (I in 1..7, J in (I + 1)..8)
+        not(abs(Qs[I] - Qs[J]) = J - I)
+    end.
+
+% serial side:  written-order first-wins, direct dispatch.  S =
+% (W, Qs) or none.
+serial(1, S) =>
+    ( W = 1, Qs = sol_a(), S = (W, Qs)
+    ;
+      ( W = 2, Qs = sol_b(), S = (W, Qs)
+      ;
+        ( W = 3, none8(Qs), S = (W, Qs)
+        ; S = none ) ) ).
+serial(2, S) =>
+    ( W = 2, Qs = sol_b(), S = (W, Qs)
+    ;
+      ( W = 3, none8(Qs), S = (W, Qs)
+      ; S = none ) ).
+serial(3, S) =>
+    ( none8(Qs), W = 3, S = (W, Qs)
+    ; S = none ).
+serial(4, S) =>
+    ( W = 4, Qs = sol_p(), S = (W, Qs)
+    ;
+      ( W = 1, Qs = sol_a(), S = (W, Qs)
+      ; S = none ) ).
+serial(5, S) =>
+    ( W = 4, Qs = sol_p(), S = (W, Qs)
+    ;
+      ( W = 2, Qs = sol_b(), S = (W, Qs)
+      ; S = none ) ).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% pvm side  %%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% a portfolio clause:  the strategy runs inside the delegation
+% window;  a throwing strategy drops out (catch -> clause fail);
+% the window closes on every path via call_cleanup;  the winner
+% reports its solution BY VALUE.
+%
+% ground(V) is required:  when a worker has consumed the
+% strategy's solution space, the remaining search fails and
+% `V = sol_x()` hits the engine's silent-unbound function quirk
+% (failing body, unbound value = success, V bound to a var);
+% a non-ground report would trip the bad-flag and kill the
+% session.  The ground test must run BEFORE the tag is folded
+% into the reported term (see the codec note below), which is
+% why the report carries the tuple (T, V) rather than [T | V]:
+% the PVM solution codec (emu/parvm.c pvm_enc_term) truncates
+% top-level list terms that are not plain cons chains (literals,
+% [H | L] conses) to their first element -- an emu bug pending;
+% compound terms round-trip exactly.
+race_clause(T, V) =>
+    bp.pvm_delegate(1),
+    call_cleanup(catch(strat_of(T, V), E, false), bp.pvm_delegate(0)),
+    ground(V),
+    bp.pvm_report((T, V)).
+
+strat_of(T, V) =>
+    ( T = 1, V = sol_a()
+    ;
+      ( T = 2, V = sol_b()
+      ;
+        ( T = 3, V = sol_none2()
+        ; ( T = 4, V = sol_p() ; true ) ) ) ).
+
+% NOTE: a function body that merely FAILS leaves the value var
+% unbound and the call SUCCEEDS (silent unbound) -- that would reach
+% pvm_report non-ground and error.  A strategy that has no value must
+% THROW explicitly (caught by the clause -> drops out of the race).
+sol_none2() = Qs =>
+    throw($no_solution),
+    Qs.
+
+strategy_of(1, 1). strategy_of(1, 2). strategy_of(1, 3).
+strategy_of(2, 2). strategy_of(2, 3).
+strategy_of(3, 3).
+strategy_of(4, 1). strategy_of(4, 4).
+strategy_of(5, 2). strategy_of(5, 3). strategy_of(5, 4).
+
+body_of(1, V) =>
+    ( race_clause(1, V) ; race_clause(2, V) ; race_clause(3, V) ; true ).
+body_of(2, V) =>
+    ( race_clause(2, V) ; race_clause(3, V) ; true ).
+body_of(3, V) =>
+    ( race_clause(3, V) ; true ).
+body_of(4, V) =>
+    ( race_clause(4, V) ; race_clause(1, V) ; true ).
+body_of(5, V) =>
+    ( race_clause(3, V) ; race_clause(4, V) ; race_clause(2, V) ; true ).
+
+pvm(Case, NT, S) =>
+    bp.pvm_fork(NT, 1, 1),
+    body_of(Case, V),
+    bp.pvm_collect(R),
+    ( R = 1,
+      bp.pvm_solution(S)
+    ; S = none ).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% driver  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+main => fail.
+main([C, NT]) =>
+    Case = to_int(C),
+    Nt = to_int(NT),
+    ( Nt >= 1,
+      pvm(Case, Nt, Sp),
+      serial(Case, Ss),
+      print_cmp(Case, Sp, Ss)
+    ;
+      ( serial(Case, Ss),
+        printf("case%d: serial-only  %s\n", Case, to_string(Ss)) ) ).
+
+describe(Tp, Qp, Msg) =>
+    ( Tp = 4, Qp = uniq8(), Msg = "exact"
+    ;
+      ( valid8(Qp), Msg = "valid" ) ).
+
+print_cmp(Case, Sp, Ss) =>
+    ( Sp = none, Ss = none,
+      printf("case%d: pvm==ser  none  ok\n", Case)
+    ;
+      ( Sp = (Tp, Qp),
+        Ss = (Ws, Qs),
+        strategy_of(Case, Tp),
+        describe(Tp, Qp, Msg),
+        printf("case%d: pvm tag=%d value=%s %s   (serial ref: [%d] %s)\n",
+               Case, Tp, Msg, to_string(Qp), Ws, to_string(Qs))
+      ;
+        printf("case%d: FAIL  pvm=(%s)  ser=(%s)\n",
+               Case, to_string(Sp), to_string(Ss)) ) ).
