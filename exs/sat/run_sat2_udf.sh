@@ -8,13 +8,14 @@
 #
 # Notes (empirically observed in this 3.9#12 build):
 #   * PICATPATH takes a single directory.
-#   *  include "..."  resolves against the CWD, so  cp_sat_mip_smt.pi
-#     (included by lib/sat2.pi) is copied into the temp CWD.
+#   *  Read lookups (import / include / open) fall back to the
+#     PICATPATH directories for bare names not found in the CWD
+#     (picatpath_read_fallback in emu/file.c), so the files that
+#     lib/cp2.pi includes need no copy into the temp CWD.
 BASE=$(cd "$(dirname "$0")" && cd ../.. && pwd)
 T=$(mktemp -d /tmp/sat2test.XXXXXX)
 mkdir -p $T/lib
 ln -sf $BASE/lib/*.pi $T/lib/
-cp $BASE/lib/cp_sat_mip_smt.pi $BASE/lib/global_reif.pi $BASE/lib/global_reif_graph.pi $T/
 cd $T || exit 1
 if [ $# -gt 0 ]; then set -- $@; else
   set -- sat2_udf_native

@@ -775,17 +775,46 @@ hashsod:
 }
 
 
+extern int access(const char *pathname, int mode);
+
 int dyn_loader(SYM_REC_PTR sym_ptr, BPLONG file_type, BPLONG load_damon)
 {
     CHAR s[256], s1[256], s3[256];
     CHAR_PTR s2;
     BPLONG i;
+    CHAR pp_copy[512], cand[512];
+    CHAR *pp, *qq;
 
     dynload = 1;
     namestring(sym_ptr, s1);
     if (*s1 == '/' || *s1 == '.')
         return loader(s1, file_type, load_damon);
     else if (file_type != BUILTIN) {
+        /* bare name:  CWD first,  then the  colon-separated  PICATPATH
+           directories (mirrors the read fallback in file.c) */
+        if (access(s1, F_OK) == 0)
+            return loader(s1, file_type, load_damon);
+        if (getenv("PICATPATH") != NULL && strlen(s1) < 500) {
+            strncpy(pp_copy, getenv("PICATPATH"), 511);
+            pp_copy[511] = '\0';
+            for (pp = pp_copy; *pp != '\0'; ) {
+                qq = pp;
+                while (*qq != '\0' && *qq != ':')
+                    qq++;
+                {
+                    int delim = (*qq == ':');
+                    *qq = '\0';
+                if (*pp != '\0' && strlen(pp) + 1 + strlen(s1) < 512) {
+                    strcpy(cand, pp);
+                    strcat(cand, "/");
+                    strcat(cand, s1);
+                    if (access(cand, F_OK) == 0)
+                        return loader(cand, file_type, load_damon);
+                }
+                pp = delim ? qq + 1 : qq;
+                }
+            }
+        }
         if (*s1 == '~') {
             s2 = getenv("HOME");
             if (s2 == NULL) {

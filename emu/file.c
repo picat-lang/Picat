@@ -483,6 +483,70 @@ char *expand_file_name(char *s1) {
     return full_file_name;
 }
 
+/* PICATPATH fallback for read-only lookups.  A bare relative name
+   (no directory part) that is not present in the CWD is searched, in
+   order, in the colon-separated directories of the PICATPATH
+   environment variable.  The compiled standard library also builds
+   path-qualified names by prefixing the ENTIRE (possibly
+   colon-separated) PICATPATH as if it were one directory;  such a
+   literal miss is retried with each directory component separately.
+   Names that exist where asked, or that do not match those shapes,
+   are left untouched;  write/append opens never call this. */
+static int picatpath_read_fallback(void)
+{
+    static CHAR pp_copy[MAX_FILE_NAME_LEN];
+    static CHAR cand[MAX_FILE_NAME_LEN];
+    static CHAR suffix[MAX_FILE_NAME_LEN];
+    CHAR *p, *q;
+    const char *pp;
+    size_t suffix_len;
+
+    pp = getenv("PICATPATH");
+    if (pp == NULL)
+        return 0;
+
+    if (strchr(full_file_name, '/') == NULL) {
+        if (sys_access(full_file_name, F_OK) == 0)
+            return 0;
+        strcpy(suffix, full_file_name);
+    } else {
+        size_t plen = strlen(pp);
+        const char *rest;
+        if (strncmp(full_file_name, pp, plen) != 0 || full_file_name[plen] != '/')
+            return 0;              /* not a PICATPATH-prefixed name */
+        if (sys_access(full_file_name, F_OK) == 0)
+            return 0;              /* found as asked */
+        rest = full_file_name + plen + 1;
+        if (strchr(rest, '/') != NULL)
+            return 0;              /* nested subdir:  leave as is */
+        strcpy(suffix, rest);
+    }
+
+    suffix_len = strlen(suffix);
+    strncpy(pp_copy, pp, MAX_FILE_NAME_LEN - 1);
+    pp_copy[MAX_FILE_NAME_LEN - 1] = '\0';
+    for (p = pp_copy; *p != '\0'; ) {
+        q = p;
+        while (*q != '\0' && *q != ':')
+            q++;
+        {
+            int delim = (*q == ':');
+            *q = '\0';
+        if (*p != '\0' && strlen(p) + 1 + suffix_len < MAX_FILE_NAME_LEN) {
+            strcpy(cand, p);
+            strcat(cand, "/");
+            strcat(cand, suffix);
+            if (sys_access(cand, F_OK) == 0) {
+                strcpy(full_file_name, cand);
+                return 1;
+            }
+        }
+        p = delim ? q + 1 : q;
+        }
+    }
+    return 0;
+}
+
 #ifdef PICAT
 char *get_file_name(BPLONG op) {
     CHAR s1[MAX_STR_LEN];
@@ -1636,6 +1700,8 @@ int b_SEE_c(BPLONG fop)
     }
     if (temp_in_file_i < 0) {  /* not in table */
         get_file_name(fop);
+        if (sys_access(full_file_name, F_OK) != 0)
+            (void)picatpath_read_fallback();
 #ifdef WIN32
         tempfile = fopen(full_file_name, "rb");
 #else
@@ -1787,8 +1853,10 @@ int b_OPEN_ccf(BPLONG fop, BPLONG sop, BPLONG Index)
     mode = INTVAL(sop);
     get_file_name(fop);
     if (mode == READ_MODE && sys_access(full_file_name, mode) != 0) {
-        bp_exception = c_existence_error(et_SOURCE_SINK, fop);
-        return BP_ERROR;
+        if (!picatpath_read_fallback()) {
+            bp_exception = c_existence_error(et_SOURCE_SINK, fop);
+            return BP_ERROR;
+        }
     }
     switch (mode) {
     case 0:
@@ -2009,6 +2077,8 @@ int b_ACCESS_ccf(BPLONG op1, BPLONG op2, BPLONG op3)
     else
     {
         r = sys_access(full_file_name, mode);
+        if (r != 0 && mode == 0 && picatpath_read_fallback())
+            r = sys_access(full_file_name, mode);
     }
     ASSIGN_f_atom(op3, MAKEINT(r));
     return 1;
@@ -2073,8 +2143,10 @@ int file_stat()
     get_file_name(op);
 
     if (stat(full_file_name, &buf) == -1L) {
-        bp_exception = file_does_not_exist;
-        return -1L;
+        if (!picatpath_read_fallback() || stat(full_file_name, &buf) == -1L) {
+            bp_exception = file_does_not_exist;
+            return -1L;
+        }
     }
     ptr = heap_top;
     heap_top += STAT_SIZE;
@@ -2124,8 +2196,10 @@ int c_file_permission()
     }
 #else
     if (sys_access(full_file_name, F_OK) < 0) {
-        bp_exception = file_does_not_exist;
-        return -1L;
+        if (!picatpath_read_fallback()) {
+            bp_exception = file_does_not_exist;
+            return -1L;
+        }
     }
     if (sys_access(full_file_name, R_OK) == 0) {
         perm = (perm | 0x4);
