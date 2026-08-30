@@ -2,19 +2,19 @@
 % module) vs the PVM mode-2 task-parallel par_run_pvm (the
 % parblock_pvm module),  over the parblock task contract.
 %
-% From the exs/parallel/parblock directory itself,  one line per
-% case  (NT = 0:  serial only;  NT >= 1:  both sides,  compared).
-% NOTE:  run the main file by BARE name from its own directory --
-% a relative main path WITH a directory part makes the module
-% loader build a main-dir-qualified name it fopens directly,  which
-% then misses the lib2 copy of parblock / parblock_pvm (a loader
-% wart;  bare-name and absolute main paths are clean).
-%   cd exs/parallel/parblock
-%   PICATPATH=../../../lib2 timeout 120 /path/to/emu/picat parblock_pvm_tasks.pi 1 4
-%   PICATPATH=../../../lib2 timeout 120 /path/to/emu/picat parblock_pvm_tasks.pi 2 4
-%   PICATPATH=../../../lib2 timeout 120 /path/to/emu/picat parblock_pvm_tasks.pi 3 4
-%   PICATPATH=../../../lib2 timeout 120 /path/to/emu/picat parblock_pvm_tasks.pi 4 4
-%   PICATPATH=../../../lib2 timeout 120 /path/to/emu/picat parblock_pvm_tasks.pi 5 4
+% From the repo root,  one line per case  (NT = 0:  serial only;
+% NT >= 1:  both sides,  compared):
+%   timeout 120 emu/picat -path lib2 exs/parallel/parblock/parblock_pvm_tasks.pi 1 4
+%   timeout 120 emu/picat -path lib2 exs/parallel/parblock/parblock_pvm_tasks.pi 2 4
+%   timeout 120 emu/picat -path lib2 exs/parallel/parblock/parblock_pvm_tasks.pi 3 4
+%   timeout 120 emu/picat -path lib2 exs/parallel/parblock/parblock_pvm_tasks.pi 4 4
+%   timeout 120 emu/picat -path lib2 exs/parallel/parblock/parblock_pvm_tasks.pi 5 4
+%
+%   (The module loader once failed on relative main paths with a
+%   directory part -- main-dir-qualified import names fopened without
+%   the PICATPATH fallback;  fixed in emu/loader.c via
+%   picatpath_try_resolve,  which retries the basename in every
+%   PICATPATH dir for the signature load and the bytecode load alike.)
 %
 %   case 1  M = 7   mixed 0-arg / 1-arg tasks,  exact values
 %   case 2  M = 6   task 3 throws  ->  both sides must surface the

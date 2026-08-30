@@ -268,14 +268,26 @@ int loader(CHAR_PTR file, BPLONG file_type, BPLONG load_damon)
     BPLONG err_msg;
     BPLONG total_size;
     FILE *old_fp;
+    CHAR local_name[MAX_FILE_NAME_LEN];
 
+    if (strlen(file) < MAX_FILE_NAME_LEN) {
+        /*  resolve against PICATPATH (basename retry) so a
+            main-dir-qualified import name finds its lib2 copy;
+            no-op when the name already exists where asked */
+        strcpy(local_name, file);
+        picatpath_try_resolve(local_name);
+    } else {
+        strncpy(local_name, file, MAX_FILE_NAME_LEN - 1);
+        local_name[MAX_FILE_NAME_LEN - 1] = '\0';
+    }
+    local_name[MAX_FILE_NAME_LEN - 1] = '\0';
 #ifdef WIN32
-    fp = fopen(file, "rb");
+    fp = fopen(local_name, "rb");
 #else
-    fp = fopen(file, "r");
+    fp = fopen(local_name, "r");
 #endif
     if (fp == NULL) {
-        printf("file %s not exist\n", file);
+        printf("file %s not exist\n", local_name);
         return 1;
     }
     // printf("\n     ...... loading file %s curr_fence=%x\n", file,curr_fence); 
@@ -412,9 +424,21 @@ int c_GET_MODULE_SIGNATURE_cf() {
     fp = fopen(file_name, "r");
 #endif
     if (fp == NULL) {
-        printf("file %s not exist\n", file_name);
-        bp_exception = file_does_not_exist;
-        return BP_ERROR;
+        /*  A miss on a main-dir-qualified name (built by the stdlib
+            when the top-level file is passed by a relative path with a
+            directory part) is retried against the PICATPATH dirs. */
+        if (picatpath_try_resolve(file_name)) {
+#ifdef WIN32
+            fp = fopen(file_name, "rb");
+#else
+            fp = fopen(file_name, "r");
+#endif
+        }
+        if (fp == NULL) {
+            printf("file %s not exist\n", file_name);
+            bp_exception = file_does_not_exist;
+            return BP_ERROR;
+        }
     }
     /* printf("\n     ...... loading file %s curr_fence=%x\n", file,curr_fence); */
 

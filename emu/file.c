@@ -572,6 +572,25 @@ walk:
     return 0;
 }
 
+/* Exported retry for callers that open names built by the compiled-in
+   standard library outside the file-open paths above (currently
+   c_GET_MODULE_SIGNATURE_cf in loader.c, which fopens the import name
+   directly and so never saw the fallback).  The stdlib prefixes
+   include names with the top-level file's directory when the main file
+   is passed by a relative path with a directory part;  when such a name
+   misses, re-resolve it with the same policy as picatpath_read_fallback:
+   on success *fname is rewritten in place and 1 is returned. */
+int picatpath_try_resolve(CHAR *fname)
+{
+    if (strlen(fname) >= MAX_FILE_NAME_LEN)
+        return 0;
+    strcpy(full_file_name, fname);
+    if (!picatpath_read_fallback())
+        return 0;
+    strcpy(fname, full_file_name);
+    return 1;
+}
+
 #ifdef PICAT
 char *get_file_name(BPLONG op) {
     CHAR s1[MAX_STR_LEN];

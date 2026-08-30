@@ -751,6 +751,7 @@ extern int bp_write_bigint_update_pos(BPLONG op);
 extern int check_file_term(BPLONG term);
 extern char *get_file_name(BPLONG op);
 extern char *expand_file_name(char *s);
+extern int picatpath_try_resolve(char *fname);
 extern void bp_write_pname(CHAR_PTR name_ptr);
 extern int bp_write_pname_update_pos(CHAR_PTR name_ptr, BPLONG length);
 extern int graphic_char(char ch);

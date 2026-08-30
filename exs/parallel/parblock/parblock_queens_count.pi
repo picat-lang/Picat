@@ -16,10 +16,9 @@
 % serially (the library falls back to the phase-0 par_run),  so one
 % source serves both backends.
 %
-% Usage:  emu/picat parblock_queens_count.pi [N] [NT]
+% Usage:  from the repo root:
+%   emu/picat -path lib2 exs/parallel/parblock/parblock_queens_count.pi [N] [NT]
 %   N    default 10;   NT  default 4  (0 = serial)
-%   from the exs/parallel/parblock directory,  bare main name:
-%   PICATPATH=../../../lib2 emu/picat parblock_queens_count.pi 8 4
 %
 % Known totals (OEIS A000170),  asserted below for 8/10/12/13:
 %   8=92, 10=724, 12=14200, 13=73712, 14=365596
