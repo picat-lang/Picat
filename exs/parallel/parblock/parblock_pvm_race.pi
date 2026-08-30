@@ -152,12 +152,14 @@ serial(5, S) =>
 % the window closes on every path via call_cleanup;  the winner
 % reports its solution BY VALUE.
 %
-% ground(V) is required:  when a worker has consumed the
-% strategy's solution space, the remaining search fails and
-% `V = sol_x()` hits the engine's silent-unbound function quirk
-% (failing body, unbound value = success, V bound to a var);
-% a non-ground report would trip the bad-flag and kill the
-% session.
+% ground(V) is a defensive guard:  the normal drop-out path is a
+% plain clause failure (a strategy with no solution makes
+% `V = sol_x()` fail and the clause dies before this line --
+% failing function bodies fail the call; no silent-unbound
+% behavior was found, see docs/pvmbugs_report.tex), but a
+% non-ground V reaching pvm_report would make
+% pvm_serialize_solution reject the term and trip the session's
+% bad flag -- the guard converts that into a plain clause failure.
 %
 % The reported term is the TUPLE (T, V), not the list [T | V]:
 % when the strategy's value comes out of a function call inside
@@ -182,10 +184,12 @@ strat_of(T, V) =>
         ( T = 3, V = sol_none2()
         ; ( T = 4, V = sol_p() ; true ) ) ) ).
 
-% NOTE: a function body that merely FAILS leaves the value var
-% unbound and the call SUCCEEDS (silent unbound) -- that would reach
-% pvm_report non-ground and error.  A strategy that has no value must
-% THROW explicitly (caught by the clause -> drops out of the race).
+% NOTE: an infeasible strategy must THROW immediately rather than run
+% its search: a search that exhausts (finds no solution) INSIDE the
+% delegation window hangs the whole session at collect (emu bug,
+% repro pqu3.pi, see docs/pvmbugs_report.tex).  The throw is caught
+% by the clause's catch -> clause fail -> the strategy drops out of
+% the race.
 sol_none2() = Qs =>
     throw($no_solution),
     Qs.
