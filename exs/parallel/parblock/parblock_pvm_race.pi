@@ -141,13 +141,17 @@ serial(5, S) =>
 % `V = sol_x()` hits the engine's silent-unbound function quirk
 % (failing body, unbound value = success, V bound to a var);
 % a non-ground report would trip the bad-flag and kill the
-% session.  The ground test must run BEFORE the tag is folded
-% into the reported term (see the codec note below), which is
-% why the report carries the tuple (T, V) rather than [T | V]:
-% the PVM solution codec (emu/parvm.c pvm_enc_term) truncates
-% top-level list terms that are not plain cons chains (literals,
-% [H | L] conses) to their first element -- an emu bug pending;
-% compound terms round-trip exactly.
+% session.
+%
+% The reported term is the TUPLE (T, V), not the list [T | V]:
+% when the strategy's value comes out of a function call inside
+% catch inside the delegation window, a subsequent `[T | V]`
+% cons of that value displays fine but the PVM codec
+% (pvm_enc_term's list walk, emu/parvm.c) reads it back as just
+% its first element -- an emu bug (probe: scratch/reif/parblock/
+% sc.pi);  a tuple references rather than splices V and
+% round-trips exactly.  Do not splice window-exit values into
+% lists in 1b task-parallel code either.
 race_clause(T, V) =>
     bp.pvm_delegate(1),
     call_cleanup(catch(strat_of(T, V), E, false), bp.pvm_delegate(0)),
