@@ -1,0 +1,114 @@
+% Phase 1b two-way battery:  the phase-0 serial par_run (parblock
+% module) vs the PVM mode-2 task-parallel par_run_pvm (the
+% parblock_pvm module),  over the parblock task contract.
+%
+% From the exs/parallel/parblock directory itself,  one line per
+% case  (NT = 0:  serial only;  NT >= 1:  both sides,  compared).
+% NOTE:  run the main file by BARE name from its own directory --
+% a relative main path WITH a directory part makes the module
+% loader build a main-dir-qualified name it fopens directly,  which
+% then misses the lib2 copy of parblock / parblock_pvm (a loader
+% wart;  bare-name and absolute main paths are clean).
+%   cd exs/parallel/parblock
+%   PICATPATH=../../../lib2 timeout 120 /path/to/emu/picat parblock_pvm_tasks.pi 1 4
+%   PICATPATH=../../../lib2 timeout 120 /path/to/emu/picat parblock_pvm_tasks.pi 2 4
+%   PICATPATH=../../../lib2 timeout 120 /path/to/emu/picat parblock_pvm_tasks.pi 3 4
+%   PICATPATH=../../../lib2 timeout 120 /path/to/emu/picat parblock_pvm_tasks.pi 4 4
+%   PICATPATH=../../../lib2 timeout 120 /path/to/emu/picat parblock_pvm_tasks.pi 5 4
+%
+%   case 1  M = 7   mixed 0-arg / 1-arg tasks,  exact values
+%   case 2  M = 6   task 3 throws  ->  both sides must surface the
+%                   FIRST thrower's exception term,  identical
+%   case 3  M = 64  order preservation over many chunks
+%   case 4  M = 0   the empty par
+%   case 5  M = 1   the single-task par
+%
+% Contract checked (parblock rulebook,  async-refined on what the
+% mode-2 substrate actually guarantees -- see lib2/parblock_pvm.pi):
+%   - results in TASK order,  independent of NT;
+%   - the first throwing task's exception term reaches the caller
+%     identical to the serial term  (tasks after the thrower MAY
+%     still run in mode 2 --  side-effect parity is NOT asserted);
+%   - task names are unqualified references of this module  (a
+%     module-qualified dynamic dispatch of a function hangs,  engine
+%     bug (a),  docs/pvmbugs_report.tex,  repros q1/q2.pi);
+%     cross-module unqualified dispatch is verified in
+%     scratch/reif/parblock/dynpvm.pi.
+%
+%   Substrate notes (docs/pvmbugs_report.tex):  mode 2 has no
+%   call_cleanup / delegate windows,  so the codec truncation
+%   (bug b) and the in-window search hang (bug c) do not apply;
+%   the {I, R}  /  {I, {err, E}}  index-tagged TUPLE reports are
+%   used regardless,  which round-trip exactly.
+
+module parblock_pvm_tasks.
+
+import parblock.
+import parblock_pvm.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% task pool  %%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+tb0() = Y => Y = 7.
+tb1(A) = Y => Y = A * 10.
+tbboom(A) = Y => A > 3, throw(my_err(A)), Y = 1.
+
+t1(M) = Tasks =>
+    M = 7,
+    Tasks = [{tb0}, {tb1, 1}, {tb1, 2}, {tb0}, {tb1, 3}, {tb1, 4}, {tb0}].
+ex1() = [7, 10, 20, 7, 30, 40, 7].
+
+t2(M) = Tasks =>
+    M = 6,
+    Tasks = [{tb0}, {tb1, 1}, {tbboom, 4}, {tb1, 4}, {tb0}, {tb1, 6}].
+
+t3(M) = [T : I in 1..M, T = cond((I mod 2) = 0, {tb0}, {tb1, I})].
+ex3(M) = [V : I in 1..M, V = cond((I mod 2) = 0, 7, I * 10)].
+
+case_tasks(1, Tasks) => Tasks = t1(7).
+case_tasks(2, Tasks) => Tasks = t2(6).
+case_tasks(3, Tasks) => Tasks = t3(64).
+case_tasks(4, Tasks) => Tasks = [].
+case_tasks(5, Tasks) => Tasks = [{tb1, 9}].
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% the two sides  %%%%%%%%%%%%%%%%%%%%%%%
+
+ser(Tasks, S) =>
+    catch( (Rs = parblock.par_run(Tasks), S = [val, Rs]),
+           E,
+           S = [err, E] ).
+
+pmv(NT, Tasks, S) =>
+    catch( (Rs = parblock_pvm.par_run_pvm(NT, Tasks), S = [val, Rs]),
+           E,
+           S = [err, E] ).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% driver  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+main([C, NT]) =>
+    Case = to_int(C),
+    Nt = to_int(NT),
+    case_tasks(Case, Tasks),
+    ( Nt >= 1,
+      pmv(Nt, Tasks, Sp),
+      ser(Tasks, Ss),
+      print_cmp(Case, Sp, Ss)
+    ;
+      ( ser(Tasks, Ss),
+        printf("case%d: serial-only  %s\n", Case, to_string(Ss)) ) ).
+
+% Sp and Ss must UNIFY (same tag,  same payload).  The value cases
+% then assert the payload against the exact expectation;  the error
+% case asserts the exception term is a ground error.
+print_cmp(Case, Sp, Ss) =>
+    ( Sp = Ss,
+      desc(Case, Ss, Msg),
+      printf("case%d: pvm==ser  %s\n", Case, Msg)
+    ;
+      printf("case%d: FAIL  pvm=%s  ser=%s\n",
+             Case, to_string(Sp), to_string(Ss)) ).
+
+desc(1, [val, Rs], Msg) => Rs = ex1(), Msg = "exact  (7 tasks)".
+desc(2, [err, E], Msg)   => ground(E), Msg = "identical err term  (task 3 throws)".
+desc(3, [val, Rs], Msg)   => Rs = ex3(64), Msg = "exact  (64 tasks)".
+desc(4, [val, Rs], Msg)   => Rs = [], Msg = "empty".
+desc(5, [val, Rs], Msg)   => Rs = [90], Msg = "exact  (1 task)".

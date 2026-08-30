@@ -1,0 +1,112 @@
+% parblock_pvm:  the PVM mode-2 (process-parallel) backend for the
+% parblock par_run contract.
+%
+%   par_run_pvm(NT, Tasks) = Rs
+%       NT = 0:  falls back to the phase-0 serial  par_run(Tasks).
+%       NT >= 1:  forks NT processes over the M task indices 1..M
+%                 (the mode-2 split, queens_count style),  every
+%                 task runs exactly once in some worker,  the root
+%                 collects,  and returns the results in task order.
+%
+% Contract (==  parblock.par_run,  async-refined exactly like 1a):
+%   - Rs is in TASK order,  independent of NT and of which worker
+%     ran which chunk (index-tagged reports,  root reassembles).
+%   - A task exception aborts the whole par,  like a failing
+%     conjunct:  the caller sees the FIRST throwing task's
+%     exception term,  identical to the serial par_run term.
+%   - Async divergence vs serial,  documented:  in serial,  tasks
+%     after the first thrower never run;  in mode 2 they MAY run in
+%     their workers (side effects of post-thrower tasks are not
+%     suppressed).  The exception term and its task order are the
+%     guaranteed part.
+%
+% Task names:  F in  {F}  /  {F, A}  must be UNQUALIFIED references
+% visible in the calling program;  a module-QUALIFIED dynamic
+% dispatch of a function hangs (engine bug (a),  docs/
+% pvmbugs_report.tex,  repros q1/q2.pi).  Cross-module unqualified
+% dispatch is verified (scratch/reif/parblock/dynpvm.pi).
+%
+% Substrate notes carried over from 1a's triage (docs/
+% pvmbugs_report.tex):
+%   - mode 2 has no call_cleanup/delegate windows,  so the codec
+%    truncation (bug b) and the in-window search hang (bug c) do
+%    not apply;  the {I, R}  /  {I, {err, E}}  index-tagged TUPLE
+%    reports are used regardless (tuples round-trip exactly).
+%  - every mode-2 process runs the SAME program:  a worker that
+%    returned from this function would go on executing the CALLER'S
+%    code with unbound session vars.  The worker branch therefore
+%    halts after its report;  the collect on the root is clean
+%    (scratch/reif/parblock/nd4.pi).
+%  - the error term E travels through the codec as a ground term;
+%    a task exception that is not ground cannot be reported (same
+%    bad-flag risk as 1a's ground(V) guard).
+
+module parblock_pvm.
+import parblock.
+
+par_run_pvm(NT, Tasks) = Rs =>
+    M = len(Tasks),
+    pvp1(NT, M, Tasks, Rs).
+
+pvp1(0, M, Tasks, Rs) =>
+    Rs = parblock.par_run(Tasks).
+
+pvp1(NT, M, Tasks, Rs) =>
+    ( M = 0, Rs = []
+    ;
+      ( bp.pvm_fork(NT, 2, M),
+        bp.pvm_worker_id(I),
+        ( I > 0,
+          bp.pvm_chunk(Lo, Hi),
+          pvpreps(Hi, Lo, Tasks, [], Reps),
+          bp.pvm_report(Reps),
+          halt
+        ;
+          ( bp.pvm_collect(ChunkReps),
+            pvpflat(ChunkReps, [], Pairs),
+            len(Pairs) = M,
+            pvpdone(Pairs, M, Rs) ) ) ) ).
+
+% worker:  every task index in [Lo..Hi],  the value or the wrapped
+% exception,  tagged with the task index.
+pvpreps(Hi, I, Tasks, Acc, Reps) =>
+    ( I > Hi, Reps = Acc
+    ;
+      ( pvpnth(I, Tasks, T),
+        catch( (R = pvptask(T), P = {I, R}),
+               E,
+               P = {I, {err, E}} ),
+        pvpreps(Hi, I + 1, Tasks, [P | Acc], Reps) ) ).
+
+pvpnth(1, [H | _], T) => T = H.
+pvpnth(I, [_ | Ts], T) => I > 1, pvpnth(I - 1, Ts, T).
+
+% task dispatch,  kept local to this module (a module-qualified
+% dynamic call/apply whose target compiles to a function hangs --
+% engine bug (a);  an unqualified same-call apply is clean).
+pvptask({F})    = apply(F).
+pvptask({F, A}) = apply(F, A).
+
+% root:  flatten the per-chunk reports (chunks arrive in worker
+% order,  NOT necessarily task order --  reassembly is by index).
+pvpflat([], Acc, Pairs) => Pairs = Acc.
+pvpflat([R | Rs], Acc, Pairs) => pvpflat(Rs, Acc ++ R, Pairs).
+
+% root:  index the pairs,  scan in task order for the first
+% exception and rethrow it (contract:  a task exception aborts the
+% par);  otherwise return the values in task order.
+pvpdone(Pairs, M, Rs) =>
+    A = new_array(M),
+    foreach (P in Pairs)
+        A[first(P)] = second(P)
+    end,
+    E = pvperr(1, M, A),
+    ( E = $noerr, Rs = [A[I] : I in 1..M]
+    ; throw(E) ).
+
+pvperr(I, M, A) = E =>
+    ( I > M, E = $noerr
+    ;
+      ( V = A[I],
+        ( V = {err, E2}, E = E2
+        ; pvperr(I + 1, M, A) = E ) ) ).
