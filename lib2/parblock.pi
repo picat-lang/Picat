@@ -1,0 +1,176 @@
+% parblock:  structured-concurrency construct family for Picat.
+%
+% PHASE 0 (this file):  the SEQUENTIAL semantics core.  Every combinator
+% is implemented with the plain language (apply / call / catch) and
+% pins the user-visible contract that the later asynchronous backends
+% (the C "par driver" + PVM) must honour:
+%
+%   par_run(Tasks) = Rs     all tasks run, results in task order;
+%                           a task exception aborts the whole par
+%   map_par(F, Xs) = Ys     ordered parallel map;  ==  map  today
+%   race(F, Xs) = (W, Y)    the FIRST X in written order whose F(X)
+%                           terminates with a value wins;  a throwing
+%                           candidate drops out;  all-but-none throw
+%                           ->  the race throws  $parblock_race_empty(Xs)
+%   race_res(F, Xs) = S     total form:  S = [won, W, Y]  or  exhausted
+%   map_race(Fs, Xs) = Ys   per element X, the first F in Fs (written
+%                           order) to terminate with F(X) wins;  if all
+%                           F throw for some X, that element throws
+%   par_any(P, Xs) = S      S = [sat, X]:  first X in written order
+%                           with P(X) (throwing P(X) drops out);
+%                           S = none
+%   par_all(P, Xs) = S      S = ok  or  [fail, X]:  first failing X
+%                           in written order (fail-fast);  a throwing
+%                           P(X) propagates
+%   effect0(F)  /  effect1(F, A)
+%                       F()  /  F(A)  runs AT MOST ONCE per key for the
+%                       life of the program, even when the surrounding
+%                       search backtracks and re-executes the call;
+%                       the key is marked BEFORE the call, so a failing
+%                       effect is also not retried
+%   detach0(F) = H / detach1(F, A) = H / collect(H) = V
+%                       phase-0:  the task is computed immediately and
+%                       H = [done, V]  or  H = [dead, Term];  collect
+%                       returns V  or  rethrows Term.  Phase 1 makes
+%                       detach non-blocking;  the contract (collect
+%                       returns the value or the exception, exactly
+%                       once) is fixed by this file.
+%
+% Canonical sequential schedule:  written order.  The async backends
+% are validated against these contracts (two-way batteries), not
+% against exact wall-clock outcomes.
+%
+% The block forms  par_begin() / par_end()  and  race_begin(R) /
+% race_end()  are NOT implemented yet:  they need the C driver that
+% re-enters the dispatch loop (phase 1);  shipping them here as no-ops
+% would silently change the meaning of a block, so they are withheld.
+%
+%   import parblock.
+
+module parblock.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% par_run  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%  Tasks = a list of  {F}  (zero-arg)  or  {F, A}  (one-arg)  where
+%  F is the name of a (module-visible) function.  Rs = results in
+%  task order.  A task that throws aborts the whole par, like a
+%  failing conjunct.
+
+par_run(Tasks) = Rs =>
+    pmap(task_val, Tasks) = Rs.
+
+task_val({F})    = apply(F).
+task_val({F, A}) = apply(F, A).
+
+pmap(F, [])     = [].
+pmap(F, [X|Xs])  = [Y | Ys] => ( Y = apply(F, X), pmap(F, Xs) = Ys ).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% race  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+race(F, Xs) = P =>
+    race1(F, Xs, S),
+    S = [won, W, Y],
+    P = (W, Y).
+
+%  Total form:  S in { won(W, Y) | exhausted }
+race_res(F, Xs) = S =>
+    race1(F, Xs, S).
+
+race1(F, [], S) =>
+    S = exhausted.
+race1(F, [X|Xs], S) =>
+    catch( (apply(F, X) = Y, S = [won, X, Y]),
+           T,
+           race1(F, Xs, S) ).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% map_par  %%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+map_par(F, Xs) = Ys =>
+    pmap(F, Xs) = Ys.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% map_race  %%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+map_race(Fs, Xs) = Ys =>
+    Ys = mr2(Fs, Xs).
+
+mr2(Fs, [])     = [].
+mr2(Fs, [X|Xs]) = [Y | Ys] => ( mr1(Fs, X) = Y, mr2(Fs, Xs) = Ys ).
+
+%  First F in written order to terminate with a value on X;  if they
+%  all throw, the element throws.
+mr1(Fs, X) = Y =>
+    mr1c(Fs, X, S),
+    if (S == [nomatch]) throw($parblock_mrace_empty(X)) end,
+    S = [won, Y].
+
+mr1c([], X, S) =>
+    S = [nomatch].
+mr1c([F|Fs], X, S) =>
+    catch( (apply(F, X) = Y, S = [won, Y]),
+           T,
+           mr1c(Fs, X, S) ).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% par_any  %%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%  S = sat(X):  first X in written order with P(X);  S = none.
+%  A throwing P(X) drops out (same rule as race).
+par_any(P, Xs) = S =>
+    pass1(P, Xs, S).
+
+pass1(P, [], S) =>
+    S = none.
+pass1(P, [X|Xs], S) =>
+    ( catch(once(call(P, X)), T, false), !, S = [sat, X]
+    ;
+      pass1(P, Xs, S) ).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% par_all  %%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%  S = ok  or  fail(X):  first failing X in written order (fail-fast).
+%  A throwing P(X) propagates (a throw is not "false").
+par_all(P, Xs) = S =>
+    pa1(P, Xs, S).
+
+pa1(P, [], S) =>
+    S = ok.
+pa1(P, [X|Xs], S) =>
+    ( once(call(P, X)), !, pa1(P, Xs, S)
+    ;
+      !, S = [fail, X] ).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% effect  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%  Run-once side effects, keyed in the GLOBAL map (not undone on
+%  backtrack).  The key is marked before the call runs, so "at most
+%  once" holds even for a failing effect.
+
+effect0(F) =>
+    effect1(F, $none).
+
+effect1(F, A) =>
+    M = get_global_map(parblock_effect),
+    K = {F, A},
+    ( get(M, K, $no) = $done
+    ;
+      ( put(M, K, $done), call(F, A) ) ).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% detach / collect  %%%%%%%%%%%%%%%%%%%
+
+%  Phase 0:  computed immediately;  the handle is just a wrapped
+%  result.  Phase 1 turns detach into a real background task;  the
+%  collect contract (value or rethrow, exactly once) is fixed here.
+
+detach0(F) = H =>
+    catch( (apply(F) = V, H = [done, V]),
+           T,
+           (H = [dead, T]) ).
+
+detach1(F, A) = H =>
+    catch( (apply(F, A) = V, H = [done, V]),
+           T,
+           (H = [dead, T]) ).
+
+collect(H) = V =>
+    ( H = [done, V]
+    ;
+      ( H = [dead, T], throw(T) ) ).

@@ -1,0 +1,145 @@
+% Parblock semantics battery (phase 0, sequential).
+%
+% From repo root, one line:
+%   PICATPATH=lib2 timeout 300 emu/picat exs/parallel/parblock/parblock_semantics.pi
+%
+% Each test prints one line "tNN name  ok|FAIL".  Comparison is by
+% unification in goal context (this dialect's == demands ground
+% terms).  main fails (nonzero exit) if any test failed.
+
+module parblock_semantics.
+
+import parblock.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% helpers  %%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+sq(X)   = X * X.
+z5()    = 5.
+z9a(X)  = 9.
+
+%  throws (zero_divisor) at X = 0;  value 100*(X+1) otherwise
+rfc(X) = V =>
+    D = X,
+    V = 100 * (X + 1) // D.
+
+%  always throws (zero_divisor)
+boomf(X) = V =>
+    D = X * 0,
+    V = 1 // D.
+
+%  two-good candidates:  1 -> 111,  2 -> 222
+rfc2(X) = 10 * X + 101.
+
+ps7(X) =>
+    X == 7.
+
+pn(X) =>
+    fail.
+
+%  true except X = 5;  counts its visits
+pc(X) =>
+    tinc(pall),
+    if (X == 5) fail end,
+    true.
+
+%  the "side effect" for the effect/1 test
+mk8(_) =>
+    tinc(effect8).
+
+tzero(K) =>
+    M = get_global_map(tmap),
+    put(M, K, 0).
+
+tcnt(K) = C =>
+    M = get_global_map(tmap),
+    C = get(M, K, 0).
+
+tinc(K) =>
+    M = get_global_map(tmap),
+    C = get(M, K, 0),
+    put(M, K, C + 1).
+
+%  deterministic:  ok iff Got = Want unifies
+ttest(Name, Got, Want) =>
+    ( Got = Want, !, printf("%-36s ok\n", Name)
+    ;
+      !, printf("%-36s FAIL\n", Name), tinc(failcount) ).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% tests  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+t01() =>
+    Rs = par_run([{sq, 1}, {sq, 2}, {sq, 3}]),
+    ttest("t01 par_run task order", Rs, [1, 4, 9]).
+
+t02() =>
+    Rs = par_run([{z5}, {sq, 3}]),
+    ttest("t02 par_run zero-arg task", Rs, [5, 9]).
+
+t03() =>
+    (W, Y) = race(rfc, [0, 1, 2]),
+    ttest("t03 race skips throwing candidate", (W, Y), (1, 200)).
+
+t04() =>
+    S = race_res(boomf, [1, 2]),
+    ttest("t04 race all-throw -> exhausted", S, exhausted).
+
+t05() =>
+    Ys = map_par(sq, [1, 2, 3]),
+    ttest("t05 map_par ordered results", Ys, [1, 4, 9]).
+
+t06() =>
+    S1 = par_any(ps7, [1, 7, 3]),
+    S2 = par_any(pn, [1, 2]),
+    ttest("t06a par_any first-sat", S1, [sat, 7]),
+    ttest("t06b par_any none", S2, none).
+
+t07() =>
+    tzero(pall),
+    S = par_all(pc, [1, 5, 6]),
+    C = tcnt(pall),
+    ttest("t07 par_all fail-fast + call count", (S, C), ([fail, 5], 2)).
+
+t08() =>
+    tzero(effect8),
+    once( (N = 1 ; N = 2), effect1(mk8, $k8), N = 2 ),
+    C = tcnt(effect8),
+    ttest("t08 effect run-once across backtrack", C, 1).
+
+t09() =>
+    Ys = map_race([boomf, z9a], [1, 2, 3]),
+    Ys2 = map_race([sq, z9a], [1, 2]),
+    ttest("t09 map_race per-element first-wins", (Ys, Ys2), ([9, 9, 9], [1, 4])).
+
+t10() =>
+    H = detach1(sq, 6),
+    V = collect(H),
+    ttest("t10 detach/collect returns value", V, 36).
+
+t11() =>
+    H = detach1(boomf, 1),
+    ( catch(collect(H) = V, T, true), !, C = 1
+    ;
+      C = 0 ),
+    ttest("t11 collect rethrows dead handle", C, 1).
+
+t12() =>
+    ( catch(par_run([{boomf, 1}, {sq, 2}]) = Rs, T, true), !, C = 1
+    ;
+      C = 0 ),
+    ttest("t12 par_run task throw aborts par", C, 1).
+
+t13() =>
+    (W, Y) = race(rfc2, [1, 2]),
+    ttest("t13 race written-order winner", (W, Y), (1, 111)).
+
+main() =>
+    printf("parblock semantics battery (phase 0, sequential)\n"),
+    t01(), t02(), t03(), t04(), t05(), t06(), t07(),
+    t08(), t09(), t10(), t11(), t12(), t13(),
+    FC = tcnt(failcount),
+    if (FC > 0)
+        printf("parblock semantics: %d FAILURE(S)\n", FC),
+        throw($parblock_battery_failed, FC)
+    else
+        printf("parblock semantics: ALL OK\n")
+    end.

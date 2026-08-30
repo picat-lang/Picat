@@ -1,0 +1,157 @@
+% Parblock demo: the combinator family on a real task (N-Queens).
+%
+% From repo root, one line:
+%   PICATPATH=lib2 timeout 300 emu/picat exs/parallel/parblock/parblock_demo.pi
+%
+% Phase 0 = sequential engine, so every construct here runs in written
+% order;  the same file is the seed for the async (PVM) batteries.
+
+module parblock_demo.
+
+import parblock.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% N-Queens (plain search)  %%%%%%%%%%%%
+
+ord_a(N) = [C : C in 1..N].
+ord_b(N) = [C : C in N // 2 + 1..N] ++ [C : C in 1..N // 2].
+
+%  queens_ord(Ord, N, Qs):  N-Queens, columns chosen from Ord (one
+%  solution per backtrack),  Qs = [row1_col, ..., rowN_col]
+queens_ord(Ord, N, Qs) =>
+    qs1(1, N, [], Qs, Ord).
+
+qs1(Row, N, P, Qs, Ord) =>
+    ( Row = N + 1, Qs = P
+    ;
+      ( pick(Ord, C), safe(C, P), qs1(Row + 1, N, [C | P], Qs, Ord) ) ).
+
+pick([], _)   => fail.
+pick([H | T], X) =>
+    ( X = H
+    ;
+      pick(T, X) ).
+
+%  P = columns of rows 1..Row-1 (newest first),  D = row distance
+safe(C, P) =>
+    safe1(C, P, 1).
+safe1(C, [], D) => true.
+safe1(C, [Hh | T], D) =>
+    not(C = Hh),
+    not(C - Hh = D),
+    not(Hh - C = D),
+    safe1(C, T, D + 1).
+
+%  first solution with a given column order
+%  first solution with the middle-out column order
+first_sol(N) = Qs =>
+    once(queens_ord(ord_b(N), N, Qs)).
+
+fs_b() = Qs =>
+    Qs = first_sol(8).
+
+%  solution counts under the two column orders
+cnt(N) = C =>
+    C = count_all(queens_ord(ord_a(N), N, Q)).
+
+cnt_a(_) = C =>
+    C = count_all(queens_ord(ord_a(8), 8, Q)).
+
+cnt_b(_) = C =>
+    C = count_all(queens_ord(ord_b(8), 8, Q)).
+
+print_cols(Qs) =>
+    printf("    %s\n", to_string(Qs)).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 1. map_par  %%%%%%%%%%%%%%%%%%%%%%%%%%
+
+sq(X) = X * X.
+
+d1() =>
+    printf("[1] map_par(sq, [1..5])  --  ordered parallel map\n"),
+    Ys = map_par(sq, [1, 2, 3, 4, 5]),
+    printf("    %s\n", to_string(Ys)).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 2. race  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%  race one function over candidate problem sizes:  the first N in
+%  written order to terminate with a value wins
+d2() =>
+    printf("[2] race(cnt, [8, 9])  --  solution counts of N-Queens\n"),
+    (W, C) = race(cnt, [8, 9]),
+    printf("    winner: N = %d,  count = %d\n", W, C).
+
+%  per-element portfolio over strategies (map_race)
+d2b() =>
+    printf("[2b] map_race over 2 column orders, 8-Queens count\n"),
+    Ys = map_race([cnt_a, cnt_b], [8]),
+    printf("    %s\n", to_string(Ys)).
+
+%  par_run of a zero-arg task
+d2c() =>
+    printf("[2c] par_run with a zero-arg task (first middle-out solution)\n"),
+    Rs = par_run([{fs_b}]),
+    Rs = [Qs],
+    print_cols(Qs).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 3. par_any  %%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%  first N in 1..8 with exactly 4 solutions of N-Queens  (answer: 6)
+has4(N) =>
+    C = count_all(queens_ord(ord_a(N), N, Q)),
+    C = 4.
+
+d3() =>
+    printf("[3] par_any: first N with exactly 4 N-Queens solutions\n"),
+    S = par_any(has4, [1, 2, 3, 4, 5, 6, 7, 8]),
+    printf("    %s\n", to_string(S)).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 4. par_all  %%%%%%%%%%%%%%%%%%%%%%%%%%
+
+is_pos(X) =>
+    X > 0.
+
+d4() =>
+    printf("[4] par_all: fail-fast predicate check\n"),
+    S = par_all(is_pos, [2, 4, -1, 6]),
+    printf("    %s\n", to_string(S)).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 5. effect  %%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+print4(Q) =>
+    printf("    solution %s\n", to_string(Q)).
+
+d5() =>
+    printf("[5] effect: run-once reporting;  the search runs twice\n"),
+    L1 = findall(Q, queens_ord(ord_a(4), 4, Q)),
+    foreach (Q in L1)
+        effect1(print4, Q)
+    end,
+    L2 = findall(Q, queens_ord(ord_a(4), 4, Q)),
+    foreach (Q in L2)
+        effect1(print4, Q)
+    end,
+    printf("  (4-Queens has 2 solutions; each reported exactly once)\n").
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 6. detach / collect  %%%%%%%%%%%%%%%%%
+
+d6() =>
+    printf("[6] detach / collect  (phase 0: computed immediately)\n"),
+    H = detach0(fs_b),
+    printf("    handle created;  collecting now\n"),
+    Qs = collect(H),
+    print_cols(Qs).
+
+main() =>
+    printf("parblock demo (phase 0, sequential)\n\n"),
+    d1(),
+    printf("\n"),
+    d2(), d2b(), d2c(),
+    printf("\n"),
+    d3(),
+    printf("\n"),
+    d4(),
+    printf("\n"),
+    d5(),
+    printf("\n"),
+    d6(),
+    printf("\ndemo done\n").
