@@ -36,12 +36,28 @@
 %   (queens_first-style in-region reports have no such loss: there
 %   a worker reports its own discovery.)
 %
-% ENGINE BUG (emu-level, pre-existing, found while building this):
-% a dynamic apply/call AFTER a pvm_fork/pvm_collect session corrupts
-% the exit path -- apply segfaults at exit (toam+125k, after main
-% completes), call hangs; direct calls are clean.  This battery
-% therefore uses direct dispatch only.  Blocks 1b name-dispatch in
-% workers until fixed in emu.
+% ENGINE BUGS (emu-level, all pre-existing, pinned while building this;
+% minimal repros in scratch/reif/parblock/):
+%  (a) A MODULE-QUALIFIED dynamic call/apply whose target compiles to a
+%      FUNCTION hangs -- in pure serial code, with no PVM at all
+%      (repro: q1.pi call(mod.ff,1) / q2.pi apply on mod.ff, both hang;
+%      q3.pi qualified call of a PREDICATE and h8.pi plain apply are
+%      clean).  The crash earlier attributed to "apply/call after a
+%      session" was this: pvmp5_v8's post-session call(pvmp5_v8.strat,1)
+%      is a qualified call of the FUNCTION strat.  UNQUALIFIED dynamic
+%      dispatch (same module) works fine, even right after a real
+%      pvm_fork/pvm_collect session (q4.pi).  Hence 1b same-module
+%      name-dispatch is NOT blocked; only cross-module qualified
+%      function dispatch is, pending an emu fix.
+%  (b) A value bound through call_cleanup inside the delegation window,
+%      consed later as [T | V], round-trips through the PVM solution
+%      codec truncated to its first element (iso_pi.pi cases 3,4,6,8;
+%      works in serial, so it is window-specific).  Workaround used here:
+%      report the value as a TUPLE (T, V) instead of the list [T | V].
+%  (c) A strategy whose search TRULY FAILS inside the delegation window
+%      (no solution, no throw) hangs the whole session at collect
+%      (pqu3.pi).  A portfolio clause for an infeasible strategy must
+%      throw on exhaustion so its clause fails cleanly (see sol_none2).
 
 module parblock_pvm_race.
 
