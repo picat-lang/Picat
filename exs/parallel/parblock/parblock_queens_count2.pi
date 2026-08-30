@@ -1,0 +1,101 @@
+% Parblock-flavoured N-Queens counting,  twin of
+% exs/parallel/pvm/queens_count2.pi:  the partition is over the JOINT
+% choice of the first two queens  (value  Q[1] + N*(Q[2]-1)  in
+% 1..N*N),  so the parallelism goes up to N*N,  not just N.
+%
+%   queens_count2.pi   bp.pvm_fork(NT, 2, N*N) / pvm_chunk /
+%                      pvm_report / pvm_collect,  each worker counts
+%                      one range of the joint value
+%   this file          tasks  {rcount, {N, Lo, Hi}}  --  one range-count
+%                      task per worker,  NT of them --  and the whole
+%                      session (fork, dispatch, collect, order,
+%                      rethrow) is inside par_run_pvm:
+%
+%                        T = sum(parblock_pvm.par_run_pvm(NT, Tasks))
+%
+% ENGINE CONSTRAINT (why one count per worker,  pinned while building
+% this -- see docs/pvmbugs_report.tex,  Bug E):  count_all(solve(...))
+% repeated within ONE process corrupts cumulative CP-solver state ---
+% after a modest sequence of range counts (especially ones that a
+% fail-by-FD-propagation zero-solution slice triggers) later counts
+% silently return 0,  and in some orderings the process hangs.  The
+% original example's one-count-per-process design sidesteps the
+% defect;  this one keeps it:  NT > 0  =>  NT workers,  one range
+% count each (M = NT tasks).  NT = 0  =>  the identical serial
+% source does a SINGLE count over the whole range 1..N*N.
+%
+% The zero-solution trap of queens_count2 (count_all(solve(...)) FAILS
+% rather than returning 0 for some slice --- FD propagation proves the
+% inconsistency) is handled inside the TASK FUNCTION with the same
+% ";  C = 0" fallback;  a failed count is the count 0.
+%
+% Usage:  from the repo root:
+%   emu/picat -path lib2 exs/parallel/parblock/parblock_queens_count2.pi [N] [NT]
+%   N    default 8;    NT   default 4  (0 = serial single count)
+%
+% Known totals (OEIS A000170),  asserted below for 8/10/12/13:
+%   8=92, 10=724, 12=14200, 13=73712
+import cp.
+import parblock_pvm.
+
+main()          => run(8, 4).
+main([NS])      => run(to_int(NS), 4).
+main([NS, NTS]) =>
+    run(to_int(NS), to_int(NTS)).
+
+run(N, 0) =>
+    % one count over the whole range,  one process (Bug E)
+    T = rcount({N, 1, N*N}),
+    printf("N=%d NT=0  total=%d", N, T),
+    check(N, T),
+    printf("\n").
+run(N, NT) =>
+    Tasks = [ {rcount, {N, Lo, Hi}} : I in 1..NT, range_of(I, NT, N*N, Lo, Hi) ],
+    Rs = parblock_pvm.par_run_pvm(NT, Tasks),
+    T = sum(Rs),
+    printf("N=%d NT=%d  per-worker=%s  total=%d", N, NT, to_string(Rs), T),
+    check(N, T),
+    printf("\n").
+
+check(N, T) =>
+    expect_of(N, E),
+    ( E > 0,
+      T = E,
+      printf("  == expected %d  ok", E)
+    ;
+      true ).
+
+% the range of the I-th of NT contiguous blocks over 1..Total
+range_of(I, NT, Total, Lo, Hi) =>
+    B = Total // NT,
+    R = Total mod NT,
+    P = cond(I <= R, I - 1, R),
+    S = (I - 1) * B + P + 1,
+    S + B + cond(I <= R, 1, 0) - 1 = Hi,
+    Lo = S.
+
+% one task:  count all solutions whose first two queens have joint
+% value in [Lo..Hi];  an infeasible slice that fails (not returns 0)
+% is the count 0.
+rcount(Blk) = C =>
+    Blk = {N, Lo, Hi},
+    count_range(N, Lo, Hi, C)
+    ;
+    C = 0.
+
+count_range(N, Lo, Hi, C) =>
+    Q = new_array(N),
+    Q :: 1..N,
+    Q[1]+N*(Q[2]-1)#>=Lo,
+    Q[1]+N*(Q[2]-1)#<=Hi,
+    foreach (I in 1..N-1, J in I+1..N)
+        Q[I] #!= Q[J],
+        abs(Q[I] - Q[J]) #!= J - I
+    end,
+    C = count_all(solve([ff], Q)).
+
+expect_of(8,  92).
+expect_of(10, 724).
+expect_of(12, 14200).
+expect_of(13, 73712).
+expect_of(_,  0).
