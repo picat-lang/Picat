@@ -160,6 +160,32 @@ void init_toam(int argc, char *argv[])
         }
         i++;
     }
+    /*  The compiled standard library treats the raw PICATPATH value as
+        ONE directory:  it prefixes module .qi/.pi names with the whole
+        (possibly colon-separated) string, and the signature loader
+        fopens that name directly.  For a multipath value, expose only
+        the FIRST component as the effective PICATPATH (so import
+        resolves against it, including the .qi write-back);  keep the
+        full list in PICATPATH_LIST, which the read-only lookups in
+        file.c / loader.c still walk component by component (so
+        include/open/resolve see every directory). */
+    {
+        const char *pp = getenv("PICATPATH");
+        const char *colon;
+        if (pp != NULL && (colon = strchr(pp, ':')) != NULL) {
+            const size_t flen = (size_t)(colon - pp);
+            char *list = strdup(pp);
+            char *first = (char *)malloc(flen + 1);
+            if (list != NULL && first != NULL) {
+                memcpy(first, pp, flen);
+                first[flen] = '\0';
+                setenv("PICATPATH_LIST", list, 1);
+                setenv("PICATPATH", first, 1);
+            }
+            free(list);
+            free(first);
+        }
+    }
     /*
       str = getenv("PICATPATH");
       if (str != NULL){

@@ -794,8 +794,14 @@ int dyn_loader(SYM_REC_PTR sym_ptr, BPLONG file_type, BPLONG load_damon)
            directories (mirrors the read fallback in file.c) */
         if (access(s1, F_OK) == 0)
             return loader(s1, file_type, load_damon);
-        if (getenv("PICATPATH") != NULL && strlen(s1) < 500) {
-            strncpy(pp_copy, getenv("PICATPATH"), 511);
+        if (strlen(s1) < 500) {
+            const char *ppenv = getenv("PICATPATH_LIST");
+            if (ppenv == NULL)
+                ppenv = getenv("PICATPATH");
+            if (ppenv == NULL)
+                ppenv = "";
+            if (*ppenv != '\0') {
+            strncpy(pp_copy, ppenv, 511);
             pp_copy[511] = '\0';
             for (pp = pp_copy; *pp != '\0'; ) {
                 qq = pp;
@@ -813,6 +819,7 @@ int dyn_loader(SYM_REC_PTR sym_ptr, BPLONG file_type, BPLONG load_damon)
                 }
                 pp = delim ? qq + 1 : qq;
                 }
+            }
             }
         }
         if (*s1 == '~') {

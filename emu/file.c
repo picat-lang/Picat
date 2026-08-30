@@ -485,13 +485,14 @@ char *expand_file_name(char *s1) {
 
 /* PICATPATH fallback for read-only lookups.  A bare relative name
    (no directory part) that is not present in the CWD is searched, in
-   order, in the colon-separated directories of the PICATPATH
-   environment variable.  The compiled standard library also builds
-   path-qualified names by prefixing the ENTIRE (possibly
-   colon-separated) PICATPATH as if it were one directory;  such a
-   literal miss is retried with each directory component separately.
-   Names that exist where asked, or that do not match those shapes,
-   are left untouched;  write/append opens never call this. */
+   order, in the colon-separated directories of the full path list
+   (PICATPATH_LIST, falling back to PICATPATH).  The compiled standard
+   library also builds path-qualified names by prefixing PICATPATH —
+   which init.c normalizes to the FIRST list component for a
+   multipath value — as if it were one directory;  such misses are
+   retried with every directory component.  Names that exist where
+   asked, or that do not match those shapes, are left untouched;
+   write/append opens never call this. */
 static int picatpath_read_fallback(void)
 {
     static CHAR pp_copy[MAX_FILE_NAME_LEN];
@@ -501,7 +502,9 @@ static int picatpath_read_fallback(void)
     const char *pp;
     size_t suffix_len;
 
-    pp = getenv("PICATPATH");
+    pp = getenv("PICATPATH_LIST");
+    if (pp == NULL)
+        pp = getenv("PICATPATH");
     if (pp == NULL)
         return 0;
 
@@ -510,13 +513,26 @@ static int picatpath_read_fallback(void)
             return 0;
         strcpy(suffix, full_file_name);
     } else {
-        size_t plen = strlen(pp);
+        size_t listlen = strlen(pp);
+        const char *colon = strchr(pp, ':');
+        size_t plen = (colon != NULL) ? (size_t)(colon - pp) : listlen;
         const char *rest;
-        if (strncmp(full_file_name, pp, plen) != 0 || full_file_name[plen] != '/')
-            return 0;              /* not a PICATPATH-prefixed name */
-        if (sys_access(full_file_name, F_OK) == 0)
-            return 0;              /* found as asked */
-        rest = full_file_name + plen + 1;
+        if (strncmp(full_file_name, pp, listlen) == 0
+            && full_file_name[listlen] == '/') {
+            /* whole-list literal prefix (old bytecode shape) */
+            if (sys_access(full_file_name, F_OK) == 0)
+                return 0;              /* found as asked */
+            rest = full_file_name + listlen + 1;
+        } else if (strncmp(full_file_name, pp, plen) == 0
+            && full_file_name[plen] == '/') {
+            /* first-component prefix (bytecode shape after the
+               PICATPATH/PICATPATH_LIST normalization in init.c)  */
+            if (sys_access(full_file_name, F_OK) == 0)
+                return 0;              /* found as asked */
+            rest = full_file_name + plen + 1;
+        } else {
+            return 0;                 /* not a PICATPATH-prefixed name */
+        }
         if (strchr(rest, '/') != NULL)
             return 0;              /* nested subdir:  leave as is */
         strcpy(suffix, rest);
