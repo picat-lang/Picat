@@ -578,3 +578,5 @@ uf_is_prim(Name) =>
             "#<=>", "#=>", "#/\\", "#\\/", "#^", "#~"] ]).
 
 include "global_reif.pi".
+
+include "global_reif_graph.pi".

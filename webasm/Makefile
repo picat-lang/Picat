@@ -179,7 +179,8 @@ CP2_PRELOADS := \
   --preload-file ../lib/cp2.pi@/cp2.pi \
   --preload-file ../lib/common_constr.pi@/common_constr.pi \
   --preload-file ../lib/cp_sat_mip_smt.pi@/cp_sat_mip_smt.pi \
-  --preload-file ../lib/global_reif.pi@/global_reif.pi
+  --preload-file ../lib/global_reif.pi@/global_reif.pi \
+  --preload-file ../lib/global_reif_graph.pi@/global_reif_graph.pi
 
 # sat2 (lib/sat2.pi, a disk-compiled clone of sat with built-in udf
 # expansion) and its source dependencies, for the  x_sat2_udf_native.pi
@@ -190,7 +191,8 @@ SAT2_PRELOADS := \
   --preload-file ../lib/sat2.pi@/sat2.pi \
   --preload-file ../lib/common_constr.pi@/common_constr.pi \
   --preload-file ../lib/cp_sat_mip_smt.pi@/cp_sat_mip_smt.pi \
-  --preload-file ../lib/global_reif.pi@/global_reif.pi
+  --preload-file ../lib/global_reif.pi@/global_reif.pi \
+  --preload-file ../lib/global_reif_graph.pi@/global_reif_graph.pi
 
 EMFLAGS := -sMODULARIZE=1 -sEXPORT_NAME=PicatWasm \
             -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=16777216 \

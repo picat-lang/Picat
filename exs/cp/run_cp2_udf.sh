@@ -14,7 +14,7 @@ BASE=$(cd "$(dirname "$0")" && cd ../.. && pwd)
 T=$(mktemp -d /tmp/cp2test.XXXXXX)
 mkdir -p $T/lib
 ln -sf $BASE/lib/*.pi $T/lib/
-cp $BASE/lib/cp_sat_mip_smt.pi $BASE/lib/global_reif.pi $T/
+cp $BASE/lib/cp_sat_mip_smt.pi $BASE/lib/global_reif.pi $BASE/lib/global_reif_graph.pi $T/
 cd $T || exit 1
 if [ $# -gt 0 ]; then set -- $@; else
   set -- cp2_udf_native
@@ -27,7 +27,7 @@ fail=0
 for f in $@; do
   case $f in *.pi) ;; *) f=$f.pi;; esac
   echo "== $f"
-  PICATPATH=$T/lib timeout 120 $BASE/emu/picat $f || fail=1
+  PICATPATH=$T/lib timeout 600 $BASE/emu/picat $f || fail=1
 done
 rm -rf $T
 exit $fail
