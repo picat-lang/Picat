@@ -13,16 +13,18 @@
 %
 %                        T = sum(parblock_pvm.par_run_pvm(NT, Tasks))
 %
-% ENGINE CONSTRAINT (why one count per worker,  pinned while building
-% this -- see docs/pvmbugs_report.tex,  Bug E):  count_all(solve(...))
-% repeated within ONE process corrupts cumulative CP-solver state ---
-% after a modest sequence of range counts (especially ones that a
-% fail-by-FD-propagation zero-solution slice triggers) later counts
-% silently return 0,  and in some orderings the process hangs.  The
-% original example's one-count-per-process design sidesteps the
-% defect;  this one keeps it:  NT > 0  =>  NT workers,  one range
-% count each (M = NT tasks).  NT = 0  =>  the identical serial
-% source does a SINGLE count over the whole range 1..N*N.
+% DESIGN NOTE (history):  the one-count-per-worker shape was adopted
+% when this file was written because of Bug E (docs/pvmbugs_report.tex,
+% Section 6):  count_all(solve(...)) repeated within ONE process used to
+% corrupt cumulative CP-solver state (later counts silently returned 0,
+% hangs in some orderings).  That defect is FIXED (commit e085229) and
+% repeated counts in one process are safe again.  This file keeps the
+% one-count-per-worker partition (M = NT tasks,  one range count each)
+% as the faithful twin of the original PVM example.  NT = 0  =>  the
+% identical serial source does a SINGLE count over the whole range
+% 1..N*N.  The shape the fix unblocks --  one worker running several
+% count_all partitions back-to-back  --  is
+% parblock_queens_count_multi.pi.
 %
 % The zero-solution trap of queens_count2 (count_all(solve(...)) FAILS
 % rather than returning 0 for some slice --- FD propagation proves the
@@ -44,7 +46,7 @@ main([NS, NTS]) =>
     run(to_int(NS), to_int(NTS)).
 
 run(N, 0) =>
-    % one count over the whole range,  one process (Bug E)
+    % NT = 0:  a single count over the whole range (plain serial path)
     T = rcount({N, 1, N*N}),
     printf("N=%d NT=0  total=%d", N, T),
     check(N, T),

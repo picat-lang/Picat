@@ -1,0 +1,81 @@
+% Parblock-flavoured N-Queens counting,  fine-grained variant:
+% one task per JOINT value of the first two queens, where the joint
+% value is  V = Q[1] + N*(Q[2]-1)  in  1..N*N  (each V pins the first
+% two queens to one exact pair),  so the partition is N*N single-value
+% counts  and  every worker runs MANY count_all calls in a row:
+%
+%   NT = 0   all N*N single-value counts run in ONE process (the phase-0
+%            serial par_run) -- a regression stress for repeated
+%            count_all(solve(...)) in one process:  before the Bug E fix
+%            (docs/pvmbugs_report.tex,  Section 6) a handful of these
+%            counts corrupted the later ones (silent 0s,  hangs)
+%   NT > 0   the mode-2 fixed-chunk split of par_run_pvm hands each
+%            worker a contiguous chunk of the N*N tasks;  with NT
+%            workers each process then runs about N*N/NT counts
+%            back-to-back (multiple count_all per process)
+%
+% The whole session (fork,  dispatch,  collect,  order,  rethrow) is
+% inside par_run_pvm:
+%
+%                        T = sum(parblock_pvm.par_run_pvm(NT, Tasks))
+%
+% The zero-solution trap of the joint partition (count_all(solve(...))
+% FAILS rather than returning 0 for an infeasible single-value slice
+% --- FD propagation proves the inconsistency,  e.g. every V with
+% Q[1] = Q[2]) is handled inside the TASK FUNCTION with the same
+% ";  C = 0" fallback;  a failed count is the count 0.
+%
+% Usage:  from the repo root:
+%   emu/picat -path lib2 exs/parallel/parblock/parblock_queens_count_multi.pi [N] [NT]
+%   N    default 8;    NT   default 4
+%
+% Known totals (OEIS A000170),  asserted below for 8/10/12/13:
+%   8=92, 10=724, 12=14200, 13=73712
+import cp.
+import parblock_pvm.
+
+main()          => run(8, 4).
+main([NS])      => run(to_int(NS), 4).
+main([NS, NTS]) =>
+    run(to_int(NS), to_int(NTS)).
+
+run(N, NT) =>
+    Tasks = [ {vcount, {N, V}} : V in 1..N*N ],
+    Rs = parblock_pvm.par_run_pvm(NT, Tasks),
+    T = sum(Rs),
+    printf("N=%d NT=%d  #counts=%d  total=%d", N, NT, N*N, T),
+    check(N, T),
+    printf("\n").
+
+check(N, T) =>
+    expect_of(N, E),
+    ( E > 0,
+      T = E,
+      printf("  == expected %d  ok", E)
+    ;
+      true ).
+
+% one task:  count all solutions whose first two queens have the exact
+% joint value V;  an infeasible single-value slice that fails (not
+% returns 0) is the count 0.
+vcount(It) = C =>
+    It = {N, V},
+    count_v(N, V, C)
+    ;
+    C = 0.
+
+count_v(N, V, C) =>
+    Q = new_array(N),
+    Q :: 1..N,
+    Q[1]+N*(Q[2]-1)#=V,
+    foreach (I in 1..N-1, J in I+1..N)
+        Q[I] #!= Q[J],
+        abs(Q[I] - Q[J]) #!= J - I
+    end,
+    C = count_all(solve([ff], Q)).
+
+expect_of(8,  92).
+expect_of(10, 724).
+expect_of(12, 14200).
+expect_of(13, 73712).
+expect_of(_,  0).
