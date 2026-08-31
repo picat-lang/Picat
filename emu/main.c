@@ -32,7 +32,7 @@ int bprolog_main(int argc, char *argv[])
         }
         else {
             printf("Picat experimental, built on %s (commit %s), "
-                   "based on Picat 3.9#12, (C) picat-lang.org, "
+                   "based on Picat 3.9#13, (C) picat-lang.org, "
                    "2013-2026\n", PICAT_BUILD_DATE,
                    PICAT_BUILD_COMMIT);
         }
