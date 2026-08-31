@@ -97,7 +97,13 @@ BPLONG_PTR frozen_cs(BPLONG_PTR cs, BPLONG_PTR Plist)
         cs = (BPLONG_PTR)UNTAGGED_ADDR(cs);
         frame = (BPLONG_PTR)((BPULONG)stack_up_addr-(BPULONG)UNTAGGED_CONT(FOLLOW(cs)));
 
-        if (!FRAME_IS_DEAD(frame)) {
+        /*  A suspension frame lives in the basic region (allocated from the
+            LOCAL_TOP front, mirrored into the thread-local variable
+            local_top by SAVE_TOP before every built-in call).
+            frame > local_top iff its block is still allocated;
+            otherwise its memory was reclaimed by a backtrack and it
+            must never be resurrected.  */
+        if (!FRAME_IS_DEAD(frame) && frame > local_top) {
             tmp = build_delayed_call_on_the_heap(frame);
             if (tmp == -1) return (BPLONG_PTR)-1;
             FOLLOW(Plist) = ADDTAG(heap_top, LST);
@@ -107,6 +113,42 @@ BPLONG_PTR frozen_cs(BPLONG_PTR cs, BPLONG_PTR Plist)
         cs = (BPLONG_PTR)LIST_NEXT(cs);
     }
     return Plist;
+}
+
+/*  A suspension frame is born when the instantiation event of a dvar
+    launches a frozen/delayed call that then suspends; the source dvar
+    appears among the frame's call arguments.  The frame is meaningful
+    only while some dvar of its call is still instantiated (the trigger
+    still holds; re-firing after a search rewind re-derives the same
+    constraint, which is harmless).  When a search exhausts and backtracks
+    away, its still-sleeping frames sit below every remaining choice-point
+    snapshot, so no backtrack ever abandons them; with their source dvars
+    re-opened (uninstantiated), they are zombie calls that must be
+    discarded (Bug E).  Frames whose arguments contain no dvar keep the
+    legacy behaviour.  */
+int sf_frame_source_alive(BPLONG_PTR frame)
+{
+    SYM_REC_PTR sym_ptr;
+    BPLONG arity, i;
+    BPLONG arg;
+    BPLONG_PTR dv;
+    int seen_dvar = 0;
+
+    sym_ptr = (SYM_REC_PTR)FOLLOW((BPLONG_PTR)AR_REEP(frame)+2);
+    arity = GET_ARITY(sym_ptr);
+    for (i = arity; i > 0; i--) {
+        arg = FOLLOW(frame+i);
+        DEREF(arg);
+        if (IS_SUSP_VAR(arg)) {
+            seen_dvar = 1;
+            dv = (BPLONG_PTR)UNTAGGED_ADDR(arg);
+            /*  instantiated iff its variable cell no longer holds a
+                suspended (free) value (see unify.c, dvar unification).  */
+            if (!IS_SUSP_VAR(FOLLOW(dv)))
+                return 1;
+        }
+    }
+    return seen_dvar ? 0 : 1;
 }
 
 int c_frozen_f() {
@@ -124,14 +166,25 @@ int c_frozen_f() {
 
     frame = sfreg;
     while (AR_PREV(frame) != (BPLONG)frame) {  /* end of chain */
-        if (!FRAME_IS_DEAD(frame)) {
-            tmp = build_delayed_call_on_the_heap(frame);
-            if (tmp == -1) return BP_ERROR;
-            cell = bp_build_list();
-            unify(bp_get_car(cell), tmp);
-            P_goal_rest = bp_get_cdr(cell);
-            unify(P_goal, cell);
-            P_goal = P_goal_rest;
+        /*  sfreg is append-only, so it accumulates frames of dead
+            searches.  A frame is usable only while its block is still
+            allocated (frame > local_top, see frozen_cs) and its trigger
+            still holds (sf_frame_source_alive).  Frames abandoned by a
+            backtrack are already SUSP_EXIT (SF_MARK_ABANDONED in
+            emu_inst.h).  What remains is zombie material from an
+            exhausted or failed search (Bug E): discard it here.  */
+        if (!FRAME_IS_DEAD(frame) && frame > local_top) {
+            if (sf_frame_source_alive(frame)) {
+                tmp = build_delayed_call_on_the_heap(frame);
+                if (tmp == -1) return BP_ERROR;
+                cell = bp_build_list();
+                unify(bp_get_car(cell), tmp);
+                P_goal_rest = bp_get_cdr(cell);
+                unify(P_goal, cell);
+                P_goal = P_goal_rest;
+            }
+            else
+                AR_STATUS(frame) = SUSP_EXIT;  /* zombie: kill it here */
         }
         frame = (BPLONG_PTR)AR_PREV(frame);
     }
@@ -234,11 +287,39 @@ void print_cs(BPLONG cs_list)
     printf("\n");
 }
 
+/*  Reset the process-global CP store at a problem boundary.  Marks every
+    non-EXIT suspension (delay/watcher) frame in the active frame chain
+    (sfreg) as SUSP_EXIT, clears the pending trigger queue (mirroring
+    lab_fail in emu_inst.h) and restores fd_region_low/up to their initial
+    values (domain.c).  Stale frames that outlived their search (see
+    SF_MARK_ABANDONED in emu_inst.h and the Bug E discussion in the
+    project docs) are thus never resurrected by c_frozen_f.  Frames of
+    the live computation are included: call only at
+    a boundary where no pending suspended call is meant to survive (e.g.
+    between two count_all calls).  */
+int c_cp_reset_store()
+{
+    BPLONG_PTR frame;
+
+    frame = sfreg;
+    while (AR_PREV(frame) != (BPLONG)frame) {
+        if (!FRAME_IS_DEAD(frame))
+            AR_STATUS(frame) = SUSP_EXIT;
+        frame = (BPLONG_PTR)AR_PREV(frame);
+    }
+    trigger_no = 0;
+    toam_signal_vec &= (INTERRUPT | EVENT_POOL_NONEMPTY);
+    fd_region_low = -3200;
+    fd_region_up = 3200;
+    return BP_TRUE;
+}
+
 void Cboot_delay()
 {
 
     insert_cpred("c_frozen_cf", 2, c_frozen_cf);
     insert_cpred("c_frozen_f", 1, c_frozen_f);
+    insert_cpred("cp_reset_store", 0, c_cp_reset_store);
     true_sym = ADDTAG(BP_NEW_SYM("true", 0), ATM);
 }
 

@@ -100,6 +100,22 @@ int c_sat_init(){
     return BP_TRUE;
 }
 
+/*  Explicit reset of the process-global SAT store, at a problem boundary:
+    fresh kissat instance (same as the SAT_INIT step of c_sat_init), clean
+    variable numbering, cleared IPASIR/DIMACS mirror (g_cnf) and a clean
+    ext_last_status.  Clauses added since the last c_sat_init but never
+    solved are discarded.  (A fresh sat_solve re-inits most of this
+    already; this exists so user programs can discard a partially built
+    model explicitly, symmetric to c_cp_reset_store on the CP side.)  */
+int c_sat_reset_store(){
+    SAT_INIT;
+    sat_nvars = 0;
+    sat_nvars_limit = 0;
+    ext_cnf_reset();
+    satext_clear_last_status();
+    return BP_TRUE;
+}
+
 int c_sat_start(){
     BPLONG lst, res = 0;
     int use_ext;
@@ -205,6 +221,7 @@ void plgl_resize_dyn_arrays(){
 void Cboot_sat(){
     insert_cpred("c_sat_init",2,c_sat_init);
     insert_cpred("c_sat_start",1,c_sat_start);
+    insert_cpred("sat_reset_store",0,c_sat_reset_store);
 }
 
 /* 

@@ -1822,6 +1822,11 @@ void satext_record_result(int st)
     ext_last_status = st;
 }
 
+void satext_clear_last_status(void)
+{
+    ext_last_status = 0;
+}
+
 int c_satext_last_status(void)
 {
     BPLONG St = ARG(1, 1);

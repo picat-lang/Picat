@@ -1021,6 +1021,18 @@ extern int Cboot_scip();
 extern void bp4p_register_preds();
 #endif
 
+/*  Reset both process-global solver stores at a problem boundary:
+    the CP suspension-frame store (c_cp_reset_store, delay.c) and, when
+    built with SAT, the SAT store (c_sat_reset_store, kissat_picat.c).  */
+int c_reset_solver_store()
+{
+    c_cp_reset_store();
+#ifdef SAT
+    c_sat_reset_store();
+#endif
+    return BP_TRUE;
+}
+
 void Cboot() {
     insert_cpred("c_format_set_dest", 1, c_format_set_dest);
     insert_cpred("c_format_get_line_pos", 1, c_format_get_line_pos);
@@ -1173,6 +1185,7 @@ void Cboot() {
     insert_cpred("c_call_espresso", 5, c_call_espresso);
     insert_cpred("c_call_espresso_pb", 6, c_call_espresso_pb);
 #endif
+    insert_cpred("reset_solver_store", 0, c_reset_solver_store);
 
 #ifdef SCIPSUITE
     Cboot_scip();

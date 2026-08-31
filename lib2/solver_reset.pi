@@ -1,0 +1,34 @@
+% Explicit resets for the process-global solver state (experimental branch).
+%
+% Background: an exhausted or failed count_all/solve leaves stale
+% suspension (delay/watcher) frames in the CP's append-only active frame
+% chain (sfreg): frames a backtrack abandoned (their memory since freed)
+% and "zombie" frames pushed before the last surviving choice point
+% (intact memory, but their trigger dvar was re-opened).  A later
+% solve/count_all resurrects them and silently fails (0 solutions or a
+% hang).  The engine now self-heals at the backtrack and at frozen/1, so
+% cp_reset_store/0 is an explicit problem-boundary tool: it marks every
+% non-EXIT frame dead (plus clears the trigger queue signal and restores
+% the FD representation region).
+%
+% sat_reset_store/0 is the SAT-side twin: fresh kissat instance, clean
+% variable numbering, cleared IPASIR/DIMACS mirror and last status --
+% use it to discard a partially built SAT model between problems.
+%
+% Call at a problem boundary, e.g. between two top-level counts in one
+% process:
+%   count_model1(C1),
+%   cp_reset_store(),
+%   count_model2(C2),
+%
+% The engine-level primitives (bp.cp_reset_store, bp.sat_reset_store,
+% bp.reset_solver_store) are registered in emu: delay.c,
+% kissat_picat.c, cpreds.c.
+
+module solver_reset.
+
+cp_reset_store() => bp.cp_reset_store().
+
+sat_reset_store() => bp.sat_reset_store().
+
+reset_solver_store() => bp.reset_solver_store().

@@ -519,6 +519,7 @@ extern BPLONG build_delayed_call_on_the_heap(BPLONG_PTR frame);
 extern int c_frozen_cf(void);
 extern BPLONG_PTR frozen_cs(BPLONG_PTR cs, BPLONG_PTR Plist);
 extern int c_frozen_f(void);
+extern int c_cp_reset_store(void);
 extern int b_SUSP_ATTACH_TERM_cc(BPLONG Var, BPLONG Term);
 extern int b_SUSP_ATTACHED_TERM_cf(BPLONG Var, BPLONG Term);
 extern int b_SUSP_VAR_c(BPLONG var);
@@ -1440,6 +1441,7 @@ extern void plc_sup();
 // others
 //[]
 extern void Cboot_sat();
+extern int c_sat_reset_store(void);
 #include <stdint.h>
 /* satext.c: exchangeable external solver for the built-in SAT flow */
 extern void ext_cnf_reset(void);
@@ -1453,6 +1455,7 @@ extern int satext_ext_run(void);      /* 0 ok, -1 spawn/transfer failed */
 extern int satext_ext_status(void);   /* 0 unknown, 1 sat, 2 unsat */
 extern int satext_no_fallback(void);  /* 1 iff SATEXT_NO_FALLBACK is set */
 extern void satext_record_result(int st); /* 1 sat, 2 unsat, 0 unknown */
+extern void satext_clear_last_status(void);
 extern int satext_ext_model_value(int varnum);  /* +1 true, -1 false, 0 none */
 extern void Cboot_satext(void);
 

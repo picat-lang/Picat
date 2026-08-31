@@ -8,6 +8,41 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. 
  ********************************************************************/
 
+/*  Bug E fix: mark as SUSP_EXIT the suspension frames abandoned by this
+    backtrack, i.e. the frames on the current sfreg chain (sf_old) that are
+    not on the chain of the frame being restored to (sf_new).  Those
+    frames' dvars and stack memory are reclaimed by the heap rewind done
+    just after, but the sfreg chain is append-only, so without this a later
+    frozen/1 (c_frozen_f) would rebuild a "delayed call" from the freed
+    frame memory and poison the next search.  Pass 1 verifies sf_new is
+    reachable down the chain (a corrupt or recycled chain skips the marking
+    rather than walk indefinitely); the cap bounds the walk.  */
+#define SF_MARK_ABANDONED(sf_old, sf_new)                                     \
+    do {                                                                       \
+        BPLONG_PTR sfm_old = (BPLONG_PTR)(sf_old);                             \
+        BPLONG_PTR sfm_new = (BPLONG_PTR)(sf_new);                             \
+        BPLONG_PTR sfm_f;                                                      \
+        int sfm_found = 0;                                                     \
+        int sfm_i;                                                             \
+        if (sfm_old != sfm_new) {                                              \
+            for (sfm_f = sfm_old, sfm_i = 0;                                   \
+                 sfm_i < 1000000 && AR_PREV(sfm_f) != (BPLONG)sfm_f;           \
+                 sfm_f = (BPLONG_PTR)AR_PREV(sfm_f), sfm_i++) {                \
+                if (sfm_f == sfm_new) {                                        \
+                    sfm_found = 1;                                             \
+                    break;                                                     \
+                }                                                              \
+            }                                                                  \
+            if (sfm_found)                                                     \
+                for (sfm_f = sfm_old;                                          \
+                     sfm_f != sfm_new &&                                       \
+                     AR_PREV(sfm_f) != (BPLONG)sfm_f;                         \
+                     sfm_f = (BPLONG_PTR)AR_PREV(sfm_f))                       \
+                    if (!FRAME_IS_DEAD(sfm_f))                                \
+                        AR_STATUS(sfm_f) = SUSP_EXIT;                          \
+        }                                                                      \
+    } while (0)
+
 #ifndef GCC
 switch (*P++) {
 #endif
@@ -262,6 +297,7 @@ lab_fail:
 
     trigger_no = 0;
     toam_signal_vec &= (INTERRUPT | EVENT_POOL_NONEMPTY);
+    SF_MARK_ABANDONED(SF, AR_SF(B));
     AR = B;
     H = HB;
     SF = (BPLONG_PTR)AR_SF(AR);
@@ -341,6 +377,7 @@ lab_cut_fail:
     /* cut0,fail */
     /* ROLL_TABLED_FRAME(AR_B(AR)); */
 rr_cut_fail:
+    SF_MARK_ABANDONED(SF, AR_SF((BPLONG_PTR)AR_B(AR)));
     B = AR = (BPLONG_PTR)AR_B(AR);
     LOCAL_TOP = (BPLONG_PTR)AR_TOP(AR);
     HB = (BPLONG_PTR)AR_H(AR);
@@ -357,6 +394,7 @@ lab_fail0:
 #endif
     trigger_no = 0;
     toam_signal_vec &= (INTERRUPT | EVENT_POOL_NONEMPTY);
+    SF_MARK_ABANDONED(SF, AR_SF(AR));
     H = (BPLONG_PTR)HB;
     RESET_WATER_MARKS;
 
