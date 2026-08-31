@@ -31,12 +31,20 @@
 % UNSAT verdict is sound --- but only if every zero is a real
 % proof (see the defect note below,  which forces NT = T).
 %
-% ENGINE DEFECT (pre-existing on main 28acc9f,  still open,  docs/
-% pvmbugs_report.tex Section 7 --- "Bug F"):  on the SAT path
-% (import sat,  count_all(solve([], X))),  a count that exhausts to
-% 0 models poisons every LATER SAT count in the same process ---
-% they return 0 without searching.  The first SAT count of a
-% process is always exact;  a window with no zero counts is exact.
+% ENGINE DEFECT (pre-existing on main 28acc9f AND upstream
+% picat 39.11,  root-caused --- docs/pvmbugs_report.tex Section 7,
+% "Bug F",  minimal probe:  parblock_bugf_probe.pi):  on the SAT
+% path (import sat,  count_all(solve([], X))),  a count that
+% exhausts to 0 models poisons every LATER SAT count in the same
+% process --- they return 0 without searching.  The prebuilt
+% compiler's sat-solve expansion replays the previous in-process
+% solve's dvars and constraints into the new solve's instance
+% (a "shadow");  when that shadow is UNSAT --- i.e.\ the previous
+% count was a genuine zero --- the new instance carries a small
+% unsat core and the count collapses to 0.  The first SAT count of
+% a process is always exact;  a window with no zero counts is
+% exact.  Fix locus:  the compiler (source not in this tree);
+% sound in-tree discipline:  one SAT count per process.
 %   K=3 N=5 M=3   O=0 T=2   ->  [0,0]     (truth [0,2])
 %   K=3 N=5 M=3   O=0 T=1   ->  [0]       (one count:  exact)
 %   K=3 N=5 M=3   O=1 T=2   ->  [2,2]     (no zero:  exact)

@@ -37,6 +37,22 @@ static int sat_dbg_enabled(void)
 }
 #define SAT_DBG_MSG(...) do { if (sat_dbg_enabled()) fprintf(stderr, __VA_ARGS__); } while (0)
 
+/* SATDBG + SATDBG_FILE:  append a trace of the clause stream feeding the
+   built-in solver (one line per c_sat_init / c_sat_start / added clause),
+   to the file named by SATDBG_FILE.  Used to diff per-solve instances. */
+static FILE *sat_dbg_file(void)
+{
+    static FILE *f = NULL;
+    static int done = 0;
+    if (!done) {
+        done = 1;
+        if (sat_dbg_enabled() && getenv("SATDBG_FILE"))
+            f = fopen(getenv("SATDBG_FILE"), "a");
+    }
+    return f;
+}
+#define SAT_DBG_FILE_MSG(...) do { FILE *f = sat_dbg_file(); if (f) { fprintf(f, __VA_ARGS__); fflush(f); } } while (0)
+
 int b_SAT_GET_INC_VAR_NUM_f(BPLONG Num){
     ASSIGN_f_atom(Num,MAKEINT(sat_nvars));
     sat_nvars++;
@@ -72,6 +88,8 @@ int b_SAT_ADD_CL_c(BPLONG cl) {
 
     {
         int mirr = satext_ext_mirroring();
+        FILE *df = sat_dbg_file();
+        if (df) { fprintf(df, "c:"); for (ptr = local_top; ptr != lit_ptr; ptr--) fprintf(df, " %d", (int)INTVAL(*ptr)); fprintf(df, " 0\n"); fflush(df); }
         for (ptr = local_top; ptr != lit_ptr; ptr--) {
             BPLONG v = INTVAL(*ptr);
             SAT_ADD_LIT(v);
@@ -95,7 +113,7 @@ int c_sat_init(){
     ext_cnf_set_mirroring(satext_ext_prepare());
     sat_dbg_init++;
     SAT_DBG_MSG("[dbg] c_sat_init #%ld nvars=%ld addcl_so_far=%ld ext=%d\n", sat_dbg_init, (long)INTVAL(NVars), sat_dbg_addcl, satext_ext_mirroring());
-
+    SAT_DBG_FILE_MSG("=== init #%ld nvars=%ld ===\n", sat_dbg_init, (long)INTVAL(NVars));
     SAT_INIT;
     return BP_TRUE;
 }
@@ -166,6 +184,7 @@ int c_sat_start(){
     //  printf("<= solver\n");
     sat_dbg_start++;
     SAT_DBG_MSG("[dbg] c_sat_start #%ld addcl=%ld nvars=%d res=%d ext=%d\n", sat_dbg_start, sat_dbg_addcl, sat_nvars, (int)res, use_ext);
+    SAT_DBG_FILE_MSG("--- start #%ld nvars=%d res=%d ---\n", sat_dbg_start, sat_nvars, (int)res);
 
     if (use_ext ? (res == 10) : SAT_SATISFIABLE){
         BPLONG_PTR ptr;
@@ -245,7 +264,7 @@ lab_start:
     } else if (IS_SUSP_VAR(BV)){
         BPLONG varNum;
         BPLONG_PTR sv_ptr;
-        
+
         sv_ptr = (BPLONG_PTR)UNTAGGED_TOPON_ADDR(BV);
         varNum = fast_get_attr(sv_ptr,et_NUMBER);
         DEREF_NONVAR(varNum);

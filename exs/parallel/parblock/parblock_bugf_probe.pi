@@ -1,0 +1,44 @@
+% parblock_bugf_probe:  minimal probe for Bug F (docs/pvmbugs_report.tex,
+% Section 7) --- a zero-model SAT count poisons later SAT counts in the
+% same process.
+%
+% Two SAT counts in ONE process:  count 1 is UNSAT (0 models),  count 2
+% is SAT (2 models).  A correct engine (or a compiler build with Bug F
+% fixed) prints:
+%
+%      [0,2]
+%
+% Every picat build currently shipping (upstream 39.11 and all fork
+% binaries) prints [0,0]:  the poisoned second count returns 0 without
+% searching.  Rerun this file whenever an engine/compiler changes.
+%
+%   cd Picat-src && emu/picat exs/parallel/parblock/parblock_bugf_probe.pi
+%
+% The poison is on the SAT path only (import sat);  the analogous CP
+% process-state bug was Bug E (fixed in e085229).
+%
+module parblock_bugf_probe.
+
+import sat.
+
+main() =>
+    C1 = count1(),
+    C2 = count2(),
+    writeln([C1, C2]).
+
+% X #= Y and X #!= Y:  unsat,  0 models.
+count1() = C =>
+    X :: 1..2,
+    Y :: 1..2,
+    X #= Y,
+    X #!= Y,
+    (C = count_all(solve([], [X, Y])) -> true
+    ; C = 0).
+
+% X #= Y:  2 models ((1,1), (2,2)).
+count2() = C =>
+    X :: 1..2,
+    Y :: 1..2,
+    X #= Y,
+    (C = count_all(solve([], [X, Y])) -> true
+    ; C = 0).
