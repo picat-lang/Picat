@@ -1,0 +1,140 @@
+% parblock_pvm_dyn:  the PVM mode-2 DYNAMIC (shared-cursor) backend
+% for the parblock par_run contract  --  the parblock twin of
+% ramsey_m2's DYN=1 driver,  which today uses raw bp.pvm_claim.
+%
+%   par_run_pvm_dyn(NT, Tasks) = Rs
+%       NT = 0:  falls back to the phase-0 serial  par_run(Tasks).
+%       NT >= 1:  forks NT processes over the M task indices 1..M,
+%                 but NOT in fixed chunks:  every worker loops
+%                     ( bp.pvm_claim(M, I),  I > 0 )
+%                 drawing the NEXT free task index from the
+%                 session-wide shared cursor,  runs it,  reports it
+%                 right away,  and claims again;  exhaustion
+%                 (claim 0) ends the loop and the worker halts.
+%
+% Why dynamic vs par_run_pvm's fixed chunks:  a fixed chunk
+% [lo..hi] makes each worker's wall time the SUM of its chunk's
+% task costs,  so one slow task in a chunk strands the whole
+% chunk while its fast siblings sit done-and-reported at the end;
+% the cursor hands each worker its next task only when the
+% previous one is finished,  so cost variance (long tails,  mixed
+% SAT/CP loads) balances itself and a worker idles only from the
+% moment the very last task completes.
+%
+% Contract (==  parblock.par_run,  ==  par_run_pvm,  async-refined
+% exactly like 1a/1b):
+%   - Rs is in TASK order,  independent of NT and of which worker
+%     ran which task (index-tagged per-task reports,  root
+%     reassembles by index).
+%   - Per-task reports (vs one per-chunk compound in the fixed
+%     backend):  the root's result buffer sees each task's outcome
+%     as soon as ANY worker finishes it  --  fine-grained progress
+%     the fixed backend cannot offer.
+%   - A task exception aborts the whole par,  like a failing
+%     conjunct:  the caller sees the FIRST throwing task's
+%     exception term,  identical to the serial par_run term.
+%     (Side effects of tasks after the thrower are not suppressed:
+%     in a dynamic session they may claim and run concurrently  --
+%     the same documented async divergence as mode-2 fixed.)
+%
+% Cursor semantics (emu/parvm.c,  c_pvm_claim):  pvm_claim(Max, R)
+% atomically fetch-adds 1 to the shared counter and sets
+% R = cur+1 while cur < Max,  else 0  (exhausted);  it never
+% fails.  The first Max claims hand out exactly 1..Max,  each
+% exactly once,  in some session-determined order;  each claimed
+% task is reported exactly once,  so the root receives exactly M
+% reports  (the len check below rejects a torn session,  as the
+% fixed backend's  len(Pairs) = M  does).
+%
+% Task names:  F in  {F}  /  {F, A}  must be UNQUALIFIED references
+% visible in the calling program;  a module-QUALIFIED dynamic
+% dispatch of a function hangs (engine bug (a),  docs/
+% pvmbugs_report.tex,  repros q1/q2.pi).  Cross-module unqualified
+% dispatch is verified (scratch/reif/parblock/dynpvm.pi).
+%
+% Substrate notes carried over from 1a/1b (docs/pvmbugs_report.tex):
+%   - mode 2 has no call_cleanup/delegate windows,  so the codec
+%     truncation (bug b) and the in-window search hang (bug c) do
+%     not apply;  the {I, R}  /  {I, {err, E}}  index-tagged TUPLE
+%     reports are used regardless (tuples round-trip exactly).
+%   - every mode-2 process runs the SAME program:  a worker that
+%     returned from this function would go on executing the
+%     CALLER'S code with unbound session vars.  The worker branch
+%     therefore halts after its last report.
+%   - the error term E travels through the codec as a ground term;
+%     a task exception that is not ground cannot be reported (same
+%     bad-flag risk as 1a's ground(V) guard).
+%
+% Solver-store note (Bug E / Bug F,  docs/pvmbugs_report.tex S6/S7):
+%   a worker runs many tasks in one process  --  CP is fine (the
+%   e085229 self-heal),  but a SAT count that exhausts to 0
+%   poisons the same worker's LATER SAT counts (upstream,  root-
+%   caused):  either keep one SAT count per task window,  or reset
+%   at the task boundary with sat.reset_store() (in-tree since the
+%   3.9#13 rebase;  see parblock_ramsey_m2's  RESET=1).
+
+module parblock_pvm_dyn.
+import parblock.
+
+par_run_pvm_dyn(NT, Tasks) = Rs =>
+    M = len(Tasks),
+    pvd1(NT, M, Tasks, Rs).
+
+pvd1(0, M, Tasks, Rs) =>
+    Rs = parblock.par_run(Tasks).
+
+pvd1(NT, M, Tasks, Rs) =>
+    ( M = 0, Rs = []
+    ;
+      ( bp.pvm_fork(NT, 2, M),
+        bp.pvm_worker_id(I),
+        ( I > 0,
+          pvdloop(M, Tasks),
+          halt
+        ;
+          ( bp.pvm_collect(Reps),
+            len(Reps) = M,
+            pvdindex(Reps, M, Rs) ) ) ) ).
+
+% worker:  claim one task,  run it,  report it,  claim the next;
+%  exactly one report per claim,  until the cursor is exhausted.
+pvdloop(M, Tasks) =>
+    ( bp.pvm_claim(M, I),
+      I > 0,
+      pvdnth(I, Tasks, T),
+      catch( (R = pvdtask(T), P = {I, R}),
+             E,
+             P = {I, {err, E}} ),
+      bp.pvm_report(P),
+      pvdloop(M, Tasks)
+    ;
+      true ).
+
+pvdnth(1, [H | _], T) => T = H.
+pvdnth(I, [_ | Ts], T) => I > 1, pvdnth(I - 1, Ts, T).
+
+% task dispatch,  kept local to this module (a module-qualified
+% dynamic call/apply whose target compiles to a function hangs --
+% engine bug (a);  an unqualified same-call apply is clean).
+pvdtask({F})    = apply(F).
+pvdtask({F, A}) = apply(F, A).
+
+% root:  index the per-task reports (they arrive in CLAIM order,  not
+% task order --  reassembly is by index),  scan in task order for the
+% first exception and rethrow it (contract:  a task exception aborts
+% the par);  otherwise return the values in task order.
+pvdindex(Reps, M, Rs) =>
+    A = new_array(M),
+    foreach (P in Reps)
+        A[first(P)] = second(P)
+    end,
+    E = pvderr(1, M, A),
+    ( E = $noerr, Rs = [A[I] : I in 1..M]
+    ; throw(E) ).
+
+pvderr(I, M, A) = E =>
+    ( I > M, E = $noerr
+    ;
+      ( V = A[I],
+        ( V = {err, E2}, E = E2
+        ; pvderr(I + 1, M, A) = E ) ) ).

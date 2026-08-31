@@ -1,0 +1,147 @@
+% parblock_pvm_dyn_tasks:  the phase-1b dynamic backend
+% (lib2/parblock_pvm_dyn,  par_run_pvm_dyn over the shared-cursor
+% bp.pvm_claim)  vs the fixed-chunk par_run_pvm  vs the phase-0
+% serial par_run,  over the same parblock task contract as
+% parblock_pvm_tasks.
+%
+% From the repo root:
+%   timeout 300 emu/picat -path lib2 exs/parallel/parblock/parblock_pvm_dyn_tasks.pi <case> <nt>
+%   cases 1-5 mirror parblock_pvm_tasks (mixed values / one
+%   throwing task / 64-task order / empty / single);
+%   case 6 is the uneven-cost case  (one full N=12 queens count
+%   among eleven N=8 column counts).  The three-way comparison
+%   asserts identical results on all backends;  the fixed vs dyn
+%   wall times are printed (NOT asserted --  load-dependent).
+%   nt = 0 runs serial only;  1/2/4/16 run all three.
+%
+%   case 1  M = 7   mixed 0-arg / 1-arg tasks,  exact values
+%   case 2  M = 6   task 3 throws  ->  all three sides must surface
+%                    the FIRST thrower's exception term,  identical
+%   case 3  M = 64  order preservation over many claims
+%   case 4  M = 0   the empty par
+%   case 5  M = 1   the single-task par
+%   case 6  M = 12  uneven costs (one slow count mid-list),  exact
+%                   values;  the dynamic backend should not pay the
+%                   slow task inside a fixed chunk
+%
+% Substrate:  same documented constraints as parblock_pvm_tasks --
+% unqualified task references (engine bug (a)),  ground error
+% terms,  tuples round-trip exactly,  workers halt after their last
+% report.  Per-task (vs per-chunk) reports are what distinguish the
+% dynamic backend;  reassembly is by index,  so Rs is in TASK order
+% on every backend.  (Bug F note:  a worker running several SAT
+% counts in one process poisons after a zero  --  the queens tasks
+% here are CP and self-heal,  so the battery is unaffected.)
+
+module parblock_pvm_dyn_tasks.
+
+import cp.
+import parblock.
+import parblock_pvm.
+import parblock_pvm_dyn.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% task pool  %%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+tb0() = Y => Y = 7.
+tb1(A) = Y => Y = A * 10.
+tbboom(A) = Y => A > 3, throw(my_err(A)), Y = 1.
+
+% fast:  N=8 queens,  first queen pinned to column I
+bfast(I) = C =>
+    N = 8,
+    Col = ((I - 1) mod 8) + 1,
+    bcount(N, Col, C).
+
+% slow:  the full N=12 count  (14200 solutions  --  OEIS A000170)
+bslow() = C =>
+    bcount(12, 0, C).
+
+bcount(N, Col, C) =>
+    Qs = new_array(N),
+    Qs :: 1..N,
+    ( Col > 0, Qs[1] = Col ; true ),
+    all_different(Qs),
+    foreach (I in 1..(N - 1), J in I + 1..N)
+        abs(Qs[I] - Qs[J]) #!= J - I
+    end,
+    C = count_all(solve([ff], Qs)).
+
+t1(M) = Tasks =>
+    M = 7,
+    Tasks = [{tb0}, {tb1, 1}, {tb1, 2}, {tb0}, {tb1, 3}, {tb1, 4}, {tb0}].
+ex1() = [7, 10, 20, 7, 30, 40, 7].
+
+t2(M) = Tasks =>
+    M = 6,
+    Tasks = [{tb0}, {tb1, 1}, {tbboom, 4}, {tb1, 4}, {tb0}, {tb1, 6}].
+
+t3(M) = [T : I in 1..M, T = cond((I mod 2) = 0, {tb0}, {tb1, I})].
+ex3(M) = [V : I in 1..M, V = cond((I mod 2) = 0, 7, I * 10)].
+
+t6(M) = Tasks =>
+    M = 12,
+    Tasks = [ {bfast, I} : I in 1..5 ] ++
+            [{bslow}] ++
+            [ {bfast, I} : I in 7..12 ].
+% 8-queens per-column counts  (column 1..8:  4,8,16,18,18,18,8,4 -- sum 92)
+ex6() = [4, 8, 16, 18, 18, 14200, 8, 4, 4, 8, 16, 18].
+
+case_tasks(1, Tasks) => Tasks = t1(7).
+case_tasks(2, Tasks) => Tasks = t2(6).
+case_tasks(3, Tasks) => Tasks = t3(64).
+case_tasks(4, Tasks) => Tasks = [].
+case_tasks(5, Tasks) => Tasks = [{tb1, 9}].
+case_tasks(6, Tasks) => Tasks = t6(12).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% the three sides  %%%%%%%%%%%%%%%%%%%%%
+
+ser(Tasks, S) =>
+    catch( (Rs = parblock.par_run(Tasks), S = [val, Rs]),
+           E,
+           S = [err, E] ).
+
+pfix(NT, Tasks, S) =>
+    catch( (Rs = parblock_pvm.par_run_pvm(NT, Tasks), S = [val, Rs]),
+           E,
+           S = [err, E] ).
+
+pdyn(NT, Tasks, S) =>
+    catch( (Rs = parblock_pvm_dyn.par_run_pvm_dyn(NT, Tasks), S = [val, Rs]),
+           E,
+           S = [err, E] ).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% driver  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+main([C, NT]) =>
+    Case = to_int(C),
+    Nt = to_int(NT),
+    case_tasks(Case, Tasks),
+    ( Nt >= 1,
+      ser(Tasks, Ss),
+      bp.c_wall_ms(T0),
+      pfix(Nt, Tasks, Sp),
+      bp.c_wall_ms(T1),
+      pdyn(Nt, Tasks, Sd),
+      bp.c_wall_ms(T2),
+      cmp(Case, Sp, Sd, Ss, T1 - T0, T2 - T1)
+    ;
+      ( ser(Tasks, Ss),
+        printf("case%d: serial-only  %s%n", Case, to_string(Ss)) ) ).
+
+% all three sides must UNIFY (same tag,  same payload).  The value
+% cases then assert the payload against the exact expectation;  the
+% error case asserts the exception term is a ground error.
+cmp(Case, Sp, Sd, Ss, Wf, Wd) =>
+    ( Sp = Ss, Sd = Ss,
+      desc(Case, Ss, Msg),
+      printf("%s  (fixed %d ms, dyn %d ms)%n", Msg, Wf, Wd)
+    ;
+      printf("case%d: FAIL  pvm=%s  dyn=%s  ser=%s%n",
+             Case, to_string(Sp), to_string(Sd), to_string(Ss)) ).
+
+desc(1, [val, Rs], Msg) => Rs = ex1(), Msg = "case1: pvm==dyn==ser  exact  (7 tasks)".
+desc(2, [err, E], Msg)   => ground(E), Msg = "case2: pvm==dyn==ser  identical err term  (task 3 throws)".
+desc(3, [val, Rs], Msg)   => Rs = ex3(64), Msg = "case3: pvm==dyn==ser  exact  (64 tasks)".
+desc(4, [val, Rs], Msg)   => Rs = [], Msg = "case4: pvm==dyn==ser  empty".
+desc(5, [val, Rs], Msg)   => Rs = [90], Msg = "case5: pvm==dyn==ser  exact  (1 task)".
+desc(6, [val, Rs], Msg)   => Rs = ex6(), Msg = "case6: pvm==dyn==ser  exact  (uneven costs,  12 tasks)".
