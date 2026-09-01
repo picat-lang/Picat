@@ -379,3 +379,123 @@ pvcl_m(Fs, X, I, V) =>
 pvst_m(Fs, X, I, V) =>
     ( apply(Fs[I], X) = V
     ; throw($parblock_mr_drop(I)) ).
+% ====================================================================
+%  race block forms  (phase 2)
+% ====================================================================
+%
+%  The statement-level form of the mode-1 portfolio race:  the
+%  candidates are the clauses of a user-written disjunction between
+%  race_begin / race_end  instead of the {F, X}  pairs of race_res.
+%
+%   race_begin(NT)    opens a mode-1 portfolio session (the same
+%                     substrate as race_res above).
+%                     NT = 0:  a POOL-1 session --  no child is ever
+%                     forked  (the pool holds the single process),
+%                     the root walks the clauses in written order,
+%                     and the first clause to complete is the first
+%                     to report:  exactly the phase-0 serial
+%                     written-order race contract.
+%                     NT >= 1:  the portfolio (children take the
+%                     remaining clauses at the body's choice points).
+%   race_cl(I, F)     one clause of the block body;
+%   race_cl(I, F, A)  F()  /  F(A)  must complete with a GROUND
+%                     value.  A candidate that throws or fails drops
+%                     out (total-or-throw,  the clause discipline of
+%                     this family);  I is the clause's written
+%                     position and becomes the winner identity.
+%   race_end(R)       R = [won, I, V]:  the winning clause (first
+%                     completer) and its value,  carried BY VALUE in
+%                     the pool report,  so the clauses need no
+%                     shared value variable.  Every clause dropped
+%                     out ->  throw($parblock_raceb_empty),  thrown
+%                     only after the session unwound through collect
+%                     (a supported throw point,  the map_race
+%                     precedent;  the exception analogue of the
+%                     family's exhausted value).
+%
+%  Shape (the body must be exactly this):
+%
+%    parblock_pvm.race_begin(4),
+%    ( parblock_pvm.race_cl(1, sol_a)
+%    ; parblock_pvm.race_cl(2, sol_b)
+%    ; true ),
+%    parblock_pvm.race_end(R).
+%
+%    The trailing  true  disjunct is REQUIRED:
+%      - for the ROOT it is the exhaustion / found landing  (the
+%        pvwalkr base case  I > M, true  and 1a's  ( model ; true )
+%        cut):  when a child wins,  the root's remaining clauses
+%        drop out at their next choice points,  the walk lands on
+%        true,  and the block flows into race_end;
+%      - for a POOL CHILD that has run out of its own clauses,  it
+%        is the fall-through into race_end,  where the engine
+%        handles it natively:  a mode-1 fork child reaching
+%        bp.pvm_collect  exits the process (pvm_worker_exit,
+%        noreturn)  --  the child never materializes,  and no child
+%        state ever needs to be shared,  which is why this form
+%        keeps NO mode flag and NO session list (a global map is
+%        not readable from a forked child's continuation,  and the
+%        root's own map state corrupts after a session that
+%        forked children:  groupd_term_expected).
+%
+%  The winner is a MODEL (the satext rule):  validate V against the
+%  winning clause's contract;  never assert which clause won (I is
+%  a scheduling outcome).
+%
+%  Constraints:
+%    - no nesting (one live block per process,  like a session);
+%    - the body sits exactly between begin and end;
+%    - task names follow the family rule:  UNQUALIFIED
+%      module-visible references (a module-qualified dynamic
+%      dispatch of a function is engine bug (a));
+%    - a root-level exception DURING a live session is not a
+%      supported path (as for the family):  race_cl routes every
+%      throw onto a supported path,  and race_end throws only after
+%      its collect;
+%    - race_cl / race_end outside a block are not wrapped:  the
+%      unarmed  bp.pvm_report  /  bp.pvm_collect  raise the engine's
+%      illegal_arguments error;
+%    - the task-parallel block form  par_begin / par_end  still
+%      needs a C pool mode (a run-all-disjuncts partition plus a
+%      multi-report collect);  see the note in parblock.pi.
+
+race_begin(NT) =>
+    ( NT > 0, bp.pvm_fork(NT, 1, 1)
+    ; bp.pvm_fork(1, 1, 1) ).
+
+race_cl(I, F) =>
+    racebcl(I, F, parblock_raceb_narg).
+
+race_cl(I, F, A) =>
+    racebcl(I, F, A).
+
+%  the clause body,  exactly the pvcl_r shape (proven in the 1c
+%  battery):  the per-clause delegate window makes the strategy's
+%  frames eligible for pool forking;  the report is by value,
+%  tagged with the written clause position.
+racebcl(I, F, A) =>
+    bp.pvm_delegate(1),
+    call_cleanup(catch(racebval(F, A) = V, E, false), bp.pvm_delegate(0)),
+    ground(V),
+    bp.pvm_report((I, V)).
+
+%  total-or-throw:  a function call with no matching rule throws,  so
+%  a candidate either completes with a value or throws away (caught
+%  above);  the failing disjunct is unreachable,  kept for the
+%  discipline.
+racebval(F, parblock_raceb_narg) = V =>
+    ( V = apply(F)
+    ; throw($parblock_raceb_drop(0)) ).
+
+racebval(F, A) = V =>
+    ( V = apply(F, A)
+    ; throw($parblock_raceb_drop(A)) ).
+
+race_end(R) =>
+    bp.pvm_collect(Rc),
+    ( Rc = 1,
+      bp.pvm_solution(S0),
+      S0 = (I, V),
+      R = [won, I, V]
+    ;
+      throw($parblock_raceb_empty) ).

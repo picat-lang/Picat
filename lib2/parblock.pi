@@ -40,10 +40,15 @@
 % are validated against these contracts (two-way batteries), not
 % against exact wall-clock outcomes.
 %
-% The block forms  par_begin() / par_end()  and  race_begin(R) /
-% race_end()  are NOT implemented yet:  they need the C driver that
-% re-enters the dispatch loop (phase 1);  shipping them here as no-ops
-% would silently change the meaning of a block, so they are withheld.
+% The RACE block form  race_begin / race_cl / race_end  (phase 2)
+% is implemented in parblock_pvm:  the mode-1 substrate already
+% re-enters at choice points,  so the block body is a plain
+% disjunction of race_cl clauses with a trailing  true  (the
+% exhaustion / found landing).  The task-parallel block form
+% par_begin() / par_end()  is NOT implemented:  it needs a C pool
+% mode (a run-all-disjuncts partition plus a multi-report collect);
+% shipping it as a no-op would silently change the meaning of a
+% block, so it is withheld.
 %
 %   import parblock.
 

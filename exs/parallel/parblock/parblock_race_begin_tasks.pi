@@ -1,0 +1,260 @@
+% parblock_race_begin_tasks:  battery for the phase-2 race block
+% forms in lib2/parblock_pvm.pi  (race_begin / race_cl / race_end),
+% two-way against the phase-0 serial written-order contracts.
+%
+% Run from the repo root:
+%   PICATPATH=lib2 timeout 600 emu/picat exs/parallel/parblock/parblock_race_begin_tasks.pi
+%
+% Validation rule (the satext rule,  as in the 1c battery
+% parblock_race_pvm_tasks.pi):  the reported winner is a MODEL --
+% validate it against the winning clause's contract,  never assert
+% which clause won;  a case whose value is UNIQUE regardless of the
+% winner is asserted EXACTLY;  the serial reference is printed
+% alongside (and asserted equal where the schedule is fixed).
+%
+% The block body is the REQUIRED shape:  a plain disjunction of
+% race_cl clauses with a trailing  true  disjunct  (the
+% exhaustion / found landing).
+%
+% NT matrix:  0 (serial block),  1,  2, 4  per case.
+
+module parblock_race_begin_tasks.
+import parblock.
+import parblock_pvm.
+
+% ============================ problem  =============================
+
+% 8-queens with a chosen column order (from the 1c battery)
+
+ord_a(N) = [C : C in 1..N].
+ord_b(N) = [C : C in N // 2 + 1..N] ++ [C : C in 1..N // 2].
+
+queens_ord(Ord, N, Qs) =>
+    qs1(1, N, [], Qs, Ord).
+qs1(Row, N, P, Qs, Ord) =>
+    ( Row = N + 1, Qs = P
+    ;
+      ( pick(Ord, C), safe(C, P), qs1(Row + 1, N, [C | P], Qs, Ord) ) ).
+pick([], _)   => fail.
+pick([H | T], X) =>
+    ( X = H ; pick(T, X) ).
+safe(C, P) => safe1(C, P, 1).
+safe1(C, [], D) => true.
+safe1(C, [Hh | T], D) =>
+    not(C = Hh),
+    not(C - Hh = D),
+    not(Hh - C = D),
+    safe1(C, T, D + 1).
+
+work(N) => foreach (J in 1..N) true end.
+
+% the clause strategies (all total-or-throw):
+sol_fast()  = Qs => once(queens_ord(ord_a(8), 8, Qs)).
+sol_fast2() = Qs => work(20000), once(queens_ord(ord_a(8), 8, Qs)).
+sol_slow()  = Qs => once(queens_ord(ord_b(8), 8, Qs)), work(60000).
+sol_throw() = Qs => throw($parbat_rb_th()), Qs.
+
+% staggered-cost one-arg strategies,  AGREEING value (map-style)
+fsarg(X) = V => work(80000), V = X * 7.
+farg(X)  = V => V = X * 7.
+
+valid8(Qs) =>
+    Ns = [Qs[I] : I in 1..8],
+    len(Ns) = 8,
+    foreach (V in Ns)
+        V >= 1, V <= 8
+    end,
+    S = sum(Ns), S = 36,
+    Sq = sumsq8(Ns), Sq = 204,
+    foreach (I in 1..7, J in (I + 1)..8)
+        not(abs(Qs[I] - Qs[J]) = J - I)
+    end.
+sumsq8(Ns) = S =>
+    N2 = [X * X : X in Ns],
+    S = sum(N2).
+
+% the serial written-order references (phase-0 contract)
+srab() = S =>
+    catch( (Q = sol_fast(), S = [won, 1, Q]),
+           T,
+           ( Q2 = sol_fast2(), S = [won, 2, Q2] ) ).
+srab2() = S =>
+    catch( (Q = sol_slow(), S = [won, 1, Q]),
+           T,
+           ( Q2 = sol_fast(), S = [won, 2, Q2] ) ).
+srab3() = S =>
+    catch( (Q = sol_throw(), S = [won, 1, Q]),
+           T,
+           ( Q2 = sol_fast(), S = [won, 2, Q2] ) ).
+
+% ============================ cases  ===============================
+
+% 1  both clauses complete (ascending order,  same value):  the
+%    value is asserted EXACTLY against the serial reference;  the
+%    winner identity is a scheduling outcome.
+case_rb_basic(NT) =>
+    catch( (parblock_pvm.race_begin(NT),
+            ( parblock_pvm.race_cl(1, sol_fast)
+            ; parblock_pvm.race_cl(2, sol_fast2)
+            ; true ),
+            parblock_pvm.race_end(R)),
+           E,
+           ( printf("  case_rb_basic NT=%d: FAIL E=%s\n", NT, to_string(E)), false ) ),
+    R = [won, W, Qs],
+    ( W = 1 ; W = 2 ),
+    valid8(Qs),
+    srab() = Ss,
+    Ss = [won, Ws, Qss],
+    valid8(Qss),
+    ( Qs = Qss, true
+    ; ( printf("  case_rb_basic NT=%d: pvm=%s serial=%s\n", NT, to_string(Qs), to_string(Qss)), false ) ),
+    printf("  case_rb_basic  NT=%d  pvm=[won %d <valid8>]  serial=[won %d]\n", NT, W, Ws),
+    true.
+
+% 2  (slow, fast):  at NT >= 2 a child can win with the fast clause
+%    while the root is still walking the slow one (the child-win
+%    landing);  the fast clause's value is exact when it wins.
+case_rb_cw(NT) =>
+    catch( (parblock_pvm.race_begin(NT),
+            ( parblock_pvm.race_cl(1, sol_slow)
+            ; parblock_pvm.race_cl(2, sol_fast)
+            ; true ),
+            parblock_pvm.race_end(R)),
+           E,
+           ( printf("  case_rb_cw NT=%d: FAIL E=%s\n", NT, to_string(E)), false ) ),
+    R = [won, W, Qs],
+    ( W = 1 ; W = 2 ),
+    valid8(Qs),
+    ( W = 2, sol_fast() = Qf, Qs = Qf
+    ; true ),
+    printf("  case_rb_cw     NT=%d  pvm=[won %d <valid8>]\n", NT, W),
+    true.
+
+% 3  a throwing clause drops out;  the unique completer's value is
+%    exact (both serial and PVM).
+case_rb_thrower(NT) =>
+    catch( (parblock_pvm.race_begin(NT),
+            ( parblock_pvm.race_cl(1, sol_throw)
+            ; parblock_pvm.race_cl(2, sol_fast)
+            ; true ),
+            parblock_pvm.race_end(R)),
+           E,
+           ( printf("  case_rb_thrower NT=%d: FAIL E=%s\n", NT, to_string(E)), false ) ),
+    R = [won, W, Qs],
+    W = 2,
+    valid8(Qs),
+    srab3() = Ss,
+    Ss = [won, 2, Qse],
+    ( Qs = Qse, true
+    ; ( printf("  case_rb_thrower NT=%d: pvm=%s serial=%s\n", NT, to_string(Qs), to_string(Qse)), false ) ),
+    printf("  case_rb_thrower NT=%d  pvm=[won 2 <valid8>]  ok\n", NT),
+    true.
+
+% 4  every clause throws ->  race_end throws  $parblock_raceb_empty
+%    (after its collect,  at every NT).
+case_rb_allthrow(NT) =>
+    catch( (parblock_pvm.race_begin(NT),
+            ( parblock_pvm.race_cl(1, sol_throw)
+            ; parblock_pvm.race_cl(2, sol_throw)
+            ; true ),
+            parblock_pvm.race_end(R),
+            ( printf("  case_rb_allthrow NT=%d: FAIL got R=%s\n", NT, to_string(R)), false ) ),
+           E,
+           ( E = $parblock_raceb_empty,
+             printf("  case_rb_allthrow NT=%d  threw raceb_empty  ok\n", NT),
+             true
+           ;
+             ( printf("  case_rb_allthrow NT=%d: FAIL E=%s\n", NT, to_string(E)), false ) ) ).
+
+% 5  single-clause block:  W = 1 exact.
+case_rb_single(NT) =>
+    catch( (parblock_pvm.race_begin(NT),
+            ( parblock_pvm.race_cl(1, sol_fast) ; true ),
+            parblock_pvm.race_end(R)),
+           E,
+           ( printf("  case_rb_single NT=%d: FAIL E=%s\n", NT, to_string(E)), false ) ),
+    R = [won, W, Qs],
+    W = 1,
+    valid8(Qs),
+    true.
+
+% 6  one-arg clauses  (race_cl(I, F, A)),  staggered,  AGREEING
+%    value:  V = 49 exact at every NT.
+case_rb_arg(NT) =>
+    catch( (parblock_pvm.race_begin(NT),
+            ( parblock_pvm.race_cl(1, fsarg, 7)
+            ; parblock_pvm.race_cl(2, farg, 7)
+            ; true ),
+            parblock_pvm.race_end(R)),
+           E,
+           ( printf("  case_rb_arg NT=%d: FAIL E=%s\n", NT, to_string(E)), false ) ),
+    R = [won, W, V],
+    ( W = 1 ; W = 2 ),
+    V = 49,
+    printf("  case_rb_arg    NT=%d  pvm=[won %d 49]  ok\n", NT, W),
+    true.
+
+% 7  three clauses,  staggered,  AGREEING value:  the fastest is
+%    LAST  --  at NT >= 2  a pool child (or a child of a child)
+%    takes the tail of the disjunction and wins;  V = 42  exact.
+fsarg3(X) = V => work(2000000), V = 42.
+fmarg3(X) = V => work(100000), V = 42.
+ffarg3(X) = V => V = 42.
+case_rb_three(NT) =>
+    catch( (parblock_pvm.race_begin(NT),
+            ( parblock_pvm.race_cl(1, fsarg3, 1)
+            ; parblock_pvm.race_cl(2, fmarg3, 1)
+            ; parblock_pvm.race_cl(3, ffarg3, 1)
+            ; true ),
+            parblock_pvm.race_end(R)),
+           E,
+           ( printf("  case_rb_three NT=%d: FAIL E=%s\n", NT, to_string(E)), false ) ),
+    R = [won, W, V],
+    ( W = 1 ; W = 2 ; W = 3 ),
+    V = 42,
+    printf("  case_rb_three  NT=%d  pvm=[won %d 42]  ok\n", NT, W),
+    true.
+
+% 8  race_cl outside a block must RAISE (the unarmed
+%    bp.pvm_report  reports the engine's  illegal_arguments);
+%    misuse is loud,  never silent.
+case_rb_noblock(NT) =>
+    catch( parblock_pvm.race_cl(1, sol_fast),
+           E,
+           ( printf("  case_rb_noblock  NT=%d  raised %s  ok\n", NT, to_string(E)),
+             true ) ).
+
+% ============================ driver  ==============================
+
+run_case(NT, Name) = R =>
+    ( catch((call_case(NT, Name)), E,
+            ( printf("  case%d NT=%d  ERROR %s\n", Name, NT, to_string(E)), false ) ),
+      R = true
+    ;
+      R = false ).
+
+call_case(NT, 1) => case_rb_basic(NT).
+call_case(NT, 2) => case_rb_cw(NT).
+call_case(NT, 3) => case_rb_thrower(NT).
+call_case(NT, 4) => case_rb_allthrow(NT).
+call_case(NT, 5) => case_rb_single(NT).
+call_case(NT, 6) => case_rb_arg(NT).
+call_case(NT, 7) => case_rb_three(NT).
+call_case(NT, 8) => case_rb_noblock(NT).
+
+drun(NT, I, N, Acc, Total) =>
+    ( I > N, Total = Acc
+    ;
+      ( Ok = run_case(NT, I),
+        ( Ok, drun(NT, I + 1, N, Acc, Total)
+        ; drun(NT, I + 1, N, Acc + 1, Total) ) ) ).
+
+resname(0) = "ALL-OK 8/8".
+resname(F) = R => F > 0, R = "FAILURES: " ++ to_string(F).
+
+main =>
+    foreach (NT in [0, 1, 2, 4])
+        ( drun(NT, 1, 8, 0, F),
+          printf("NT=%d: %s\n", NT, resname(F)) )
+    end,
+    true.
