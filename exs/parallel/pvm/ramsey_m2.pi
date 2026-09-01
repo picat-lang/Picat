@@ -16,10 +16,13 @@
 % (all regions proven empty, liveness-vetoed) is sound.
 % DYNAMIC (DYN=1): T workers share one pool; each worker draws the next
 % pattern value from the engine's shared cursor (bp.pvm_claim) instead
-% of a static chunk assignment, builds the instance ONCE, and per claim
-% posts/undoes only the per-claim prefix units (outlook item 5). The
-% cursor hands out exactly the full window, so coverage is complete by
-% construction and the root's length check is a veto, not a proof.
+% of a static chunk assignment; each claim is a self-contained
+% slice solve with a sat.reset_store() at the claim boundary (see
+% claimone: the reset cures Bug F, and on this engine the fresh
+% instance is cheaper than the old build-once/replay-claim shape).
+% The cursor hands out exactly the full window, so coverage is
+% complete by construction and the root's length check is a veto,
+% not a proof.
 %
 % Env: K, N (N must be set explicitly for K != 3), T (workers;
 % 0 = plain serial oracle), M (bitpack width; the value set is 1..2^M),
@@ -122,47 +125,46 @@ main =>
     ),
     halt.
 
-% the dynamic worker: build the instance ONCE, then claim pattern
-% values from the shared cursor until exhausted; per claim only the
-% prefix units are posted (and backtracked away) on the shared store.
+% the dynamic worker: claim pattern values from the shared cursor
+% until exhausted; each claim is a SELF-CONTAINED slice solve (fresh
+% instance + sat.reset_store() at the claim boundary). The reset
+% must precede the instance build (it marks every live suspension
+% frame dead, so it would kill a pre-built shared instance), and it
+% kills the stale SAT frames of the previous in-process solve so a
+% zero count can never poison a later one (Bug F,
+% docs/pvmbugs_report.tex Section 7; cure shipped in picat 39.13 ---
+% without it, a fresh instance right after a genuine zero count
+% collapses to 0, cf. parblock_bugf_probe.pi). On this engine the
+% fresh-instance claim is also the FAST shape: the one-time-build
+% variant paid for the previous solve's replayed dvars/constraints
+% on every claim (~3.3 s/claim, R(4,4) N=18 M=14) while a fresh
+% 14-bit slice solve takes ~150 ms.
+% Verified against the one-count-per-worker static oracle (K=3:
+% N=4 at T=2/M=3 and T=4/M=3, N=5 at T=2/M=3 and T=4/M=3, N=6 at
+% T=2/M=3 --- exact sums and exact multisets).
 dyn_worker(K, N, M, O, A, I) =>
-    MM = K * (K - 1) // 2,
-    NPairs = N * (N - 1) // 2,
-    subsets(K, N, AllSets),
-    E = new_array(NPairs),
-    E :: 0..1,
-    no_k_sets(N, K, MM, AllSets, E),
-    degree_order(N, E, D),
     bp.c_wall_ms(Ws),
-    claimwork(K, N, M, O, A, E, D),
+    claimwork(K, N, M, O, A),
     bp.c_wall_ms(We),
     writef("worker %d: claims done in %d ms%n", I, We - Ws).
 
-% Per-claim loop: branch 1 claims one pattern, runs claimone (total:
-% exactly one report, and it retracts its own prefix units before
-% returning), and recurses with a fresh claim. Exhaustion (claim 0)
-% is branch 2: the loop commits.
-claimwork(K, N, M, O, A, E, D) =>
+% Per-claim loop: branch 1 claims one pattern, runs claimone (exactly
+% one report per claim), and recurses with a fresh claim. Exhaustion
+% (claim 0) is branch 2: the loop commits.
+claimwork(K, N, M, O, A) =>
     ( bp.pvm_claim(A, V),
       V > 0,
-      claimone(K, N, M, O, V, E, D),
-      claimwork(K, N, M, O, A, E, D)
+      claimone(K, N, M, O, V),
+      claimwork(K, N, M, O, A)
     ;
       true ).
 
-% One report exactly once. The prefix units are posted conditionally
-% (an infeasible unit just makes the store infeasible -> count 0);
-% the trailing fail backtracks to THIS disjunction, retracting the
-% units, and the bare-true branch 2 then commits the call.
-claimone(K, N, M, O, V, E, D) =>
-    ( ( prefix(M, E, O + V) -> true
-      ; true ),
-      (C = count_all(solve([], [E, D])) -> true
-      ; C = 0),
-      bp.pvm_report(C),
-      fail
-    ;
-      true ).
+% one claim = one self-contained slice count + one report
+% (slice_count maps a failed solve to the count 0).
+claimone(K, N, M, O, V) =>
+    sat.reset_store(),
+    slice_count(K, N, M, O + V, C),
+    bp.pvm_report(C).
 
 % the instance, plus (for M > 0) the unit prefix E[j] #= bit_j(Lo);
 % C = #models of the slice

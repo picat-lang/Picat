@@ -69,15 +69,24 @@
 % (The bp.sat_reset_store twin does NOT clear the poison;  the
 % module-qualified sat.reset_store does.)
 %
-% NOT covered here:  the DYNAMIC (DYN=1) cursor path of ramsey_m2
-% (bp.pvm_claim) has no parblock combinator yet --- par_run_pvm is
-% fixed-chunk only;  the dynamic mode stays in
-% exs/parallel/pvm/ramsey_m2.pi.
+% DYN dynamic scheduling:  DYN=1 dispatches the same Tasks through
+% lib2/parblock_pvm_dyn's  par_run_pvm_dyn(NT, Tasks)  instead of the
+% fixed-chunk par_run_pvm --- NT workers share the pool and each claims
+% the next task from the engine's shared cursor (bp.pvm_claim) until it
+% is exhausted (the ramsey_m2 DYN=1 mode re-expressed in parblock).
+% Dynamic mode covers the FULL window 1..2^M (like ramsey_m2's DYN);
+% T and O are then ignored.  Like ramsey_m2's dynamic worker,  a
+% worker may run many count_all calls in a row  --- so DYN without
+% RESET has the same Bug F soundness restriction as static NT < T
+% (one sound shape is NT = T or RESET=1),  and WITH RESET=1 any NT is
+% sound.
 %
 % Env:  K,  N (N must be set explicitly for K != 3),  T (number of
-% pattern tasks;  the run covers O+1..O+T),  M (bitpack width;
-% O + T must be <= 2^M),  O (window base,  default 0),  NT (workers,
-% default 0 = serial;  more workers than tasks is capped at T).
+% pattern tasks in static mode;  the run covers O+1..O+T),  M (bitpack
+% width;  O + T must be <= 2^M in static mode,  DYN covers 1..2^M),
+% O (window base in static mode,  default 0),  NT (workers,  default
+% 0 = serial;  more workers than tasks is capped at T),  DYN (0 =
+% fixed chunks,  1 = cursor claims;  default 0).
 %
 %   K=3 N=4 T=8 M=3 NT=8 picat parblock_ramsey_m2.pi
 %       % 8 patterns,  one per worker:  0+1+1+1+2+1+2+0 = 8
@@ -89,6 +98,10 @@
 %   K=4 N=18 T=256 M=8 NT=256 picat parblock_ramsey_m2.pi
 %       % the R(4,4) cell:  UNSAT =>  R(4,4) <= 18  (with the SAT
 %       % witness on 17 vertices,  R(4,4) = 18)
+%   K=4 N=18 M=8 NT=128 DYN=1 RESET=1 picat parblock_ramsey_m2.pi
+%       % the R(4,4) cell,  dynamic:  256 pattern tasks claimed off
+%       % the shared cursor by 128 workers  (2 counts each,  reset at
+%       % every task boundary  =>  sound multi-count-per-worker)
 %
 % The R(4,4) cell on this node (fixed engine,  this file,  the sound
 % NT = T shape):  UNSAT,  256/256 patterns proven empty  =>  R(4,4) <= 18
@@ -106,27 +119,33 @@
 %   emu/picat -path lib2 exs/parallel/parblock/parblock_ramsey_m2.pi
 import sat.
 import parblock_pvm.
+import parblock_pvm_dyn.
 
 main =>
     k_from_env(K),
     n_from_env(K, N),
-    t_from_env(T),
+    t_from_env(Ti),
     m_from_env(M),
-    o_from_env(O),
+    o_from_env(Oi),
     nt_from_env(NT),
     reset_from_env(R),
+    dyn_from_env(DYN),
     C2 = pow2(M),
+    ( DYN > 0, T = C2, O = 0 ; T = Ti, O = Oi ),
     ( O + T <= C2 -> true
     ; handle_exception($o_plus_t_must_be_le_2_to_m(O, T, C2), main) ),
     ( NT > T -> NTW = T ; NTW = NT ),
     bp.c_wall_ms(T0),
-    writef("=== parblock_ramsey_m2: K=%d N=%d T=%d M=%d O=%d NT=%d (patterns %d..%d over %d workers, reset=%w), %d edge vars%n",
-        K, N, T, M, O, NTW, O + 1, O + T, NTW, R, N * (N - 1) // 2),
+    writef("=== parblock_ramsey_m2: K=%d N=%d T=%d M=%d O=%d NT=%d DYN=%d (patterns %d..%d over %d workers, reset=%w), %d edge vars%n",
+        K, N, T, M, O, NTW, DYN, O + 1, O + T, NTW, R, N * (N - 1) // 2),
     Tasks = [ {rcount, {K, N, M, O + 1 + I, R}} : I in 0..T-1 ],
-    Rs = parblock_pvm.par_run_pvm(NTW, Tasks),
+    ( DYN > 0
+    -> Rs = parblock_pvm_dyn.par_run_pvm_dyn(NTW, Tasks)
+    ;
+      Rs = parblock_pvm.par_run_pvm(NTW, Tasks) ),
     Csum = sum(Rs),
     bp.c_wall_ms(T1),
-    root_verdict(K, N, T0, T1, T, NTW, O, C2, Csum, Rs).
+    root_verdict(K, N, T0, T1, T, NTW, O, C2, Csum, Rs, DYN).
 
 % one task:  count all (K,K)-Ramsey graphs on N vertices whose first
 % M edge-bit pattern is exactly V;  a prefix that the store rejects
@@ -163,8 +182,10 @@ prefix(J, E, V) =>
 pow2(0) = 1.
 pow2(I) = 2 * pow2(I - 1).
 
-root_verdict(K, N, T0, T1, T, NTW, O, C2, Csum, Counts) =>
-    ( NTW > 0 -> Mode = " (parblock)" ; Mode = " (serial)" ),
+root_verdict(K, N, T0, T1, T, NTW, O, C2, Csum, Counts, DYN) =>
+    ( NTW > 0, DYN > 0 -> Mode = " (parblock dyn)"
+    ;
+      ( NTW > 0 -> Mode = " (parblock)" ; Mode = " (serial)" ) ),
     ( Csum > 0 ->
         writef("SAT%s: %d workers, %d models in total in %d ms -- a (K,K)-Ramsey graph on %d vertices exists, R(%d,%d) >= %d (witness:  rerun ramsey_pvm)%n",
             Mode, NTW, Csum, T1 - T0, N, K, K, N + 1)
@@ -208,6 +229,10 @@ reset_from_env(R) =>
     ((bp.picat_getenv("RESET", S)) -> (to_int(S) > 0 -> R = reset ; R = none)
     ;
      R = none ).
+
+dyn_from_env(DYN) =>
+    ((bp.picat_getenv("DYN", S)) -> DYN = to_int(S) ; DYN = 0),
+    (DYN >= 0 -> true ; handle_exception($dyn_expected_nonnegative(DYN), main)).
 
 % 1-based array index of the edge (I,J),  0 <= I < J < N
 pair_idx(I, J, N) =
