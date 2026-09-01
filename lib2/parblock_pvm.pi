@@ -40,6 +40,56 @@
 %  - the error term E travels through the codec as a ground term;
 %    a task exception that is not ground cannot be reported (same
 %    bad-flag risk as 1a's ground(V) guard).
+%
+% ================ mode 1 (portfolio race) backends ================
+%
+%   race_pvm(NT, F, Xs) = P          P = (W, Y)
+%   race_res_pvm(NT, F, Xs) = S      S = [won, W, Y]  |  exhausted
+%   map_par_pvm(NT, F, Xs) = Ys      ordered parallel map
+%   map_race_pvm(NT, Fs, Xs) = Ys    per-X portfolio race over Fs
+%   par_any_pvm(NT, P, Xs) = S       S = [sat, X]  |  none
+%   par_all_pvm(NT, P, Xs) = S       S = ok  |  [fail, X]
+%
+%  Substrate (emu/parvm.c, the 1a battery
+%  exs/parallel/parblock/parblock_pvm_race.pi):  the engine forks
+%  children AT CHOICE POINTS under the pool size NT (the current
+%  process keeps the first disjunct,  a child takes the rest);  a
+%  candidate's inner search is wrapped in the bp.pvm_delegate(1/0)
+%  window,  making its frames eligible for pool forking;  the first
+%  process to complete a candidate reports BY VALUE (the codec is
+%  exact for tuples / arrays of ground terms,  truncated for lists
+%  consed from window-exit values -- bug b -- hence the index-tagged
+%  (I, V) tuple reports);  the others notice the found flag at their
+%  next choice point and exit;  the root collects (R = 1/0) and
+%  materializes the winner (bp.pvm_solution).
+%
+%  Discipline (all pinned in the 1a battery,  docs/
+%  pvmbugs_report.tex + the probe notes here):
+%   - the root NEVER calls bp.pvm_worker_id in a mode-1 session
+%     (segments;  the 1a battery does not call it either);
+%   - a candidate that cannot complete must THROW inside the window
+%     (a plain clause failure in the window hangs the session at
+%     collect -- bug c);  function candidates are total by language
+%     semantics:  a function call with no matching rule THROWS
+%     (never silently fails);
+%   - a report is guarded by ground(...) (1a's ground(V) guard);
+%   - a root-level exception DURING a live mode-1 session is not a
+%     supported path (it leaves the session dirty:  the next
+%     pvm_fork in the process is rejected and orphaned children
+%     interleave their output).  Every family member therefore
+%     routes every possible throw onto a supported path before the
+%     root may throw:  par_all_pvm is a mode-2 session (task-error
+%     reports,  rethrown by the root AFTER collect,  exactly like
+%     par_run_pvm),  map_race_pvm throws $parblock_mrace_empty(X)
+%     only after its element session has collected.
+%
+%  Async refinement of the phase-0 written-order schedule (1a rule):
+%  the reported winner is the first candidate that COMPLETES in
+%  wall-clock time (the root's written-order walk is the bias,  not
+%  a guarantee);  the guaranteed part is that the winner is a
+%  genuine completer with an exact value.
+%
+%  NT = 0 falls back to the phase-0 serial combinator.
 
 module parblock_pvm.
 import parblock.
@@ -110,3 +160,222 @@ pvperr(I, M, A) = E =>
       ( V = A[I],
         ( V = {err, E2}, E = E2
         ; pvperr(I + 1, M, A) = E ) ) ).
+
+% ====================================================================
+%  mode 1 (portfolio race) backends
+% ====================================================================
+
+% -------------------------- race / race_res ------------------------
+
+race_pvm(NT, F, Xs) = P =>
+    race_res_pvm(NT, F, Xs) = S,
+    S = [won, W, Y],
+    P = (W, Y).
+
+race_res_pvm(NT, F, Xs) = S =>
+    M = len(Xs),
+    pvrr1(NT, M, F, Xs, S).
+
+pvrr1(0, M, F, Xs, S) =>
+    S = parblock.race_res(F, Xs).
+
+pvrr1(NT, M, F, Xs, S) =>
+    ( M = 0, S = exhausted
+    ;
+      ( bp.pvm_fork(NT, 1, 1),
+        pvwalkr(F, 1, M, Xs, V),
+        bp.pvm_collect(R),
+        ( R = 1,
+          bp.pvm_solution(S0),
+          S0 = (W, Y),
+          S = [won, W, Y]
+        ;
+          S = exhausted ) ) ).
+
+% the candidate walk;  the choice point of this disjunction is a
+% fork site (the current process keeps clause I,  a pool child takes
+% I+1..M);  when the pool is saturated the root walks on itself.
+pvwalkr(F, I, M, Xs, V) =>
+    ( I > M, true
+    ;
+      ( pvcl_r(F, Xs[I], V) ; pvwalkr(F, I + 1, M, Xs, V) ) ).
+
+pvcl_r(F, X, V) =>
+    bp.pvm_delegate(1),
+    call_cleanup(catch(pvst_r(F, X, V), E, false), bp.pvm_delegate(0)),
+    ground(V),
+    bp.pvm_report((X, V)).
+
+% total-or-throw:  a function call with no matching rule already
+% throws,  so this strategy either reports a value or throws away.
+pvst_r(F, X, V) =>
+    ( apply(F, X) = V
+    ; throw($parblock_race_drop(X)) ).
+
+% ---------------------------- par_any -----------------------------
+
+par_any_pvm(NT, P, Xs) = S =>
+    M = len(Xs),
+    pvpa1(NT, M, P, Xs, S).
+
+pvpa1(0, M, P, Xs, S) =>
+    S = parblock.par_any(P, Xs).
+
+pvpa1(NT, M, P, Xs, S) =>
+    ( M = 0, S = none
+    ;
+      ( bp.pvm_fork(NT, 1, 1),
+        pvwalka(P, 1, M, Xs),
+        bp.pvm_collect(R),
+        ( R = 1,
+          bp.pvm_solution(W),
+          S = [sat, W]
+        ;
+          S = none ) ) ).
+
+pvwalka(P, I, M, Xs) =>
+    ( I > M, true
+    ;
+      ( pvcl_a(P, Xs[I]) ; pvwalka(P, I + 1, M, Xs) ) ).
+
+% a throwing P(X) drops out (the serial contract);  so does a plain
+% failure,  converted to a throw so the window never clause-fails.
+pvcl_a(P, X) =>
+    bp.pvm_delegate(1),
+    call_cleanup(catch(pvst_a(P, X), E, false), bp.pvm_delegate(0)),
+    ground(X),
+    bp.pvm_report(X).
+
+pvst_a(P, X) =>
+    ( once(call(P, X))
+    ; throw($parblock_any_drop(X)) ).
+
+% ---------------------------- map_par -----------------------------
+
+% ordered parallel map:  one task per element,  mode-2 partition,
+% results in element order (par_run_pvm semantics:  a throwing F(X)
+% aborts the par with the first throwing element's term,  in
+% element order).
+map_par_pvm(NT, F, Xs) = Ys =>
+    Tasks = [{F, X} : X in Xs],
+    par_run_pvm(NT, Tasks) = Ys.
+
+% ---------------------------- par_all -----------------------------
+
+% fail-fast over the elements.  Mode 2 (NOT the mode-1 portfolio):
+% the elements must all be TESTED to find the first failure,  and a
+% throwing P(X) must propagate with its element order -- that is
+% exactly par_run_pvm's error-report machinery,  reassembled with
+% par_all's resolution:  scan the {I, R} reports in element order;
+% the first {fail, X} wins (a later error is never seen,  exactly
+% like the serial fail-fast);  the first {err, E} before any failure
+% is rethrown;  all ok -> ok.
+% Documented async divergence:  elements AFTER the first failure may
+% still run in their workers (side effects are not suppressed),  as
+% in par_run_pvm;  the returned term is the serial one.
+
+par_all_pvm(NT, P, Xs) = S =>
+    M = len(Xs),
+    pval1(NT, M, P, Xs, S).
+
+pval1(0, M, P, Xs, S) =>
+    S = parblock.par_all(P, Xs).
+
+pval1(NT, M, P, Xs, S) =>
+    ( M = 0, S = ok
+    ;
+      ( bp.pvm_fork(NT, 2, M),
+        bp.pvm_worker_id(I),
+        ( I > 0,
+          bp.pvm_chunk(Lo, Hi),
+          pvalreps(Hi, Lo, P, Xs, [], Reps),
+          bp.pvm_report(Reps),
+          halt
+        ;
+          ( bp.pvm_collect(ChunkReps),
+            pvalflat(ChunkReps, [], Pairs),
+            len(Pairs) = M,
+            pvalresolve(Pairs, M, S) ) ) ) ).
+
+% worker:  the per-element verdict,  value or wrapped exception,
+% tagged with the element index.
+pvalreps(Hi, I, P, Xs, Acc, Reps) =>
+    ( I > Hi, Reps = Acc
+    ;
+      ( catch( (R = pvaltest(P, Xs[I]), Q = {I, R}),
+               E,
+               Q = {I, {err, E}} ),
+        pvalreps(Hi, I + 1, P, Xs, [Q | Acc], Reps) ) ).
+
+% total-or-throw:  P succeeds -> ok,  P fails -> {fail, X},  P
+% throws -> propagates (reported as {err, E} by the wrapper above).
+pvaltest(P, X) = R =>
+    ( once(call(P, X)), R = ok
+    ;
+      R = {fail, X} ).
+
+pvalflat([], Acc, Pairs) => Pairs = Acc.
+pvalflat([R | Rs], Acc, Pairs) => pvalflat(Rs, Acc ++ R, Pairs).
+
+pvalresolve(Pairs, M, S) =>
+    A = new_array(M),
+    foreach (Q in Pairs)
+        A[first(Q)] = second(Q)
+    end,
+    pvalscan(1, M, A, S).
+
+pvalscan(I, M, A, S) =>
+    ( I > M, S = ok
+    ;
+      ( Q = A[I],
+        ( Q = {fail, X}, S = [fail, X]
+        ;
+          ( Q = {err, E}, throw(E)
+          ; pvalscan(I + 1, M, A, S) ) ) ) ).
+
+% --------------------------- map_race ------------------------------
+
+% per-element mode-1 portfolio race over the function list Fs:
+% the serial outer loop keeps the element order (and the result
+% list order);  each element is one self-contained session (a
+% session always unwinds through collect,  so back-to-back sessions
+% are clean -- the q4 precedent,  docs/pvmbugs_report.tex).
+% All F throw for an element -> $parblock_mrace_empty(X),  thrown
+% AFTER the element session has collected (supported throw point).
+
+map_race_pvm(NT, Fs, Xs) = Ys =>
+    Ys = pvmrcall(NT, Fs, Xs).
+
+pvmrcall(NT, Fs, []) = [].
+pvmrcall(NT, Fs, [X | Xs]) = [Y | Ys] =>
+    pvmrc1(NT, Fs, X) = Y,
+    pvmrcall(NT, Fs, Xs) = Ys.
+
+pvmrc1(0, Fs, X) = Y =>
+    parblock.map_race(Fs, [X]) = [Y].
+
+pvmrc1(NT, Fs, X) = Y =>
+    M = len(Fs),
+    bp.pvm_fork(NT, 1, 1),
+    pvwalkm(Fs, X, 1, M, V),
+    bp.pvm_collect(R),
+    ( R = 1,
+      bp.pvm_solution(S0),
+      S0 = (_F, Y)
+    ;
+      throw($parblock_mrace_empty(X)) ).
+
+pvwalkm(Fs, X, I, M, V) =>
+    ( I > M, true
+    ;
+      ( pvcl_m(Fs, X, I, V) ; pvwalkm(Fs, X, I + 1, M, V) ) ).
+
+pvcl_m(Fs, X, I, V) =>
+    bp.pvm_delegate(1),
+    call_cleanup(catch(pvst_m(Fs, X, I, V), E, false), bp.pvm_delegate(0)),
+    ground(V),
+    bp.pvm_report((I, V)).
+
+pvst_m(Fs, X, I, V) =>
+    ( apply(Fs[I], X) = V
+    ; throw($parblock_mr_drop(I)) ).

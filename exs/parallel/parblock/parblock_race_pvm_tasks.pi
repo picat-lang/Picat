@@ -1,0 +1,257 @@
+% parblock_race_pvm_tasks:  two-way battery for the mode-1
+% portfolio-race backends in lib2/parblock_pvm.pi
+% (race_pvm / race_res_pvm / map_par_pvm / map_race_pvm /
+% par_any_pvm / par_all_pvm)  vs  the phase-0 serial contracts in
+% lib2/parblock.pi.
+%
+% Run from the repo root:
+%   PICATPATH=lib2 timeout 600 emu/picat exs/parallel/parblock/parblock_race_pvm_tasks.pi
+%
+% Validation rule (the satext rule:  a portfolio winner is a MODEL --
+% validate it by SATISFACTION,  not by which candidate won):
+%   - the reported winner must be a genuine completer;  its value is
+%     checked against the winner's contract (a valid 8-queens
+%     placement,  the exact element value,  ...);
+%   - a case whose value is UNIQUE regardless of which candidate
+%     won  (all completers agree)  is asserted EXACTLY;
+%   - the winner's IDENTITY is never asserted (it is a scheduling
+%     outcome,  like which model a CDCL solver returns);
+%   - the serial reference is printed alongside;  deterministic
+%     combiners (par_all,  map_par,  the all-agree map_race) are
+%     asserted EQUAL to their serial value.
+%
+% NT matrix:  0 (serial fallback),  1,  2,  4  per case.
+
+module parblock_race_pvm_tasks.
+import parblock.
+import parblock_pvm.
+
+% ============================ problem  ============================
+
+% 8-queens with a chosen column order (from the 1a battle-tested
+% battery exs/parallel/parblock/parblock_pvm_race.pi)
+
+ord_a(N) = [C : C in 1..N].
+ord_b(N) = [C : C in N // 2 + 1..N] ++ [C : C in 1..N // 2].
+
+queens_ord(Ord, N, Qs) =>
+    qs1(1, N, [], Qs, Ord).
+qs1(Row, N, P, Qs, Ord) =>
+    ( Row = N + 1, Qs = P
+    ;
+      ( pick(Ord, C), safe(C, P), qs1(Row + 1, N, [C | P], Qs, Ord) ) ).
+pick([], _)   => fail.
+pick([H | T], X) =>
+    ( X = H ; pick(T, X) ).
+safe(C, P) => safe1(C, P, 1).
+safe1(C, [], D) => true.
+safe1(C, [Hh | T], D) =>
+    not(C = Hh),
+    not(C - Hh = D),
+    not(Hh - C = D),
+    safe1(C, T, D + 1).
+
+sol_a() = Qs => once(queens_ord(ord_a(8), 8, Qs)).    % ascending
+sol_b() = Qs => once(queens_ord(ord_b(8), 8, Qs)).    % middle-out
+
+sumsq(Ns) = S =>
+    N2 = [X * X : X in Ns],
+    S = sum(N2).
+valid8(Qs) =>
+    Ns = [Qs[I] : I in 1..8],
+    len(Ns) = 8,
+    foreach (V in Ns)
+        V >= 1, V <= 8
+    end,
+    S = sum(Ns), S = 36,
+    Sq = sumsq(Ns), Sq = 204,
+    foreach (I in 1..7, J in (I + 1)..8)
+        not(abs(Qs[I] - Qs[J]) = J - I)
+    end.
+
+% the strategy function:  1 = fast ascending,  2 = slow middle-out,
+% 3 = infeasible (throws;  a function call with no matching rule
+% throws,  total-or-throw is the 1a race discipline)
+fstrat(I) = Qs =>
+    ( I = 1, Qs = sol_a()
+    ;
+      ( I = 2, Qs = sol_b()
+      ; throw($parbat_nosol(I)) ) ).
+
+work(N) => foreach (J in 1..N) true end.
+
+% staggered-cost value function (map_par)
+fg(I) = V =>
+    work(100000 + I * 50000),
+    V = I * 7.
+
+% map_race value functions:  fast / slow / infeasible / disagreeing
+fa(I)   = V => work(400000 + I * 60000), V = I.
+fb(I)   = V => work(20000 + I * 4000), V = I.
+fnos(I) = V => throw($parbat_nos(I)), V.
+fnos2(I) = V => throw($parbat_nos2(I)), V.
+fa2(I)  = V => V = I.
+fb2(I)  = V => V = I * 2.
+
+% par_any / par_all candidates
+sfeas(1).
+sfeas(2).
+pnone(_) => false.
+pthrow(X) => throw($parbat_pt(X)), true.
+pthr(1) => true.
+pthr(2) => throw($parbat_ptf(2)), true.
+pthr(3) => true.
+
+% first-fail at 2  BEFORE  a throw at 3:  serial par_all returns the
+% failure and never sees the throw
+pfbt(1) => true.
+pfbt(2) => false.
+pfbt(3) => throw($parbat_ptf(3)), true.
+pfbt(4) => true.
+
+% ============================ cases  ==============================
+
+% returns true iff the case holds at NT
+case_race(NT) =>
+    race_res_pvm(NT, fstrat, [1, 2, 3]) = S,
+    S = [won, W, Y],
+    ( W = 1 ; W = 2 ),
+    valid8(Y),
+    parblock.race_res(fstrat, [1, 2, 3]) = Rs,
+    printf("  case_race      NT=%d  pvm=[won %d <valid8>]  serial=[%s]\n",
+           NT, W, to_string(Rs)),
+    true.
+
+case_race_exhaust(NT) =>
+    race_res_pvm(NT, fstrat, [3]) = S,
+    S = exhausted,
+    parblock.race_res(fstrat, [3]) = Rs,
+    ( Rs = exhausted, true
+    ; ( printf("  case_race_exhaust: serial mismatch %s\n", to_string(Rs)), false ) ).
+
+case_race2(NT) =>
+    race_pvm(NT, fstrat, [1, 2]) = (W, Y),
+    ( W = 1 ; W = 2 ),
+    valid8(Y),
+    true.
+
+case_mappar(NT) =>
+    map_par_pvm(NT, fg, [1, 2, 3, 4]) = Ys,
+    parblock.map_par(fg, [1, 2, 3, 4]) = Ys2,
+    Ys2 = [7, 14, 21, 28],
+    ( Ys = [7, 14, 21, 28], true
+    ; ( printf("  case_mappar NT=%d: pvm=%s\n", NT, to_string(Ys)), false ) ).
+
+case_parany(NT) =>
+    par_any_pvm(NT, sfeas, [1, 2, 3]) = S,
+    S = [sat, W],
+    sfeas(W),
+    parblock.par_any(sfeas, [1, 2, 3]) = Ss,
+    Ss = [sat, Ws],
+    printf("  case_parany    NT=%d  pvm=[sat %d]  serial=[sat %d]\n", NT, W, Ws),
+    true.
+
+case_parany_none(NT) =>
+    par_any_pvm(NT, pnone, [1, 2, 3]) = S,
+    S = none,
+    par_any_pvm(NT, pthrow, [1, 2, 3]) = T,
+    T = none,
+    true.
+
+case_parall_ok(NT) =>
+    par_all_pvm(NT, sfeas, [1, 2]) = S,
+    S = ok,
+    true.
+
+case_parall_fail(NT) =>
+    par_all_pvm(NT, sfeas, [1, 2, 3]) = S,
+    S = [fail, 3],
+    parblock.par_all(sfeas, [1, 2, 3]) = Ss,
+    Ss = [fail, 3],
+    true.
+
+case_parall_throw(NT) =>
+    catch( (par_all_pvm(NT, pthr, [1, 2, 3]) = S, true),
+           E,
+           cpthr(NT, E) ).
+
+cpthr(NT, E) =>
+    ( E = $parbat_ptf(2),
+      printf("  case_parall_throw NT=%d  propagated $parbat_ptf(2)  ok\n", NT),
+      true
+    ;
+      ( printf("  case_parall_throw NT=%d: FAIL E=%s\n", NT, to_string(E)), false ) ).
+
+case_parall_fbt(NT) =>
+    par_all_pvm(NT, pfbt, [1, 2, 3, 4]) = S,
+    S = [fail, 2],
+    parblock.par_all(pfbt, [1, 2, 3, 4]) = Ss,
+    Ss = [fail, 2],
+    true.
+
+case_maprace(NT) =>
+    F1 = [fa, fnos, fb],
+    map_race_pvm(NT, F1, [1, 2, 3]) = Ys,
+    Ys = [1, 2, 3],
+    true.
+
+case_maprace_agree(NT) =>
+    F1 = [fa2, fb2],
+    map_race_pvm(NT, F1, [1, 2, 3]) = Ys,
+    Z1 = Ys[1], ( Z1 = 1 ; Z1 = 2 ),
+    Z2 = Ys[2], ( Z2 = 2 ; Z2 = 4 ),
+    Z3 = Ys[3], ( Z3 = 3 ; Z3 = 6 ),
+    printf("  case_maprace_agree NT=%d pvm=%s\n", NT, to_string(Ys)),
+    true.
+
+case_maprace_empty(NT) =>
+    catch( (map_race_pvm(NT, [fnos, fnos2], [7]) = Ys, true),
+           E,
+           cpme(NT, E) ).
+
+cpme(NT, E) =>
+    ( E = $parblock_mrace_empty(7),
+      printf("  case_maprace_empty NT=%d  threw mrace_empty(7)  ok\n", NT),
+      true
+    ;
+      ( printf("  case_maprace_empty NT=%d: FAIL E=%s\n", NT, to_string(E)), false ) ).
+
+% ============================ driver  =============================
+
+run_case(NT, Name) = R =>
+    ( catch((call_case(NT, Name)), E,
+            ( printf("  case%d NT=%d  ERROR %s\n", Name, NT, to_string(E)), false ) ),
+      R = true
+    ;
+      R = false ).
+
+call_case(NT, 1) => case_race(NT).
+call_case(NT, 2) => case_race_exhaust(NT).
+call_case(NT, 3) => case_race2(NT).
+call_case(NT, 4) => case_mappar(NT).
+call_case(NT, 5) => case_parany(NT).
+call_case(NT, 6) => case_parany_none(NT).
+call_case(NT, 7) => case_parall_ok(NT).
+call_case(NT, 8) => case_parall_fail(NT).
+call_case(NT, 9) => case_parall_throw(NT).
+call_case(NT, 10) => case_parall_fbt(NT).
+call_case(NT, 11) => case_maprace(NT).
+call_case(NT, 12) => case_maprace_agree(NT).
+call_case(NT, 13) => case_maprace_empty(NT).
+
+drun(NT, I, N, Acc, Total) =>
+    ( I > N, Total = Acc
+    ;
+      ( Ok = run_case(NT, I),
+        ( Ok, drun(NT, I + 1, N, Acc, Total)
+        ; drun(NT, I + 1, N, Acc + 1, Total) ) ) ).
+
+resname(0) = "ALL-OK 13/13".
+resname(F) = R => F > 0, R = "FAILURES: " ++ to_string(F).
+
+main =>
+    foreach (NT in [0, 1, 2, 4])
+        ( drun(NT, 1, 13, 0, F),
+          printf("NT=%d: %s\n", NT, resname(F)) )
+    end,
+    true.
