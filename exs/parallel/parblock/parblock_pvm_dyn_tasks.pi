@@ -1,6 +1,6 @@
 % parblock_pvm_dyn_tasks:  the phase-1b dynamic backend
-% (lib2/parblock_pvm_dyn,  par_run_pvm_dyn over the shared-cursor
-% bp.pvm_claim)  vs the fixed-chunk par_run_pvm  vs the phase-0
+% (lib2/parblock_pvm_dyn,  par_run_dyn over the shared-cursor
+% bp.pvm_claim)  vs the fixed-chunk par_run  vs the phase-0
 % serial par_run,  over the same parblock task contract as
 % parblock_pvm_tasks.
 %
@@ -101,12 +101,12 @@ ser(Tasks, S) =>
            S = [err, E] ).
 
 pfix(NT, Tasks, S) =>
-    catch( (Rs = parblock_pvm.par_run_pvm(NT, Tasks), S = [val, Rs]),
+    catch( (Rs = parblock_pvm.par_run(NT, Tasks), S = [val, Rs]),
            E,
            S = [err, E] ).
 
 pdyn(NT, Tasks, S) =>
-    catch( (Rs = parblock_pvm_dyn.par_run_pvm_dyn(NT, Tasks), S = [val, Rs]),
+    catch( (Rs = parblock_pvm_dyn.par_run_dyn(NT, Tasks), S = [val, Rs]),
            E,
            S = [err, E] ).
 

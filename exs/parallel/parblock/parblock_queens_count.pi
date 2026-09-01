@@ -1,18 +1,18 @@
 % Parblock-flavoured N-Queens counting:  the same problem as
 % exs/parallel/pvm/queens_count.pi,  but written against the phase-1b
-% par_run_pvm API.  The contrast is the point:
+% par_run API.  The contrast is the point:
 %
 %   queens_count.pi      bp.pvm_fork / pvm_worker_id / pvm_chunk /
 %                        pvm_report / pvm_collect --- the whole mode-2
 %                        session is spelled out by the user
 %   this file            Tasks = [ {qcount, {N, C}} : C in 1..N ],
-%                        Rs    = parblock_pvm.par_run_pvm(NT, Tasks),
+%                        Rs    = parblock_pvm.par_run(NT, Tasks),
 %                        T     = sum(Rs)
 %
 % The task list IS the parallelism:  one task per possible first-queen
 % column C (the classic mode-2 chunk is a task here),  and the session
 % (fork, chunking, per-task dispatch, collect, order, rethrow) is
-% entirely inside par_run_pvm.  NT = 0 runs the identical program
+% entirely inside par_run.  NT = 0 runs the identical program
 % serially (the library falls back to the phase-0 par_run),  so one
 % source serves both backends.
 %
@@ -32,7 +32,7 @@ main([NS, NTS]) =>
 
 run(N, NT) =>
     Tasks = [ {qcount, {N, C}} : C in 1..N ],
-    Rs = parblock_pvm.par_run_pvm(NT, Tasks),
+    Rs = parblock_pvm.par_run(NT, Tasks),
     T = sum(Rs),
     expect_of(N, E),
     printf("N=%d NT=%d  per-column=%s  total=%d", N, NT, to_string(Rs), T),

@@ -1,5 +1,5 @@
 % Phase 1b two-way battery:  the phase-0 serial par_run (parblock
-% module) vs the PVM mode-2 task-parallel par_run_pvm (the
+% module) vs the PVM mode-2 task-parallel par_run (the
 % parblock_pvm module),  over the parblock task contract.
 %
 % From the repo root,  one line per case  (NT = 0:  serial only;
@@ -78,7 +78,7 @@ ser(Tasks, S) =>
            S = [err, E] ).
 
 pmv(NT, Tasks, S) =>
-    catch( (Rs = parblock_pvm.par_run_pvm(NT, Tasks), S = [val, Rs]),
+    catch( (Rs = parblock_pvm.par_run(NT, Tasks), S = [val, Rs]),
            E,
            S = [err, E] ).
 

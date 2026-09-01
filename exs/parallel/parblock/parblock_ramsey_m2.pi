@@ -9,7 +9,7 @@
 % chunk split, per-task execution, report,  collect,  task-order
 % reassembly,  rethrow)  is the ONE library call
 %
-%        Rs = parblock_pvm.par_run_pvm(NT, Tasks)
+%        Rs = parblock_pvm.par_run(NT, Tasks)
 %
 % Tasks = [ {rcount, {K, N, M, O + 1 + I}} : I in 0..T-1 ]
 %
@@ -70,8 +70,8 @@
 % module-qualified sat.reset_store does.)
 %
 % DYN dynamic scheduling:  DYN=1 dispatches the same Tasks through
-% lib2/parblock_pvm_dyn's  par_run_pvm_dyn(NT, Tasks)  instead of the
-% fixed-chunk par_run_pvm --- NT workers share the pool and each claims
+% lib2/parblock_pvm_dyn's  par_run_dyn(NT, Tasks)  instead of the
+% fixed-chunk par_run --- NT workers share the pool and each claims
 % the next task from the engine's shared cursor (bp.pvm_claim) until it
 % is exhausted (the ramsey_m2 DYN=1 mode re-expressed in parblock).
 % Dynamic mode covers the FULL window 1..2^M (like ramsey_m2's DYN);
@@ -140,9 +140,9 @@ main =>
         K, N, T, M, O, NTW, DYN, O + 1, O + T, NTW, R, N * (N - 1) // 2),
     Tasks = [ {rcount, {K, N, M, O + 1 + I, R}} : I in 0..T-1 ],
     ( DYN > 0
-    -> Rs = parblock_pvm_dyn.par_run_pvm_dyn(NTW, Tasks)
+    -> Rs = parblock_pvm_dyn.par_run_dyn(NTW, Tasks)
     ;
-      Rs = parblock_pvm.par_run_pvm(NTW, Tasks) ),
+      Rs = parblock_pvm.par_run(NTW, Tasks) ),
     Csum = sum(Rs),
     bp.c_wall_ms(T1),
     root_verdict(K, N, T0, T1, T, NTW, O, C2, Csum, Rs, DYN).

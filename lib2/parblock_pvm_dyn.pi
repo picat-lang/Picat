@@ -2,7 +2,7 @@
 % for the parblock par_run contract  --  the parblock twin of
 % ramsey_m2's DYN=1 driver,  which today uses raw bp.pvm_claim.
 %
-%   par_run_pvm_dyn(NT, Tasks) = Rs
+%   par_run_dyn(NT, Tasks) = Rs
 %       NT = 0:  falls back to the phase-0 serial  par_run(Tasks).
 %       NT >= 1:  forks NT processes over the M task indices 1..M,
 %                 but NOT in fixed chunks:  every worker loops
@@ -12,7 +12,7 @@
 %                 right away,  and claims again;  exhaustion
 %                 (claim 0) ends the loop and the worker halts.
 %
-% Why dynamic vs par_run_pvm's fixed chunks:  a fixed chunk
+% Why dynamic vs par_run's fixed chunks:  a fixed chunk
 % [lo..hi] makes each worker's wall time the SUM of its chunk's
 % task costs,  so one slow task in a chunk strands the whole
 % chunk while its fast siblings sit done-and-reported at the end;
@@ -21,7 +21,7 @@
 % SAT/CP loads) balances itself and a worker idles only from the
 % moment the very last task completes.
 %
-% Contract (==  parblock.par_run,  ==  par_run_pvm,  async-refined
+% Contract (==  parblock.par_run,  ==  par_run,  async-refined
 % exactly like 1a/1b):
 %   - Rs is in TASK order,  independent of NT and of which worker
 %     ran which task (index-tagged per-task reports,  root
@@ -76,7 +76,7 @@
 module parblock_pvm_dyn.
 import parblock.
 
-par_run_pvm_dyn(NT, Tasks) = Rs =>
+par_run_dyn(NT, Tasks) = Rs =>
     M = len(Tasks),
     pvd1(NT, M, Tasks, Rs).
 

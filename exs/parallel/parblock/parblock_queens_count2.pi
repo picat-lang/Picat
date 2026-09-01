@@ -9,9 +9,9 @@
 %   this file          tasks  {rcount, {N, Lo, Hi}}  --  one range-count
 %                      task per worker,  NT of them --  and the whole
 %                      session (fork, dispatch, collect, order,
-%                      rethrow) is inside par_run_pvm:
+%                      rethrow) is inside par_run:
 %
-%                        T = sum(parblock_pvm.par_run_pvm(NT, Tasks))
+%                        T = sum(parblock_pvm.par_run(NT, Tasks))
 %
 % DESIGN NOTE (history):  the one-count-per-worker shape was adopted
 % when this file was written because of Bug E (docs/pvmbugs_report.tex,
@@ -53,7 +53,7 @@ run(N, 0) =>
     printf("\n").
 run(N, NT) =>
     Tasks = [ {rcount, {N, Lo, Hi}} : I in 1..NT, range_of(I, NT, N*N, Lo, Hi) ],
-    Rs = parblock_pvm.par_run_pvm(NT, Tasks),
+    Rs = parblock_pvm.par_run(NT, Tasks),
     T = sum(Rs),
     printf("N=%d NT=%d  per-worker=%s  total=%d", N, NT, to_string(Rs), T),
     check(N, T),

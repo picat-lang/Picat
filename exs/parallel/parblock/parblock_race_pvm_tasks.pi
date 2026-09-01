@@ -1,7 +1,7 @@
 % parblock_race_pvm_tasks:  two-way battery for the mode-1
 % portfolio-race backends in lib2/parblock_pvm.pi
-% (race_pvm / race_res_pvm / map_par_pvm / map_race_pvm /
-% par_any_pvm / par_all_pvm)  vs  the phase-0 serial contracts in
+% (race / race_res / map_par / map_race /
+% par_any / par_all)  vs  the phase-0 serial contracts in
 % lib2/parblock.pi.
 %
 % Run from the repo root:
@@ -113,7 +113,7 @@ pfbt(4) => true.
 
 % returns true iff the case holds at NT
 case_race(NT) =>
-    race_res_pvm(NT, fstrat, [1, 2, 3]) = S,
+    race_res(NT, fstrat, [1, 2, 3]) = S,
     S = [won, W, Y],
     ( W = 1 ; W = 2 ),
     valid8(Y),
@@ -123,27 +123,27 @@ case_race(NT) =>
     true.
 
 case_race_exhaust(NT) =>
-    race_res_pvm(NT, fstrat, [3]) = S,
+    race_res(NT, fstrat, [3]) = S,
     S = exhausted,
     parblock.race_res(fstrat, [3]) = Rs,
     ( Rs = exhausted, true
     ; ( printf("  case_race_exhaust: serial mismatch %s\n", to_string(Rs)), false ) ).
 
 case_race2(NT) =>
-    race_pvm(NT, fstrat, [1, 2]) = (W, Y),
+    race(NT, fstrat, [1, 2]) = (W, Y),
     ( W = 1 ; W = 2 ),
     valid8(Y),
     true.
 
 case_mappar(NT) =>
-    map_par_pvm(NT, fg, [1, 2, 3, 4]) = Ys,
+    map_par(NT, fg, [1, 2, 3, 4]) = Ys,
     parblock.map_par(fg, [1, 2, 3, 4]) = Ys2,
     Ys2 = [7, 14, 21, 28],
     ( Ys = [7, 14, 21, 28], true
     ; ( printf("  case_mappar NT=%d: pvm=%s\n", NT, to_string(Ys)), false ) ).
 
 case_parany(NT) =>
-    par_any_pvm(NT, sfeas, [1, 2, 3]) = S,
+    par_any(NT, sfeas, [1, 2, 3]) = S,
     S = [sat, W],
     sfeas(W),
     parblock.par_any(sfeas, [1, 2, 3]) = Ss,
@@ -152,26 +152,26 @@ case_parany(NT) =>
     true.
 
 case_parany_none(NT) =>
-    par_any_pvm(NT, pnone, [1, 2, 3]) = S,
+    par_any(NT, pnone, [1, 2, 3]) = S,
     S = none,
-    par_any_pvm(NT, pthrow, [1, 2, 3]) = T,
+    par_any(NT, pthrow, [1, 2, 3]) = T,
     T = none,
     true.
 
 case_parall_ok(NT) =>
-    par_all_pvm(NT, sfeas, [1, 2]) = S,
+    par_all(NT, sfeas, [1, 2]) = S,
     S = ok,
     true.
 
 case_parall_fail(NT) =>
-    par_all_pvm(NT, sfeas, [1, 2, 3]) = S,
+    par_all(NT, sfeas, [1, 2, 3]) = S,
     S = [fail, 3],
     parblock.par_all(sfeas, [1, 2, 3]) = Ss,
     Ss = [fail, 3],
     true.
 
 case_parall_throw(NT) =>
-    catch( (par_all_pvm(NT, pthr, [1, 2, 3]) = S, true),
+    catch( (par_all(NT, pthr, [1, 2, 3]) = S, true),
            E,
            cpthr(NT, E) ).
 
@@ -183,7 +183,7 @@ cpthr(NT, E) =>
       ( printf("  case_parall_throw NT=%d: FAIL E=%s\n", NT, to_string(E)), false ) ).
 
 case_parall_fbt(NT) =>
-    par_all_pvm(NT, pfbt, [1, 2, 3, 4]) = S,
+    par_all(NT, pfbt, [1, 2, 3, 4]) = S,
     S = [fail, 2],
     parblock.par_all(pfbt, [1, 2, 3, 4]) = Ss,
     Ss = [fail, 2],
@@ -191,13 +191,13 @@ case_parall_fbt(NT) =>
 
 case_maprace(NT) =>
     F1 = [fa, fnos, fb],
-    map_race_pvm(NT, F1, [1, 2, 3]) = Ys,
+    map_race(NT, F1, [1, 2, 3]) = Ys,
     Ys = [1, 2, 3],
     true.
 
 case_maprace_agree(NT) =>
     F1 = [fa2, fb2],
-    map_race_pvm(NT, F1, [1, 2, 3]) = Ys,
+    map_race(NT, F1, [1, 2, 3]) = Ys,
     Z1 = Ys[1], ( Z1 = 1 ; Z1 = 2 ),
     Z2 = Ys[2], ( Z2 = 2 ; Z2 = 4 ),
     Z3 = Ys[3], ( Z3 = 3 ; Z3 = 6 ),
@@ -205,7 +205,7 @@ case_maprace_agree(NT) =>
     true.
 
 case_maprace_empty(NT) =>
-    catch( (map_race_pvm(NT, [fnos, fnos2], [7]) = Ys, true),
+    catch( (map_race(NT, [fnos, fnos2], [7]) = Ys, true),
            E,
            cpme(NT, E) ).
 

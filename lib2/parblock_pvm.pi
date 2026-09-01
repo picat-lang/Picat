@@ -1,7 +1,7 @@
 % parblock_pvm:  the PVM mode-2 (process-parallel) backend for the
 % parblock par_run contract.
 %
-%   par_run_pvm(NT, Tasks) = Rs
+%   par_run(NT, Tasks) = Rs
 %       NT = 0:  falls back to the phase-0 serial  par_run(Tasks).
 %       NT >= 1:  forks NT processes over the M task indices 1..M
 %                 (the mode-2 split, queens_count style),  every
@@ -43,12 +43,12 @@
 %
 % ================ mode 1 (portfolio race) backends ================
 %
-%   race_pvm(NT, F, Xs) = P          P = (W, Y)
-%   race_res_pvm(NT, F, Xs) = S      S = [won, W, Y]  |  exhausted
-%   map_par_pvm(NT, F, Xs) = Ys      ordered parallel map
-%   map_race_pvm(NT, Fs, Xs) = Ys    per-X portfolio race over Fs
-%   par_any_pvm(NT, P, Xs) = S       S = [sat, X]  |  none
-%   par_all_pvm(NT, P, Xs) = S       S = ok  |  [fail, X]
+%   race(NT, F, Xs) = P          P = (W, Y)
+%   race_res(NT, F, Xs) = S      S = [won, W, Y]  |  exhausted
+%   map_par(NT, F, Xs) = Ys      ordered parallel map
+%   map_race(NT, Fs, Xs) = Ys    per-X portfolio race over Fs
+%   par_any(NT, P, Xs) = S       S = [sat, X]  |  none
+%   par_all(NT, P, Xs) = S       S = ok  |  [fail, X]
 %
 %  Substrate (emu/parvm.c, the 1a battery
 %  exs/parallel/parblock/parblock_pvm_race.pi):  the engine forks
@@ -78,9 +78,9 @@
 %     pvm_fork in the process is rejected and orphaned children
 %     interleave their output).  Every family member therefore
 %     routes every possible throw onto a supported path before the
-%     root may throw:  par_all_pvm is a mode-2 session (task-error
+%     root may throw:  par_all is a mode-2 session (task-error
 %     reports,  rethrown by the root AFTER collect,  exactly like
-%     par_run_pvm),  map_race_pvm throws $parblock_mrace_empty(X)
+%     par_run),  map_race throws $parblock_mrace_empty(X)
 %     only after its element session has collected.
 %
 %  Async refinement of the phase-0 written-order schedule (1a rule):
@@ -94,7 +94,7 @@
 module parblock_pvm.
 import parblock.
 
-par_run_pvm(NT, Tasks) = Rs =>
+par_run(NT, Tasks) = Rs =>
     M = len(Tasks),
     pvp1(NT, M, Tasks, Rs).
 
@@ -167,12 +167,12 @@ pvperr(I, M, A) = E =>
 
 % -------------------------- race / race_res ------------------------
 
-race_pvm(NT, F, Xs) = P =>
-    race_res_pvm(NT, F, Xs) = S,
+race(NT, F, Xs) = P =>
+    race_res(NT, F, Xs) = S,
     S = [won, W, Y],
     P = (W, Y).
 
-race_res_pvm(NT, F, Xs) = S =>
+race_res(NT, F, Xs) = S =>
     M = len(Xs),
     pvrr1(NT, M, F, Xs, S).
 
@@ -214,7 +214,7 @@ pvst_r(F, X, V) =>
 
 % ---------------------------- par_any -----------------------------
 
-par_any_pvm(NT, P, Xs) = S =>
+par_any(NT, P, Xs) = S =>
     M = len(Xs),
     pvpa1(NT, M, P, Xs, S).
 
@@ -253,28 +253,28 @@ pvst_a(P, X) =>
 % ---------------------------- map_par -----------------------------
 
 % ordered parallel map:  one task per element,  mode-2 partition,
-% results in element order (par_run_pvm semantics:  a throwing F(X)
+% results in element order (par_run semantics:  a throwing F(X)
 % aborts the par with the first throwing element's term,  in
 % element order).
-map_par_pvm(NT, F, Xs) = Ys =>
+map_par(NT, F, Xs) = Ys =>
     Tasks = [{F, X} : X in Xs],
-    par_run_pvm(NT, Tasks) = Ys.
+    par_run(NT, Tasks) = Ys.
 
 % ---------------------------- par_all -----------------------------
 
 % fail-fast over the elements.  Mode 2 (NOT the mode-1 portfolio):
 % the elements must all be TESTED to find the first failure,  and a
 % throwing P(X) must propagate with its element order -- that is
-% exactly par_run_pvm's error-report machinery,  reassembled with
+% exactly par_run's error-report machinery,  reassembled with
 % par_all's resolution:  scan the {I, R} reports in element order;
 % the first {fail, X} wins (a later error is never seen,  exactly
 % like the serial fail-fast);  the first {err, E} before any failure
 % is rethrown;  all ok -> ok.
 % Documented async divergence:  elements AFTER the first failure may
 % still run in their workers (side effects are not suppressed),  as
-% in par_run_pvm;  the returned term is the serial one.
+% in par_run;  the returned term is the serial one.
 
-par_all_pvm(NT, P, Xs) = S =>
+par_all(NT, P, Xs) = S =>
     M = len(Xs),
     pval1(NT, M, P, Xs, S).
 
@@ -343,7 +343,7 @@ pvalscan(I, M, A, S) =>
 % All F throw for an element -> $parblock_mrace_empty(X),  thrown
 % AFTER the element session has collected (supported throw point).
 
-map_race_pvm(NT, Fs, Xs) = Ys =>
+map_race(NT, Fs, Xs) = Ys =>
     Ys = pvmrcall(NT, Fs, Xs).
 
 pvmrcall(NT, Fs, []) = [].
