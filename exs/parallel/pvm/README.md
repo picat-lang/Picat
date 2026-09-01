@@ -61,6 +61,13 @@ pays here mostly by making the depth cheap — a static 14-bit grid
 would need 16,384 workers (one per leaf), above the 4096 cap. A
 full-batch remeasurement on the hot node (2026-08-28) reproduced the
 verdicts and the relative ordering: 2.30× there versus 2.10× quiet.
+On the picat 39.13-based engine (September 2026 rebase) the batch
+numbers above no longer reproduce: the DYN claim is now
+self-contained (fresh instance + `sat.reset_store()` per claim, the
+Bug F cure), and the R(4,4) N=18 cell lands at ~150–250 s wall at
+384 workers (192-core-pinned halves; the old shared-instance claim
+paid ~3.3 s per reclaimed slice for the previous solve's replay,
+whereas a fresh 14-bit slice solve builds + solves in ~150 ms serial).
 
 ## Reproducing each row
 
@@ -140,8 +147,8 @@ picat exs/parallel/pvm/term_report.pi
 | `queens_count.pi` | args `[N] [NT]` (defaults 10, serial) | all-results count over the N values of Q[1]; sweet spot NT = N |
 | `queens_count2.pi` | args `[N] [NT]` (defaults 10, serial) | count over the joint value Q[1]+N(Q[2]−1) in 1..N·N; up to N·N workers useful |
 | `ramsey_pvm.pi` | env `K= N= T=` (defaults 3, 6, 0=serial) | mode-3 first solution of the (K,K)-Ramsey graph on N vertices; SAT prints + root-verifies the graph, UNSAT proves R(K,K) ≤ N |
-| `ramsey_m2.pi` | env `K= N= T= M= O= DYN=` (defaults 3, 6/N-for-K=3, 0, 0, 0, 0) | mode-2 joint partition of the first M edge variables; static: T = 2^M workers, one 2^M-bit pattern each (window O+1..O+T, O ≥ 0); dynamic (DYN=1): T workers claim all 2^M patterns (window O+1..O+2^M) from the shared `pvm_claim` cursor, instance built once per worker, per-claim prefix units backtracked; every reported leaf must arrive (length check) and every worker must be alive at collection |
-| `backpack_pvm.pi` | env `N= NT=` (defaults 20, 0=serial `$max`) | mode-4 B&B: each iteration a re-armed mode-1 session racing `model + P #>= B+1`; first reporter lifts the bound by value; the exhausting session proves optimality |
+| `ramsey_m2.pi` | env `K= N= T= M= O= DYN=` (defaults 3, 6/N-for-K=3, 0, 0, 0, 0) | mode-2 joint partition of the first M edge variables; static: T = 2^M workers, one 2^M-bit pattern each (window O+1..O+T, O ≥ 0); dynamic (DYN=1): T workers claim all 2^M patterns (window O+1..O+2^M) from the shared `pvm_claim` cursor; each claim is a self-contained slice solve with a `sat.reset_store()` at the claim boundary (the Bug F cure — a fresh instance right after a genuine zero count without the reset collapses to 0; on this engine the fresh-instance claim is also faster than the old build-once/replay-claim shape); every reported leaf must arrive (length check) and every worker must be alive at collection |
+| `backpack_pvm.pi` | env `N= NT=` (defaults 20, 0=serial `$max`) | mode-4 B&B: each iteration a re-armed mode-1 session racing `model + P #>= B+1`; first reporter lifts the bound by value; the exhausting session proves optimality; the root (one SAT solve per round + the retrieval solve, same process) calls `sat.reset_store()` at each round boundary and before the retrieval solve (Bug F discipline, no effect on the verified optima) |
 | `backpack_band.pi` | env `N= NT=` (defaults 20, 0) | mode-4 variant: each lift round is one re-armed mode-2 session (`pvm_fork_lb`) partitioning B+1..U into NT value bands; an all-empty round proves B optimal; NT=1 degenerates to `backpack_pvm`'s loop |
 | `term_report.pi` | none | worker reports a nested mixed ground term (ints/atoms/bool/float/bigint/lists/compounds/array); root re-materializes and verifies field by field |
 

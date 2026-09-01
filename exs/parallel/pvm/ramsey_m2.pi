@@ -60,10 +60,14 @@
 % sum 56.7 s.
 % Tiling soundness (exact chunk-count sums) verified on K=3: N=4:
 % 8 = 3+5 = 1+3+2+2 = 0+1+1+1+2+1+2+0; N=5: 12 = 2+2+4+4; N=6: UNSAT
-% at T=8 all-zero. Dynamic soundness (DYN=1), K=3: N=4 at T=2/M=3,
-% N=5 at T=4/M=2, T=8/M=4, T=4/M=5 (32 claims over 4 workers), N=6 at
-% T=8/M=3 and T=4/M=4 --- all exact (SAT sums / all-zero UNSAT); a
-% 2-worker/4-claim microtest hands out 1..4 exactly once each.
+% at T=8 all-zero. Soundness on the picat 39.13-based engine (the
+% engine that ships sat.reset_store()): static T=8/NT=8 exact at
+% N=4/5/6; DYN=1 (self-contained claims, reset at the claim boundary)
+% exact at K=3 N=4 T=2/M=3 and T=4/M=3, N=5 T=2/M=3, T=4/M=3 and
+% T=8/M=4, N=6 T=2/M=3 and T=4/M=4 --- exact sums/multisets against
+% the one-count-per-worker static oracle, including the zero-then-
+% nonzero claim sequences (the Bug F poison shape); the serial M=0
+% oracle agrees (N=5: 12).
 
 import sat.
 

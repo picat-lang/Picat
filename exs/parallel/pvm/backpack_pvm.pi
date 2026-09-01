@@ -115,7 +115,15 @@ run(N, NT) =>
 % lifted strictly) or exhausts the instance (B proven optimal).
 % Strict integer lifts, bounded above by 5N, make the loop
 % terminate. T0 is threaded so the leaf can time the whole run.
+% Reset discipline (Bug F, docs/pvmbugs_report.tex Section 7): the
+% ROOT process runs one SAT solve per iteration (as worker 0 of each
+% session) plus the retrieval solve, all in the same process; the
+% reset at each round boundary kills the stale SAT frames of the
+% previous in-process solve so a later one can never shadow-replay
+% it. It precedes the instance build (bp_vars), so it cannot touch
+% live constraints.
 bnb(N, NT, B, Iter, T0) =>
+    sat.reset_store(),
     bp.pvm_fork(NT, 1, 0),
     % one body for every process: a mode-1 worker resumes inside
     % its delegated value (never through a worker_id branch), so the
@@ -139,8 +147,13 @@ bnb(N, NT, B, Iter, T0) =>
 % the proven bound re-derives an optimal model (B is feasible by
 % construction); the verify step recomputes weight and value from X
 % alone and asserts P == B. All of this runs OUTSIDE any session,
-% so the loop never carries a decoded term across a re-arm.
+% so the loop never carries a decoded term across a re-arm. Root
+% process only.
 final(N, NT, B, Iter, T0) =>
+    % the retrieval solve follows the proving iteration's failed
+    % in-process solve in the root: reset before the fresh build
+    % (same Bug F discipline as the bnb round boundary).
+    sat.reset_store(),
     % retrieval is bounded at P #>= B: since B is proven optimal,
     % any solution has value exactly B.
     bp_vars(N, B, X, Wd, Vd, P),

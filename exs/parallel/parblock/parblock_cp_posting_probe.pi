@@ -1,0 +1,157 @@
+% parblock_cp_posting_probe:  minimal probes for the CP engine
+% behavior of the picat 39.13 base (identical on the official
+% picat39_13_src.tar.gz build and on this tree --- upstream,  not
+% the rebase;  docs/pvmbugs_report.tex,  "CP engine findings").
+%
+% K=3 N=4 (3,3)-free counting.  E[i] = edge i  (01 02 03 12 13 23).
+% The infeasible V=1 prefix  E1=E2=E3=0  is refuted by the 3-set
+% sums:  012 and 013 force E4=E5=E6=1,  and set 123 then violates
+% sum #=< 2.
+%
+% Shape A (ifte constraint drop):
+%   ( 1 > 0, E[3] #= 0, E[2] #= 0, E[1] #= 0 ; true )
+%   silently drops the FIRST constraint of the then branch from
+%   later searches:  solve returns a model with E3 = 1 (violating
+%   the dropped unit),  and count reports a wrong number
+%   (1 here;  8 in the ramsey file's shape) instead of the true 0.
+% Shape B (if statement = healthy):
+%   if (1 > 0) E[3] #= 0, E[2] #= 0, E[1] #= 0 end
+%   posts all three;  the instance is infeasible and the posting
+%   of the third unit fails cleanly (goal failure,  no exception)
+%   --- take it into a disjunction and the slice is 0 by proof.
+% Shape C (infeasible posting fails cleanly at posting time):
+%   posting the three units after the sum network makes the POST
+%   fail as a plain goal failure (main ->  *** error(failed,main/0),
+%   exit 1) --- a real proof of zero;  take it into a disjunction:
+%   ( post_prefix ; C = 0 ).
+%
+% Run:  emu/picat -path lib2 exs/parallel/parblock/parblock_cp_posting_probe.pi
+%        (each shape is a separate top-level goal:  picat -g pA() ... )
+
+import basic.
+import cp.
+
+base_33(N, K, E, D, AllSets) =>
+    MM = K * (K - 1) // 2,
+    subsets(K, N, AllSets),
+    E :: 0..1,
+    no_k_sets(N, K, MM, AllSets, E),
+    degree_order(N, E, D).
+
+% A:  ifte around the prefix units  (the broken shape)
+%     ->  the first unit of the branch is dropped from later
+%     searches:  the count comes back WRONG (1 here;  8 in the
+%     ramsey file's shape) instead of the true 0,  and solve
+%     returns a model that violates the dropped unit.
+pA =>
+    subsets(3, 4, AllSets),
+    E = new_array(6),
+    base_33(4, 3, E, D, AllSets),
+    ( 1 > 0, E[3] #= 0, E[2] #= 0, E[1] #= 0 ; true ),
+    solve([], [E, D]),
+    writef("pA model E=%d %d %d %d %d %d  (E3=1 => the unit was dropped)%n",
+        E[1], E[2], E[3], E[4], E[5], E[6]),
+    safe_count(E, D, CCA),
+    writef("pA ifte-prefix count = %d  (TRUE value 0;  any other value => broken)%n", CCA).
+
+% B:  if statement around the prefix units  (the healthy shape):
+%     the infeasibility is derived AT POSTING TIME (the third unit
+%     completes the sum network),  so the posting itself fails
+%     cleanly and the disjunction gives the 0.
+pB =>
+    subsets(3, 4, AllSets),
+    E = new_array(6),
+    base_33(4, 3, E, D, AllSets),
+    ( if (1 > 0)
+        E[3] #= 0, E[2] #= 0, E[1] #= 0
+      end,
+      ( solve([], [E, D])
+      -> writef("pB FOUND a model (unexpected: infeasible slice)%n")
+      ;
+        writef("pB posting ok but search infeasible (unexpected here)%n") )
+    ;
+      writef("pB infeasible:  the POSTING failed cleanly -> count 0 by disjunction (expected)%n") ).
+
+% C:  the disjunction that turns the infeasible posting into a 0
+pC =>
+    subsets(3, 4, AllSets),
+    E = new_array(6),
+    base_33(4, 3, E, D, AllSets),
+    ( ( 1 > 0, E[3] #= 0, E[2] #= 0, E[1] #= 0,
+        (CC = count_all(solve([], [E, D])) -> CC0 = CC ; CC0 = 0) )
+    ;
+      CC0 = 0 ),
+    writef("pC infeasible V=1 slice:  count = %d (expect 0,  a proof)%n", CC0).
+
+% control:  the feasible V=2 slice counts 1 in both A-style and
+% B-style posting
+pD =>
+    subsets(3, 4, AllSets),
+    E = new_array(6),
+    base_33(4, 3, E, D, AllSets),
+    if (1 > 0)
+        E[3] #= 0, E[2] #= 0, E[1] #= 1
+    end,
+    (CC = count_all(solve([], [E, D])) -> CC0 = CC ; CC0 = 0),
+    writef("pD feasible V=2 slice:  count = %d (expect 1)%n", CC0).
+
+% control:  the base (no prefix) counts 8 (degree-ordered
+% (3,3)-free graphs on 4 vertices)
+pE =>
+    subsets(3, 4, AllSets),
+    E = new_array(6),
+    base_33(4, 3, E, D, AllSets),
+    safe_count(E, D, CC0),
+    writef("pE base count = %d (expect 8)%n", CC0).
+
+% the structure the fixed CP file uses:  an infeasible prefix fails
+% the POSTING (goal failure,  no exception) which the caller takes
+% into a disjunction (-> 0);  a still-infeasible count is caught
+safe_count(E, D, C) =>
+    catch(count_here(E, D, C), Err, C = 0).
+
+count_here(E, D, C) =>
+    CC = count_all(solve([], [E, D])),
+    C = CC.
+
+subsets(3, 4, All) =>
+    Dom = [I : I in 0..3],
+    All = findall(S, comb3(3, Dom, S)).
+
+comb3(0, _Dom, S) => S = [].
+comb3(K, [H|T], S) =>
+    K > 0,
+    (take3(K, H, T, S) ; drop3(K, T, S)).
+
+take3(K, H, T, S) =>
+    Len = length(T),
+    Len >= K - 1,
+    S = [H|R],
+    comb3(K - 1, T, R).
+
+drop3(K, T, S) =>
+    Len = length(T),
+    Len >= K,
+    comb3(K, T, S).
+
+pair_idx(I, J, N) =
+    I * (N - 1) - I * (I - 1) // 2 + (J - I).
+
+no_k_sets(N, K, M, Sets, E) =>
+    foreach (S in Sets)
+        Ev = [E[pair_idx(S[P], S[Q], N)] : P in 1..K, Q in P + 1..K],
+        sum(Ev) #=< M - 1,
+        sum(Ev) #>= 1
+    end.
+
+degree_order(N, E, D) =>
+    D = new_array(N),
+    D :: 0..(N - 1),
+    foreach (I in 0..(N - 1))
+        Di = [E[pair_idx(J, I, N)] : J in 0..(I - 1)]
+           ++ [E[pair_idx(I, J, N)] : J in (I + 1)..(N - 1)],
+        D[I + 1] #= sum(Di)
+    end,
+    foreach (I in 0..(N - 2))
+        D[I + 1] #>= D[I + 2]
+    end.

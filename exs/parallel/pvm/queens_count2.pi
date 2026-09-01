@@ -9,13 +9,20 @@
 %       pvm_report; pvm_collect returns the LIST of all reported
 %       results and the parent sums it explicitly.
 %
-% NOTE: count_all(solve(...)) does not return 0 when a slice has no
-%       solution -- for some zero-solution slices it FAILS (FD
-%       propagation detects the inconsistency). A worker whose slice
-%       has no solution must therefore fall back to C = 0
-%       (see below); letting count_q's failure backtrack into the
-%       second disjunct turns that worker into a second "root" that
-%       runs pvm_collect inside the worker process.
+ % NOTE: count_all(solve(...)) does not return 0 when a slice has no
+ %       solution --- for some zero-solution slices it FAILS (FD
+ %       propagation detects the inconsistency).  A worker whose slice
+ %       has no solution must therefore fall back to C = 0
+ %       (see below);  letting count_q's failure backtrack into the
+ %       second disjunct turns that worker into a second "root" that
+ %       runs pvm_collect inside the worker process.  On the picat
+ %       39.13 base the queens slices sit in the well-behaved corner
+ %       of the CP counting story (the infeasible count fails
+ %       backtracking-plainly and the totals below,  which include
+ %       such zero slices,  were verified on this engine):  do not
+ %       "simplify" count_q into a trial-search veto --- the CP
+ %       infeasible-count traps,  and the structure that dodges them,
+ %       are documented in exs/parallel/parblock/parblock_ramsey_m2_cp.pi.
 %
 % Known totals (OEIS A000170): 10=724, 11=2680, 12=14200, 13=73712,
 % 14=365596, 15=2279184, 16=14772512 -- every run below must reach the
