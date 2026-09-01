@@ -1,0 +1,281 @@
+% parblock_ramsey_m2:  the parblock re-expression of the STATIC
+% (fixed-chunk) mode-2 partition of exs/parallel/pvm/ramsey_m2.pi ---
+% (K,K)-Ramsey search,  the first M edge variables as a bit pattern,
+%     val = 1 + E[1] + 2*E[2] + 4*E[3] + ... + 2^(M-1)*E[M],  in 1..2^M
+% (E[1] least significant),  one task per pattern value,  each task
+% posting the M prefix units  E[j] #= bit_j(V)  and counting.
+%
+% The clarity point vs ramsey_m2:  the whole mode-2 session (fork,
+% chunk split, per-task execution, report,  collect,  task-order
+% reassembly,  rethrow)  is the ONE library call
+%
+%        Rs = parblock_pvm.par_run_pvm(NT, Tasks)
+%
+% Tasks = [ {rcount, {K, N, M, O + 1 + I}} : I in 0..T-1 ]
+%
+% where ramsey_m2's static driver spent ~30 lines of
+% pvm_fork/pvm_worker_id/pvm_chunk/single-chunk-check/pvm_report/
+% pvm_collect.  And the worker count NT is now DECOUPLED from the
+% pattern count T:
+%   NT = 0   all T tasks (T count_all calls) run in ONE process
+%   NT > 0   NT workers share the T tasks in fixed chunks;  a worker
+%            with ceil(T/NT) patterns runs that many count_all calls
+%            in a row --- multiple count_all per process,  which was
+%            impossible under the historical Bug E constraint (docs/
+%            pvmbugs_report.tex,  Section 6;  fixed in e085229,  cf.
+%            parblock_queens_count_multi.pi)
+%
+% Tiling soundness is inherited from ramsey_m2:  the 2^M prefix
+% regions tile the search space exactly (every full assignment
+% matches exactly one region),  so a full-window (O + T = 2^M)
+% UNSAT verdict is sound --- but only if every zero is a real
+% proof (see the defect note below,  which forces NT = T).
+%
+% ENGINE DEFECT (pre-existing on main 28acc9f AND upstream
+% picat 39.11,  root-caused --- docs/pvmbugs_report.tex Section 7,
+% "Bug F",  minimal probe:  parblock_bugf_probe.pi):  on the SAT
+% path (import sat,  count_all(solve([], X))),  a count that
+% exhausts to 0 models poisons every LATER SAT count in the same
+% process --- they return 0 without searching.  The prebuilt
+% compiler's sat-solve expansion replays the previous in-process
+% solve's dvars and constraints into the new solve's instance
+% (a "shadow");  when that shadow is UNSAT --- i.e.\ the previous
+% count was a genuine zero --- the new instance carries a small
+% unsat core and the count collapses to 0.  The first SAT count of
+% a process is always exact;  a window with no zero counts is
+% exact.  Fix locus:  the compiler (source not in this tree);
+% sound in-tree discipline:  one SAT count per process.
+%   K=3 N=5 M=3   O=0 T=2   ->  [0,0]     (truth [0,2])
+%   K=3 N=5 M=3   O=0 T=1   ->  [0]       (one count:  exact)
+%   K=3 N=5 M=3   O=1 T=2   ->  [2,2]     (no zero:  exact)
+% The engine now ships a cure (picat 39.13 base,  in-tree since the
+% 39.13 rebase):  sat.reset_store()  (C builtin c_reset_store/0 in
+% emu/delay.c,  exposed by the prebuilt sat module) clears the
+% persistent store at a problem boundary,  and a count right after
+% it is exact again --- even right after a zero count.  So the file
+% takes  RESET=1,  which calls sat.reset_store() at the top of
+% every task (i.e. before each count_all):
+%   K=3 N=5 M=3   O=0 T=2   RESET=1,  any NT  ->  [0,2]  (exact)
+% The CP path is independently healed (the e085229 Bug E fix:
+% repeated CP counts self-heal,  cf. parblock_queens_count_multi.pi).
+%
+% Soundness:  WITHOUT RESET,  a verdict is sound only with ONE
+% count per process,  i.e. NT = T (each worker proves exactly one
+% pattern) or NT = 0 with T = 1 (the plain serial oracle);  a
+% poisoned zero is not a proof,  so mixed NT < T tiling is unsound
+% on SAT cells.  WITH RESET=1,  every count starts from a clean
+% store,  so any NT (workers,  chunked tasks) is sound --- reset
+% sits at the task boundary,  before any constraint is posted.
+% (The bp.sat_reset_store twin does NOT clear the poison;  the
+% module-qualified sat.reset_store does.)
+%
+% DYN dynamic scheduling:  DYN=1 dispatches the same Tasks through
+% lib2/parblock_pvm_dyn's  par_run_pvm_dyn(NT, Tasks)  instead of the
+% fixed-chunk par_run_pvm --- NT workers share the pool and each claims
+% the next task from the engine's shared cursor (bp.pvm_claim) until it
+% is exhausted (the ramsey_m2 DYN=1 mode re-expressed in parblock).
+% Dynamic mode covers the FULL window 1..2^M (like ramsey_m2's DYN);
+% T and O are then ignored.  Like ramsey_m2's dynamic worker,  a
+% worker may run many count_all calls in a row  --- so DYN without
+% RESET has the same Bug F soundness restriction as static NT < T
+% (one sound shape is NT = T or RESET=1),  and WITH RESET=1 any NT is
+% sound.
+%
+% Env:  K,  N (N must be set explicitly for K != 3),  T (number of
+% pattern tasks in static mode;  the run covers O+1..O+T),  M (bitpack
+% width;  O + T must be <= 2^M in static mode,  DYN covers 1..2^M),
+% O (window base in static mode,  default 0),  NT (workers,  default
+% 0 = serial;  more workers than tasks is capped at T),  DYN (0 =
+% fixed chunks,  1 = cursor claims;  default 0).
+%
+%   K=3 N=4 T=8 M=3 NT=8 picat parblock_ramsey_m2.pi
+%       % 8 patterns,  one per worker:  0+1+1+1+2+1+2+0 = 8
+%       % (tiling check;  NT = T = 8 keeps the sound discipline)
+%   K=3 N=5 T=4 M=2 NT=4 picat parblock_ramsey_m2.pi
+%       % 2+2+4+4 = 12  (critical (3,3)-graphs on 5 vertices)
+%   K=3 N=6 T=8 M=3 NT=8 picat parblock_ramsey_m2.pi
+%       % UNSAT:  all 8 patterns 0  =>  R(3,3) <= 6
+%   K=4 N=18 T=256 M=8 NT=256 picat parblock_ramsey_m2.pi
+%       % the R(4,4) cell:  UNSAT =>  R(4,4) <= 18  (with the SAT
+%       % witness on 17 vertices,  R(4,4) = 18)
+%   K=4 N=18 M=8 NT=128 DYN=1 RESET=1 picat parblock_ramsey_m2.pi
+%       % the R(4,4) cell,  dynamic:  256 pattern tasks claimed off
+%       % the shared cursor by 128 workers  (2 counts each,  reset at
+%       % every task boundary  =>  sound multi-count-per-worker)
+%
+% The R(4,4) cell on this node (fixed engine,  this file,  the sound
+% NT = T shape):  UNSAT,  256/256 patterns proven empty  =>  R(4,4) <= 18
+% (together with the known (4,4,17) Ramsey graph,  R(4,4) = 18):
+%   NT=256:  UNSAT in 420.8 s / 472.9 s wall (node at loadavg
+%            ~430--490;  the same static shape ran 112.1 s on a
+%            near-idle node,  cf. exs/parallel/pvm/ramsey_m2.pi)
+%   NT=64 (NT < T,  4 counts per worker)  is NOT a sound shape for
+%   SAT cells:  under open Bug F (docs/pvmbugs_report.tex,
+%   Section 7) a zero-count poisons the later counts of the same
+%   process ---  on this all-UNSAT cell the verdict still holds,  on
+%   any mixed SAT cell it would undercount.
+%
+% Usage:  from the repo root:
+%   emu/picat -path lib2 exs/parallel/parblock/parblock_ramsey_m2.pi
+import cp.
+import parblock_pvm.
+import parblock_pvm_dyn.
+
+main =>
+    k_from_env(K),
+    n_from_env(K, N),
+    t_from_env(Ti),
+    m_from_env(M),
+    o_from_env(Oi),
+    nt_from_env(NT),
+    reset_from_env(R),
+    dyn_from_env(DYN),
+    C2 = pow2(M),
+    ( DYN > 0, T = C2, O = 0 ; T = Ti, O = Oi ),
+    ( O + T <= C2 -> true
+    ; handle_exception($o_plus_t_must_be_le_2_to_m(O, T, C2), main) ),
+    ( NT > T -> NTW = T ; NTW = NT ),
+    bp.c_wall_ms(T0),
+    writef("=== parblock_ramsey_m2: K=%d N=%d T=%d M=%d O=%d NT=%d DYN=%d (patterns %d..%d over %d workers, reset=%w), %d edge vars%n",
+        K, N, T, M, O, NTW, DYN, O + 1, O + T, NTW, R, N * (N - 1) // 2),
+    Tasks = [ {rcount, {K, N, M, O + 1 + I, R}} : I in 0..T-1 ],
+    ( DYN > 0
+    -> Rs = parblock_pvm_dyn.par_run_pvm_dyn(NTW, Tasks)
+    ;
+      Rs = parblock_pvm.par_run_pvm(NTW, Tasks) ),
+    Csum = sum(Rs),
+    bp.c_wall_ms(T1),
+    root_verdict(K, N, T0, T1, T, NTW, O, C2, Csum, Rs, DYN).
+
+% one task:  count all (K,K)-Ramsey graphs on N vertices whose first
+% M edge-bit pattern is exactly V;  a prefix that the store rejects
+% (or a count that fails) is the count 0.
+rcount(Blk) = C =>
+    Blk = {K, N, M, V, R},
+    ( R = reset -> cp.reset_store() ; true ),
+    ( slice_count(K, N, M, V, C) -> true
+    ; C = 0 ).
+
+% the instance,  plus (for M > 0) the unit prefix E[j] #= bit_j(V);
+% C = #models of the slice
+slice_count(K, N, M, Lo, C) =>
+    MM = K * (K - 1) // 2,
+    NPairs = N * (N - 1) // 2,
+    subsets(K, N, AllSets),
+    E = new_array(NPairs),
+    E :: 0..1,
+    no_k_sets(N, K, MM, AllSets, E),
+    degree_order(N, E, D),
+    ( M > 0, prefix(M, E, Lo) ; true ),
+    (C = count_all(solve([], [E, D])) -> true
+    ; C = 0).
+
+% unit constraints E[J] #= bit_J(V),  J = M..1  (V = 1 + bit pattern)
+prefix(0, _E, _V) => true.
+prefix(J, E, V) =>
+    WJ = pow2(J - 1),
+    Q = (V - 1) div WJ,
+    Bv = Q - 2 * (Q div 2),
+    E[J] #= Bv,
+    prefix(J - 1, E, V).
+
+pow2(0) = 1.
+pow2(I) = 2 * pow2(I - 1).
+
+root_verdict(K, N, T0, T1, T, NTW, O, C2, Csum, Counts, DYN) =>
+    ( NTW > 0, DYN > 0 -> Mode = " (parblock dyn)"
+    ;
+      ( NTW > 0 -> Mode = " (parblock)" ; Mode = " (serial)" ) ),
+    ( Csum > 0 ->
+        writef("SAT%s: %d workers, %d models in total in %d ms -- a (K,K)-Ramsey graph on %d vertices exists, R(%d,%d) >= %d (witness:  rerun ramsey_pvm)%n",
+            Mode, NTW, Csum, T1 - T0, N, K, K, N + 1)
+    ;
+        ( O + T = C2 ->
+            writef("UNSAT%s: %d workers, all %d pattern tasks proven empty in %d ms -- every graph on %d vertices has a %d-clique or an independent %d-set, i.e. R(%d,%d) <= %d%n",
+                Mode, NTW, T, T1 - T0, N, K, K, K, K, N)
+        ;
+            writef("UNSAT window%s: %d workers, patterns %d..%d proven empty in %d ms (partial coverage %d of %d:  no whole-tree verdict)%n",
+                Mode, NTW, O + 1, O + T, T1 - T0, O + T, C2) ) ),
+    writeln(Counts).
+
+k_from_env(K) =>
+    ((bp.picat_getenv("K", S)) -> K = to_int(S) ; K = 3),
+    (K >= 2 -> true ; handle_exception($k_expected_at_least_2(K), main)).
+
+n_from_env(K, N) =>
+    ((bp.picat_getenv("N", S)) -> N = to_int(S)
+    ;
+    (K == 3 -> N = 6 ; handle_exception($n_env_var_expected(K), main))
+    ),
+    (N >= K -> true ; handle_exception($n_expected_at_least_k(K, N), main)).
+
+t_from_env(T) =>
+    ((bp.picat_getenv("T", S)) -> T = to_int(S) ; T = 1),
+    (T >= 1 -> true ; handle_exception($t_expected_at_least_1(T), main)).
+
+m_from_env(M) =>
+    ((bp.picat_getenv("M", S)) -> M = to_int(S) ; M = 0),
+    (M >= 0 -> true ; handle_exception($m_expected_at_least_0(M), main)).
+
+o_from_env(O) =>
+    ((bp.picat_getenv("O", S)) -> O = to_int(S) ; O = 0),
+    (O >= 0 -> true ; handle_exception($o_expected_at_least_0(O), main)).
+
+nt_from_env(NT) =>
+    ((bp.picat_getenv("NT", S)) -> NT = to_int(S) ; NT = 0),
+    (NT >= 0 -> true ; handle_exception($nt_expected_at_least_0(NT), main)).
+
+reset_from_env(R) =>
+    ((bp.picat_getenv("RESET", S)) -> (to_int(S) > 0 -> R = reset ; R = none)
+    ;
+     R = none ).
+
+dyn_from_env(DYN) =>
+    ((bp.picat_getenv("DYN", S)) -> DYN = to_int(S) ; DYN = 0),
+    (DYN >= 0 -> true ; handle_exception($dyn_expected_nonnegative(DYN), main)).
+
+% 1-based array index of the edge (I,J),  0 <= I < J < N
+pair_idx(I, J, N) =
+    I * (N - 1) - I * (I - 1) // 2 + (J - I).
+
+% all strictly increasing K-element subsets of {0..N-1}
+subsets(K, N, All) =>
+    Dom = [I : I in 0..(N - 1)],
+    All = findall(S, comb(K, Dom, S)).
+
+comb(0, _Dom, S) => S = [].
+comb(K, [H|T], S) =>
+    K > 0,
+    (take_c(K, H, T, S) ; drop_c(K, T, S)).
+
+take_c(K, H, T, S) =>
+    Len = length(T),
+    Len >= K - 1,
+    S = [H|R],
+    comb(K - 1, T, R).
+
+drop_c(K, T, S) =>
+    Len = length(T),
+    Len >= K,
+    comb(K, T, S).
+
+no_k_sets(N, K, M, Sets, E) =>
+    foreach (S in Sets)
+        Ev = [E[pair_idx(S[P], S[Q], N)] : P in 1..K, Q in P + 1..K],
+        sum(Ev) #=< M - 1,
+        sum(Ev) #>= 1
+    end.
+
+% D[I] = degree of vertex I;  vertices assumed sorted by degree
+% (non-increasing):  a valid symmetry breaking.
+degree_order(N, E, D) =>
+    D = new_array(N),
+    D :: 0..(N - 1),
+    foreach (I in 0..(N - 1))
+        Di = [E[pair_idx(J, I, N)] : J in 0..(I - 1)]
+           ++ [E[pair_idx(I, J, N)] : J in (I + 1)..(N - 1)],
+        D[I + 1] #= sum(Di)
+    end,
+    foreach (I in 0..(N - 2))
+        D[I + 1] #>= D[I + 2]
+    end.
