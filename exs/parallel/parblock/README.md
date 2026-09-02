@@ -53,15 +53,19 @@ Probes (bug reproducers, not API demos): `bugf_probe.pi`
 
 ## Single-API illustrations
 
-One tiny, **self-contained** example per API (no shared helper; each
-defines its own number-theory work). The PVM ones run the full
-`NT ∈ {0,1,2,4}` matrix (NT = 0 is the phase-0 serial fallback); the
-serial-only `effect` / `detach` examples run once. All are green.
+One **self-contained** example per API (no shared helper; each defines its
+own workload — number theory, combinatorics, or a chess search). The PVM
+ones run the full `NT ∈ {0,1,2,4}` matrix (NT = 0 is the phase-0 serial
+fallback); the serial-only `effect` / `detach` examples run once. All are
+green. `par_run_perft` is by far the heaviest: perft(4) = 197281 node-visits,
+so the full NT matrix takes tens of seconds (it also carries its own ~300-line
+self-contained legal-move generator).
 
 | file | API | problem (self-contained) |
 |---|---|---|
 | `par_run_primes.pi` | `par_run(NT, Tasks)` | prime count in disjoint ranges `[1..10]..[31..40]` → `[4,4,2,2]`, sum = π(40) = 12 |
 | `par_run_queens.pi` | `par_run(NT, Tasks)` | N-Queens: per-first-column counts `[4,8,16,18,18,16,8,4]`, sum = A000170(8) = 92 |
+| `par_run_perft.pi` | `par_run(NT, Tasks)` | PERFT from the chess start position: 20 first-move subtrees (each perft(3)), sum = perft(4) = 197281 |
 | `race_perfect.pi` | `race_res(NT, F, Xs)` | smallest perfect number > 496 among candidates → 8128 (OEIS A000396) |
 | `map_par_totient.pi` | `map_par(NT, F, Xs)` | Euler totient φ(1..16) → `[1,1,2,2,4,2,6,4,6,4,10,4,12,6,8,8]` |
 | `map_race_mersenne.pi` | `map_race(NT, Fs, Xs)` | is `2^P-1` prime? trial-division vs Lucas-Lehmer, `P ∈ [3,5,7,11,13,19,31]` |
@@ -119,7 +123,7 @@ never a specific placement).
 
 | entry | substrate | illustrated by |
 |---|---|---|
-| `par_run(NT, Tasks) = Rs` | mode 2, fixed-chunk split; task-ordered results, first-thrower rethrown after collect | `pvm_tasks` (5 cases); `queens_count{,2,_multi}`; `ramsey_m2`; `par_run_primes`; `par_run_queens` |
+| `par_run(NT, Tasks) = Rs` | mode 2, fixed-chunk split; task-ordered results, first-thrower rethrown after collect | `pvm_tasks` (5 cases); `queens_count{,2,_multi}`; `ramsey_m2`; `par_run_primes`; `par_run_queens`; `par_run_perft` |
 | `race(NT, F, Xs) = P` | mode 1 portfolio (`race_res` wrap) | `race_pvm_tasks` case_race/case_race2 |
 | `race_res(NT, F, Xs) = S` | mode 1 portfolio | `race_pvm_tasks` case_race / case_race_exhaust; `race_perfect` |
 | `map_par(NT, F, Xs) = Ys` | mode 2 (ordered map) | `race_pvm_tasks` case_mappar; `map_par_totient` |

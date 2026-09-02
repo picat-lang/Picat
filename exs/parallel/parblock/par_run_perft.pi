@@ -1,0 +1,330 @@
+% par_run_perft:  PERFT as a par_run task-parallel workload.
+%
+% PERFT counts all legal move-sequences of length D from a position
+% (the standard chess-engine benchmark).  From the initial position the
+% 20 legal first moves each lead to an INDEPENDENT subtree, so
+%     perft(D) = sum over the 20 first moves of perft(D-1, after move)
+% is exactly 20 independent par_run tasks; the results come back in
+% task (move) order and sum to the total.  The classic values from the
+% initial position are  20, 400, 8902, 197281  (D = 1..4).
+%
+% Self-contained: defines its own full legal-move generator (pawns with
+% en-passant + promotion, knights, sliders, king, both castlings, pins via
+% the make-move-then-is-king-safe filter).  NT = 0 runs the phase-0 serial
+% par_run;  NT >= 1 the mode-2 pool.
+%
+% From the repo root:
+%   PICATPATH=lib2 emu/picat exs/parallel/parblock/par_run_perft.pi
+
+module par_run_perft.
+import parblock_pvm.
+
+% ---- chess: square 0..63 (a1=0 .. h8=63); piece sign = colour (+w, -b),
+%   abs = type: 1 pawn, 2 knight, 3 bishop, 4 rook, 5 queen, 6 king.
+% position = [Board, Wt, Castling, Ep];  Castling = [WK,WQ,BK,BQ]; Ep = square or 0.
+% move = [From, To, Promo, EpCap, RookFrom, RookTo]  (0 = none).
+
+file(S) = F => F = S mod 8.
+rank(S) = R => R = S // 8.
+sq(R, F) = S => S = R * 8 + F.
+inb(R, F) ?=> 0 =< R, R < 8, 0 =< F, F < 8.
+bsq(Board, S) = V => V = Board[S + 1].
+set(L, I, V) = L2 => set_at(L, I, V, L2).
+set_at([X], I, V, L2) => I == 0, L2 = [V].
+set_at([X | T], I, V, L2) =>
+    ( I == 0, L2 = [V | T]
+    ; set_at(T, I - 1, V, T2), L2 = [X | T2] ).
+
+startpos() = P =>
+    P = [
+      [  4, 2, 3, 5, 6, 3, 2, 4,
+        1, 1, 1, 1, 1, 1, 1, 1,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+       -1,-1,-1,-1,-1,-1,-1,-1,
+       -4,-2,-3,-5,-6,-3,-2,-4 ],
+      1, [1, 1, 1, 1], 0 ].
+
+is_side(P, Wt) ?=> ( Wt == 1, P > 0 ; Wt == -1, P < 0 ).
+is_enemy(P, Wt) ?=> ( Wt == 1, P < 0 ; Wt == -1, P > 0 ).
+can_occupy(P, Wt) ?=> ( Wt == 1, P =< 0 ; Wt == -1, P >= 0 ).
+
+% ---- attack detection:  attacked(Board, S, By) = S attacked by colour By
+attacked(Board, S, By) ?=>
+    F = file(S), R = rank(S),
+    ( pawn_att(Board, R, F, By)
+    ; knight_att(Board, R, F, By)
+    ; king_att(Board, R, F, By)
+    ; diag_att(Board, R, F, By)
+    ; straight_att(Board, R, F, By) ).
+
+pawn_att(Board, R, F, By) ?=>
+    Rp = R - By,
+    ( inb(Rp, F - 1), bsq(Board, sq(Rp, F - 1)) == By
+    ; inb(Rp, F + 1), bsq(Board, sq(Rp, F + 1)) == By ).
+
+knight_att(Board, R, F, By) ?=>
+    ( inb(R-1, F-2), bsq(Board, sq(R-1, F-2)) == By*2
+    ; inb(R-1, F+2), bsq(Board, sq(R-1, F+2)) == By*2
+    ; inb(R+1, F-2), bsq(Board, sq(R+1, F-2)) == By*2
+    ; inb(R+1, F+2), bsq(Board, sq(R+1, F+2)) == By*2
+    ; inb(R-2, F-1), bsq(Board, sq(R-2, F-1)) == By*2
+    ; inb(R-2, F+1), bsq(Board, sq(R-2, F+1)) == By*2
+    ; inb(R+2, F-1), bsq(Board, sq(R+2, F-1)) == By*2
+    ; inb(R+2, F+1), bsq(Board, sq(R+2, F+1)) == By*2 ).
+
+king_att(Board, R, F, By) ?=>
+    ( inb(R-1, F-1), bsq(Board, sq(R-1, F-1)) == By*6
+    ; inb(R-1, F),   bsq(Board, sq(R-1, F))   == By*6
+    ; inb(R-1, F+1), bsq(Board, sq(R-1, F+1)) == By*6
+    ; inb(R,   F-1), bsq(Board, sq(R,   F-1)) == By*6
+    ; inb(R,   F+1), bsq(Board, sq(R,   F+1)) == By*6
+    ; inb(R+1, F-1), bsq(Board, sq(R+1, F-1)) == By*6
+    ; inb(R+1, F),   bsq(Board, sq(R+1, F))   == By*6
+    ; inb(R+1, F+1), bsq(Board, sq(R+1, F+1)) == By*6 ).
+
+d_att(Board, R, F, By, DR, DF) ?=>
+    inb(R + DR, F + DF),
+    P = bsq(Board, sq(R + DR, F + DF)),
+    ( P == By*3
+    ; P == By*5
+    ; P == 0, d_att(Board, R + DR, F + DF, By, DR, DF)
+    ; fail ).
+diag_att(Board, R, F, By) ?=>
+    ( DR = -1, DF = -1, d_att(Board, R, F, By, DR, DF)
+    ; DR = -1, DF = 1,  d_att(Board, R, F, By, DR, DF)
+    ; DR = 1,  DF = -1, d_att(Board, R, F, By, DR, DF)
+    ; DR = 1,  DF = 1,  d_att(Board, R, F, By, DR, DF) ).
+
+s_att(Board, R, F, By, DR, DF) ?=>
+    inb(R + DR, F + DF),
+    P = bsq(Board, sq(R + DR, F + DF)),
+    ( P == By*4
+    ; P == By*5
+    ; P == 0, s_att(Board, R + DR, F + DF, By, DR, DF)
+    ; fail ).
+straight_att(Board, R, F, By) ?=>
+    ( DR = -1, DF = 0,  s_att(Board, R, F, By, DR, DF)
+    ; DR = 1,  DF = 0,  s_att(Board, R, F, By, DR, DF)
+    ; DR = 0,  DF = -1, s_att(Board, R, F, By, DR, DF)
+    ; DR = 0,  DF = 1,  s_att(Board, R, F, By, DR, DF) ).
+
+king_sq(Board, Color, S) =>
+    L = [ I : I in 0..63, bsq(Board, I) == Color * 6 ],
+    L = [S].
+not_attacked(Board, S, By) ?=> not( attacked(Board, S, By) ).
+king_ok(Board, Wt) ?=>
+    king_sq(Board, Wt, KS),
+    not_attacked(Board, KS, -Wt).
+
+% ---- pseudo-legal moves
+move_of(Board, Wt, Castling, Ep, From, T, M) ?=>
+    ( T == 1, pawn_move(Board, Wt, Ep, From, M)
+    ; T == 2, knight_move(Board, Wt, From, M)
+    ; T == 3, slider_move(Board, Wt, From, M, diag)
+    ; T == 4, slider_move(Board, Wt, From, M, straight)
+    ; T == 5, slider_move(Board, Wt, From, M, both)
+    ; T == 6, king_move(Board, Wt, Castling, From, M)
+    ; fail ).
+
+moves_of_piece(Board, Wt, Castling, Ep, From) = Ms =>
+    P = bsq(Board, From),
+    ( is_side(P, Wt),
+        T = abs(P),
+        Ms = findall( M, move_of(Board, Wt, Castling, Ep, From, T, M) )
+    ; Ms = [] ).
+
+pm_from(64, _B, _Wt, _C, _Ep, Ms) => Ms = [].
+pm_from(From, Board, Wt, Castling, Ep, Ms) =>
+    PM = moves_of_piece(Board, Wt, Castling, Ep, From),
+    pm_from(From + 1, Board, Wt, Castling, Ep, Rest),
+    append(PM, Rest, Ms).
+
+pseudo_moves(Pos, Ms) =>
+    Pos = [Board, Wt, Castling, Ep],
+    pm_from(0, Board, Wt, Castling, Ep, Ms).
+
+last_rank(1) = 7.    last_rank(-1) = 0.
+start_rank(1) = 1.   start_rank(-1) = 6.
+
+pawn_move(Board, Wt, Ep, From, M) ?=>
+    R = rank(From), F = file(From),
+    ( inb(R + Wt, F), bsq(Board, sq(R+Wt, F)) == 0,
+        ( R + Wt == last_rank(Wt), promo(Wt, From, sq(R+Wt, F), M)
+        ; M = [From, sq(R+Wt, F), 0, 0, 0, 0] )
+    ; R == start_rank(Wt), inb(R + 2*Wt, F),
+        bsq(Board, sq(R+Wt, F)) == 0, bsq(Board, sq(R+2*Wt, F)) == 0,
+        M = [From, sq(R+2*Wt, F), 0, 0, 0, 0]
+    ; inb(R + Wt, F - 1), pawn_cap(Board, Wt, Ep, From, R, F - 1, M)
+    ; inb(R + Wt, F + 1), pawn_cap(Board, Wt, Ep, From, R, F + 1, M) ).
+
+pawn_cap(Board, Wt, Ep, From, R, Fc, M) ?=>
+    S = sq(R + Wt, Fc),
+    ( S == Ep,
+        bsq(Board, sq(R, Fc)) == -Wt,
+        M = [From, S, 0, sq(R, Fc), 0, 0]
+    ; P2 = bsq(Board, S), is_enemy(P2, Wt),
+        ( R + Wt == last_rank(Wt), promo(Wt, From, S, M)
+        ; M = [From, S, 0, 0, 0, 0] ) ).
+
+promo(Wt, From, To, M) ?=>
+    ( M = [From, To, 5*Wt, 0, 0, 0]
+    ; M = [From, To, 4*Wt, 0, 0, 0]
+    ; M = [From, To, 3*Wt, 0, 0, 0]
+    ; M = [From, To, 2*Wt, 0, 0, 0] ).
+
+knight_move(Board, Wt, From, M) ?=>
+    R = rank(From), F = file(From),
+    ( DR = 1,  DF = 2
+    ; DR = 1,  DF = -2
+    ; DR = -1, DF = 2
+    ; DR = -1, DF = -2
+    ; DR = 2,  DF = 1
+    ; DR = 2,  DF = -1
+    ; DR = -2, DF = 1
+    ; DR = -2, DF = -1 ),
+    inb(R + DR, F + DF),
+    can_occupy(bsq(Board, sq(R + DR, F + DF)), Wt),
+    M = [From, sq(R + DR, F + DF), 0, 0, 0, 0].
+
+slider_move(Board, Wt, From, M, Mode) ?=>
+    R = rank(From), F = file(From),
+    ( Mode == diag,
+        ( DR = -1, DF = -1
+        ; DR = -1, DF = 1
+        ; DR = 1,  DF = -1
+        ; DR = 1,  DF = 1 )
+    ; Mode == straight,
+        ( DR = -1, DF = 0
+        ; DR = 1,  DF = 0
+        ; DR = 0,  DF = -1
+        ; DR = 0,  DF = 1 )
+    ; Mode == both,
+        ( DR = -1, DF = -1
+        ; DR = -1, DF = 1
+        ; DR = 1,  DF = -1
+        ; DR = 1,  DF = 1
+        ; DR = -1, DF = 0
+        ; DR = 1,  DF = 0
+        ; DR = 0,  DF = -1
+        ; DR = 0,  DF = 1 ) ),
+    ray(Board, Wt, From, R, F, DR, DF, M).
+
+ray(Board, Wt, From, R, F, DR, DF, M) ?=>
+    inb(R + DR, F + DF),
+    S = sq(R + DR, F + DF),
+    P = bsq(Board, S),
+    ( P == 0,
+        ( M = [From, S, 0, 0, 0, 0]
+        ; ray(Board, Wt, From, R + DR, F + DF, DR, DF, M) )
+    ; is_enemy(P, Wt), M = [From, S, 0, 0, 0, 0]
+    ; fail ).
+
+king_move(Board, Wt, Castling, From, M) ?=>
+    R = rank(From), F = file(From),
+    ( DR = -1, DF = -1
+    ; DR = -1, DF = 0
+    ; DR = -1, DF = 1
+    ; DR = 0,  DF = -1
+    ; DR = 0,  DF = 1
+    ; DR = 1,  DF = -1
+    ; DR = 1,  DF = 0
+    ; DR = 1,  DF = 1 ),
+    inb(R + DR, F + DF),
+    can_occupy(bsq(Board, sq(R + DR, F + DF)), Wt),
+    M = [From, sq(R + DR, F + DF), 0, 0, 0, 0]
+    ; castle_move(Board, Wt, Castling, From, M).
+
+castle_move(Board, Wt, Castling, From, M) ?=>
+    king_ok(Board, Wt),
+    ( Wt == 1, Castling = [WK, WQ, _BK, _BQ], From == 4,
+        ( WK == 1,
+            bsq(Board, 5) == 0, bsq(Board, 6) == 0,
+            not_attacked(Board, 5, -1), not_attacked(Board, 6, -1),
+            M = [4, 6, 0, 0, 7, 5]
+        ; WQ == 1,
+            bsq(Board, 1) == 0, bsq(Board, 2) == 0, bsq(Board, 3) == 0,
+            not_attacked(Board, 3, -1), not_attacked(Board, 2, -1),
+            M = [4, 2, 0, 0, 0, 3] )
+    ; Wt == -1, Castling = [_WK, _WQ, BK, BQ], From == 60,
+        ( BK == 1,
+            bsq(Board, 61) == 0, bsq(Board, 62) == 0,
+            not_attacked(Board, 61, 1), not_attacked(Board, 62, 1),
+            M = [60, 62, 0, 0, 63, 61]
+        ; BQ == 1,
+            bsq(Board, 57) == 0, bsq(Board, 58) == 0, bsq(Board, 59) == 0,
+            not_attacked(Board, 59, 1), not_attacked(Board, 58, 1),
+            M = [60, 58, 0, 0, 56, 59] ) ).
+
+% ---- apply a move
+upd_castle(Castling, P, From, C2) =>
+    ( P == 6,   Castling = [_A, _B, BK, BQ], C2 = [0, 0, BK, BQ]
+    ; P == -6,  Castling = [WK, WQ, _A, _B], C2 = [WK, WQ, 0, 0]
+    ; P == 4, From == 0,  Castling = [WK, _B, BK, BQ], C2 = [WK, 0, BK, BQ]
+    ; P == 4, From == 7,  Castling = [_A, WQ, BK, BQ], C2 = [0, WQ, BK, BQ]
+    ; P == -4, From == 56, Castling = [WK, WQ, BK, _B], C2 = [WK, WQ, BK, 0]
+    ; P == -4, From == 63, Castling = [WK, WQ, _A, BQ], C2 = [WK, WQ, 0, BQ]
+    ; C2 = Castling ).
+
+apply(Mv, Pos, Pos2) =>
+    Pos = [Board, Wt, Castling, _Ep],
+    Mv = [From, To, Promo, EpCap, RookFrom, RookTo],
+    P = bsq(Board, From),
+    B1 = set(Board, From, 0),
+    ( Promo == 0, B2 = set(B1, To, P) ; B2 = set(B1, To, Promo) ),
+    ( EpCap == 0, B3 = B2 ; B3 = set(B2, EpCap, 0) ),
+    ( RookFrom == 0, B4 = B3
+    ; Rp = bsq(B3, RookFrom),
+      B4 = set(set(B3, RookFrom, 0), RookTo, Rp) ),
+    upd_castle(Castling, P, From, Castling2),
+    ( P == Wt, To == From + 16*Wt, Ep2 = sq(rank(From) + Wt, file(From))
+    ; Ep2 = 0 ),
+    Pos2 = [B4, -Wt, Castling2, Ep2].
+
+% ---- legal moves = pseudo-legal with the MOVER's king left safe
+is_legal(M, Pos) ?=>
+    Pos = [_B, Wt, _C, _E],
+    apply(M, Pos, P2),
+    P2 = [B2, _Wt2, _C2, _E2],
+    king_ok(B2, Wt).
+
+legal_moves(Pos, Ms) =>
+    pseudo_moves(Pos, PMs),
+    Ms = [ M : M in PMs, is_legal(M, Pos) ].
+
+% ---- perft
+perft(Pos, 0) = 1.
+perft(Pos, D) = C =>
+    D > 0,
+    legal_moves(Pos, Ms),
+    perft_sum(Ms, Pos, D, C).
+perft_sum(Ms, Pos, D, C) =>
+    ( Ms = [], C = 0
+    ; Ms = [M | Rest],
+      apply(M, Pos, Pos1),
+      perft(Pos1, D - 1) = C1,
+      perft_sum(Rest, Pos, D, C2),
+      C = C1 + C2 ).
+
+% one par_run task:  perft of a first-move successor subtree
+perft_task({Pos, Dd}) = C => C = perft(Pos, Dd).
+
+main() =>
+    D = 4,
+    Pos0 = startpos(),
+    legal_moves(Pos0, Ms),
+    Tasks = [ {perft_task, {Pos1, D - 1}} : M in Ms, apply(M, Pos0, Pos1) ],
+    foreach (NT in [0, 1, 2, 4])
+        Rs = par_run(NT, Tasks),
+        S = sum(Rs),
+        ck("perft(4) = 197281", S, 197281),
+        printf("NT=%d  perft(4)=%d  per-move=%s\n", NT, S, to_string(Rs))
+    end,
+    true.
+
+ck(Name, Got, Want) =>
+    ( Got = Want, printf("  %-20s ok\n", Name)
+    ; printf("  %-20s FAIL got=%s want=%s\n", Name, to_string(Got), to_string(Want)),
+      throw($parbat_ck_fail(Name)) ).
