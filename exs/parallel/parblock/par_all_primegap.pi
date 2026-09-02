@@ -1,0 +1,41 @@
+% par_all_primegap:  par_all -- the fail-fast universal quantifier.
+%
+% Problem:  characterize the prime gap between 23 and 29.  The interior
+%  [24..28]  must all be composite,  and  29  itself closes the gap.
+%   par_all(NT, iscomposite, [24..28])  =  ok
+%   par_all(NT, iscomposite, [24..29])  =  [fail, 29]
+% par_all is fail-fast and reassembles in ELEMENT order,  so both
+% verdicts are deterministic at every NT.
+%
+% From the repo root:
+%   PICATPATH=lib2 emu/picat exs/parallel/parblock/par_all_primegap.pi
+%
+% NT = 0 runs the phase-0 serial quantifier;  NT >= 1 the mode-2 pool.
+
+module par_all_primegap.
+import parblock_pvm.
+
+isprime(N) ?=>
+    N >= 2, isp(2, N).
+isp(D, N) ?=>
+    D * D > N.
+isp(D, N) ?=>
+    N mod D != 0,
+    isp(D + 1, N).
+iscomposite(N) ?=> N >= 4, not(isprime(N)).
+
+main() =>
+    foreach (NT in [0, 1, 2, 4])
+        printf("NT=%d\n", NT),
+        S1 = par_all(NT, iscomposite, [24, 25, 26, 27, 28]),
+        ck("gap 23..29 interior all composite", S1, ok),
+        S2 = par_all(NT, iscomposite, [24, 25, 26, 27, 28, 29]),
+        ck("29 closes the gap", S2, [fail, 29]),
+        printf("  [24..28]=%s   [24..29]=%s\n", to_string(S1), to_string(S2))
+    end,
+    true.
+
+ck(Name, Got, Want) =>
+    ( Got = Want, printf("  %-24s ok\n", Name)
+    ; printf("  %-24s FAIL got=%s want=%s\n", Name, to_string(Got), to_string(Want)),
+      throw($parbat_ck_fail(Name)) ).

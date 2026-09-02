@@ -1,0 +1,57 @@
+% map_race_mersenne:  map_race -- a per-element portfolio race.
+%
+% Problem:  for each prime  P  in  [3 5 7 11 13 19 31],  decide whether
+% the Mersenne number  2^P - 1  is prime.  Two independent strategies
+% race for each P:
+%   ismp(P)    naive trial division of  2^P - 1
+%   lucas(P)   the Lucas-Lehmer test  (exact for Mersenne numbers;
+%              stays in int64 for  P <= 31)
+% Both agree on the answer,  so  Ys  is deterministic:
+%   [1 1 1 0 1 1 1]   ( 2^11 - 1 = 2047 = 23 * 89  is composite )
+% The winner per element is a scheduling outcome  --  only the value
+% is asserted.  (Mersenne exponents:  OEIS A000043.)
+%
+% From the repo root:
+%   PICATPATH=lib2 emu/picat exs/parallel/parblock/map_race_mersenne.pi
+%
+% NT = 0 runs the phase-0 serial race;  NT >= 1 the mode-1 portfolio.
+
+module map_race_mersenne.
+import parblock_pvm.
+
+isprime(N) ?=>
+    N >= 2, isp(2, N).
+isp(D, N) ?=>
+    D * D > N.
+isp(D, N) ?=>
+    N mod D != 0,
+    isp(D + 1, N).
+
+% strategy A:  naive trial division of  2^P - 1
+ismp(P) = Y =>
+    ( isprime(2 ** P - 1), Y = 1
+    ; Y = 0 ).
+
+% strategy B:  Lucas-Lehmer  ( s_{k+1} = s_k^2 - 2  mod  2^P - 1 )
+lucas(P) = Y =>
+    M = 2 ** P - 1, S = 4, K = P - 2,
+    while (K > 0)
+        S := (S * S - 2) mod M,
+        K := K - 1
+    end,
+    if (S = 0) Y = 1 else Y = 0 end.
+
+main() =>
+    foreach (NT in [0, 1, 2, 4])
+        printf("NT=%d\n", NT),
+        Fs = [ismp, lucas],
+        Ys = map_race(NT, Fs, [3, 5, 7, 11, 13, 19, 31]),
+        ck("2^P-1 prime? for P in [3..31]", Ys, [1, 1, 1, 0, 1, 1, 1]),
+        printf("  Ys=%s  (2^11-1 = 2047 = 23*89  is the composite)\n", to_string(Ys))
+    end,
+    true.
+
+ck(Name, Got, Want) =>
+    ( Got = Want, printf("  %-24s ok\n", Name)
+    ; printf("  %-24s FAIL got=%s want=%s\n", Name, to_string(Got), to_string(Want)),
+      throw($parbat_ck_fail(Name)) ).

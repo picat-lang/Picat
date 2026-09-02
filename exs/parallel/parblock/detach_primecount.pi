@@ -1,0 +1,45 @@
+% detach_primecount:  detach1 / collect -- deferred computation.
+%
+% A heavy prime count  pi(100000)  is detached to a handle;  a light
+% foreground count  pi(100)  runs;  the handle is then collected.
+% The collect contract -- return the value,  or rethrow the task's
+% exception,  exactly once -- is what this pins.
+%
+%   pi(100000) = 9592     pi(100) = 25
+%
+% Phase-0 note:  detach computes immediately and the handle is a
+% wrapped result;  phase 1 turns detach into a real non-blocking
+% background task (the one open async item in the family).  The
+% handle/collect contract is the same in both.
+%
+% From the repo root:
+%   PICATPATH=lib2 emu/picat exs/parallel/parblock/detach_primecount.pi
+
+module detach_primecount.
+import parblock.
+
+isprime(N) ?=>
+    N >= 2, isp(2, N).
+isp(D, N) ?=>
+    D * D > N.
+isp(D, N) ?=>
+    N mod D != 0,
+    isp(D + 1, N).
+pi(N) = C =>
+    P = [X : X in 1..N, isprime(X)],
+    C = len(P).
+
+main() =>
+    H = detach1(pi, 100000),
+    V = pi(100),
+    printf("  foreground pi(100)     = %d\n", V),
+    C = collect(H),
+    ck("foreground pi(100)", V, 25),
+    ck("background pi(100000)", C, 9592),
+    printf("  collected  pi(100000)  = %d\n", C),
+    true.
+
+ck(Name, Got, Want) =>
+    ( Got = Want, printf("  %-24s ok\n", Name)
+    ; printf("  %-24s FAIL got=%s want=%s\n", Name, to_string(Got), to_string(Want)),
+      throw($parbat_ck_fail(Name)) ).

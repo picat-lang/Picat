@@ -1,0 +1,67 @@
+% par_block_counts:  par_begin / par_cl / par_end -- the statement-level
+% form of the par_run contract (task-parallel, results in index order).
+%
+% Three independent counting tasks are registered as the clauses of one
+% disjunction and run through the mode-2 fixed-chunk par_run:
+%   1  cnt_primes_100     primes  <= 100              ->  25
+%   2  cnt_twin_100       twin pairs  <= 100          ->   8
+%   3  cnt_perfect_100    perfect numbers  <= 100     ->   2
+% Each task has a unique answer,  so  Rs = [25, 8, 2]  is asserted
+% exactly at every NT.  (Perfect numbers:  OEIS A000396.)
+%
+% From the repo root:
+%   PICATPATH=lib2 emu/picat exs/parallel/parblock/par_block_counts.pi
+%
+% NT = 0 runs the phase-0 serial par_run;  NT >= 1 the mode-2 pool.
+
+module par_block_counts.
+import parblock_pvm.
+
+isprime(N) ?=>
+    N >= 2, isp(2, N).
+isp(D, N) ?=>
+    D * D > N.
+isp(D, N) ?=>
+    N mod D != 0,
+    isp(D + 1, N).
+divides(D, N) ?=> N mod D = 0.
+
+sigma_fast(N) = S =>
+    M = N, D = 2, S = 1,
+    while (D * D =< M)
+        if (M mod D = 0)
+            T := 1, P := 1,
+            while (M mod D = 0)
+                M := M // D, P := P * D, T := T + P
+            end,
+            S := S * T
+        end,
+        D := D + 1
+    end,
+    if (M > 1) S := S * (1 + M) end,
+    true.
+isperfect(N) ?=> N > 1, sigma_fast(N) = 2 * N.
+istwin(P) ?=> isprime(P), isprime(P + 2).
+
+cnt_primes_100()  = C => C = len([X : X in 1..100, isprime(X)]).
+cnt_twin_100()    = C => C = len([P : P in 1..98, istwin(P)]).
+cnt_perfect_100() = C => C = len([N : N in 2..100, isperfect(N)]).
+
+main() =>
+    foreach (NT in [0, 1, 2, 4])
+        printf("NT=%d\n", NT),
+        par_begin(NT),
+        ( par_cl(1, cnt_primes_100)
+        ; par_cl(2, cnt_twin_100)
+        ; par_cl(3, cnt_perfect_100)
+        ; true ),
+        par_end(Rs),
+        ck("counts [pi(100), twins<=100, perfect<=100]", Rs, [25, 8, 2]),
+        printf("  Rs=%s\n", to_string(Rs))
+    end,
+    true.
+
+ck(Name, Got, Want) =>
+    ( Got = Want, printf("  %-24s ok\n", Name)
+    ; printf("  %-24s FAIL got=%s want=%s\n", Name, to_string(Got), to_string(Want)),
+      throw($parbat_ck_fail(Name)) ).

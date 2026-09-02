@@ -1,0 +1,73 @@
+% race_block_perfect:  race_begin / race_cl / race_end -- the
+% statement-level form of the mode-1 portfolio race.
+%
+% Problem:  the next even perfect number after 496  (= 8128).  Three
+% independent solvers are the clauses of one disjunction;  the first
+% to complete wins  (R = [won, I, V]).  All three agree on  8128,  so
+% the VALUE is asserted and validated (sigma(8128) = 16256);  the
+% winning clause  I  is a scheduling outcome and is never asserted.
+%   1  sol_mersenne  even perfects are  2^(p-1)(2^p-1)  for Mersenne
+%                    primes  2^p-1;  smallest with  p >= 6  is  p = 7
+%   2  sol_sigma     scan  n  and test  sigma(n) = 2n
+%   3  sol_sequence  table lookup in  6, 28, 496, 8128, 33550336
+%   (Perfect numbers:  OEIS A000396.)
+%
+% From the repo root:
+%   PICATPATH=lib2 emu/picat exs/parallel/parblock/race_block_perfect.pi
+%
+% NT = 0 runs a pool-1 session (written-order walk);  NT >= 1 forks
+% the clauses at the body's choice points.
+
+module race_block_perfect.
+import parblock_pvm.
+
+divides(D, N) ?=> N mod D = 0.
+
+% sum of divisors via factorization:  N = prod p^a  =>  prod (1+p+..+p^a)
+sigma_fast(N) = S =>
+    M = N, D = 2, S = 1,
+    while (D * D =< M)
+        if (M mod D = 0)
+            T := 1, P := 1,
+            while (M mod D = 0)
+                M := M // D, P := P * D, T := T + P
+            end,
+            S := S * T
+        end,
+        D := D + 1
+    end,
+    if (M > 1) S := S * (1 + M) end,
+    true.
+isperfect(N) ?=> N > 1, sigma_fast(N) = 2 * N.
+
+sol_mersenne() = Y =>
+    Ps = [P : P in 6..16, prime(2 ** P - 1)],
+    P = first(Ps),
+    Y = 2 ** (P - 1) * (2 ** P - 1).
+sol_sigma() = Y =>
+    Ns = [N : N in 497..9000, isperfect(N)],
+    Y = first(Ns).
+sol_sequence() = Y =>
+    Ys = [X : X in [6, 28, 496, 8128, 33550336], X > 496],
+    Y = first(Ys).
+
+main() =>
+    foreach (NT in [0, 1, 2, 4])
+        printf("NT=%d\n", NT),
+        race_begin(NT),
+        ( race_cl(1, sol_mersenne)
+        ; race_cl(2, sol_sigma)
+        ; race_cl(3, sol_sequence)
+        ; true ),
+        race_end(R),
+        R = [won, I, V],
+        ck("value = 8128", V, 8128),
+        ck("sigma(8128) = 16256", sigma_fast(V), 16256),
+        printf("  R=[won I=%d V=%d]  a genuine perfect number  ok\n", I, V)
+    end,
+    true.
+
+ck(Name, Got, Want) =>
+    ( Got = Want, printf("  %-24s ok\n", Name)
+    ; printf("  %-24s FAIL got=%s want=%s\n", Name, to_string(Got), to_string(Want)),
+      throw($parbat_ck_fail(Name)) ).

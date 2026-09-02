@@ -51,6 +51,27 @@ Probes (bug reproducers, not API demos): `bugf_probe.pi`
 (CP constraint-posting Shapes A/B/C; drive a shape with
 `emu/picat -path lib2 <file> -g pA()`).
 
+## Single-API illustrations
+
+One tiny, **self-contained** example per API (no shared helper; each
+defines its own number-theory work). The PVM ones run the full
+`NT ∈ {0,1,2,4}` matrix (NT = 0 is the phase-0 serial fallback); the
+serial-only `effect` / `detach` examples run once. All are green.
+
+| file | API | problem (self-contained) |
+|---|---|---|
+| `par_run_primes.pi` | `par_run(NT, Tasks)` | prime count in disjoint ranges `[1..10]..[31..40]` → `[4,4,2,2]`, sum = π(40) = 12 |
+| `race_perfect.pi` | `race_res(NT, F, Xs)` | smallest perfect number > 496 among candidates → 8128 (OEIS A000396) |
+| `map_par_totient.pi` | `map_par(NT, F, Xs)` | Euler totient φ(1..16) → `[1,1,2,2,4,2,6,4,6,4,10,4,12,6,8,8]` |
+| `map_race_mersenne.pi` | `map_race(NT, Fs, Xs)` | is `2^P-1` prime? trial-division vs Lucas-Lehmer, `P ∈ [3,5,7,11,13,19,31]` |
+| `par_any_twinprime.pi` | `par_any(NT, P, Xs)` | first twin-prime pair in `[1000..1030]` → (1019, 1021) |
+| `par_all_primegap.pi` | `par_all(NT, P, Xs)` | the 23↔29 prime gap: interior `[24..28]` composite (`ok`), 29 closes it (`[fail,29]`) |
+| `effect_twinprime.pi` | `effect1(F, A)` | report each twin pair in `[1..200]` once across two passes → 15 (not 30) |
+| `detach_primecount.pi` | `detach1(F, A)` / `collect` | deferred π(100000) = 9592 vs foreground π(100) = 25 |
+| `race_block_perfect.pi` | `race_begin` / `race_cl` / `race_end` | 3 solvers (Mersenne / σ-scan / sequence) for the next perfect > 496 → 8128 |
+| `par_block_counts.pi` | `par_begin` / `par_cl` / `par_end` | π(100), twin pairs ≤ 100, perfect numbers ≤ 100 → `[25, 8, 2]` |
+| `par_run_dyn_primes.pi` | `par_run_dyn(NT, Tasks)` | uneven prime counts `[1..50000]` + three lights → `[5133, 25, 46, 62]` |
+
 ---
 
 ## Module `parblock` (phase 0, serial)
@@ -63,15 +84,15 @@ candidates are total-or-throw by language semantics.
 
 | entry | contract | illustrated by |
 |---|---|---|
-| `par_run(Tasks) = Rs` | results in **task order**; a throwing task aborts the par with that task's exception term | `semantics` t01/t02; `demo` §2c |
+| `par_run(Tasks) = Rs` | results in **task order**; a throwing task aborts the par with that task's exception term | `semantics` t01/t02; `demo` §2c; `par_run_primes` |
 | `race(F, Xs) = P` | `P = (W, Y)`: first `X` (written order) on which `F(X)` completes; `Y` its value | `semantics` t03; `demo` §2 |
-| `race_res(F, Xs) = S` | `S = [won, W, Y]` \| `exhausted` (total form of `race`) | `semantics` t04 (all-throw → `exhausted`) |
-| `map_par(F, Xs) = Ys` | ordered parallel map, results in **element order** | `semantics` t05; `demo` §1 |
-| `map_race(Fs, Xs) = Ys` | per-element portfolio over the function list `Fs`; all-throw element throws `$parblock_mrace_empty(X)` | `semantics` t09; `demo` §2b |
-| `par_any(P, Xs) = S` | `S = [sat, X]` first satisfying `X` (written order) \| `none`; a throwing `P(X)` drops out | `semantics` t06; `demo` §3 |
-| `par_all(P, Xs) = S` | `S = ok` \| `[fail, X]` **fail-fast**; a throwing `P(X)` propagates | `semantics` t07; `demo` §4 |
-| `effect0(F)` / `effect1(F, A)` | `F()`/`F(A)` run **at most once** per key for the program's life (key marked *before* the call) | `semantics` (effect8 counter); `demo` §5 |
-| `detach0(F) = H` / `detach1(F, A) = H` / `collect(H) = V` | phase 0: computed immediately, `H = [done, V]` \| `[dead, Term]`; `collect` returns `V` or rethrows `Term` | `semantics` (detach/collect) |
+| `race_res(F, Xs) = S` | `S = [won, W, Y]` \| `exhausted` (total form of `race`) | `semantics` t04 (all-throw → `exhausted`); `race_perfect` |
+| `map_par(F, Xs) = Ys` | ordered parallel map, results in **element order** | `semantics` t05; `demo` §1; `map_par_totient` |
+| `map_race(Fs, Xs) = Ys` | per-element portfolio over the function list `Fs`; all-throw element throws `$parblock_mrace_empty(X)` | `semantics` t09; `demo` §2b; `map_race_mersenne` |
+| `par_any(P, Xs) = S` | `S = [sat, X]` first satisfying `X` (written order) \| `none`; a throwing `P(X)` drops out | `semantics` t06; `demo` §3; `par_any_twinprime` |
+| `par_all(P, Xs) = S` | `S = ok` \| `[fail, X]` **fail-fast**; a throwing `P(X)` propagates | `semantics` t07; `demo` §4; `par_all_primegap` |
+| `effect0(F)` / `effect1(F, A)` | `F()`/`F(A)` run **at most once** per key for the program's life (key marked *before* the call) | `semantics` (effect8 counter); `demo` §5; `effect_twinprime` |
+| `detach0(F) = H` / `detach1(F, A) = H` / `collect(H) = V` | phase 0: computed immediately, `H = [done, V]` \| `[dead, Term]`; `collect` returns `V` or rethrows `Term` | `semantics` (detach/collect); `detach_primecount` |
 
 ---
 
@@ -97,15 +118,15 @@ never a specific placement).
 
 | entry | substrate | illustrated by |
 |---|---|---|
-| `par_run(NT, Tasks) = Rs` | mode 2, fixed-chunk split; task-ordered results, first-thrower rethrown after collect | `pvm_tasks` (5 cases); `queens_count{,2,_multi}`; `ramsey_m2` |
+| `par_run(NT, Tasks) = Rs` | mode 2, fixed-chunk split; task-ordered results, first-thrower rethrown after collect | `pvm_tasks` (5 cases); `queens_count{,2,_multi}`; `ramsey_m2`; `par_run_primes` |
 | `race(NT, F, Xs) = P` | mode 1 portfolio (`race_res` wrap) | `race_pvm_tasks` case_race/case_race2 |
-| `race_res(NT, F, Xs) = S` | mode 1 portfolio | `race_pvm_tasks` case_race / case_race_exhaust |
-| `map_par(NT, F, Xs) = Ys` | mode 2 (ordered map) | `race_pvm_tasks` case_mappar |
-| `map_race(NT, Fs, Xs) = Ys` | serial element loop, one mode-1 session per element | `race_pvm_tasks` case_maprace* |
-| `par_any(NT, P, Xs) = S` | mode 1 | `race_pvm_tasks` case_parany* |
-| `par_all(NT, P, Xs) = S` | **mode 2** (all elements must be tested, fail-fast term) | `race_pvm_tasks` case_parall* |
-| `race_begin(NT)` / `race_cl(I, F)` / `race_cl(I, F, A)` / `race_end(R)` | mode 1 **block forms** (phase 2) | `race_begin_tasks` (8 cases); raw substrate in `pvm_race` |
-| `par_begin(NT)` / `par_cl(I, F)` / `par_cl(I, F, A)` / `par_end(Rs)` | **par block forms** (phase 3): serial registration walk + mode-2 `par_run` | `par_begin_tasks` (9 cases) |
+| `race_res(NT, F, Xs) = S` | mode 1 portfolio | `race_pvm_tasks` case_race / case_race_exhaust; `race_perfect` |
+| `map_par(NT, F, Xs) = Ys` | mode 2 (ordered map) | `race_pvm_tasks` case_mappar; `map_par_totient` |
+| `map_race(NT, Fs, Xs) = Ys` | serial element loop, one mode-1 session per element | `race_pvm_tasks` case_maprace*; `map_race_mersenne` |
+| `par_any(NT, P, Xs) = S` | mode 1 | `race_pvm_tasks` case_parany*; `par_any_twinprime` |
+| `par_all(NT, P, Xs) = S` | **mode 2** (all elements must be tested, fail-fast term) | `race_pvm_tasks` case_parall*; `par_all_primegap` |
+| `race_begin(NT)` / `race_cl(I, F)` / `race_cl(I, F, A)` / `race_end(R)` | mode 1 **block forms** (phase 2) | `race_begin_tasks` (8 cases); raw substrate in `pvm_race`; `race_block_perfect` |
+| `par_begin(NT)` / `par_cl(I, F)` / `par_cl(I, F, A)` / `par_end(Rs)` | **par block forms** (phase 3): serial registration walk + mode-2 `par_run` | `par_begin_tasks` (9 cases); `par_block_counts` |
 
 ### Race block forms (phase 2)
 
@@ -165,9 +186,10 @@ par_end(Rs).                    % Rs = [Va, Vb]  in index order
 > — so a block-level disjunction would partition *serially* (clause 1
 > runs to completion before clause 2's worker is even forked). The par
 > block therefore splits into a serial registration walk + the mode-2
-> run. (The engine carries a mode-4 "par pool" for a run-all-disjuncts
-> partition; it is reserved, unused by this block, and has that
-> limitation.)
+> run. (An earlier mode-4 "par pool" attempt — a run-all-disjuncts
+> partition — was built and then *reverted*: that same CONFIRM
+> serialization made it a no-op for parallelism, so it shipped no
+> benefit and was removed to keep the engine lean.)
 
 See `par_begin_tasks.pi` for exact-value, staggered (index-order-not
 completion-order), three-clause, thrower / all-throw (first-thrower-in
@@ -180,7 +202,7 @@ misuse-raises cases across `NT ∈ {0,1,2,4}`.
 
 | entry | substrate | illustrated by |
 |---|---|---|
-| `par_run_dyn(NT, Tasks) = Rs` | mode 2 with the **dynamic cursor** (`bp.pvm_claim`): workers share the pool and each claims the next slice, so cost-skewed pools don't strand fast workers; task-ordered results, first-thrower rethrown | `pvm_dyn_tasks` (6 cases); `ramsey_m2{,_cp}` with `DYN=1` |
+| `par_run_dyn(NT, Tasks) = Rs` | mode 2 with the **dynamic cursor** (`bp.pvm_claim`): workers share the pool and each claims the next slice, so cost-skewed pools don't strand fast workers; task-ordered results, first-thrower rethrown | `pvm_dyn_tasks` (6 cases); `ramsey_m2{,_cp}` with `DYN=1`; `par_run_dyn_primes` |
 
 ---
 

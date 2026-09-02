@@ -1,0 +1,41 @@
+% par_any_twinprime:  par_any -- the portfolio search for a witness.
+%
+% Problem:  the first prime  p  in  [1000..1030]  such that  p and p+2
+% are both prime  (a twin-prime pair).  par_any races the candidates;
+%  S = [sat, W]  is the first candidate that satisfies the predicate,
+%  S = none  if none does.  The window  [1000..1030]  contains exactly
+% one twin pair,  (1019, 1021),  so the witness is  W = 1019  at every
+% NT.  (Twin primes:  OEIS A001081.)
+%
+% From the repo root:
+%   PICATPATH=lib2 emu/picat exs/parallel/parblock/par_any_twinprime.pi
+%
+% NT = 0 runs the phase-0 serial search;  NT >= 1 the mode-1 portfolio.
+
+module par_any_twinprime.
+import parblock_pvm.
+
+isprime(N) ?=>
+    N >= 2, isp(2, N).
+isp(D, N) ?=>
+    D * D > N.
+isp(D, N) ?=>
+    N mod D != 0,
+    isp(D + 1, N).
+istwin(P) ?=> isprime(P), isprime(P + 2).
+
+main() =>
+    foreach (NT in [0, 1, 2, 4])
+        printf("NT=%d\n", NT),
+        S = par_any(NT, istwin, [P : P in 1000..1030]),
+        S = [sat, W],
+        ck("first twin p in [1000..1030]", W, 1019),
+        istwin(W),
+        printf("  [sat %d]  (%d, %d) both prime  ok\n", W, W, W + 2)
+    end,
+    true.
+
+ck(Name, Got, Want) =>
+    ( Got = Want, printf("  %-24s ok\n", Name)
+    ; printf("  %-24s FAIL got=%s want=%s\n", Name, to_string(Got), to_string(Want)),
+      throw($parbat_ck_fail(Name)) ).

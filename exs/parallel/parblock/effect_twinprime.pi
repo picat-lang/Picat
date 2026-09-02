@@ -1,0 +1,52 @@
+% effect_twinprime:  effect1 -- run-once side effects under re-execution.
+%
+% Problem:  report each twin-prime pair in  [1..200]  exactly once,
+% even though the set is ENUMERATED TWICE (two full passes).  effect1
+% keys on  {F, A}  in a global map and marks the key done BEFORE the
+% call runs,  so a re-executed call is a no-op.  Without effect1 the
+% counter would reach  30  (15 pairs x 2 passes);  with it,  15.
+%
+% Phase-0 serial semantics (the async effect backend is the one open
+% item in the family).  (Twin primes:  OEIS A001081.)
+%
+% From the repo root:
+%   PICATPATH=lib2 emu/picat exs/parallel/parblock/effect_twinprime.pi
+
+module effect_twinprime.
+import parblock.
+
+isprime(N) ?=>
+    N >= 2, isp(2, N).
+isp(D, N) ?=>
+    D * D > N.
+isp(D, N) ?=>
+    N mod D != 0,
+    isp(D + 1, N).
+istwin(P) ?=> isprime(P), isprime(P + 2).
+
+twin_report(P) =>
+    M = get_global_map(parbat_twincount),
+    C = get(M, $total, 0),
+    put(M, $total, C + 1),
+    printf("    report twin (%d, %d)\n", P, P + 2).
+
+main() =>
+    foreach (P in 1..198)
+        if (istwin(P)) effect1(twin_report, P) end
+    end,
+    printf("  -- second enumeration pass (same pairs) --\n"),
+    foreach (P in 1..198)
+        if (istwin(P)) effect1(twin_report, P) end
+    end,
+    M = get_global_map(parbat_twincount),
+    C = get(M, $total, 0),
+    T = len([P : P in 1..198, istwin(P)]),
+    ck("distinct twins in [1..200]", T, 15),
+    ck("each pair reported exactly once", C, 15),
+    printf("  twins=%d  effects-fired=%d  (not %d)\n", T, C, T * 2),
+    true.
+
+ck(Name, Got, Want) =>
+    ( Got = Want, printf("  %-24s ok\n", Name)
+    ; printf("  %-24s FAIL got=%s want=%s\n", Name, to_string(Got), to_string(Want)),
+      throw($parbat_ck_fail(Name)) ).

@@ -1,0 +1,45 @@
+% par_run_dyn_primes:  par_run_dyn -- the dynamic (shared-cursor)
+% mode-2 backend.
+%
+% The four tasks count primes in  [1..50000]  [1..100]  [1..200]
+% [1..300].  The first task costs ~100x the others  --  exactly the
+% long-tail load the fixed-chunk par_run strands  (a slow task holds
+% up its whole chunk)  but the shared cursor balances:  each worker
+% claims its next task only when the previous one finishes,  so a
+% worker idles only once the very last task is done.
+%   pi(50000) = 5133   pi(100) = 25   pi(200) = 46   pi(300) = 62
+% Results are in TASK order (independent of claim order),  so
+% Rs = [5133, 25, 46, 62]  is asserted exactly at every NT.
+%
+% From the repo root:
+%   PICATPATH=lib2 emu/picat exs/parallel/parblock/par_run_dyn_primes.pi
+%
+% NT = 0 runs the phase-0 serial par_run;  NT >= 1 the mode-2 cursor.
+
+module par_run_dyn_primes.
+import parblock_pvm_dyn.
+
+isprime(N) ?=>
+    N >= 2, isp(2, N).
+isp(D, N) ?=>
+    D * D > N.
+isp(D, N) ?=>
+    N mod D != 0,
+    isp(D + 1, N).
+pi(N) = C =>
+    P = [X : X in 1..N, isprime(X)],
+    C = len(P).
+
+main() =>
+    foreach (NT in [0, 1, 2, 4])
+        printf("NT=%d\n", NT),
+        Rs = par_run_dyn(NT, [{pi, 50000}, {pi, 100}, {pi, 200}, {pi, 300}]),
+        ck("dynamic prime counts", Rs, [5133, 25, 46, 62]),
+        printf("  Rs=%s  (task 1 is ~100x the cost of the rest)\n", to_string(Rs))
+    end,
+    true.
+
+ck(Name, Got, Want) =>
+    ( Got = Want, printf("  %-24s ok\n", Name)
+    ; printf("  %-24s FAIL got=%s want=%s\n", Name, to_string(Got), to_string(Want)),
+      throw($parbat_ck_fail(Name)) ).

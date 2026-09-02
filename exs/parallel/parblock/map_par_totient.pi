@@ -1,0 +1,36 @@
+% map_par_totient:  map_par -- the ordered parallel map.
+%
+% Problem:  Euler's totient  phi(n)  (the count of  1 <= k <= n  that
+% are coprime to n)  for  n = 1..16.  map_par runs one task per
+% element through the mode-2 partition and returns the results in
+% ELEMENT order (par_run semantics).  phi(1..16) is deterministic,
+% so the exact list is asserted at every NT.
+%   phi(1..16) = 1 1 2 2 4 2 6 4 6 4 10 4 12 6 8 8
+%
+% From the repo root:
+%   PICATPATH=lib2 emu/picat exs/parallel/parblock/map_par_totient.pi
+%
+% NT = 0 runs the phase-0 serial map;  NT >= 1 the mode-2 pool.
+
+module map_par_totient.
+import parblock_pvm.
+
+coprime(A, B) ?=> gcd(A, B) = 1.
+
+phi(N) = C =>
+    P = [X : X in 1..N, coprime(X, N)],
+    C = len(P).
+
+main() =>
+    foreach (NT in [0, 1, 2, 4])
+        printf("NT=%d\n", NT),
+        Ys = map_par(NT, phi, [X : X in 1..16]),
+        ck("phi(1..16)", Ys, [1, 1, 2, 2, 4, 2, 6, 4, 6, 4, 10, 4, 12, 6, 8, 8]),
+        printf("  Ys=%s\n", to_string(Ys))
+    end,
+    true.
+
+ck(Name, Got, Want) =>
+    ( Got = Want, printf("  %-24s ok\n", Name)
+    ; printf("  %-24s FAIL got=%s want=%s\n", Name, to_string(Got), to_string(Want)),
+      throw($parbat_ck_fail(Name)) ).

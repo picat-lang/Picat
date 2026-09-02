@@ -1,0 +1,43 @@
+% par_run_primes:  par_run over INDEPENDENT per-range prime counts.
+%
+% The four tasks are the disjoint ranges  [1..10] [11..20] [21..30]
+% [31..40].  Each range is trial-divided from scratch (no shared work,
+% no tabling benefit)  --  the textbook embarrassingly-parallel prime
+% count.  par_run returns the per-range counts in TASK order (range
+% order);  the sum is  pi(40)  =  12.
+%
+% From the repo root:
+%   PICATPATH=lib2 emu/picat exs/parallel/parblock/par_run_primes.pi
+%
+% NT = 0 runs the phase-0 serial par_run;  NT >= 1 the mode-2 pool.
+
+module par_run_primes.
+import parblock_pvm.
+
+isprime(N) ?=>
+    N >= 2, isp(2, N).
+isp(D, N) ?=>
+    D * D > N.
+isp(D, N) ?=>
+    N mod D != 0,
+    isp(D + 1, N).
+
+% the per-range task:  count the primes in [Lo..Hi]
+pcnt({Lo, Hi}) = C =>
+    P = [X : X in Lo..Hi, isprime(X)],
+    C = len(P).
+
+main() =>
+    foreach (NT in [0, 1, 2, 4])
+        printf("NT=%d\n", NT),
+        Rs = par_run(NT, [{pcnt, {1, 10}}, {pcnt, {11, 20}}, {pcnt, {21, 30}}, {pcnt, {31, 40}}]),
+        ck("per-range counts", Rs, [4, 4, 2, 2]),
+        ck("sum = pi(40)", sum(Rs), 12),
+        printf("  Rs=%s  sum=%d\n", to_string(Rs), sum(Rs))
+    end,
+    true.
+
+ck(Name, Got, Want) =>
+    ( Got = Want, printf("  %-20s ok\n", Name)
+    ; printf("  %-20s FAIL got=%s want=%s\n", Name, to_string(Got), to_string(Want)),
+      throw($parbat_ck_fail(Name)) ).

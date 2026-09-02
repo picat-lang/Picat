@@ -1,0 +1,66 @@
+% race_perfect:  race / race_res -- the mode-1 portfolio search.
+%
+% Problem:  the smallest perfect number strictly greater than 496.
+% The candidates are the even-perfect sequence  6, 28, 496, 8128  and
+% the strategy  F  verifies a candidate X:  F(X) = X  when X is
+% perfect and X > 496,  otherwise F throws (total-or-throw,  the
+% race discipline).  The portfolio forks the candidates at choice
+% points under the pool size NT;  the first candidate that COMPLETES
+% wins.  8128 is the only completer,  so the answer is 8128 at every
+% NT.  (Perfect numbers:  OEIS A000396.)
+%
+% From the repo root:
+%   PICATPATH=lib2 emu/picat exs/parallel/parblock/race_perfect.pi
+%
+% NT = 0 runs the phase-0 serial race;  NT >= 1 the mode-1 portfolio.
+
+module race_perfect.
+import parblock_pvm.
+
+isprime(N) ?=>
+    N >= 2, isp(2, N).
+isp(D, N) ?=>
+    D * D > N.
+isp(D, N) ?=>
+    N mod D != 0,
+    isp(D + 1, N).
+divides(D, N) ?=> N mod D = 0.
+
+% sum of divisors via factorization:  N = prod p^a  =>  prod (1+p+..+p^a)
+sigma_fast(N) = S =>
+    M = N, D = 2, S = 1,
+    while (D * D =< M)
+        if (M mod D = 0)
+            T := 1, P := 1,
+            while (M mod D = 0)
+                M := M // D, P := P * D, T := T + P
+            end,
+            S := S * T
+        end,
+        D := D + 1
+    end,
+    if (M > 1) S := S * (1 + M) end,
+    true.
+isperfect(N) ?=> N > 1, sigma_fast(N) = 2 * N.
+
+% the candidate verifier:  returns X when it is the answer,  else throws
+cand(X) = Y =>
+    ( isperfect(X), X > 496, Y = X
+    ; throw($parbat_notperf(X)) ).
+
+main() =>
+    foreach (NT in [0, 1, 2, 4])
+        printf("NT=%d\n", NT),
+        S = race_res(NT, cand, [6, 28, 496, 8128]),
+        S = [won, W, Y],
+        ck("winner value = 8128", Y, 8128),
+        ck("winning candidate = 8128", W, 8128),
+        ck("sigma(8128) = 16256", sigma_fast(Y), 16256),
+        printf("  [won W=%d Y=%d]  a genuine perfect number  ok\n", W, Y)
+    end,
+    true.
+
+ck(Name, Got, Want) =>
+    ( Got = Want, printf("  %-24s ok\n", Name)
+    ; printf("  %-24s FAIL got=%s want=%s\n", Name, to_string(Got), to_string(Want)),
+      throw($parbat_ck_fail(Name)) ).
