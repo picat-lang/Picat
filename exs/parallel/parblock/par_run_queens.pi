@@ -1,0 +1,53 @@
+% par_run_queens:  par_run over INDEPENDENT per-column N-Queens counts.
+%
+% The N-Queens problem:  place N non-attacking queens on an N x N board.
+% The total count is OEIS A000170:
+%     1, 0, 0, 2, 10, 4, 40, 92, 352, 724, 2680, 14200, ...
+% for N = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, ...  (so N=8 -> 92).
+%
+% The decomposition:  pin the first queen to each of the N columns and
+% count the completions independently.  The N partial counts are disjoint
+% (the first queen sits in exactly one column) and sum to the total.  Each
+% {qcount, {N, C}} task is independent, so the task list IS the
+% parallelism, and par_run returns the per-column counts in TASK order.
+%
+% From the repo root:
+%   PICATPATH=lib2 emu/picat exs/parallel/parblock/par_run_queens.pi
+%
+% NT = 0 runs the phase-0 serial par_run;  NT >= 1 the mode-2 pool.
+
+module par_run_queens.
+import parblock_pvm.
+import cp.
+
+% one task:  count all solutions with the first queen in column C1
+qcount(Blk) = S =>
+    Blk = {N, C1},
+    once(count1(N, C1, S)).
+
+count1(N, C1, S) =>
+    Q = new_array(N),
+    Q :: 1..N,
+    Q[1] = C1,
+    foreach (I in 1..N-1, J in I+1..N)
+        Q[I] #!= Q[J],
+        abs(Q[I] - Q[J]) #!= I - J
+    end,
+    S = count_all(solve([ff], Q)).
+
+main() =>
+    N = 8,
+    foreach (NT in [0, 1, 2, 4])
+        printf("NT=%d\n", NT),
+        Rs = par_run(NT, [{qcount, {N, C}} : C in 1..N]),
+        T  = sum(Rs),
+        ck("per-column counts", Rs, [4, 8, 16, 18, 18, 16, 8, 4]),
+        ck("sum = A000170(8)", T, 92),
+        printf("  per-column=%s  sum=%d\n", to_string(Rs), T)
+    end,
+    true.
+
+ck(Name, Got, Want) =>
+    ( Got = Want, printf("  %-20s ok\n", Name)
+    ; printf("  %-20s FAIL got=%s want=%s\n", Name, to_string(Got), to_string(Want)),
+      throw($parbat_ck_fail(Name)) ).

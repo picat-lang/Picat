@@ -61,6 +61,7 @@ serial-only `effect` / `detach` examples run once. All are green.
 | file | API | problem (self-contained) |
 |---|---|---|
 | `par_run_primes.pi` | `par_run(NT, Tasks)` | prime count in disjoint ranges `[1..10]..[31..40]` → `[4,4,2,2]`, sum = π(40) = 12 |
+| `par_run_queens.pi` | `par_run(NT, Tasks)` | N-Queens: per-first-column counts `[4,8,16,18,18,16,8,4]`, sum = A000170(8) = 92 |
 | `race_perfect.pi` | `race_res(NT, F, Xs)` | smallest perfect number > 496 among candidates → 8128 (OEIS A000396) |
 | `map_par_totient.pi` | `map_par(NT, F, Xs)` | Euler totient φ(1..16) → `[1,1,2,2,4,2,6,4,6,4,10,4,12,6,8,8]` |
 | `map_race_mersenne.pi` | `map_race(NT, Fs, Xs)` | is `2^P-1` prime? trial-division vs Lucas-Lehmer, `P ∈ [3,5,7,11,13,19,31]` |
@@ -84,7 +85,7 @@ candidates are total-or-throw by language semantics.
 
 | entry | contract | illustrated by |
 |---|---|---|
-| `par_run(Tasks) = Rs` | results in **task order**; a throwing task aborts the par with that task's exception term | `semantics` t01/t02; `demo` §2c; `par_run_primes` |
+| `par_run(Tasks) = Rs` | results in **task order**; a throwing task aborts the par with that task's exception term | `semantics` t01/t02; `demo` §2c; `par_run_primes`; `par_run_queens` |
 | `race(F, Xs) = P` | `P = (W, Y)`: first `X` (written order) on which `F(X)` completes; `Y` its value | `semantics` t03; `demo` §2 |
 | `race_res(F, Xs) = S` | `S = [won, W, Y]` \| `exhausted` (total form of `race`) | `semantics` t04 (all-throw → `exhausted`); `race_perfect` |
 | `map_par(F, Xs) = Ys` | ordered parallel map, results in **element order** | `semantics` t05; `demo` §1; `map_par_totient` |
@@ -118,7 +119,7 @@ never a specific placement).
 
 | entry | substrate | illustrated by |
 |---|---|---|
-| `par_run(NT, Tasks) = Rs` | mode 2, fixed-chunk split; task-ordered results, first-thrower rethrown after collect | `pvm_tasks` (5 cases); `queens_count{,2,_multi}`; `ramsey_m2`; `par_run_primes` |
+| `par_run(NT, Tasks) = Rs` | mode 2, fixed-chunk split; task-ordered results, first-thrower rethrown after collect | `pvm_tasks` (5 cases); `queens_count{,2,_multi}`; `ramsey_m2`; `par_run_primes`; `par_run_queens` |
 | `race(NT, F, Xs) = P` | mode 1 portfolio (`race_res` wrap) | `race_pvm_tasks` case_race/case_race2 |
 | `race_res(NT, F, Xs) = S` | mode 1 portfolio | `race_pvm_tasks` case_race / case_race_exhaust; `race_perfect` |
 | `map_par(NT, F, Xs) = Ys` | mode 2 (ordered map) | `race_pvm_tasks` case_mappar; `map_par_totient` |
