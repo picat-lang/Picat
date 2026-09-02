@@ -41,14 +41,15 @@
 % against exact wall-clock outcomes.
 %
 % The RACE block form  race_begin / race_cl / race_end  (phase 2)
-% is implemented in parblock_pvm:  the mode-1 substrate already
-% re-enters at choice points,  so the block body is a plain
-% disjunction of race_cl clauses with a trailing  true  (the
-% exhaustion / found landing).  The task-parallel block form
-% par_begin() / par_end()  is NOT implemented:  it needs a C pool
-% mode (a run-all-disjuncts partition plus a multi-report collect);
-% shipping it as a no-op would silently change the meaning of a
-% block, so it is withheld.
+% and the PAR block form  par_begin / par_cl / par_end  (phase 3)
+% are both implemented in parblock_pvm.  The race block body is a
+% plain disjunction of race_cl clauses with a trailing  true  (the
+% exhaustion / found landing) on the mode-1 portfolio substrate.
+% The par block is the statement-level par_run:  the body is a
+% disjunction of par_cl clauses (a serial registration walk -- each
+% par_cl appends its task to a C-side store,  then fails)  followed
+% by a trailing  true;  par_end runs the registered tasks through the
+% mode-2 fixed-chunk par_run and returns the results in index order.
 %
 %   import parblock.
 

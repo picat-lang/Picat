@@ -1,0 +1,235 @@
+% par_begin_tasks:  battery for the phase-3 par block forms in
+% lib2/parblock_pvm.pi  (par_begin / par_cl / par_end)  -- the
+% statement-level par_run:  the tasks are the clauses of a user
+% disjunction,  registered serially,  then run through the mode-2
+% fixed-chunk par_run.
+%
+% Run from the repo root:
+%   PICATPATH=lib2 timeout 600 emu/picat exs/parallel/parblock/par_begin_tasks.pi
+%
+% Validation rule (the satext rule,  as in the 1b/1c batteries):
+% a task's reported value is a GENUINE COMPLETION -- validate it
+% against the task's contract;  a single-solution task's value is
+% asserted EXACTLY.  Rs is in INDEX order (the written position of
+% each par_cl),  independent of NT and of which worker ran which
+% chunk  -- NOT completion order.
+%
+% The block body is the REQUIRED shape:  a plain disjunction of
+% par_cl clauses with a trailing  true  disjunct  (every par_cl
+% registers then fails,  so the disjunction needs a final succeeding
+% disjunct).
+%
+% NT matrix:  0 (serial par_run fallback),  1,  2,  4  per case.
+
+module par_begin_tasks.
+import parblock_pvm.
+
+% ============================ problem  =============================
+
+% 8-queens with a chosen column order (from the 1c battery)
+ord_a(N) = [C : C in 1..N].
+
+queens_ord(Ord, N, Qs) =>
+    qs1(1, N, [], Qs, Ord).
+qs1(Row, N, P, Qs, Ord) =>
+    ( Row = N + 1, Qs = P
+    ;
+      ( pick(Ord, C), safe(C, P), qs1(Row + 1, N, [C | P], Qs, Ord) ) ).
+pick([], _)   => fail.
+pick([H | T], X) =>
+    ( X = H ; pick(T, X) ).
+safe(C, P) => safe1(C, P, 1).
+safe1(C, [], D) => true.
+safe1(C, [Hh | T], D) =>
+    not(C = Hh),
+    not(C - Hh = D),
+    not(Hh - C = D),
+    safe1(C, T, D + 1).
+
+work(N) => foreach (J in 1..N) true end.
+
+% staggered-cost one-arg tasks  (single-solution,  exact values):
+%   ta  slow   V = X * 7
+%   tb  medium V = X * 3 + 1
+%   tc  fast   V = X * 5 - 2
+ta(X) = V => work(300000), V = X * 7.
+tb(X) = V => work(100000), V = X * 3 + 1.
+tc(X) = V => V = X * 5 - 2.
+
+% a throwing task  (total-or-throw:  it always throws)
+tthrow(X) = V => throw($pb_throw(X)), V.
+
+% a genuine-completion task:  a valid 8-queens solution
+tq() = Qs => once(queens_ord(ord_a(8), 8, Qs)).
+
+valid8(Qs) =>
+    Ns = [Qs[I] : I in 1..8],
+    len(Ns) = 8,
+    foreach (V in Ns)
+        V >= 1, V <= 8
+    end,
+    S = sum(Ns), S = 36,
+    Sq = sumsq8(Ns), Sq = 204,
+    foreach (I in 1..7, J in (I + 1)..8)
+        not(abs(Qs[I] - Qs[J]) = J - I)
+    end.
+sumsq8(Ns) = S =>
+    N2 = [X * X : X in Ns],
+    S = sum(N2).
+
+% ============================ cases  ===============================
+
+% 1  two single-solution tasks:  Rs = [21, 10]  EXACT,  in index
+%    order,  at every NT.
+case_pb_basic(NT) =>
+    catch( (par_begin(NT),
+            ( par_cl(1, ta, 3)
+            ; par_cl(2, tb, 3)
+            ; true ),
+            par_end(Rs)),
+           E,
+           ( printf("  case_pb_basic NT=%d: FAIL E=%s\n", NT, to_string(E)), false ) ),
+    Rs = [21, 10],
+    printf("  case_pb_basic   NT=%d  Rs=[21,10]  ok\n", NT),
+    true.
+
+% 2  staggered:  the SLOW task is index 1,  the FAST task index 2.
+%    In parallel the fast one (index 2) completes first,  but Rs is
+%    still in INDEX order:  [ta(5), tc(5)] = [35, 23].
+case_pb_staggered(NT) =>
+    catch( (par_begin(NT),
+            ( par_cl(1, ta, 5)
+            ; par_cl(2, tc, 5)
+            ; true ),
+            par_end(Rs)),
+           E,
+           ( printf("  case_pb_staggered NT=%d: FAIL E=%s\n", NT, to_string(E)), false ) ),
+    Rs = [35, 23],
+    printf("  case_pb_staggered NT=%d  Rs=[35,23]  (index order)  ok\n", NT),
+    true.
+
+% 3  three staggered tasks:  Rs = [18, 13, 28]  EXACT,  index order.
+case_pb_three(NT) =>
+    catch( (par_begin(NT),
+            ( par_cl(1, tc, 4)
+            ; par_cl(2, tb, 4)
+            ; par_cl(3, ta, 4)
+            ; true ),
+            par_end(Rs)),
+           E,
+           ( printf("  case_pb_three NT=%d: FAIL E=%s\n", NT, to_string(E)), false ) ),
+    Rs = [18, 13, 28],
+    printf("  case_pb_three   NT=%d  Rs=[18,13,28]  ok\n", NT),
+    true.
+
+% 4  a throwing task at index 1,  a valid task at index 2:  the par
+%    ABORTS with the first thrower IN INDEX ORDER's term  ($pb_throw(1)),
+%    rethrown after the mode-2 collect.
+case_pb_thrower(NT) =>
+    catch( (par_begin(NT),
+            ( par_cl(1, tthrow, 1)
+            ; par_cl(2, tc, 2)
+            ; true ),
+            par_end(Rs),
+            ( printf("  case_pb_thrower NT=%d: FAIL got Rs=%s\n", NT, to_string(Rs)), false ) ),
+           E,
+           ( E = $pb_throw(1),
+             printf("  case_pb_thrower NT=%d  threw $pb_throw(1)  ok\n", NT),
+             true
+           ;
+             ( printf("  case_pb_thrower NT=%d: FAIL E=%s\n", NT, to_string(E)), false ) ) ).
+
+% 5  every task throws:  the LOWEST-index thrower's term is rethrown
+%    ($pb_throw(1)).
+case_pb_allthrow(NT) =>
+    catch( (par_begin(NT),
+            ( par_cl(1, tthrow, 1)
+            ; par_cl(2, tthrow, 2)
+            ; true ),
+            par_end(Rs),
+            ( printf("  case_pb_allthrow NT=%d: FAIL got Rs=%s\n", NT, to_string(Rs)), false ) ),
+           E,
+           ( E = $pb_throw(1),
+             printf("  case_pb_allthrow NT=%d  threw $pb_throw(1)  ok\n", NT),
+             true
+           ;
+             ( printf("  case_pb_allthrow NT=%d: FAIL E=%s\n", NT, to_string(E)), false ) ) ).
+
+% 6  single-task block:  Rs = [28]  EXACT.
+case_pb_single(NT) =>
+    catch( (par_begin(NT),
+            ( par_cl(1, tc, 6) ; true ),
+            par_end(Rs)),
+           E,
+           ( printf("  case_pb_single NT=%d: FAIL E=%s\n", NT, to_string(E)), false ) ),
+    Rs = [28],
+    printf("  case_pb_single  NT=%d  Rs=[28]  ok\n", NT),
+    true.
+
+% 7  a genuine-completion task (8-queens):  validate the result is a
+%    valid solution  (the satext rule --  never assert which one).
+case_pb_queens(NT) =>
+    catch( (par_begin(NT),
+            ( par_cl(1, tq) ; true ),
+            par_end(Rs)),
+           E,
+           ( printf("  case_pb_queens NT=%d: FAIL E=%s\n", NT, to_string(E)), false ) ),
+    Rs = [Qs],
+    valid8(Qs),
+    printf("  case_pb_queens  NT=%d  Rs=[<valid8>]  ok\n", NT),
+    true.
+
+% 8  empty block (no par_cl,  just the  true  landing):  Rs = [].
+case_pb_empty(NT) =>
+    catch( (par_begin(NT),
+            ( true ),
+            par_end(Rs)),
+           E,
+           ( printf("  case_pb_empty NT=%d: FAIL E=%s\n", NT, to_string(E)), false ) ),
+    Rs = [],
+    printf("  case_pb_empty   NT=%d  Rs=[]  ok\n", NT),
+    true.
+
+% 9  par_cl outside a block must RAISE  (misuse is loud,  never
+%    silent):  the C store append with no active par_begin fails.
+case_pb_noblock(NT) =>
+    catch( par_cl(1, tc, 1),
+           E,
+           ( printf("  case_pb_noblock  NT=%d  raised  ok\n", NT),
+             true ) ).
+
+% ============================ driver  ==============================
+
+run_case(NT, Name) = R =>
+    ( catch((call_case(NT, Name)), E,
+            ( printf("  case%d NT=%d  ERROR %s\n", Name, NT, to_string(E)), false ) ),
+      R = true
+    ;
+      R = false ).
+
+call_case(NT, 1) => case_pb_basic(NT).
+call_case(NT, 2) => case_pb_staggered(NT).
+call_case(NT, 3) => case_pb_three(NT).
+call_case(NT, 4) => case_pb_thrower(NT).
+call_case(NT, 5) => case_pb_allthrow(NT).
+call_case(NT, 6) => case_pb_single(NT).
+call_case(NT, 7) => case_pb_queens(NT).
+call_case(NT, 8) => case_pb_empty(NT).
+call_case(NT, 9) => case_pb_noblock(NT).
+
+drun(NT, I, N, Acc, Total) =>
+    ( I > N, Total = Acc
+    ;
+      ( Ok = run_case(NT, I),
+        ( Ok, drun(NT, I + 1, N, Acc, Total)
+        ; drun(NT, I + 1, N, Acc + 1, Total) ) ) ).
+
+resname(0) = "ALL-OK 9/9".
+resname(F) = R => F > 0, R = "FAILURES: " ++ to_string(F).
+
+main =>
+    foreach (NT in [0, 1, 2, 4])
+        ( drun(NT, 1, 9, 0, F),
+          printf("NT=%d: %s\n", NT, resname(F)) )
+    end,
+    true.

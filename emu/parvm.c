@@ -51,6 +51,9 @@ int c_pvm_worker_id(void);
 int c_pvm_chunk(void);
 int c_pvm_claim(void);
 int c_pvm_report(void);
+int c_pvm_par_begin(void);
+int c_pvm_par_task(void);
+int c_pvm_par_collect(void);
 int c_pvm_collect(void);
 int c_pvm_solution(void);
 
@@ -536,6 +539,163 @@ int c_pvm_solution()
 }
 
 #if PAR_THREADS
+/* ====================================================================
+   par block task store  (the registration phase of par_begin /
+   par_cl / par_end,  lib2/parblock_pvm.pi).
+
+   The block's disjunction is a SERIAL registration walk in the root:
+   each par_cl appends its task term to this store (a C-side side
+   effect that survives the clause's trailing failure -- a Picat array
+   mutation would be trailed and undone) and fails,  so the
+   disjunction walks every clause in written order.  par_end then
+   reads the store back and runs the tasks through the proven mode-2
+   par_run.  Root-local:  registration precedes the mode-2 fork,  and
+   the forked workers COW this block but never touch it. */
+
+static int        parb_nt   = -1;
+static BPLONG_PTR *parb_bufs = NULL;   /* encoded task terms,  in order */
+static long       *parb_lens = NULL;   /* encoded length (words) each  */
+static int        parb_n    = 0;
+static int        parb_cap  = 0;
+
+static void parb_free_all(void)
+{
+    int i;
+
+    for (i = 0; i < parb_n; i++)
+        if (parb_bufs[i] != NULL)
+            free((void *)parb_bufs[i]);
+    parb_n = 0;
+}
+
+static void parb_grow(void)
+{
+    int ncap;
+    BPLONG_PTR *nbufs;
+    long *nlens;
+
+    if (parb_n < parb_cap)
+        return;
+    ncap = parb_cap ? parb_cap * 2 : 16;
+    nbufs = (BPLONG_PTR *)malloc(ncap * sizeof(BPLONG_PTR));
+    nlens = (long *)malloc(ncap * sizeof(long));
+    if (nbufs == NULL || nlens == NULL) {
+        if (nbufs) free((void *)nbufs);
+        if (nlens) free((void *)nlens);
+        return;     /* the append below fails the call loudly */
+    }
+    if (parb_cap) {
+        memcpy(nbufs, parb_bufs, (size_t)parb_cap * sizeof(BPLONG_PTR));
+        memcpy(nlens, parb_lens, (size_t)parb_cap * sizeof(long));
+        free((void *)parb_bufs);
+        free((void *)parb_lens);
+    }
+    parb_bufs = nbufs;
+    parb_lens = nlens;
+    parb_cap = ncap;
+}
+
+/* par_begin(NT):  record NT,  clear the store.  No session is armed
+   yet (the mode-2 fork happens in par_end);  root-only by contract. */
+int c_pvm_par_begin()
+{
+    BPLONG nt = ARG(1, 1);
+
+    DEREF(nt);
+    if (!ISINT(nt) || INTVAL(nt) < 0) {
+        bp_exception = c_type_error(et_INTEGER, nt);
+        return BP_ERROR;
+    }
+    parb_free_all();
+    parb_nt = (int)INTVAL(nt);
+    return BP_TRUE;
+}
+
+/* par_cl registration:  encode the ground task term T into a stable
+   buffer and append it to the store in call order.  The caller then
+   fails;  the C append is a side effect that survives. */
+int c_pvm_par_task()
+{
+    BPLONG t = ARG(1, 1);
+    long n;
+    BPLONG_PTR buf;
+
+    if (parb_nt < 0) {
+        bp_exception = illegal_arguments;   /* no active par_begin */
+        return BP_ERROR;
+    }
+    DEREF(t);
+    n = pvm_enc_term(t, (BPLONG_PTR)pvm_sol_cache, 0, PVM_SOL_CAP);
+    if (n < 0)
+        return BP_ERROR;    /* not ground / too large;  bp_exception set */
+    parb_grow();
+    if (parb_n >= parb_cap) {
+        bp_exception = out_of_range;   /* grow failed */
+        return BP_ERROR;
+    }
+    BP_MALLOC(buf, n);
+    if (buf == NULL) {
+        bp_exception = out_of_range;
+        return BP_ERROR;
+    }
+    memcpy(buf, pvm_sol_cache, (size_t)n * sizeof(BPLONG));
+    parb_bufs[parb_n] = buf;
+    parb_lens[parb_n] = n;
+    parb_n++;
+    return BP_TRUE;
+}
+
+/* par_end:  hand back (NT, Ts) -- Ts = the registered task terms in
+   registration order,  materialized fresh in this heap -- and clear
+   the store (par_end is the sole consumer). */
+int c_pvm_par_collect()
+{
+    BPLONG nt = ARG(1, 2);
+    BPLONG ts = ARG(2, 2);
+    long need, i;
+    BPLONG lst0 = 0, el;
+    BPLONG_PTR lp;
+
+    DEREF(nt);
+    DEREF(ts);
+    need = 2L * parb_n + 8;
+    for (i = 0; i < parb_n; i++) {
+        long w = pvm_dec_words(parb_bufs[i], 0, parb_lens[i]);
+        if (w < 0) {
+            bp_exception = run_time_error;   /* corrupt encoding */
+            return BP_ERROR;
+        }
+        need += w;
+    }
+    LOCAL_OVERFLOW_CHECK_WITH_MARGIN("pvm", need);
+    ASSIGN_f_atom(nt, MAKEINT(parb_nt));
+    for (i = 0; i < parb_n; i++) {
+        if (pvm_dec_term(parb_bufs[i], 0, parb_lens[i], &el) != BP_TRUE) {
+            bp_exception = run_time_error;
+            return BP_ERROR;
+        }
+        if (i == 0) {
+            lst0 = ADDTAG(heap_top, LST);
+            FOLLOW(heap_top++) = el;
+            lp = heap_top++;
+        } else {
+            FOLLOW(lp) = ADDTAG(heap_top, LST);
+            FOLLOW(heap_top++) = el;
+            lp = heap_top++;
+        }
+    }
+    if (parb_n == 0)
+        lst0 = nil_sym;
+    else
+        FOLLOW(lp) = nil_sym;
+    ASSIGN_f_atom(ts, lst0);
+    parb_free_all();
+    parb_nt = -1;   /* the block is complete:  a stray par_cl now raises */
+    return BP_TRUE;
+}
+#endif /* PAR_THREADS:  the store rides on the codec (above) */
+
+#if PAR_THREADS
 
 static BPLONG_PTR parvm_reserve_block;  /* one region; all engine arenas */
 static BPLONG parvm_reserved = 0;
@@ -705,6 +865,9 @@ void Cboot_parvm()
     insert_cpred("pvm_chunk", 2, c_pvm_chunk);
     insert_cpred("pvm_claim", 2, c_pvm_claim);
     insert_cpred("pvm_report", 1, c_pvm_report);
+    insert_cpred("pvm_par_begin", 1, c_pvm_par_begin);
+    insert_cpred("pvm_par_task", 1, c_pvm_par_task);
+    insert_cpred("pvm_par_collect", 2, c_pvm_par_collect);
     insert_cpred("pvm_collect", 1, c_pvm_collect);
     insert_cpred("pvm_solution", 1, c_pvm_solution);
 }
@@ -3438,6 +3601,27 @@ int c_par_vm_test()
     return unify(r, BP_FALSE);
 }
 
+/* The par block's registration store rides on the ground-term codec,
+   which is PAR_THREADS-only; on single-engine targets the block form
+   is unavailable (the serial par_run function form still is). */
+int c_pvm_par_begin()
+{
+    bp_exception = illegal_arguments;
+    return BP_ERROR;
+}
+
+int c_pvm_par_task()
+{
+    bp_exception = illegal_arguments;
+    return BP_ERROR;
+}
+
+int c_pvm_par_collect()
+{
+    bp_exception = illegal_arguments;
+    return BP_ERROR;
+}
+
 void Cboot_parvm()
 {
     insert_cpred("c_par_vm_test", 1, c_par_vm_test);
@@ -3448,6 +3632,9 @@ void Cboot_parvm()
     insert_cpred("pvm_chunk", 2, c_pvm_chunk);
     insert_cpred("pvm_claim", 2, c_pvm_claim);
     insert_cpred("pvm_report", 1, c_pvm_report);
+    insert_cpred("pvm_par_begin", 1, c_pvm_par_begin);
+    insert_cpred("pvm_par_task", 1, c_pvm_par_task);
+    insert_cpred("pvm_par_collect", 2, c_pvm_par_collect);
     insert_cpred("pvm_collect", 1, c_pvm_collect);
     insert_cpred("pvm_solution", 1, c_pvm_solution);
 }

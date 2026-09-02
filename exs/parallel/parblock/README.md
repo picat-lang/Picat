@@ -34,6 +34,7 @@ bugs each battery pins and the adopted workarounds.
 | `pvm_race.pi` | raw **mode-1** portfolio substrate (`pvm_fork`/`pvm_delegate`/`pvm_report`/`pvm_collect` + `race_clause`) | `main([C, NT])` |
 | `race_pvm_tasks.pi` | mode-1 race family vs serial (13 cases) | `main =>` (full NT matrix) |
 | `race_begin_tasks.pi` | phase-2 **race block forms** (8 cases) | `main =>` (full NT matrix) |
+| `par_begin_tasks.pi` | phase-3 **par block forms** (9 cases) | `main =>` (full NT matrix) |
 | `queens_count{,2,_multi}.pi` | n-queens counting on `par_run(NT,Tasks)` | `main([N, NT])` |
 | `ramsey_m2{,_cp}.pi` | (K,K)-Ramsey counting on `par_run` / `par_run_dyn` (SAT / CP) | `main =>` + env |
 | `parblock_env.pi` | shared helper for the ramsey files: `from_env(Name, Def) = V` (the int value of `$Name`, else `Def`) | module |
@@ -104,6 +105,7 @@ never a specific placement).
 | `par_any(NT, P, Xs) = S` | mode 1 | `race_pvm_tasks` case_parany* |
 | `par_all(NT, P, Xs) = S` | **mode 2** (all elements must be tested, fail-fast term) | `race_pvm_tasks` case_parall* |
 | `race_begin(NT)` / `race_cl(I, F)` / `race_cl(I, F, A)` / `race_end(R)` | mode 1 **block forms** (phase 2) | `race_begin_tasks` (8 cases); raw substrate in `pvm_race` |
+| `par_begin(NT)` / `par_cl(I, F)` / `par_cl(I, F, A)` / `par_end(Rs)` | **par block forms** (phase 3): serial registration walk + mode-2 `par_run` | `par_begin_tasks` (9 cases) |
 
 ### Race block forms (phase 2)
 
@@ -132,6 +134,45 @@ race_end(R).                     % R = [won, I, V]
 See `race_begin_tasks.pi` for root-win / child-win /
 grandchild-tail-win schedules, throw-dropping, all-throw, the one-arg
 form, and the misuse-raises case across `NT ∈ {0,1,2,4}`.
+
+### Par block forms (phase 3)
+
+The statement-level `par_run`: the *tasks* are the clauses of a
+user-written disjunction between `par_begin(NT)` and `par_end(Rs)`.
+Each `par_cl(I, F)` / `par_cl(I, F, A)` **registers** the task `F()` /
+`F(A)` at index `I` (a C-side append that survives the clause's
+trailing `false`) so the disjunction walks every clause in written
+order; `par_end` then runs the registered tasks through the proven
+**mode-2** fixed-chunk `par_run` and returns `Rs = [V1, …, VM]` in
+**index order** (independent of `NT` and of which worker ran which
+chunk — *not* completion order). A task exception aborts the par with
+the first throwing task **in index order**'s term, rethrown after
+collect. The trailing `; true` disjunct is **required** (every `par_cl`
+fails after registering, so the disjunction needs a final succeeding
+disjunct). `NT = 0` runs the serial `parblock.par_run`.
+
+```picat
+import parblock_pvm.
+par_begin(NT),
+( par_cl(1, task_a)
+; par_cl(2, task_b, Arg)
+; true ),
+par_end(Rs).                    % Rs = [Va, Vb]  in index order
+```
+
+> Why not a disjunction *pool partition*: the engine forks pool
+> children **at CONFIRM** — after a frame's first value has been walked
+> — so a block-level disjunction would partition *serially* (clause 1
+> runs to completion before clause 2's worker is even forked). The par
+> block therefore splits into a serial registration walk + the mode-2
+> run. (The engine carries a mode-4 "par pool" for a run-all-disjuncts
+> partition; it is reserved, unused by this block, and has that
+> limitation.)
+
+See `par_begin_tasks.pi` for exact-value, staggered (index-order-not
+completion-order), three-clause, thrower / all-throw (first-thrower-in
+index order), single, genuine-completion (8-queens), empty, and
+misuse-raises cases across `NT ∈ {0,1,2,4}`.
 
 ---
 

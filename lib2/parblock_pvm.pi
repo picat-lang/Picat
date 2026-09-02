@@ -500,3 +500,94 @@ race_end(R) =>
       R = [won, I, V]
     ;
       throw($parblock_raceb_empty) ).
+
+% ====================================================================
+%  par block forms  (phase 3:  statement-level par_run)
+% ====================================================================
+%
+%  The statement-level form of the par_run contract:  the tasks are
+%  the clauses of a user-written disjunction between par_begin /
+%  par_end,  each tagged with its written position:
+%
+%   par_begin(NT)    record NT,  clear the task store (a C-side,
+%                    root-local registration buffer).  No session is
+%                    armed yet:  the parallel work happens in
+%                    par_end,  not here.
+%   par_cl(I, F)     register the task  F()  at index I;
+%   par_cl(I, F, A)  register the task  F(A)  at index I.
+%                    A registration is a C-side append (a side effect
+%                    that SURVIVES the clause's failure -- a Picat
+%                    array mutation would be trailed and undone on the
+%                    backtracking below)  followed by  false,  so the
+%                    disjunction walks EVERY clause in written order
+%                    (the findall pattern):  the serial registration
+%                    phase.
+%   par_end(Rs)      read the registered tasks and run them through
+%                    the proven mode-2 par_run (NT processes,  fixed
+%                    chunk):  every task runs exactly once in some
+%                    worker,  the root collects,  and
+%                    Rs = [V1, ..., VM]  in index order.
+%
+%  Shape (the body must be exactly this):
+%
+%    import parblock_pvm.
+%    par_begin(4),
+%    ( par_cl(1, task_a)
+%    ; par_cl(2, task_b, Arg)
+%    ; true ),
+%    par_end(Rs).
+%
+%    The trailing  true  disjunct is REQUIRED:  every par_cl fails
+%    (after registering),  so the disjunction needs a final succeeding
+%    disjunct to land on before par_end.
+%
+%  Contract (==  parblock.par_run,  async-refined exactly like 1b/1c):
+%   - I is the clause's written position:  1..M,  each exactly once,
+%     in written order.  Rs is in index order,  independent of NT and
+%     of which worker ran which chunk.
+%   - a task's reported value is a GENUINE COMPLETION (validate it
+%     against the task's contract,  the satext rule,  and never assert
+%     WHICH completion of a multi-solution task);  a single-solution
+%     task returns its unique value either way (the case the batteries
+%     assert EXACTLY).
+%   - a task exception ABORTS the whole par (the family contract):
+%     the first throwing task IN INDEX ORDER's term is rethrown,  only
+%     after the mode-2 session has collected (a supported throw point).
+%   - async divergence vs serial (the par_run rule):  in serial,  tasks
+%     after the first thrower never run;  in mode 2 they MAY run in
+%     their workers.  The exception term and its index order are the
+%     guaranteed part.
+%
+%  Constraints:  the family rules (no nesting;  the body sits exactly
+%  between begin and end;  UNQUALIFIED task names -- a
+%  module-qualified dynamic dispatch of a function hangs,  engine bug
+%  (a);  a task term {I, F, A} must fit PVM_SOL codec words).
+%
+%  (Why not a disjunction pool partition:  the engine forks pool
+%  children AT CONFIRM -- after a frame's first value has been walked
+%  -- so a block-level disjunction partitions serially (clause 1 runs
+%  to completion before clause 2's worker is even forked).  The par
+%  block therefore uses the registration + mode-2 split instead:
+%  a serial registration walk,  then the proven fixed-chunk par_run.)
+
+par_begin(NT) =>
+    bp.pvm_par_begin(NT).
+
+par_cl(I, F) =>
+    bp.pvm_par_task({I, F, $parblock_parb_narg}),
+    false.
+
+par_cl(I, F, A) =>
+    bp.pvm_par_task({I, F, A}),
+    false.
+
+par_end(Rs) =>
+    bp.pvm_par_collect(NT, Ts),
+    Tasks = [parbtask(T) : T in Ts],
+    par_run(NT, Tasks) = Rs.
+
+%  strip the index and the no-arg marker,  yielding the par_run task
+%  descriptor ({F}  or  {F, A});  registration order == index order
+%  by the contract,  so par_run's task order IS the index order.
+parbtask({I, F, $parblock_parb_narg}) = {F}.
+parbtask({I, F, A}) = {F, A}.
