@@ -36,6 +36,7 @@ bugs each battery pins and the adopted workarounds.
 | `parblock_race_begin_tasks.pi` | phase-2 **race block forms** (8 cases) | `main =>` (full NT matrix) |
 | `parblock_queens_count{,2,_multi}.pi` | n-queens counting on `par_run(NT,Tasks)` | `main([N, NT])` |
 | `parblock_ramsey_m2{,_cp}.pi` | (K,K)-Ramsey counting on `par_run` / `par_run_dyn` (SAT / CP) | `main =>` + env |
+| `parblock_env.pi` | shared helper for the ramsey files: `from_env(Name, Def) = V` (the int value of `$Name`, else `Def`) | module |
 
 `ramsey_m2` knobs come from the environment: `DYN=1` selects
 `par_run_dyn` (shared pool, cursor-claimed), `RESET=1` applies the

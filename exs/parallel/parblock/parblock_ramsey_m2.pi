@@ -120,16 +120,27 @@
 import sat.
 import parblock_pvm.
 import parblock_pvm_dyn.
+import parblock_env.
 
 main =>
-    k_from_env(K),
-    n_from_env(K, N),
-    t_from_env(Ti),
-    m_from_env(M),
-    o_from_env(Oi),
-    nt_from_env(NT),
-    reset_from_env(R),
-    dyn_from_env(DYN),
+    K = from_env("K", 3),
+    (K >= 2 -> true ; handle_exception($k_expected_at_least_2(K), main)),
+    N0 = from_env("N", -1),
+    ( N0 >= 0, N = N0
+    ; ( K = 3, N = 6 ; handle_exception($n_env_var_expected(K), main) ) ),
+    (N >= K -> true ; handle_exception($n_expected_at_least_k(K, N), main)),
+    Ti = from_env("T", 1),
+    (Ti >= 1 -> true ; handle_exception($t_expected_at_least_1(Ti), main)),
+    M = from_env("M", 0),
+    (M >= 0 -> true ; handle_exception($m_expected_at_least_0(M), main)),
+    Oi = from_env("O", 0),
+    (Oi >= 0 -> true ; handle_exception($o_expected_at_least_0(Oi), main)),
+    NT = from_env("NT", 0),
+    (NT >= 0 -> true ; handle_exception($nt_expected_at_least_0(NT), main)),
+    RV = from_env("RESET", 0),
+    R = cond(RV > 0, reset, none),
+    DYN = from_env("DYN", 0),
+    (DYN >= 0 -> true ; handle_exception($dyn_expected_nonnegative(DYN), main)),
     C2 = pow2(M),
     ( DYN > 0, T = C2, O = 0 ; T = Ti, O = Oi ),
     ( O + T <= C2 -> true
@@ -197,42 +208,6 @@ root_verdict(K, N, T0, T1, T, NTW, O, C2, Csum, Counts, DYN) =>
             writef("UNSAT window%s: %d workers, patterns %d..%d proven empty in %d ms (partial coverage %d of %d:  no whole-tree verdict)%n",
                 Mode, NTW, O + 1, O + T, T1 - T0, O + T, C2) ) ),
     writeln(Counts).
-
-k_from_env(K) =>
-    ((bp.picat_getenv("K", S)) -> K = to_int(S) ; K = 3),
-    (K >= 2 -> true ; handle_exception($k_expected_at_least_2(K), main)).
-
-n_from_env(K, N) =>
-    ((bp.picat_getenv("N", S)) -> N = to_int(S)
-    ;
-    (K == 3 -> N = 6 ; handle_exception($n_env_var_expected(K), main))
-    ),
-    (N >= K -> true ; handle_exception($n_expected_at_least_k(K, N), main)).
-
-t_from_env(T) =>
-    ((bp.picat_getenv("T", S)) -> T = to_int(S) ; T = 1),
-    (T >= 1 -> true ; handle_exception($t_expected_at_least_1(T), main)).
-
-m_from_env(M) =>
-    ((bp.picat_getenv("M", S)) -> M = to_int(S) ; M = 0),
-    (M >= 0 -> true ; handle_exception($m_expected_at_least_0(M), main)).
-
-o_from_env(O) =>
-    ((bp.picat_getenv("O", S)) -> O = to_int(S) ; O = 0),
-    (O >= 0 -> true ; handle_exception($o_expected_at_least_0(O), main)).
-
-nt_from_env(NT) =>
-    ((bp.picat_getenv("NT", S)) -> NT = to_int(S) ; NT = 0),
-    (NT >= 0 -> true ; handle_exception($nt_expected_at_least_0(NT), main)).
-
-reset_from_env(R) =>
-    ((bp.picat_getenv("RESET", S)) -> (to_int(S) > 0 -> R = reset ; R = none)
-    ;
-     R = none ).
-
-dyn_from_env(DYN) =>
-    ((bp.picat_getenv("DYN", S)) -> DYN = to_int(S) ; DYN = 0),
-    (DYN >= 0 -> true ; handle_exception($dyn_expected_nonnegative(DYN), main)).
 
 % 1-based array index of the edge (I,J),  0 <= I < J < N
 pair_idx(I, J, N) =

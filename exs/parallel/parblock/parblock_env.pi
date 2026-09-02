@@ -1,0 +1,14 @@
+% parblock_env:  the one env reader shared by the ramsey examples.
+%
+%   from_env(Name, Def) = V
+%       V = the integer value of the environment variable  $Name
+%       (read via bp.picat_getenv),  or  Def  when it is unset.
+%       Callers keep their own range validation right next to the
+%       call site,  so a bad value still raises the file's own
+%       exception term and re-runs main.
+
+module parblock_env.
+
+from_env(Name, Def) = V =>
+    ( (bp.picat_getenv(Name, S), V = to_int(S))
+    ; V = Def ).
