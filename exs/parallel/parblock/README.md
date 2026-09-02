@@ -76,11 +76,21 @@ candidates are total-or-throw by language semantics.
 
 Same names as `parblock`, plus a leading `NT` (pool size). `NT = 0`
 falls back to the phase-0 serial combinator. The **satext rule** is the
-validation contract for the race family: a portfolio winner is a
-*model* — validate the reported value against the winner's contract and
-**never assert which candidate won** (a scheduling outcome, like which
-model a CDCL solver returns); assert the value *exactly* only where all
-completers agree.
+validation contract for the race family, named for the first-wins
+satext SAT-solver portfolio in `emu/satext.c`, which has the same
+shape: candidates race and the first decisive answer wins, so a winner
+is a *model* — validate the reported value against the winner's
+contract and **never assert which candidate won** (a scheduling
+outcome, like which model a CDCL solver returns). "Agreement" is
+about the *value*: a value may be asserted *exactly* only where every
+completer that could win reports the same value, so the number is
+independent of the schedule (`case_maprace`: `fa` and `fb` both `= I`,
+the third variant throws → `Ys = [1,2,3]` asserted exact); where
+completers report different values, assert agreement with *some*
+completer instead — a disjunction over the completers' values
+(`case_maprace_agree`: `fa2 = I`, `fb2 = 2*I` → `Z1 = 1 ; Z1 = 2`) or
+the value's contract (`case_race`: two queens solvers → `valid8(Y)`,
+never a specific placement).
 
 | entry | substrate | illustrated by |
 |---|---|---|
