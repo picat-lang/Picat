@@ -1,11 +1,11 @@
-% parblock_race_pvm_tasks:  two-way battery for the mode-1
+% race_pvm_tasks:  two-way battery for the mode-1
 % portfolio-race backends in lib2/parblock_pvm.pi
 % (race / race_res / map_par / map_race /
 % par_any / par_all)  vs  the phase-0 serial contracts in
 % lib2/parblock.pi.
 %
 % Run from the repo root:
-%   PICATPATH=lib2 timeout 600 emu/picat exs/parallel/parblock/parblock_race_pvm_tasks.pi
+%   PICATPATH=lib2 timeout 600 emu/picat exs/parallel/parblock/race_pvm_tasks.pi
 %
 % Validation rule (the satext rule:  a portfolio winner is a MODEL --
 % validate it by SATISFACTION,  not by which candidate won):
@@ -22,14 +22,14 @@
 %
 % NT matrix:  0 (serial fallback),  1,  2,  4  per case.
 
-module parblock_race_pvm_tasks.
+module race_pvm_tasks.
 import parblock.
 import parblock_pvm.
 
 % ============================ problem  ============================
 
 % 8-queens with a chosen column order (from the 1a battle-tested
-% battery exs/parallel/parblock/parblock_pvm_race.pi)
+% battery exs/parallel/parblock/pvm_race.pi)
 
 ord_a(N) = [C : C in 1..N].
 ord_b(N) = [C : C in N // 2 + 1..N] ++ [C : C in 1..N // 2].

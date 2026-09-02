@@ -24,7 +24,7 @@
 % identical serial source does a SINGLE count over the whole range
 % 1..N*N.  The shape the fix unblocks --  one worker running several
 % count_all partitions back-to-back  --  is
-% parblock_queens_count_multi.pi.
+% queens_count_multi.pi.
 %
 % The zero-solution trap of queens_count2 (count_all(solve(...)) FAILS
 % rather than returning 0 for some slice --- FD propagation proves the
@@ -32,7 +32,7 @@
 % ";  C = 0" fallback;  a failed count is the count 0.
 %
 % Usage:  from the repo root:
-%   emu/picat -path lib2 exs/parallel/parblock/parblock_queens_count2.pi [N] [NT]
+%   emu/picat -path lib2 exs/parallel/parblock/queens_count2.pi [N] [NT]
 %   N    default 8;    NT   default 4  (0 = serial single count)
 %
 % Known totals (OEIS A000170),  asserted below for 8/10/12/13:

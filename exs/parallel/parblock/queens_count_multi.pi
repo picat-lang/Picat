@@ -26,7 +26,7 @@
 % ";  C = 0" fallback;  a failed count is the count 0.
 %
 % Usage:  from the repo root:
-%   emu/picat -path lib2 exs/parallel/parblock/parblock_queens_count_multi.pi [N] [NT]
+%   emu/picat -path lib2 exs/parallel/parblock/queens_count_multi.pi [N] [NT]
 %   N    default 8;    NT   default 4
 %
 % Known totals (OEIS A000170),  asserted below for 8/10/12/13:

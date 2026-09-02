@@ -17,7 +17,7 @@
 % source serves both backends.
 %
 % Usage:  from the repo root:
-%   emu/picat -path lib2 exs/parallel/parblock/parblock_queens_count.pi [N] [NT]
+%   emu/picat -path lib2 exs/parallel/parblock/queens_count.pi [N] [NT]
 %   N    default 10;   NT  default 4  (0 = serial)
 %
 % Known totals (OEIS A000170),  asserted below for 8/10/12/13:

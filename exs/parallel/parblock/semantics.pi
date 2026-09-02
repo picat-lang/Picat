@@ -1,13 +1,13 @@
 % Parblock semantics battery (phase 0, sequential).
 %
 % From repo root, one line:
-%   PICATPATH=lib2 timeout 300 emu/picat exs/parallel/parblock/parblock_semantics.pi
+%   PICATPATH=lib2 timeout 300 emu/picat exs/parallel/parblock/semantics.pi
 %
 % Each test prints one line "tNN name  ok|FAIL".  Comparison is by
 % unification in goal context (this dialect's == demands ground
 % terms).  main fails (nonzero exit) if any test failed.
 
-module parblock_semantics.
+module semantics.
 
 import parblock.
 

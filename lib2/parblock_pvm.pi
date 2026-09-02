@@ -51,7 +51,7 @@
 %   par_all(NT, P, Xs) = S       S = ok  |  [fail, X]
 %
 %  Substrate (emu/parvm.c, the 1a battery
-%  exs/parallel/parblock/parblock_pvm_race.pi):  the engine forks
+%  exs/parallel/parblock/pvm_race.pi):  the engine forks
 %  children AT CHOICE POINTS under the pool size NT (the current
 %  process keeps the first disjunct,  a child takes the rest);  a
 %  candidate's inner search is wrapped in the bp.pvm_delegate(1/0)

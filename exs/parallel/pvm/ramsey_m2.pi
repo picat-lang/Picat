@@ -138,7 +138,7 @@ main =>
 % zero count can never poison a later one (Bug F,
 % docs/pvmbugs_report.tex Section 7; cure shipped in picat 39.13 ---
 % without it, a fresh instance right after a genuine zero count
-% collapses to 0, cf. parblock_bugf_probe.pi). On this engine the
+% collapses to 0, cf. bugf_probe.pi). On this engine the
 % fresh-instance claim is also the FAST shape: the one-time-build
 % variant paid for the previous solve's replayed dvars/constraints
 % on every claim (~3.3 s/claim, R(4,4) N=18 M=14) while a fresh

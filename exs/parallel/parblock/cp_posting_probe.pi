@@ -1,4 +1,4 @@
-% parblock_cp_posting_probe:  minimal probes for the CP engine
+% cp_posting_probe:  minimal probes for the CP engine
 % behavior of the picat 39.13 base (identical on the official
 % picat39_13_src.tar.gz build and on this tree --- upstream,  not
 % the rebase;  docs/pvmbugs_report.tex,  "CP engine findings").
@@ -25,7 +25,7 @@
 %   exit 1) --- a real proof of zero;  take it into a disjunction:
 %   ( post_prefix ; C = 0 ).
 %
-% Run:  emu/picat -path lib2 exs/parallel/parblock/parblock_cp_posting_probe.pi
+% Run:  emu/picat -path lib2 exs/parallel/parblock/cp_posting_probe.pi
 %        (each shape is a separate top-level goal:  picat -g pA() ... )
 
 import basic.

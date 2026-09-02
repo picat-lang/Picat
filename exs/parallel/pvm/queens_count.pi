@@ -47,7 +47,7 @@ run(N, NT) =>
 % Engine note (picat 39.13 base):  count_all over an infeasible CP
 % instance is unreliable for SOME shapes (it can fail,  fail hard as
 % error(failed),  or report a stale count --- see the ramsey CP
-% variant exs/parallel/parblock/parblock_ramsey_m2_cp.pi,  whose
+% variant exs/parallel/parblock/ramsey_m2_cp.pi,  whose
 % zero-prefixed slices are the minimal case).  The queens slices are
 % NOT that shape:  an empty row slice (e.g.  Q[1] = 1/4 at N = 4)
 % fails the count backtracking-plainly or counts 0,  and the totals

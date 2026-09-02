@@ -1,4 +1,4 @@
-% parblock_bugf_probe:  minimal probe for Bug F (docs/pvmbugs_report.tex,
+% bugf_probe:  minimal probe for Bug F (docs/pvmbugs_report.tex,
 % Section 7) --- a zero-model SAT count poisons later SAT counts in the
 % same process.
 %
@@ -12,12 +12,12 @@
 % binaries) prints [0,0]:  the poisoned second count returns 0 without
 % searching.  Rerun this file whenever an engine/compiler changes.
 %
-%   cd Picat-src && emu/picat exs/parallel/parblock/parblock_bugf_probe.pi
+%   cd Picat-src && emu/picat exs/parallel/parblock/bugf_probe.pi
 %
 % The poison is on the SAT path only (import sat);  the analogous CP
 % process-state bug was Bug E (fixed in e085229).
 %
-module parblock_bugf_probe.
+module bugf_probe.
 
 import sat.
 

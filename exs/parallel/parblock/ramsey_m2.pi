@@ -1,15 +1,4 @@
-% parblock_ramsey_m2_cp:  the CP-backend variant of
-% parblock_ramsey_m2.pi --- identical structure,  but the slice count
-% runs on the CP path (import cp) instead of the SAT path.
-% Everything below describes the shared structure;  the CP-specific
-% note ("CP engine posting/count traps",  see slice_count) is the
-% reason this file is delicate:  on the picat 39.13 base (the
-% official picat39_13 build included),  an infeasible CP slice is
-% only a PROOF of 0 when the units are posted outside any
-% if-then-else and the posting failure is taken into a disjunction
-% (the exact structure,  verified [0,1,1,2,1,2,1,0] at K=3 N=4 M=3).
-%
-% parblock_ramsey_m2:  the parblock re-expression of the STATIC
+% ramsey_m2:  the parblock re-expression of the STATIC
 % (fixed-chunk) mode-2 partition of exs/parallel/pvm/ramsey_m2.pi ---
 % (K,K)-Ramsey search,  the first M edge variables as a bit pattern,
 %     val = 1 + E[1] + 2*E[2] + 4*E[3] + ... + 2^(M-1)*E[M],  in 1..2^M
@@ -34,20 +23,17 @@
 %            in a row --- multiple count_all per process,  which was
 %            impossible under the historical Bug E constraint (docs/
 %            pvmbugs_report.tex,  Section 6;  fixed in e085229,  cf.
-%            parblock_queens_count_multi.pi)
+%            queens_count_multi.pi)
 %
 % Tiling soundness is inherited from ramsey_m2:  the 2^M prefix
 % regions tile the search space exactly (every full assignment
 % matches exactly one region),  so a full-window (O + T = 2^M)
-% UNSAT verdict is sound as soon as every zero is a real proof ---
-% with the slice_count structure below,  every zero IS one (an
-% infeasible prefix posting fails = infeasibility proved),  so any
-% NT shape is sound on the CP path (RESET=1 keeps the general
-% task-boundary discipline anyway).
+% UNSAT verdict is sound --- but only if every zero is a real
+% proof (see the defect note below,  which forces NT = T).
 %
 % ENGINE DEFECT (pre-existing on main 28acc9f AND upstream
 % picat 39.11,  root-caused --- docs/pvmbugs_report.tex Section 7,
-% "Bug F",  minimal probe:  parblock_bugf_probe.pi):  on the SAT
+% "Bug F",  minimal probe:  bugf_probe.pi):  on the SAT
 % path (import sat,  count_all(solve([], X))),  a count that
 % exhausts to 0 models poisons every LATER SAT count in the same
 % process --- they return 0 without searching.  The prebuilt
@@ -66,25 +52,22 @@
 % 39.13 rebase):  sat.reset_store()  (C builtin c_reset_store/0 in
 % emu/delay.c,  exposed by the prebuilt sat module) clears the
 % persistent store at a problem boundary,  and a count right after
-% it is exact again --- even right after a zero count.  So the SAT
-% twin takes  RESET=1,  which calls sat.reset_store() at the top of
+% it is exact again --- even right after a zero count.  So the file
+% takes  RESET=1,  which calls sat.reset_store() at the top of
 % every task (i.e. before each count_all):
 %   K=3 N=5 M=3   O=0 T=2   RESET=1,  any NT  ->  [0,2]  (exact)
-% This CP file's  RESET=1  calls the twin cp.reset_store() at the
-% task boundary (it is not REQUIRED for CP correctness,  cf. above).
- % The CP path is independently healed against Bug F (the e085229
- % Bug E fix:  repeated CP counts self-heal,  cf.
- % parblock_queens_count_multi.pi),  and the CP-specific traps
- % (see slice_count) are handled by the posting structure there ---
- % so on the CP path any NT shape is sound,  with or without RESET.
- % RESET=1 (cp.reset_store() at the task boundary) stays available
- % as the general discipline.
+% The CP path is independently healed (the e085229 Bug E fix:
+% repeated CP counts self-heal,  cf. queens_count_multi.pi).
 %
-% Soundness (CP path):  a zero slice is a real proof (the infeasible
-% prefix posting fails,  or the count is caught),  so a full-window
-% UNSAT verdict is sound for any NT  --- unlike the SAT twin,  where
-% WITHOUT RESET only one count per process (NT = T,  or NT = 0 with
-% T = 1) is sound,  because a poisoned SAT zero is not a proof.
+% Soundness:  WITHOUT RESET,  a verdict is sound only with ONE
+% count per process,  i.e. NT = T (each worker proves exactly one
+% pattern) or NT = 0 with T = 1 (the plain serial oracle);  a
+% poisoned zero is not a proof,  so mixed NT < T tiling is unsound
+% on SAT cells.  WITH RESET=1,  every count starts from a clean
+% store,  so any NT (workers,  chunked tasks) is sound --- reset
+% sits at the task boundary,  before any constraint is posted.
+% (The bp.sat_reset_store twin does NOT clear the poison;  the
+% module-qualified sat.reset_store does.)
 %
 % DYN dynamic scheduling:  DYN=1 dispatches the same Tasks through
 % lib2/parblock_pvm_dyn's  par_run_dyn(NT, Tasks)  instead of the
@@ -105,17 +88,17 @@
 % 0 = serial;  more workers than tasks is capped at T),  DYN (0 =
 % fixed chunks,  1 = cursor claims;  default 0).
 %
-%   K=3 N=4 T=8 M=3 NT=8 picat parblock_ramsey_m2_cp.pi
+%   K=3 N=4 T=8 M=3 NT=8 picat ramsey_m2.pi
 %       % 8 patterns,  one per worker:  0+1+1+1+2+1+2+0 = 8
 %       % (tiling check;  NT = T = 8 keeps the sound discipline)
-%   K=3 N=5 T=4 M=2 NT=4 picat parblock_ramsey_m2_cp.pi
+%   K=3 N=5 T=4 M=2 NT=4 picat ramsey_m2.pi
 %       % 2+2+4+4 = 12  (critical (3,3)-graphs on 5 vertices)
-%   K=3 N=6 T=8 M=3 NT=8 picat parblock_ramsey_m2_cp.pi
+%   K=3 N=6 T=8 M=3 NT=8 picat ramsey_m2.pi
 %       % UNSAT:  all 8 patterns 0  =>  R(3,3) <= 6
-%   K=4 N=18 T=256 M=8 NT=256 picat parblock_ramsey_m2_cp.pi
+%   K=4 N=18 T=256 M=8 NT=256 picat ramsey_m2.pi
 %       % the R(4,4) cell:  UNSAT =>  R(4,4) <= 18  (with the SAT
 %       % witness on 17 vertices,  R(4,4) = 18)
-%   K=4 N=18 M=8 NT=128 DYN=1 RESET=1 picat parblock_ramsey_m2_cp.pi
+%   K=4 N=18 M=8 NT=128 DYN=1 RESET=1 picat ramsey_m2.pi
 %       % the R(4,4) cell,  dynamic:  256 pattern tasks claimed off
 %       % the shared cursor by 128 workers  (2 counts each,  reset at
 %       % every task boundary  =>  sound multi-count-per-worker)
@@ -133,8 +116,8 @@
 %   any mixed SAT cell it would undercount.
 %
 % Usage:  from the repo root:
-%   emu/picat -path lib2 exs/parallel/parblock/parblock_ramsey_m2_cp.pi
-import cp.
+%   emu/picat -path lib2 exs/parallel/parblock/ramsey_m2.pi
+import sat.
 import parblock_pvm.
 import parblock_pvm_dyn.
 import parblock_env.
@@ -164,7 +147,7 @@ main =>
     ; handle_exception($o_plus_t_must_be_le_2_to_m(O, T, C2), main) ),
     ( NT > T -> NTW = T ; NTW = NT ),
     bp.c_wall_ms(T0),
-    writef("=== parblock_ramsey_m2: K=%d N=%d T=%d M=%d O=%d NT=%d DYN=%d (patterns %d..%d over %d workers, reset=%w), %d edge vars%n",
+    writef("=== ramsey_m2: K=%d N=%d T=%d M=%d O=%d NT=%d DYN=%d (patterns %d..%d over %d workers, reset=%w), %d edge vars%n",
         K, N, T, M, O, NTW, DYN, O + 1, O + T, NTW, R, N * (N - 1) // 2),
     Tasks = [ {rcount, {K, N, M, O + 1 + I, R}} : I in 0..T-1 ],
     ( DYN > 0
@@ -180,29 +163,12 @@ main =>
 % (or a count that fails) is the count 0.
 rcount(Blk) = C =>
     Blk = {K, N, M, V, R},
-    ( R = reset -> cp.reset_store() ; true ),
+    ( R = reset -> sat.reset_store() ; true ),
     ( slice_count(K, N, M, V, C) -> true
     ; C = 0 ).
 
 % the instance,  plus (for M > 0) the unit prefix E[j] #= bit_j(V);
-% C = #models of the slice.
-%
-% Upstream CP engine behavior (replicated step by step on the OFFICIAL
-% picat 39.13,  picat39_13_src.tar.gz build --- identical to this
-% tree,  so no in-tree engine bug is involved):
-%   (a) a unit constraint posted in the THEN branch of an if-then-else
-%       (e.g.  ( M > 0, prefix(M, E, Lo) ; true )) is silently dropped
-%       from later searches --- the infeasible V=1/V=8 slices then
-%       "count" the base instance minus the lost unit (8 instead of 0
-%       at K=3 N=4 M=3), and solve even returns models that violate
-%       the dropped unit;
-%   (b) an infeasible prefix (the three units + the sum network) makes
-%       the POSTING fail cleanly (goal failure, exit 1 via main,  no
-%       exception) --- a real proof that the slice is empty;
-%   (c) a count_all over a still-infeasible store throws (catchable)
-%       or fails.
-% The structure below avoids (a) (an if statement,  never an ifte,
-% around CP constraints) and turns (b)+(c) into the sound count 0:
+% C = #models of the slice
 slice_count(K, N, M, Lo, C) =>
     MM = K * (K - 1) // 2,
     NPairs = N * (N - 1) // 2,
@@ -211,24 +177,9 @@ slice_count(K, N, M, Lo, C) =>
     E :: 0..1,
     no_k_sets(N, K, MM, AllSets, E),
     degree_order(N, E, D),
-    ( safe_slice(M, Lo, E, D, C)
-    ;
-      C = 0 ).
-
-% post the prefix (if any) and count;  an infeasible prefix fails the
-% posting (the zero proof),  a still-infeasible count is caught
-safe_slice(M, Lo, E, D, C) =>
-    if (M > 0)
-        prefix(M, E, Lo)
-    end,
-    safe_count(E, D, C).
-
-safe_count(E, D, C) =>
-    catch(count_here(E, D, C), Err, C = 0).
-
-count_here(E, D, C) =>
-    CC = count_all(solve([], [E, D])),
-    C = CC.
+    ( M > 0, prefix(M, E, Lo) ; true ),
+    (C = count_all(solve([], [E, D])) -> true
+    ; C = 0).
 
 % unit constraints E[J] #= bit_J(V),  J = M..1  (V = 1 + bit pattern)
 prefix(0, _E, _V) => true.
@@ -257,8 +208,6 @@ root_verdict(K, N, T0, T1, T, NTW, O, C2, Csum, Counts, DYN) =>
             writef("UNSAT window%s: %d workers, patterns %d..%d proven empty in %d ms (partial coverage %d of %d:  no whole-tree verdict)%n",
                 Mode, NTW, O + 1, O + T, T1 - T0, O + T, C2) ) ),
     writeln(Counts).
-
-
 
 % 1-based array index of the edge (I,J),  0 <= I < J < N
 pair_idx(I, J, N) =

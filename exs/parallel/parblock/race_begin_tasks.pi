@@ -1,12 +1,12 @@
-% parblock_race_begin_tasks:  battery for the phase-2 race block
+% race_begin_tasks:  battery for the phase-2 race block
 % forms in lib2/parblock_pvm.pi  (race_begin / race_cl / race_end),
 % two-way against the phase-0 serial written-order contracts.
 %
 % Run from the repo root:
-%   PICATPATH=lib2 timeout 600 emu/picat exs/parallel/parblock/parblock_race_begin_tasks.pi
+%   PICATPATH=lib2 timeout 600 emu/picat exs/parallel/parblock/race_begin_tasks.pi
 %
 % Validation rule (the satext rule,  as in the 1c battery
-% parblock_race_pvm_tasks.pi):  the reported winner is a MODEL --
+% race_pvm_tasks.pi):  the reported winner is a MODEL --
 % validate it against the winning clause's contract,  never assert
 % which clause won;  a case whose value is UNIQUE regardless of the
 % winner is asserted EXACTLY;  the serial reference is printed
@@ -18,7 +18,7 @@
 %
 % NT matrix:  0 (serial block),  1,  2, 4  per case.
 
-module parblock_race_begin_tasks.
+module race_begin_tasks.
 import parblock_pvm.
 
 % ============================ problem  =============================

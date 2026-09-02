@@ -3,9 +3,9 @@
 % strategies.
 %
 % From repo root, one line per case (NT = 0: serial only;  NT >= 1):
-%   PICATPATH=lib2 timeout 120 emu/picat exs/parallel/parblock/parblock_pvm_race.pi 1 4
-%   PICATPATH=lib2 timeout 120 emu/picat exs/parallel/parblock/parblock_pvm_race.pi 2 4
-%   PICATPATH=lib2 timeout 120 emu/picat exs/parallel/parblock/parblock_pvm_race.pi 3 4
+%   PICATPATH=lib2 timeout 120 emu/picat exs/parallel/parblock/pvm_race.pi 1 4
+%   PICATPATH=lib2 timeout 120 emu/picat exs/parallel/parblock/pvm_race.pi 2 4
+%   PICATPATH=lib2 timeout 120 emu/picat exs/parallel/parblock/pvm_race.pi 3 4
 %
 %   case 1  strategies [asc-8Q, midout-8Q, infeasible]
 %   case 2  strategies [midout-8Q, infeasible]
@@ -59,7 +59,7 @@
 %      (pqu3.pi).  A portfolio clause for an infeasible strategy must
 %      throw on exhaustion so its clause fails cleanly (see sol_none2).
 
-module parblock_pvm_race.
+module pvm_race.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% strategies  %%%%%%%%%%%%%%%%%%%%%%%%%
 

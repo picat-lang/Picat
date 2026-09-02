@@ -1,12 +1,12 @@
 % Parblock demo: the combinator family on a real task (N-Queens).
 %
 % From repo root, one line:
-%   PICATPATH=lib2 timeout 300 emu/picat exs/parallel/parblock/parblock_demo.pi
+%   PICATPATH=lib2 timeout 300 emu/picat exs/parallel/parblock/demo.pi
 %
 % Phase 0 = sequential engine, so every construct here runs in written
 % order;  the same file is the seed for the async (PVM) batteries.
 
-module parblock_demo.
+module demo.
 
 import parblock.
 

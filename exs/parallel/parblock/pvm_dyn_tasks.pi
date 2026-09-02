@@ -1,12 +1,12 @@
-% parblock_pvm_dyn_tasks:  the phase-1b dynamic backend
+% pvm_dyn_tasks:  the phase-1b dynamic backend
 % (lib2/parblock_pvm_dyn,  par_run_dyn over the shared-cursor
 % bp.pvm_claim)  vs the fixed-chunk par_run  vs the phase-0
 % serial par_run,  over the same parblock task contract as
-% parblock_pvm_tasks.
+% pvm_tasks.
 %
 % From the repo root:
-%   timeout 300 emu/picat -path lib2 exs/parallel/parblock/parblock_pvm_dyn_tasks.pi <case> <nt>
-%   cases 1-5 mirror parblock_pvm_tasks (mixed values / one
+%   timeout 300 emu/picat -path lib2 exs/parallel/parblock/pvm_dyn_tasks.pi <case> <nt>
+%   cases 1-5 mirror pvm_tasks (mixed values / one
 %   throwing task / 64-task order / empty / single);
 %   case 6 is the uneven-cost case  (one full N=12 queens count
 %   among eleven N=8 column counts).  The three-way comparison
@@ -24,7 +24,7 @@
 %                   values;  the dynamic backend should not pay the
 %                   slow task inside a fixed chunk
 %
-% Substrate:  same documented constraints as parblock_pvm_tasks --
+% Substrate:  same documented constraints as pvm_tasks --
 % unqualified task references (engine bug (a)),  ground error
 % terms,  tuples round-trip exactly,  workers halt after their last
 % report.  Per-task (vs per-chunk) reports are what distinguish the
@@ -33,7 +33,7 @@
 % counts in one process poisons after a zero  --  the queens tasks
 % here are CP and self-heal,  so the battery is unaffected.)
 
-module parblock_pvm_dyn_tasks.
+module pvm_dyn_tasks.
 
 import cp.
 import parblock.

@@ -22,7 +22,7 @@
  %       such zero slices,  were verified on this engine):  do not
  %       "simplify" count_q into a trial-search veto --- the CP
  %       infeasible-count traps,  and the structure that dodges them,
- %       are documented in exs/parallel/parblock/parblock_ramsey_m2_cp.pi.
+ %       are documented in exs/parallel/parblock/ramsey_m2_cp.pi.
 %
 % Known totals (OEIS A000170): 10=724, 11=2680, 12=14200, 13=73712,
 % 14=365596, 15=2279184, 16=14772512 -- every run below must reach the

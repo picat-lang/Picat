@@ -4,11 +4,11 @@
 %
 % From the repo root,  one line per case  (NT = 0:  serial only;
 % NT >= 1:  both sides,  compared):
-%   timeout 120 emu/picat -path lib2 exs/parallel/parblock/parblock_pvm_tasks.pi 1 4
-%   timeout 120 emu/picat -path lib2 exs/parallel/parblock/parblock_pvm_tasks.pi 2 4
-%   timeout 120 emu/picat -path lib2 exs/parallel/parblock/parblock_pvm_tasks.pi 3 4
-%   timeout 120 emu/picat -path lib2 exs/parallel/parblock/parblock_pvm_tasks.pi 4 4
-%   timeout 120 emu/picat -path lib2 exs/parallel/parblock/parblock_pvm_tasks.pi 5 4
+%   timeout 120 emu/picat -path lib2 exs/parallel/parblock/pvm_tasks.pi 1 4
+%   timeout 120 emu/picat -path lib2 exs/parallel/parblock/pvm_tasks.pi 2 4
+%   timeout 120 emu/picat -path lib2 exs/parallel/parblock/pvm_tasks.pi 3 4
+%   timeout 120 emu/picat -path lib2 exs/parallel/parblock/pvm_tasks.pi 4 4
+%   timeout 120 emu/picat -path lib2 exs/parallel/parblock/pvm_tasks.pi 5 4
 %
 %   (The module loader once failed on relative main paths with a
 %   directory part -- main-dir-qualified import names fopened without
@@ -41,7 +41,7 @@
 %   the {I, R}  /  {I, {err, E}}  index-tagged TUPLE reports are
 %   used regardless,  which round-trip exactly.
 
-module parblock_pvm_tasks.
+module pvm_tasks.
 
 import parblock.
 import parblock_pvm.
