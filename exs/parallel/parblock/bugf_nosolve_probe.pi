@@ -1,0 +1,66 @@
+% bugf_nosolve_probe:  the MINIMAL Bug F leak (docs/pvmbugs_report.tex,
+% Section 7, "the store is identified" update).
+%
+% Bug F's poison state is the process-global constraint list
+% $all_constrs:  SAT constraint operators append their structures there
+% at posting time, and solve/2 is the ONLY thing that drains the list
+% (it captures it, resets it to [], and compiles the captured
+% constraints into the solver instance).  Anything still in the list at
+% the NEXT solve/2 of the process --- even though it belongs to a
+% different, already-finished problem with dead dvars --- is compiled
+% into that next instance and poisons it.
+%
+% This probe isolates the simplest leak path:  count 1 posts its
+% constraints and NEVER solves (it just returns 0).  The posted
+% structures therefore sit unconsumed in $all_constrs.  Count 2 is a
+% completely fresh 2-model problem;  its solve captures the stale
+% structures and compiles them alongside its own, and the stale #!=
+% structure (re-compiled against its dead dvars) contributes an empty
+% clause, so count 2's instance is unsat and counts 0 without search.
+%
+% A correct engine prints:
+%
+%      [0,2]
+%
+% Every picat build currently shipping (upstream 39.11 and the 3.9#13
+% rebase) prints [0,0]:
+%
+%   cd Picat-src && emu/picat exs/parallel/parblock/bugf_nosolve_probe.pi
+%
+% Contrast with bugf_probe.pi (count 1 DOES solve):  that variant needs
+% the deferred-conversion leak (handlers appending back into
+% $all_constrs during the compile, after the capture/reset).  This
+% variant needs no solver run in count 1 at all --- with SATDBG=1
+% SATDBG_FILE=... the single c_sat_init of the process is count 2's,
+% and its clause stream is [c: 0, c: 2 1 0, c: -2 -1 0]:  one clause
+% pair from the #=s plus an EMPTY clause produced by the stale #!=
+% structure --- the instance is unsat because of that empty clause.
+%
+% Cure, same as for bugf_probe:  sat.reset_store() at the problem
+% boundary (its whole prebuilt body is global_heap_set($all_constrs,
+% [])) --- or never leave posted constraints unconsumed.
+
+module bugf_nosolve_probe.
+
+import sat.
+
+main() =>
+    C1 = count1(),
+    C2 = count2(),
+    writeln([C1, C2]).
+
+% Post X #= Y and X #!= Y  ---  and never solve.  0 models by
+% declaration;  the posted structures stay in $all_constrs.
+count1() = 0 =>
+    X :: 1..2,
+    Y :: 1..2,
+    X #= Y,
+    X #!= Y.
+
+% A fresh 2-model problem  ((1,1), (2,2)).
+count2() = C =>
+    X :: 1..2,
+    Y :: 1..2,
+    X #= Y,
+    (C = count_all(solve([], [X, Y])) -> true
+    ; C = 0).
