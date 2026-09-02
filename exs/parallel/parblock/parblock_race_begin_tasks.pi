@@ -19,7 +19,6 @@
 % NT matrix:  0 (serial block),  1,  2, 4  per case.
 
 module parblock_race_begin_tasks.
-import parblock.
 import parblock_pvm.
 
 % ============================ problem  =============================
@@ -93,11 +92,11 @@ srab3() = S =>
 %    value is asserted EXACTLY against the serial reference;  the
 %    winner identity is a scheduling outcome.
 case_rb_basic(NT) =>
-    catch( (parblock_pvm.race_begin(NT),
-            ( parblock_pvm.race_cl(1, sol_fast)
-            ; parblock_pvm.race_cl(2, sol_fast2)
+    catch( (race_begin(NT),
+            ( race_cl(1, sol_fast)
+            ; race_cl(2, sol_fast2)
             ; true ),
-            parblock_pvm.race_end(R)),
+            race_end(R)),
            E,
            ( printf("  case_rb_basic NT=%d: FAIL E=%s\n", NT, to_string(E)), false ) ),
     R = [won, W, Qs],
@@ -115,11 +114,11 @@ case_rb_basic(NT) =>
 %    while the root is still walking the slow one (the child-win
 %    landing);  the fast clause's value is exact when it wins.
 case_rb_cw(NT) =>
-    catch( (parblock_pvm.race_begin(NT),
-            ( parblock_pvm.race_cl(1, sol_slow)
-            ; parblock_pvm.race_cl(2, sol_fast)
+    catch( (race_begin(NT),
+            ( race_cl(1, sol_slow)
+            ; race_cl(2, sol_fast)
             ; true ),
-            parblock_pvm.race_end(R)),
+            race_end(R)),
            E,
            ( printf("  case_rb_cw NT=%d: FAIL E=%s\n", NT, to_string(E)), false ) ),
     R = [won, W, Qs],
@@ -133,11 +132,11 @@ case_rb_cw(NT) =>
 % 3  a throwing clause drops out;  the unique completer's value is
 %    exact (both serial and PVM).
 case_rb_thrower(NT) =>
-    catch( (parblock_pvm.race_begin(NT),
-            ( parblock_pvm.race_cl(1, sol_throw)
-            ; parblock_pvm.race_cl(2, sol_fast)
+    catch( (race_begin(NT),
+            ( race_cl(1, sol_throw)
+            ; race_cl(2, sol_fast)
             ; true ),
-            parblock_pvm.race_end(R)),
+            race_end(R)),
            E,
            ( printf("  case_rb_thrower NT=%d: FAIL E=%s\n", NT, to_string(E)), false ) ),
     R = [won, W, Qs],
@@ -153,11 +152,11 @@ case_rb_thrower(NT) =>
 % 4  every clause throws ->  race_end throws  $parblock_raceb_empty
 %    (after its collect,  at every NT).
 case_rb_allthrow(NT) =>
-    catch( (parblock_pvm.race_begin(NT),
-            ( parblock_pvm.race_cl(1, sol_throw)
-            ; parblock_pvm.race_cl(2, sol_throw)
+    catch( (race_begin(NT),
+            ( race_cl(1, sol_throw)
+            ; race_cl(2, sol_throw)
             ; true ),
-            parblock_pvm.race_end(R),
+            race_end(R),
             ( printf("  case_rb_allthrow NT=%d: FAIL got R=%s\n", NT, to_string(R)), false ) ),
            E,
            ( E = $parblock_raceb_empty,
@@ -168,9 +167,9 @@ case_rb_allthrow(NT) =>
 
 % 5  single-clause block:  W = 1 exact.
 case_rb_single(NT) =>
-    catch( (parblock_pvm.race_begin(NT),
-            ( parblock_pvm.race_cl(1, sol_fast) ; true ),
-            parblock_pvm.race_end(R)),
+    catch( (race_begin(NT),
+            ( race_cl(1, sol_fast) ; true ),
+            race_end(R)),
            E,
            ( printf("  case_rb_single NT=%d: FAIL E=%s\n", NT, to_string(E)), false ) ),
     R = [won, W, Qs],
@@ -181,11 +180,11 @@ case_rb_single(NT) =>
 % 6  one-arg clauses  (race_cl(I, F, A)),  staggered,  AGREEING
 %    value:  V = 49 exact at every NT.
 case_rb_arg(NT) =>
-    catch( (parblock_pvm.race_begin(NT),
-            ( parblock_pvm.race_cl(1, fsarg, 7)
-            ; parblock_pvm.race_cl(2, farg, 7)
+    catch( (race_begin(NT),
+            ( race_cl(1, fsarg, 7)
+            ; race_cl(2, farg, 7)
             ; true ),
-            parblock_pvm.race_end(R)),
+            race_end(R)),
            E,
            ( printf("  case_rb_arg NT=%d: FAIL E=%s\n", NT, to_string(E)), false ) ),
     R = [won, W, V],
@@ -201,12 +200,12 @@ fsarg3(X) = V => work(2000000), V = 42.
 fmarg3(X) = V => work(100000), V = 42.
 ffarg3(X) = V => V = 42.
 case_rb_three(NT) =>
-    catch( (parblock_pvm.race_begin(NT),
-            ( parblock_pvm.race_cl(1, fsarg3, 1)
-            ; parblock_pvm.race_cl(2, fmarg3, 1)
-            ; parblock_pvm.race_cl(3, ffarg3, 1)
+    catch( (race_begin(NT),
+            ( race_cl(1, fsarg3, 1)
+            ; race_cl(2, fmarg3, 1)
+            ; race_cl(3, ffarg3, 1)
             ; true ),
-            parblock_pvm.race_end(R)),
+            race_end(R)),
            E,
            ( printf("  case_rb_three NT=%d: FAIL E=%s\n", NT, to_string(E)), false ) ),
     R = [won, W, V],
@@ -219,7 +218,7 @@ case_rb_three(NT) =>
 %    bp.pvm_report  reports the engine's  illegal_arguments);
 %    misuse is loud,  never silent.
 case_rb_noblock(NT) =>
-    catch( parblock_pvm.race_cl(1, sol_fast),
+    catch( race_cl(1, sol_fast),
            E,
            ( printf("  case_rb_noblock  NT=%d  raised %s  ok\n", NT, to_string(E)),
              true ) ).

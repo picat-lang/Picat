@@ -415,11 +415,12 @@ pvst_m(Fs, X, I, V) =>
 %
 %  Shape (the body must be exactly this):
 %
-%    parblock_pvm.race_begin(4),
-%    ( parblock_pvm.race_cl(1, sol_a)
-%    ; parblock_pvm.race_cl(2, sol_b)
+%    import parblock_pvm.
+%    race_begin(4),
+%    ( race_cl(1, sol_a)
+%    ; race_cl(2, sol_b)
 %    ; true ),
-%    parblock_pvm.race_end(R).
+%    race_end(R).
 %
 %    The trailing  true  disjunct is REQUIRED:
 %      - for the ROOT it is the exhaustion / found landing  (the
