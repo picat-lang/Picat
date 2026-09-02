@@ -1577,8 +1577,15 @@ static pid_t prt_fork_runner(spec_list_t *sl, int i, const int *rfd)
         int wfd = rfd[2 * i + 1];
 
         child_dies_with_parent();
+        /* Only the pipes created up to index i exist at this fork; the
+           caller pre-fills the rest of rfd with -1.  Closing an
+           uninitialized entry here can close an unrelated fd (observed:
+           the runner's own result pipe), so guard every close. */
         for (j = 0; j < sl->n; j++)
-            if (j != i) { close(rfd[2 * j]); close(rfd[2 * j + 1]); }
+            if (j != i) {
+                if (rfd[2 * j] >= 0) close(rfd[2 * j]);
+                if (rfd[2 * j + 1] >= 0) close(rfd[2 * j + 1]);
+            }
         close(rfd[2 * i]);
         if (setsid() == (pid_t)-1) _exit(126);
         signal(SIGPIPE, SIG_IGN);
@@ -1635,6 +1642,11 @@ static int run_portfolio(spec_list_t *sl)
     int32_t *model = NULL;
     int win_kind = 0, win_i = -1;
     int have = 0, rc = 0;
+
+    /* Pre-fill: runners are forked as their pipes appear, so each child
+       sees rfd entries beyond its own pipe; those must be -1, never
+       stale stack garbage (prt_fork_runner guards the closes). */
+    for (i = 0; i < 2 * SATEXT_PRT_MAX; i++) rfd[i] = -1;
 
     for (i = 0; i < n; i++) {
         if (pipe(&rfd[2 * i]) != 0) { rc = -1; break; }
