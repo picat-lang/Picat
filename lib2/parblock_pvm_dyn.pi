@@ -71,7 +71,8 @@
 %   poisons the same worker's LATER SAT counts (upstream,  root-
 %   caused):  either keep one SAT count per task window,  or reset
 %   at the task boundary with sat.reset_store() (in-tree since the
-%   3.9#13 rebase;  see ramsey_m2's  RESET=1).
+%   3.9#13 rebase;  see ramsey_m2's  RESET knob,  default 1,
+%   RESET=0 opts out).
 
 module parblock_pvm_dyn.
 import parblock.

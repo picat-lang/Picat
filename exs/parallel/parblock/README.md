@@ -39,9 +39,11 @@ bugs each battery pins and the adopted workarounds.
 | `parblock_env.pi` | shared helper for the ramsey files: `from_env(Name, Def) = V` (the int value of `$Name`, else `Def`) | module |
 
 `ramsey_m2` knobs come from the environment: `DYN=1` selects
-`par_run_dyn` (shared pool, cursor-claimed), `RESET=1` applies the
-upstream `sat.reset_store()` workaround for engine Bug F; `NT`, `K`,
-`N`, `T`, `M`, `O` as shown by its header.
+`par_run_dyn` (shared pool, cursor-claimed), `RESET` (default `1`)
+applies the upstream `sat.reset_store()` workaround for engine Bug F
+at every task boundary — `RESET=0` opts out, after which only one
+count per process is sound (`NT = T`); `NT`, `K`, `N`, `T`, `M`, `O`
+as shown by its header.
 
 Probes (bug reproducers, not API demos): `bugf_probe.pi`
 (SAT Bug F zero-count poisoning), `cp_posting_probe.pi`

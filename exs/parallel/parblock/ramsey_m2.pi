@@ -52,20 +52,21 @@
 % 39.13 rebase):  sat.reset_store()  (C builtin c_reset_store/0 in
 % emu/delay.c,  exposed by the prebuilt sat module) clears the
 % persistent store at a problem boundary,  and a count right after
-% it is exact again --- even right after a zero count.  So the file
-% takes  RESET=1,  which calls sat.reset_store() at the top of
-% every task (i.e. before each count_all):
-%   K=3 N=5 M=3   O=0 T=2   RESET=1,  any NT  ->  [0,2]  (exact)
+% it is exact again --- even right after a zero count.  The file
+% therefore DEFAULTS to RESET=1,  calling sat.reset_store() at the
+% top of every task (i.e. before each count_all):
+%   K=3 N=5 M=3   O=0 T=2   any NT  ->  [0,2]  (exact,  the default)
+%   K=3 N=5 M=3   O=0 T=2   RESET=0,  any NT  ->  [0,0]  (poisoned)
 % The CP path is independently healed (the e085229 Bug E fix:
 % repeated CP counts self-heal,  cf. queens_count_multi.pi).
 %
-% Soundness:  WITHOUT RESET,  a verdict is sound only with ONE
-% count per process,  i.e. NT = T (each worker proves exactly one
-% pattern) or NT = 0 with T = 1 (the plain serial oracle);  a
-% poisoned zero is not a proof,  so mixed NT < T tiling is unsound
-% on SAT cells.  WITH RESET=1,  every count starts from a clean
-% store,  so any NT (workers,  chunked tasks) is sound --- reset
-% sits at the task boundary,  before any constraint is posted.
+% Soundness:  with the DEFAULT (reset at the task boundary,  before
+% any constraint is posted),  every count starts from a clean
+% store,  so any NT (workers,  chunked tasks) is sound.  With the
+% explicit opt-out RESET=0,  a verdict is sound only with ONE count
+% per process,  i.e. NT = T (each worker proves exactly one pattern)
+% or NT = 0 with T = 1 (the plain serial oracle);  a poisoned zero
+% is not a proof,  so mixed NT < T tiling is unsound on SAT cells.
 % (The bp.sat_reset_store twin does NOT clear the poison;  the
 % module-qualified sat.reset_store does.)
 %
@@ -77,16 +78,19 @@
 % Dynamic mode covers the FULL window 1..2^M (like ramsey_m2's DYN);
 % T and O are then ignored.  Like ramsey_m2's dynamic worker,  a
 % worker may run many count_all calls in a row  --- so DYN without
-% RESET has the same Bug F soundness restriction as static NT < T
-% (one sound shape is NT = T or RESET=1),  and WITH RESET=1 any NT is
-% sound.
+% the reset (explicit RESET=0) has the same Bug F soundness
+% restriction as static NT < T (one sound shape is NT = T or the
+% default reset),  and with the default reset any NT is sound.
 %
 % Env:  K,  N (N must be set explicitly for K != 3),  T (number of
 % pattern tasks in static mode;  the run covers O+1..O+T),  M (bitpack
 % width;  O + T must be <= 2^M in static mode,  DYN covers 1..2^M),
 % O (window base in static mode,  default 0),  NT (workers,  default
 % 0 = serial;  more workers than tasks is capped at T),  DYN (0 =
-% fixed chunks,  1 = cursor claims;  default 0).
+% fixed chunks,  1 = cursor claims;  default 0),  RESET (1 =
+% sat.reset_store() at the top of every task --- the default,  the
+% Bug F workaround;  0 = opt out,  then only one count per process
+% is sound:  NT = T,  or NT = 0 with T = 1).
 %
 %   K=3 N=4 T=8 M=3 NT=8 picat ramsey_m2.pi
 %       % 8 patterns,  one per worker:  0+1+1+1+2+1+2+0 = 8
@@ -98,10 +102,11 @@
 %   K=4 N=18 T=256 M=8 NT=256 picat ramsey_m2.pi
 %       % the R(4,4) cell:  UNSAT =>  R(4,4) <= 18  (with the SAT
 %       % witness on 17 vertices,  R(4,4) = 18)
-%   K=4 N=18 M=8 NT=128 DYN=1 RESET=1 picat ramsey_m2.pi
+%   K=4 N=18 M=8 NT=128 DYN=1 picat ramsey_m2.pi
 %       % the R(4,4) cell,  dynamic:  256 pattern tasks claimed off
 %       % the shared cursor by 128 workers  (2 counts each,  reset at
-%       % every task boundary  =>  sound multi-count-per-worker)
+%       % every task boundary by the default  =>  sound
+%       % multi-count-per-worker)
 %
 % The R(4,4) cell on this node (fixed engine,  this file,  the sound
 % NT = T shape):  UNSAT,  256/256 patterns proven empty  =>  R(4,4) <= 18
@@ -109,11 +114,12 @@
 %   NT=256:  UNSAT in 420.8 s / 472.9 s wall (node at loadavg
 %            ~430--490;  the same static shape ran 112.1 s on a
 %            near-idle node,  cf. exs/parallel/pvm/ramsey_m2.pi)
-%   NT=64 (NT < T,  4 counts per worker)  is NOT a sound shape for
-%   SAT cells:  under open Bug F (docs/pvmbugs_report.tex,
-%   Section 7) a zero-count poisons the later counts of the same
-%   process ---  on this all-UNSAT cell the verdict still holds,  on
-%   any mixed SAT cell it would undercount.
+%   NT=64 (NT < T,  4 counts per worker)  is sound with the default
+%   RESET=1 (a reset at every task boundary);  it is NOT sound with
+%   the explicit opt-out RESET=0:  under open Bug F
+%   (docs/pvmbugs_report.tex,  Section 7) a zero-count poisons the
+%   later counts of the same process ---  on this all-UNSAT cell the
+%   verdict still holds,  on any mixed SAT cell it would undercount.
 %
 % Usage:  from the repo root:
 %   emu/picat -path lib2 exs/parallel/parblock/ramsey_m2.pi
@@ -137,7 +143,7 @@ main =>
     (Oi >= 0 -> true ; handle_exception($o_expected_at_least_0(Oi), main)),
     NT = from_env("NT", 0),
     (NT >= 0 -> true ; handle_exception($nt_expected_at_least_0(NT), main)),
-    RV = from_env("RESET", 0),
+    RV = from_env("RESET", 1),
     R = cond(RV > 0, reset, none),
     DYN = from_env("DYN", 0),
     (DYN >= 0 -> true ; handle_exception($dyn_expected_nonnegative(DYN), main)),
