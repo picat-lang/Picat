@@ -53,7 +53,7 @@ Probes (bug reproducers, not API demos): `bugf_probe.pi`
 
 ## Single-API illustrations
 
-One **self-contained** example per API (no shared helper; each defines its
+**Self-contained** example(s) per API (no shared helper; each defines its
 own workload — number theory, combinatorics, or a chess search). The PVM
 ones run the full `NT ∈ {0,1,2,4}` matrix (NT = 0 is the phase-0 serial
 fallback); the serial-only `effect` / `detach` examples run once. All are
@@ -68,6 +68,7 @@ self-contained legal-move generator).
 | `par_run_perft.pi` | `par_run(NT, Tasks)` | PERFT from the chess start position: 20 first-move subtrees (each perft(3)), sum = perft(4) = 197281 |
 | `race_perfect.pi` | `race_res(NT, F, Xs)` | smallest perfect number > 496 among candidates → 8128 (OEIS A000396) |
 | `map_par_totient.pi` | `map_par(NT, F, Xs)` | Euler totient φ(1..16) → `[1,1,2,2,4,2,6,4,6,4,10,4,12,6,8,8]` |
+| `par_run_collatz.pi` | `map_par(NT, F, Xs)` | Collatz stopping times stt(1..N) (A006577) + serial argmax → the record-holder (A059877); flexible `main([NT, N])` to scale the range (e.g. N = 1000000 → n = 837799, stt = 524) |
 | `map_race_mersenne.pi` | `map_race(NT, Fs, Xs)` | is `2^P-1` prime? trial-division vs Lucas-Lehmer, `P ∈ [3,5,7,11,13,19,31]` |
 | `par_any_twinprime.pi` | `par_any(NT, P, Xs)` | first twin-prime pair in `[1000..1030]` → (1019, 1021) |
 | `par_all_primegap.pi` | `par_all(NT, P, Xs)` | the 23↔29 prime gap: interior `[24..28]` composite (`ok`), 29 closes it (`[fail,29]`) |
@@ -92,7 +93,7 @@ candidates are total-or-throw by language semantics.
 | `par_run(Tasks) = Rs` | results in **task order**; a throwing task aborts the par with that task's exception term | `semantics` t01/t02; `demo` §2c; `par_run_primes`; `par_run_queens` |
 | `race(F, Xs) = P` | `P = (W, Y)`: first `X` (written order) on which `F(X)` completes; `Y` its value | `semantics` t03; `demo` §2 |
 | `race_res(F, Xs) = S` | `S = [won, W, Y]` \| `exhausted` (total form of `race`) | `semantics` t04 (all-throw → `exhausted`); `race_perfect` |
-| `map_par(F, Xs) = Ys` | ordered parallel map, results in **element order** | `semantics` t05; `demo` §1; `map_par_totient` |
+| `map_par(F, Xs) = Ys` | ordered parallel map, results in **element order** | `semantics` t05; `demo` §1; `map_par_totient`; `par_run_collatz` |
 | `map_race(Fs, Xs) = Ys` | per-element portfolio over the function list `Fs`; all-throw element throws `$parblock_mrace_empty(X)` | `semantics` t09; `demo` §2b; `map_race_mersenne` |
 | `par_any(P, Xs) = S` | `S = [sat, X]` first satisfying `X` (written order) \| `none`; a throwing `P(X)` drops out | `semantics` t06; `demo` §3; `par_any_twinprime` |
 | `par_all(P, Xs) = S` | `S = ok` \| `[fail, X]` **fail-fast**; a throwing `P(X)` propagates | `semantics` t07; `demo` §4; `par_all_primegap` |
@@ -126,7 +127,7 @@ never a specific placement).
 | `par_run(NT, Tasks) = Rs` | mode 2, fixed-chunk split; task-ordered results, first-thrower rethrown after collect | `pvm_tasks` (5 cases); `queens_count{,2,_multi}`; `ramsey_m2`; `par_run_primes`; `par_run_queens`; `par_run_perft` |
 | `race(NT, F, Xs) = P` | mode 1 portfolio (`race_res` wrap) | `race_pvm_tasks` case_race/case_race2 |
 | `race_res(NT, F, Xs) = S` | mode 1 portfolio | `race_pvm_tasks` case_race / case_race_exhaust; `race_perfect` |
-| `map_par(NT, F, Xs) = Ys` | mode 2 (ordered map) | `race_pvm_tasks` case_mappar; `map_par_totient` |
+| `map_par(NT, F, Xs) = Ys` | mode 2 (ordered map) | `race_pvm_tasks` case_mappar; `map_par_totient`; `par_run_collatz` |
 | `map_race(NT, Fs, Xs) = Ys` | serial element loop, one mode-1 session per element | `race_pvm_tasks` case_maprace*; `map_race_mersenne` |
 | `par_any(NT, P, Xs) = S` | mode 1 | `race_pvm_tasks` case_parany*; `par_any_twinprime` |
 | `par_all(NT, P, Xs) = S` | **mode 2** (all elements must be tested, fail-fast term) | `race_pvm_tasks` case_parall*; `par_all_primegap` |

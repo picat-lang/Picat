@@ -1,0 +1,75 @@
+% par_run_collatz:  Collatz stopping times as a map_par workload.
+%
+% The Collatz total stopping time stt(n)  (OEIS A006577)  is the number
+% of iterations of   n -> n/2 (n even)  |  3n+1 (n odd)  needed to reach
+% 1.  stt is independent per n,  so computing stt(1..N) is
+% embarrassingly parallel:  map_par(NT, stt, [1..N])  runs one task per
+% n through the mode-2 partition and returns the stopping times in n
+% order.  A serial argmax scan then extracts the record-holder  --  the
+% n attaining the maximum stopping time in the range,  i.e. the last
+% entry of the stopping-time record sequence  (OEIS A059877).
+%
+% Grounded values (independently cross-checked in Python):
+%   stt(27) = 111
+%   record for 1..100      -> n = 97,     stt = 118
+%   record for 1..1000     -> n = 871,    stt = 178
+%   record for 1..100000   -> n = 77031,  stt = 350
+%   record for 1..1000000  -> n = 837799, stt = 524
+%
+% Flexible entry for scalability runs  (time it externally, e.g. with
+% the shell "time"):
+%   PICATPATH=lib2 emu/picat exs/parallel/parblock/par_run_collatz.pi <NT> <N>
+%     NT  = 0 for the serial phase-0 map;  NT >= 1 for the mode-2 pool.
+%     N   = the range explored  (compute stt for 1..N).
+%   Increase NT (and/or N) and compare the wall time to see how the
+%   parallel map scales.  e.g.  ... par_run_collatz.pi 16 1000000
+%
+% main()  (no args)  is the self-checking sweep:  N = 100 over
+%   NT in [0,1,2,4],  asserting stt(27) = 111 and the record (97, 118).
+
+module par_run_collatz.
+import parblock_pvm.
+
+stt(1) = 0.
+stt(N) = T =>
+    ( N mod 2 == 0, stt(N // 2) = T1, T = 1 + T1
+    ; stt(3*N + 1) = T1, T = 1 + T1 ).
+
+% argmax of Ys[1..N]  ->  [n, t]   (first n attaining the maximum)
+rec1(I, N, Ys, BestN, BestT) = R =>
+    ( I > N, R = [BestN, BestT]
+    ; T = Ys[I],
+        ( T > BestT, rec1(I + 1, N, Ys, I, T) = R
+        ; rec1(I + 1, N, Ys, BestN, BestT) = R ) ).
+rec(N, Ys) = R => rec1(1, N, Ys, 0, 0) = R.
+
+% flexible entry:  <NT> threads,  explore 1..N  (for scalability runs)
+main([NT, N]) =>
+    N  := N.to_int,
+    NT := NT.to_int,
+    Xs = [X : X in 1..N],
+    Ys = map_par(NT, stt, Xs),
+    ( N >= 27, ck("stt(27) = 111", Ys[27], 111) ; true ),
+    [An, Ax] = rec(N, Ys),
+    printf("NT=%d  N=%d  record n=%d  stt=%d\n", NT, N, An, Ax),
+    true.
+
+% self-checking sweep at N = 100
+main() =>
+    N = 100,
+    Xs = [X : X in 1..N],
+    foreach (NT in [0, 1, 2, 4])
+        printf("NT=%d\n", NT),
+        Ys = map_par(NT, stt, Xs),
+        ck("stt(27) = 111", Ys[27], 111),
+        [An, Ax] = rec(N, Ys),
+        ck("record n = 97", An, 97),
+        ck("record stt = 118", Ax, 118),
+        printf("  record n=%d stt=%d\n", An, Ax)
+    end,
+    true.
+
+ck(Name, Got, Want) =>
+    ( Got = Want, printf("  %-24s ok\n", Name)
+    ; printf("  %-24s FAIL got=%s want=%s\n", Name, to_string(Got), to_string(Want)),
+      throw($parbat_ck_fail(Name)) ).
