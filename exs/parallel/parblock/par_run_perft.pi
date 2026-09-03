@@ -311,6 +311,32 @@ perft_sum(Ms, Pos, D, C) =>
 % one par_run task:  perft of a first-move successor subtree
 perft_task({Pos, Dd}) = C => C = perft(Pos, Dd).
 
+main([NT,D,Split]) =>
+    D:=D.to_int,
+    NT:=NT.to_int,
+    Split:=Split.to_int,
+    Pos00 = startpos(),
+    P=[Pos00],
+    foreach(I in 1..Split)
+        P:=[Pos1:Pos0 in P,legal_moves(Pos0,Ms),M in Ms,apply(M,Pos0,Pos1)]
+    end,
+    Tasks = [ {perft_task, {Pos1, D - Split}} : Pos1 in P ],
+    Rs = par_run(NT, Tasks),
+    S = sum(Rs),
+    printf("NT=%d  perft(%d)=%d  per-move=%s\n", NT, D, S, to_string(Rs)),
+    true.
+
+main([NT,D]) =>
+    D:=D.to_int,
+    NT:=NT.to_int,
+    Pos0 = startpos(),
+    legal_moves(Pos0, Ms),
+    Tasks = [ {perft_task, {Pos1, D - 1}} : M in Ms, apply(M, Pos0, Pos1) ],
+    Rs = par_run(NT, Tasks),
+    S = sum(Rs),
+    printf("NT=%d  perft(%d)=%d  per-move=%s\n", NT, D, S, to_string(Rs)),
+    true.
+
 main() =>
     D = 4,
     Pos0 = startpos(),
