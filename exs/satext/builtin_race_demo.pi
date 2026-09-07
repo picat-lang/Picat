@@ -1,0 +1,65 @@
+% builtin_race_demo: the standard SAT flow with the built-in kissat
+% solver raced in-process as a portfolio member ("builtin").
+%
+% The program never changes -- the solver is selected at solve time via
+% SATEXT_SOLVER (or bp.c_satext_set_solver). The reserved token
+% "builtin" races the embedded kissat solver in a pthread instead of
+% exec'ing an external binary. "builtin" alone is just the default
+% built-in engine.
+%
+% Run (needs kissat on PATH for the mixed rows):
+%   SATEXT_SOLVER="kissat|builtin" SATEXT_PRT_MIN=1 SATEXT_PRT_STATS=1 \
+%       picat exs/satext/builtin_race_demo.pi
+%   SATEXT_SOLVER="kissat --bogus|builtin" SATEXT_PRT_MIN=1 \
+%       picat exs/satext/builtin_race_demo.pi    % broken external,
+%                                                  % builtin answers
+%   SATEXT_SOLVER=builtin \
+%       picat exs/satext/builtin_race_demo.pi    % == default built-in
+%
+% In every row the built-in is NEVER re-run as a fallback; when it is a
+% racer it can win the race, and when the selection is only "builtin"
+% the normal built-in engine answers.
+
+import sat.
+
+main =>
+    % --- SAT: the racer's model must satisfy A+B#=3 ---
+    A :: 0..5, B :: 0..3,
+    A+B #= 3,
+    solve([A,B]),
+    check((A+B) == 3, $bad_answer),
+    writef("A+B=3        : %s+%s=%s%n",
+           to_string(A), to_string(B), to_string(A+B)),
+
+    % --- SAT single: the racer's model must be a valid 4-queens line ---
+    queens4(Q),
+    solve(Q),
+    bad4(Q, Bad),
+    check(Bad == 0, $bad_queens),
+    writef("4-queens one : valid %s%n", to_string(to_list(Q))),
+
+    % --- enumeration: each iteration re-races; the count must be 2 ---
+    queens4(Q2),
+    Sols = findall([Q2[1],Q2[2],Q2[3],Q2[4]], solve_one(Q2)),
+    check(len(Sols) == 2, $bad_count),
+    writef("4-queens all : %s solutions%n", to_string(len(Sols))),
+
+    halt.
+
+solve_one(Qs) => solve(Qs).
+
+check(C, Ex) => (C -> true ; handle_exception(Ex, check)).
+
+queens4(Qs) =>
+    Qs = new_array(4),
+    Qs :: 1..4,
+    foreach (I in 1..3, J in I+1..4)
+        Qs[I] #!= Qs[J],
+        Qs[I]-Qs[J] #!= J-I,
+        Qs[J]-Qs[I] #!= J-I
+    end.
+
+bad4(Qs, Bad) =>
+    B1 = [1 : I in 1..3, J in I+1..4, Qs[I] == Qs[J]],
+    B2 = [1 : I in 1..3, J in I+1..4, abs(Qs[I]-Qs[J]) == J-I],
+    Bad = len(B1) + len(B2).

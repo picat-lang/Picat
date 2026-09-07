@@ -59,37 +59,41 @@
  *                           none available)
  *              c_satext_cnf_info(Clauses, Nvar, Ncl, Nlits)
  *              c_satext_write_dimacs(Clauses, Path)
- *              c_satext_last_status(St)  how the most recent
- *                              solve(Vars) call resolved: 1 = SAT,
- *                              2 = UNSAT, 0 = unknown/abandoned
- *                              (external no-decisive-answer with
- *                              SATEXT_NO_FALLBACK set; the solve
- *                              failed WITHOUT a verdict - this is
- *                              not an UNSAT result)
+  *              c_satext_last_status(St)  how the most recent
+  *                              solve(Vars) call resolved: 1 = SAT,
+  *                              2 = UNSAT, 0 = unknown/abandoned
+  *                              (an external selection produced no
+  *                              decisive answer and the built-in is
+  *                              never re-run; the solve failed WITHOUT
+  *                              a verdict - this is not an UNSAT
+  *                              result)
  *
  *            Environment:
  *              SATEXT_SOLVER   solver selection for the `import sat`
  *                              flow. One solver: whitespace-separated
  *                              argv (first = executable, name or
- *                              path; the rest = extra arguments; a
- *                              "@file" token is replaced by a
- *                              generated CNF file). A portfolio:
- *                              '|' separates several such argv
- *                              strings; the solvers are raced and the
- *                              first decisive answer wins (max 8).
- *              SATEXT_PRT_BUDGET_MS
- *                              portfolio wall budget in ms per solve
- *                              (default 60000, 0 = no budget); on
- *                              expiry the race is killed and the
- *                              built-in solver answers.
- *              SATEXT_NO_FALLBACK
- *                              non-empty: when the external solver(s)
- *                              return unknown (e.g. the wall budget
- *                              elapsed) the built-in solver is NOT
- *                              run and the solve fails instead of
- *                              answering from it; default: the
- *                              built-in solver answers.
- *              SATEXT_PRT_MIN  estimated CNF size in bytes below which
+  *                              path; the rest = extra arguments; a
+  *                              "@file" token is replaced by a
+  *                              generated CNF file). A portfolio:
+  *                              '|' separates several such argv
+  *                              strings; the solvers are raced and the
+  *                              first decisive answer wins (max 8).
+  *                              A part may be the reserved name
+  *                              "builtin", which races the built-in
+  *                              (embedded kissat) solver in-process
+  *                              instead of exec'ing an executable.
+  *                              "builtin" alone is just the default
+  *                              built-in engine. The built-in is never
+  *                              re-run as a fallback after an external
+  *                              selection; to have it answer on timeout
+  *                              include it as a racer ("builtin").
+  *              SATEXT_PRT_BUDGET_MS
+  *                              portfolio wall budget in ms per solve
+  *                              (default 60000, 0 = no budget); on
+  *                              expiry the race is killed and the solve
+  *                              fails with St=0 (the built-in is not
+  *                              re-run unless it is itself a racer).
+  *              SATEXT_PRT_MIN  estimated CNF size in bytes below which
  *                              a portfolio collapses to its first
  *                              solver (default 64 KiB).
  *              SATEXT_PRT_STATS  non-empty: print a per-solve line
@@ -119,10 +123,12 @@
 #include <poll.h>
 #include <sys/wait.h>
 #include <sys/prctl.h>
+#include <pthread.h>
 
 #include "term.h"
 #include "basic.h"
 #include "bapi.h"
+#include "kissat/src/kissat.h"
 
 #define SATEXT_UNSAT_EXIT 20
 #define SATEXT_SHIM_FD    3    /* fd carrying the memfd in the shim child */
@@ -132,6 +138,9 @@
 #define SATEXT_PRT_MAX         8      /* max solvers raced per solve */
 #define SATEXT_PRT_BUDGET_MS   60000  /* default wall budget per solve */
 #define SATEXT_PRT_MIN_BYTES   (64L << 10) /* race only above this size */
+/* reserved solver name: race the built-in (embedded kissat) solver as one
+   of the portfolio members instead of exec'ing an external binary. */
+#define SATEXT_BUILTIN_TOKEN   "builtin"
 
 /* Every child of this process (and of the shim, which is itself such
    a child) must die when its direct parent dies, however it dies
@@ -753,13 +762,24 @@ static BPLONG bools_to_list(const int32_t *m, BPLONG n)
  * spec handling
  * ---------------------------------------------------------------- */
 
+/* kind: 0 = external solver (exec'd as a child), 1 = the built-in
+   solver, raced in-process in a pthread (no exec). */
 typedef struct {
     char **argv;          /* NULL-terminated, malloc'd */
     int argc;
     int atfile;           /* index of "@file" in argv, or -1 */
     char *exe;            /* argv[0] */
     char *base;           /* basename(exe) */
+    int kind;             /* 0 external, 1 built-in */
 } spec_t;
+
+/* 1 iff the spec's first token is the reserved built-in name. The
+   built-in is raced in-process (pthread); it is not an executable. */
+static int spec_is_builtin(const spec_t *s)
+{
+    return (s->argc >= 1 && s->argv != NULL &&
+            strcmp(s->argv[0], SATEXT_BUILTIN_TOKEN) == 0);
+}
 
 static void spec_free(spec_t *s)
 {
@@ -839,6 +859,7 @@ static int spec_from_cstr(const char *str, spec_t *s)
     if (s->argc == 0) { spec_free(s); return 0; }
     s->argv[s->argc] = NULL;
     s->exe = s->argv[0];  /* alias: freed with argv */
+    s->kind = spec_is_builtin(s);
     return 1;
 }
 
@@ -861,16 +882,22 @@ static int spec_list_from_cstr(const char *str, spec_list_t *sl)
         if (len > 0 && sl->n < SATEXT_PRT_MAX) {
             int pr;
             if (!spec_from_cstr(part, &sl->specs[sl->n])) break;
-            pr = detect_protocol(sl->specs[sl->n].exe,
-                                 sl->specs[sl->n].base);
-            if (pr == PROTO_NONE) {
-                fprintf(stderr,
-                        "satext: cannot detect the protocol of \"%s\"; "
-                        "ignoring it\n", sl->specs[sl->n].exe);
-                spec_free(&sl->specs[sl->n]);
-            } else {
-                sl->proto[sl->n] = pr;
+            if (sl->specs[sl->n].kind == 1) {
+                /* built-in racer: not an executable, no protocol probe */
+                sl->proto[sl->n] = PROTO_NONE;
                 sl->n++;
+            } else {
+                pr = detect_protocol(sl->specs[sl->n].exe,
+                                     sl->specs[sl->n].base);
+                if (pr == PROTO_NONE) {
+                    fprintf(stderr,
+                            "satext: cannot detect the protocol of \"%s\"; "
+                            "ignoring it\n", sl->specs[sl->n].exe);
+                    spec_free(&sl->specs[sl->n]);
+                } else {
+                    sl->proto[sl->n] = pr;
+                    sl->n++;
+                }
             }
         }
         if (bar == NULL) break;
@@ -924,6 +951,7 @@ static int parse_spec(BPLONG x, spec_t *s)
     }
     s->exe = s->argv[0];   /* alias: freed together with argv */
     s->argv[s->argc] = NULL;
+    s->kind = spec_is_builtin(s);
     return 1;
 }
 
@@ -944,6 +972,7 @@ static int parse_spec_term(BPLONG x, spec_t *s)
         s->atfile = -1;
         s->exe = cs;                    /* alias, freed with argv */
         s->base = str_dup(base_name(cs));
+        s->kind = spec_is_builtin(s);
         return (s->base != NULL);
     }
     return parse_spec(x, s);
@@ -1010,7 +1039,11 @@ static int parse_spec_list(BPLONG x, spec_list_t *sl)
                     spec_list_fin(sl);
                     return 0;
                 }
-                {
+                if (sl->specs[sl->n].kind == 1) {
+                    /* built-in racer: no protocol probe */
+                    sl->proto[sl->n] = PROTO_NONE;
+                    sl->n++;
+                } else {
                     int pr = detect_protocol(sl->specs[sl->n].exe,
                                               sl->specs[sl->n].base);
                     if (pr == PROTO_NONE) {
@@ -1033,19 +1066,27 @@ static int parse_spec_list(BPLONG x, spec_list_t *sl)
     }
     {
         spec_t tmp;
-        int pr;
         if (!parse_spec_term(x, &tmp)) return 0;
-        pr = detect_protocol(tmp.exe, tmp.base);
-        if (pr == PROTO_NONE) {
-            fprintf(stderr,
-                    "satext: cannot detect the protocol of \"%s\"; "
-                    "ignoring it\n", tmp.exe);
-            spec_free(&tmp);
-            return 0;
+        if (tmp.kind == 1) {
+            /* built-in racer: no protocol probe */
+            sl->specs[0] = tmp;
+            sl->proto[0] = PROTO_NONE;
+            sl->n = 1;
+            return 1;
         }
-        sl->specs[0] = tmp;
-        sl->proto[0] = pr;
-        sl->n = 1;
+        {
+            int pr = detect_protocol(tmp.exe, tmp.base);
+            if (pr == PROTO_NONE) {
+                fprintf(stderr,
+                        "satext: cannot detect the protocol of \"%s\"; "
+                        "ignoring it\n", tmp.exe);
+                spec_free(&tmp);
+                return 0;
+            }
+            sl->specs[0] = tmp;
+            sl->proto[0] = pr;
+            sl->n = 1;
+        }
         return 1;
     }
 }
@@ -1458,13 +1499,20 @@ static int satext_active_list(spec_list_t **slp)
     return 0;
 }
 
-/* 1 if an external solver is selected and usable */
+/* 1 if an external solver is selected and usable. A selection that is
+   ONLY the built-in racer is treated as "no external solver": the built-in
+   is then the default engine (the normal built-in path), not a racer, so
+   mirroring stays off and c_sat_start runs the built-in directly. A mixed
+   selection (at least one external plus the built-in) returns 1. */
 int satext_ext_prepare(void)
 {
     spec_list_t *sl;
+    int i, any_ext = 0;
 
     if (!satext_active_list(&sl)) return 0;
-    return (sl->n >= 1) ? 1 : 0;
+    for (i = 0; i < sl->n; i++)
+        if (sl->specs[i].kind == 0) { any_ext = 1; break; }
+    return (sl->n >= 1 && any_ext) ? 1 : 0;
 }
 
 static int pick_mode(spec_t *s, const cnf_t *c, int proto)
@@ -1547,16 +1595,125 @@ static void prt_solver_name(spec_t *s, char *buf, size_t cap)
     buf[l] = 0;
 }
 
+/* Load the mirrored g_cnf into solver s and solve it, filling o.
+   Replays the clauses (external literals, 0-terminated) from the
+   in-memory mirror -- no re-parse, no pipe.  o.status: 0 unknown /
+   terminated, 1 sat, 2 unsat; on sat o.model is a malloc'd int32
+   array of length g_cnf.maxvar with 1 (true) / 0 (false) per var.
+   0 on any completed solve (status may be unknown), -1 on allocation
+   failure. The caller owns s (create/release) and o.model. */
+static int builtin_load_and_solve(kissat *s, solve_out_t *o)
+{
+    uint64_t v;
+    int rc;
+
+    o->status = 0;
+    o->model = NULL;
+    o->model_len = 0;
+    o->have_model = 0;
+
+    for (v = 0; v < g_cnf.nlits; v++)
+        kissat_add(s, (int)g_cnf.lits[v]);
+
+    rc = kissat_solve(s);
+    if (rc == 10) {
+        o->status = 1;
+        if (g_cnf.maxvar > 0) {
+            int32_t *m = (int32_t *)calloc((size_t)g_cnf.maxvar,
+                                           sizeof(int32_t));
+            if (m == NULL) return -1;
+            for (v = 1; v <= g_cnf.maxvar; v++)
+                m[v - 1] = (kissat_value(s, (int)v) > 0) ? 1 : 0;
+            o->model = m;
+            o->model_len = g_cnf.maxvar;
+            o->have_model = 1;
+        }
+    } else if (rc == 20) {
+        o->status = 2;
+    }
+    return rc;
+}
+
+/* Synchronous built-in solve (used by run_single when the only spec is
+   the built-in): fresh solver, replay g_cnf, store in o. */
+static int satext_builtin_run(solve_out_t *o)
+{
+    kissat *s = kissat_init();
+    int rc;
+
+    if (s == NULL) {
+        o->status = 0;
+        return -1;
+    }
+    rc = builtin_load_and_solve(s, o);
+    kissat_release(s);
+    return rc;
+}
+
+/* Context for a built-in racer thread. s is created by the supervisor
+   before pthread_create so it can call kissat_terminate() at any time;
+   the thread only loads + solves it. wfd is the result-pipe write end. */
+typedef struct {
+    kissat *s;
+    int wfd;
+    int32_t maxvar;
+} builtin_race_ctx_t;
+
+/* Built-in racer thread body: solve the supervisor-created solver and
+   report [kind i32, nvar i32, model i32[nvar]] on the pipe in the same
+   format the external runners use (kind: 0 no decisive result, 2 unsat,
+   3 sat). SIGPIPE is ignored process-wide (Cboot_satext) and write_all
+   returns -1 on EPIPE, so a blocked/EPIPE report fails fast and the
+   thread exits, letting the supervisor's pthread_join return. */
+static void *builtin_race_thread(void *arg)
+{
+    builtin_race_ctx_t *c = (builtin_race_ctx_t *)arg;
+    solve_out_t o;
+    int32_t kind32, nv = c->maxvar;
+    int rc = builtin_load_and_solve(c->s, &o);
+
+    if (rc == -1)
+        kind32 = 0;
+    else if (o.status == 2)
+        kind32 = 2;
+    else if (o.status == 1 && o.model != NULL &&
+             (int64_t)o.model_len == (int64_t)c->maxvar)
+        kind32 = 3;
+    else
+        kind32 = 0;
+
+    (void)(write_all(c->wfd, &kind32, 4) == 0 &&
+          write_all(c->wfd, &nv, 4) == 0);
+    if (kind32 == 3 &&
+        write_all(c->wfd, o.model,
+                  (size_t)c->maxvar * sizeof(int32_t)) != 0)
+        ;  /* report lost (EPIPE/short); nothing more to do */
+    if (o.model != NULL) free(o.model);
+    /* Close the write end ourselves. Unlike a forked child (whose fds
+       close on process exit), a thread does NOT auto-close its fds; this
+       is the only way the supervisor's read end ever sees EOF. The
+       supervisor must therefore never close this fd for a built-in
+       runner. */
+    close(c->wfd);
+    return (void *)0;
+}
+
 /* Run one solver spec on the mirrored g_cnf; store the result in
    ext_res_*. 0 on any completed run (status may still be "unknown"),
    -1 if the run itself failed (caller must fall back). */
 static int run_single(spec_t *sp, int proto)
 {
-    int mode;
     solve_out_t o;
+    int rc;
 
-    mode = pick_mode(sp, &g_cnf, proto);
-    if (run_solver(sp, &g_cnf, proto, mode, &o) == -1) return -1;
+    if (sp->kind == 1) {
+        /* built-in as the sole spec: solve in-process, no pipe/thread */
+        rc = satext_builtin_run(&o);
+    } else {
+        int mode = pick_mode(sp, &g_cnf, proto);
+        rc = run_solver(sp, &g_cnf, proto, mode, &o);
+    }
+    if (rc == -1) return -1;
     ext_res_status = o.status;
     ext_res_model = o.model;
     ext_res_model_len = (int64_t)o.model_len;
@@ -1634,6 +1791,9 @@ static int run_portfolio(spec_list_t *sl)
     int n = sl->n;
     int rfd[SATEXT_PRT_MAX * 2];
     pid_t pid[SATEXT_PRT_MAX] = { 0 };
+    pthread_t prt[SATEXT_PRT_MAX] = { 0 };
+    kissat *bks[SATEXT_PRT_MAX] = { NULL };
+    builtin_race_ctx_t ctxs[SATEXT_PRT_MAX];
     uint64_t t0[SATEXT_PRT_MAX] = { 0 }, tw;
     int done[SATEXT_PRT_MAX] = { 0 };
     int i, alive;
@@ -1650,18 +1810,56 @@ static int run_portfolio(spec_list_t *sl)
 
     for (i = 0; i < n; i++) {
         if (pipe(&rfd[2 * i]) != 0) { rc = -1; break; }
-        pid[i] = prt_fork_runner(sl, i, rfd);
-        t0[i] = now_ms();
-        close(rfd[2 * i + 1]);
-        if (pid[i] < 0) {
-            close(rfd[2 * i]);
-            rc = -1;
-            break;
+        if (sl->specs[i].kind == 1) {
+            /* built-in racer: create the solver here (so we can
+               kissat_terminate it later), spawn a pthread to solve it.
+               ctxs[i] is a stable address for the whole race (a per-
+               index array, not a loop-local), so the thread cannot read
+               a clobbered context.
+
+               IMPORTANT: rfd[2*i+1] (the write end) must stay open for
+               the whole race. Unlike a forked child -- which has its own
+               fd table, so the supervisor may close its own copy of the
+               write end -- the pthread shares the process fd table, so
+               closing this fd number here would destroy the very fd the
+               thread writes its result through. The supervisor closes it
+               only after pthread_join. */
+            bks[i] = kissat_init();
+            if (bks[i] == NULL) {
+                close(rfd[2 * i]); close(rfd[2 * i + 1]);
+                rc = -1; break;
+            }
+            ctxs[i].s = bks[i];
+            ctxs[i].wfd = rfd[2 * i + 1];   /* owned by the thread */
+            ctxs[i].maxvar = (int32_t)g_cnf.maxvar;
+            t0[i] = now_ms();
+            if (pthread_create(&prt[i], NULL, builtin_race_thread,
+                               &ctxs[i]) != 0) {
+                kissat_terminate(bks[i]);
+                kissat_release(bks[i]);
+                bks[i] = NULL;
+                close(rfd[2 * i]); close(rfd[2 * i + 1]);
+                rc = -1;
+                break;
+            }
+        } else {
+            pid[i] = prt_fork_runner(sl, i, rfd);
+            t0[i] = now_ms();
+            close(rfd[2 * i + 1]);
+            if (pid[i] < 0) {
+                close(rfd[2 * i]);
+                rc = -1;
+                break;
+            }
         }
     }
     if (rc == -1) {
         for (i = 0; i < n; i++)
-            if (pid[i] > 0) {
+            if (sl->specs[i].kind == 1) {
+                if (bks[i] != NULL) kissat_terminate(bks[i]);
+                if (prt[i] != 0) (void)pthread_join(prt[i], NULL);
+                if (bks[i] != NULL) { kissat_release(bks[i]); bks[i] = NULL; }
+            } else if (pid[i] > 0) {
                 kill(-pid[i], SIGKILL);
                 (void)waitpid(pid[i], NULL, 0);
             }
@@ -1761,10 +1959,18 @@ static int run_portfolio(spec_list_t *sl)
         close(rfd[2 * i]);
     tw = now_ms();
 
-    for (i = 0; i < n; i++) {
-        if (!done[i]) kill(-pid[i], SIGKILL);
-        (void)waitpid(pid[i], NULL, 0);
-    }
+    for (i = 0; i < n; i++)
+        if (sl->specs[i].kind == 1) {
+            /* built-in racer: stop + join the thread (no child to reap).
+               Releasing bks[i] after the join is safe: the thread no
+               longer touches it. */
+            if (bks[i] != NULL) kissat_terminate(bks[i]);
+            if (prt[i] != 0) (void)pthread_join(prt[i], NULL);
+            if (bks[i] != NULL) { kissat_release(bks[i]); bks[i] = NULL; }
+        } else if (pid[i] > 0) {
+            if (!done[i]) kill(-pid[i], SIGKILL);
+            (void)waitpid(pid[i], NULL, 0);
+        }
 
     if (stats) {
         char nm[SATEXT_PRT_MAX][160];
@@ -1807,26 +2013,18 @@ int satext_ext_status(void)
     return ext_res_status;
 }
 
-/* 1 iff SATEXT_NO_FALLBACK is set non-empty: when the external
-   solver(s) return "unknown" (e.g. the portfolio wall budget
-   elapsed), the caller must not run the built-in solver; the solve
-   then fails. Spawn/transfer failures (satext_ext_run returning -1)
-   always fall back, whatever this is. */
-int satext_no_fallback(void)
-{
-    const char *e = getenv("SATEXT_NO_FALLBACK");
-    return (e != NULL && *e != 0) ? 1 : 0;
-}
-
 /* How the most recent solve(Vars) call was resolved, readable from
    the Picat level via c_satext_last_status(St):
-     1 = answered SAT (by the external solver or the built-in)
-     2 = answered UNSAT (by the external solver or the built-in)
-     0 = unknown/abandoned: the external solver(s) produced no
-         decisive answer (e.g. the wall budget elapsed) and
-         SATEXT_NO_FALLBACK suppressed the built-in fallback, so the
-         solve failed WITHOUT a verdict (it is NOT an UNSAT result).
-   c_sat_start records the outcome; the value is stable afterwards. */
+      1 = answered SAT (by the external solver(s), incl. a built-in
+          racer, or by the built-in as the default engine)
+      2 = answered UNSAT (same)
+      0 = unknown/abandoned: an external selection produced no
+          decisive answer (e.g. the wall budget elapsed or a spawn/
+          transfer failure) and the built-in is never re-run, so the
+          solve failed WITHOUT a verdict (it is NOT an UNSAT result).
+          To let the built-in answer instead, unset SATEXT_SOLVER or
+          add 'builtin' to the solver list.
+    c_sat_start records the outcome; the value is stable afterwards. */
 static int ext_last_status = 0;
 
 void satext_record_result(int st)

@@ -104,8 +104,8 @@ par.o : par.c term.h basic.h bapi.h extern_decl.h
 	$(CCC) $(CFLAGS) par.c
 parvm.o : parvm.c term.h basic.h bapi.h extern_decl.h frame.h gc.h
 	$(CCC) $(CFLAGS) parvm.c
-satext.o : satext.c term.h basic.h bapi.h extern_decl.h
-	$(CCC) $(CFLAGS) satext.c
+ satext.o : satext.c term.h basic.h bapi.h extern_decl.h
+	$(CCC) $(CFLAGS) -pthread satext.c
 satshim : satshim.c
 	gcc -O2 -static satshim.c -o satshim
 thread.o : thread.c term.h basic.h bapi.h extern_decl.h

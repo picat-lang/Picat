@@ -1,0 +1,29 @@
+% builtin_nofallback_pi: with the built-in as a *racer* and a wall
+% budget that expires, the race yields no decisive answer and the
+% built-in is NOT re-run, so the solve FAILS with last_status == 0
+% (unknown/abandoned) -- NOT 2 (unsat), which would mean the default
+% built-in engine re-ran.
+%
+% Run:
+%   SATEXT_SOLVER="kissat|builtin" SATEXT_PRT_MIN=1 SATEXT_PRT_BUDGET_MS=1 \
+%       picat exs/satext/builtin_nofallback_pi.pi
+import sat.
+
+main =>
+    pigeonhole(7, 4, X),          % 7 pigeons need 7 distinct holes -> UNSAT
+    (solve(X) ->
+        writef("note: solve answered (budget did not expire here)%n")
+    ;
+        writef("solve failed: budget expired, built-in NOT re-run%n")),
+    bp.c_satext_last_status(St),
+    check(St == 0, $bad_status),
+    writef("last status    : 0 (unknown/abandoned, not re-run)%n"),
+    halt.
+
+check(C, Ex) => (C -> true ; handle_exception(Ex, check)).
+
+pigeonhole(P, H, X) =>
+    X = new_array(P),
+    foreach (I in 1..P) X[I] :: 1..H,
+    foreach (I in 1..P, J in I+1..P) X[I] #!= X[J]
+    end.

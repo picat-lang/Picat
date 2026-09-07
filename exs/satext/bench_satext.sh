@@ -19,6 +19,11 @@
 #   Ramsey graphs, incl. the R(3,3)=6 UNSAT proof and the 17-vertex
 #   (4,4) instance) are run with the built-in solver, kissat, and a
 #   portfolio; needs /usr/bin/cadical for the portfolio rows.
+#
+# The reserved token "builtin" races the built-in (embedded kissat)
+# solver in-process as a portfolio member (pthread); builtin_race_demo
+# and builtin_nofallback_pi cover that, incl. the rule that the
+# built-in is never re-run as a fallback after an external selection.
 
 set -e
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
@@ -100,6 +105,31 @@ echo
 echo "== ramsey ((4,4) on 17, SAT; SATEXT_SOLVER='kissat|kissat -q|cadical' portfolio) =="
 K=4 N=17 SATEXT_SOLVER="kissat|kissat -q|cadical" SATEXT_PRT_MIN=1 \
     "$ROOT/emu/picat" "$ROOT/exs/satext/ramsey_ps.pi"
+
+echo
+echo "== builtin_race_demo (SATEXT_SOLVER='kissat|builtin': built-in races in-process) =="
+SATEXT_SOLVER="kissat|builtin" SATEXT_PRT_MIN=1 SATEXT_PRT_STATS=1 \
+    "$ROOT/emu/picat" "$ROOT/exs/satext/builtin_race_demo.pi"
+
+echo
+echo "== builtin_race_demo (SATEXT_SOLVER='kissat --bogus|builtin': broken external, builtin answers) =="
+SATEXT_SOLVER="kissat --bogus|builtin" SATEXT_PRT_MIN=1 SATEXT_PRT_STATS=1 \
+    "$ROOT/emu/picat" "$ROOT/exs/satext/builtin_race_demo.pi"
+
+echo
+echo "== builtin_race_demo (SATEXT_SOLVER='builtin': == default built-in engine) =="
+SATEXT_SOLVER="builtin" SATEXT_PRT_STATS=1 \
+    "$ROOT/emu/picat" "$ROOT/exs/satext/builtin_race_demo.pi"
+
+echo
+echo "== ramsey ((4,4) on 17, SAT; SATEXT_SOLVER='kissat|builtin' incl. the built-in racer) =="
+K=4 N=17 SATEXT_SOLVER="kissat|builtin" SATEXT_PRT_MIN=1 SATEXT_PRT_STATS=1 \
+    "$ROOT/emu/picat" "$ROOT/exs/satext/ramsey_ps.pi"
+
+echo
+echo "== builtin_nofallback (kissat|builtin, 1ms budget: timeout -> solve fails, built-in NOT re-run) =="
+SATEXT_SOLVER="kissat|builtin" SATEXT_PRT_MIN=1 SATEXT_PRT_BUDGET_MS=1 \
+    "$ROOT/emu/picat" "$ROOT/exs/satext/builtin_nofallback_pi.pi"
 
 echo
 echo "ALL SATEXT BENCHES PASSED"

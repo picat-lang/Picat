@@ -148,23 +148,19 @@ int c_sat_start(){
         int rc = satext_ext_run();
         if (rc != 0) {
             fprintf(stderr,
-                    "satext: external solver run failed; "
-                    "falling back to the built-in solver\n");
-            use_ext = 0;
+                    "satext: external solver run failed; not running the "
+                    "built-in solver (unset SATEXT_SOLVER, or add 'builtin' "
+                    "to the solver list to include the built-in solver)\n");
+            /* use_ext stays 1, res stays 0: c_sat_start returns BP_FALSE
+               with St=0 (unknown/abandoned). The built-in solver is never
+               re-run after an external selection. */
         } else if (satext_ext_status() == 0) {
-            if (satext_no_fallback()) {
-                fprintf(stderr,
-                        "satext: solver returned unknown; "
-                        "SATEXT_NO_FALLBACK set, not running the "
-                        "built-in solver, the solve fails\n");
-                /* use_ext stays 1, res stays 0: no built-in run,
-                   no SAT branch, c_sat_start returns BP_FALSE */
-            } else {
-                fprintf(stderr,
-                        "satext: solver returned unknown; "
-                        "falling back to the built-in solver\n");
-                use_ext = 0;
-            }
+            fprintf(stderr,
+                    "satext: no decisive answer (wall budget elapsed or "
+                    "unknown); not running the built-in solver (unset "
+                    "SATEXT_SOLVER, or add 'builtin' to the solver list to "
+                    "include the built-in solver)\n");
+            /* use_ext stays 1, res stays 0: BP_FALSE, St=0 */
         } else {
             res = (satext_ext_status() == 1) ? 10 : 20;
         }
