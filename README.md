@@ -13,8 +13,10 @@ built-in solver, so `solve_all`, `findall` and blocking of enumerated
 solutions work unchanged. Several solvers may be named at once: they
 are **raced** on the same CNF and the first decisive answer wins (the
 rest are killed) — the portfolio is capped at 8 solvers per solve. The
-built-in solver is still fed, so a failed/`unknown` external run falls
-back to it (see `SATEXT_NO_FALLBACK` below).
+built-in solver can itself be one of the racers (the reserved name
+`builtin`), running in-process; when an external selection is active
+the built-in is **never re-run as a fallback** — a failed or `unknown`
+external run fails the solve with `St=0` (`c_satext_last_status`).
 
 How to select a solver (live surfaces; the `$solver` option is
 documented but inert in the current build — see below):
@@ -60,19 +62,17 @@ Environment variables (all read by the satext layer):
   executable (name or path), the rest = extra arguments, e.g.
   `SATEXT_SOLVER="kissat -t 4"`. A portfolio: `|` separates several
   such argv strings, e.g. `SATEXT_SOLVER="kissat|cryptominisat"`; the
-  solvers are raced and the first decisive answer wins (up to 8).
-  `nil`/`false` selects the built-in solver.
+  solvers are raced and the first decisive answer wins (up to 8). A
+  part may be the reserved name `builtin`, which races the built-in
+  kissat solver in-process (e.g. `SATEXT_SOLVER="kissat|builtin"`);
+  `builtin` alone is just the default built-in engine. `nil`/`false`
+  selects the built-in solver.
 - `SATEXT_PRT_MIN` — estimated CNF size in bytes below which a
   portfolio collapses to its first solver (default 64 KiB).
 - `SATEXT_PRT_BUDGET_MS` — portfolio wall budget in ms per solve
-  (default 60000; `0` = no budget). On expiry the race is killed and
-  the built-in solver answers (unless `SATEXT_NO_FALLBACK` is set).
-- `SATEXT_NO_FALLBACK` — non-empty: when the external solver(s) answer
-  `unknown` (e.g. the wall budget elapsed) the built-in solver is
-  **not** run and the solve fails instead of answering from it; the
-  default is for the built-in solver to answer. It fails *without a
-  verdict* — that is not an `unsat` result (`c_satext_last_status`
-  reports 0).
+  (default 60000; `0` = no budget). On expiry the race (including any
+  `builtin` racer) is killed and the solve **fails with `St=0`** — the
+  built-in is never re-run as a fallback.
 - `SATEXT_PRT_STATS` — non-empty: print a per-solve line to stderr
   with each racer's wall time and the winner.
 - `SATEXT_SHIM` — path of the `satshim` helper, used to hand a large

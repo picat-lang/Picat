@@ -83,11 +83,6 @@ int satext_ext_status(void)
     return 0;   /* unknown */
 }
 
-int satext_no_fallback(void)
-{
-    return 0;
-}
-
 int satext_ext_model_value(int varnum)
 {
     (void)varnum;

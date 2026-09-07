@@ -23,9 +23,8 @@
 % are lists of argv lists:
 %   bp.c_satext_set_solver([["kissat"],["kissat","-q"],["cryptominisat"]])
 % Controls: SATEXT_PRT_BUDGET_MS (per-solve wall budget in ms,
-% default 60000, 0 = none; on expiry the built-in solver answers),
-% SATEXT_NO_FALLBACK (non-empty: on unknown/timeout the built-in
-% solver is NOT run, the solve fails instead),
+% default 60000, 0 = none; on expiry the race is killed and the solve
+% fails with status 0 -- the built-in is never re-run as a fallback),
 % SATEXT_PRT_MIN (race only above this estimated CNF size, default
 % 64 KiB), SATEXT_PRT_STATS (one stderr line per solve with each
 % racer's wall time and the winner).
@@ -74,7 +73,8 @@ check_queens(N, Qs) =>
     (Bad == 0) -> true ; handle_exception($bad_queens(Bad), check_queens).
 
 % the solve failed; separate a real (though odd for queens) UNSAT
-% from an abandoned attempt with SATEXT_NO_FALLBACK set
+% from an abandoned attempt (external unknown/timeout, built-in not
+% re-run)
 solve_failed(St, T0) =>
     bp.c_wall_ms(T1),
     (St == 0 -> fail_unknown(T1 - T0, St)
@@ -84,7 +84,7 @@ solve_failed(St, T0) =>
 fail_unknown(Dt, St) =>
     writef("*** WARNING: no decisive answer -- the external solver(s) produced%n"),
     writef("*** no verdict (wall budget elapsed / unparseable output) and the built-in%n"),
-    writef("*** solver was not run (SATEXT_NO_FALLBACK); status code: %d.%n", St),
+    writef("*** solver was not run (external unknown/abandoned, built-in not re-run); status code: %d.%n", St),
     writef("*** This is neither a solution nor an UNSAT verdict; no conclusion may be%n"),
     writef("*** drawn for this run (%d ms elapsed).%n", Dt),
     handle_exception($ext_solver_unknown(St), queens).
