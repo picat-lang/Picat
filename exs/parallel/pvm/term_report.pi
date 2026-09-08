@@ -3,7 +3,7 @@
 % lists, compound terms, an array); the root materializes it from the
 % encoded buffer and verifies the structure field by field. The
 % reported term may be ANY ground term -- anything the value report
-% accepts, per the parsearch report's solution-by-value protocol.
+% accepts (the solution-by-value protocol, see pvm/README.md).
 %
 %   picat exs/parallel/pvm/term_report.pi     -> 1 / <term> / pass
 %

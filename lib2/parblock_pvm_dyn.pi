@@ -48,11 +48,11 @@
 %
 % Task names:  F in  {F}  /  {F, A}  must be UNQUALIFIED references
 % visible in the calling program;  a module-QUALIFIED dynamic
-% dispatch of a function hangs (engine bug (a),  docs/
-% pvmbugs_report.tex,  repros q1/q2.pi).  Cross-module unqualified
-% dispatch is verified (scratch/reif/parblock/dynpvm.pi).
+% dispatch of a function hangs (engine bug (a),  repros q1/q2.pi).
+% Cross-module unqualified dispatch is verified
+% (scratch/reif/parblock/dynpvm.pi).
 %
-% Substrate notes carried over from 1a/1b (docs/pvmbugs_report.tex):
+% Substrate notes carried over from 1a/1b:
 %   - mode 2 has no call_cleanup/delegate windows,  so the codec
 %     truncation (bug b) and the in-window search hang (bug c) do
 %     not apply;  the {I, R}  /  {I, {err, E}}  index-tagged TUPLE
@@ -65,7 +65,7 @@
 %     a task exception that is not ground cannot be reported (same
 %     bad-flag risk as 1a's ground(V) guard).
 %
-% Solver-store note (Bug E / Bug F,  docs/pvmbugs_report.tex S6/S7):
+% Solver-store note (Bug E / Bug F):
 %   a worker runs many tasks in one process  --  CP is fine (the
 %   e085229 self-heal),  but a SAT count that exhausts to 0
 %   poisons the same worker's LATER SAT counts (upstream,  root-

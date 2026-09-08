@@ -1,5 +1,4 @@
-% bugf_nosolve_probe:  the MINIMAL Bug F leak (docs/pvmbugs_report.tex,
-% Section 7, "the store is identified" update).
+% bugf_nosolve_probe:  the MINIMAL Bug F leak.
 %
 % Bug F's poison state is the process-global constraint list
 % $all_constrs:  SAT constraint operators append their structures there

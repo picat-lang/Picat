@@ -6,10 +6,9 @@ This folder holds the parallel-search example sets, by branch:
   folder's root: `par_*`, `threads_*`, `pp_*`, `bench_*`. See the
   sections below ("What the branch adds" ... "Measured numbers").
 * **`parsearch` branch** (fork-based OR-parallel CP search,
-  `bp.pvm_fork/report/collect/chunk/worker_id/claim`) — the complete source
-  of every model used in the `parsearch` engineering report
-  (docs/ report "OR-Parallel Constraint Search in Picat 3.9"), in
-  **`pvm/`**. One file per configuration; the filename encodes
+   `bp.pvm_fork/report/collect/chunk/worker_id/claim`) — the complete source
+   of every model used in the `parsearch` work, in **`pvm/`**. One file
+   per configuration; the filename encodes
   `instance_modechunk/workers`.
 
 ## parsearch examples, in `pvm/`
@@ -92,7 +91,7 @@ Four parametrized programs cover every configuration used in the
 report (one file per problem, not one per benchmark cell), plus one
 capability check:
 
-| file | args | usage from the report |
+| file | args | usage |
 |------|------|-----------------------|
 | `pvm/queens_first.pi` | `[N] [NT] [MODE] [C] [PIN]` (defaults 10 0 3 1 0) | `queens_first.pi 10 4 3 2 4` (worked example), `queens_first.pi 10 4 1 1` (mode-1 family), `queens_first.pi 479` (N=479 serial baseline), `queens_first.pi 479 16 3 64` (mode-3 grid cells) |
 | `pvm/queens_count.pi` | `[N] [NT]` (defaults 10, serial) | the counting matrix: `queens_count.pi 16 16`, `queens_count.pi 13 8`, `queens_count.pi 10 4` (must print 724); OEIS A000170 totals are quoted in the header |

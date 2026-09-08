@@ -8,7 +8,7 @@
 %   C    mode-3 chunk size (default 1)
 %   PIN  fix Q[1]=PIN for the deep-search shape (default 0 = free)
 %
-% Example invocations from the engineering report:
+% Example invocations:
 %   queens_first.pi 10 4 3 2 4     % the worked example (was m3r2)
 %   queens_first.pi 10 4 1 1 0     % mode-1 family (was t_pvma10)
 %   queens_first.pi 479            % the N=479 serial baseline

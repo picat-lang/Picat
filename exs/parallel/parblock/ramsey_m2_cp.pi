@@ -32,9 +32,8 @@
 %   NT > 0   NT workers share the T tasks in fixed chunks;  a worker
 %            with ceil(T/NT) patterns runs that many count_all calls
 %            in a row --- multiple count_all per process,  which was
-%            impossible under the historical Bug E constraint (docs/
-%            pvmbugs_report.tex,  Section 6;  fixed in e085229,  cf.
-%            queens_count_multi.pi)
+%            impossible under the historical Bug E constraint
+%            (fixed in e085229,  cf. queens_count_multi.pi)
 %
 % Tiling soundness is inherited from ramsey_m2:  the 2^M prefix
 % regions tile the search space exactly (every full assignment
@@ -46,8 +45,8 @@
 % general task-boundary discipline anyway).
 %
 % ENGINE DEFECT (pre-existing on main 28acc9f AND upstream
-% picat 39.11,  root-caused --- docs/pvmbugs_report.tex Section 7,
-% "Bug F",  minimal probe:  bugf_probe.pi):  on the SAT
+% picat 39.11,  root-caused --- "Bug F",  minimal probe:
+% bugf_probe.pi):  on the SAT
 % path (import sat,  count_all(solve([], X))),  a count that
 % exhausts to 0 models poisons every LATER SAT count in the same
 % process --- they return 0 without searching.  The prebuilt
@@ -134,7 +133,7 @@
 %   NT=64 (NT < T,  4 counts per worker)  is sound with the default
 %   RESET=1 (a reset at every task boundary);  it is NOT sound with
 %   the explicit opt-out RESET=0:  under open Bug F
-%   (docs/pvmbugs_report.tex,  Section 7) a zero-count poisons the
+%   (see the ENGINE DEFECT note above) a zero-count poisons the
 %   later counts of the same process ---  on this all-UNSAT cell the
 %   verdict still holds,  on any mixed SAT cell it would undercount.
 %

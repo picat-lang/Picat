@@ -1,6 +1,5 @@
-% bugf_probe:  minimal probe for Bug F (docs/pvmbugs_report.tex,
-% Section 7) --- a zero-model SAT count poisons later SAT counts in the
-% same process.
+% bugf_probe:  minimal probe for Bug F --- a zero-model SAT count
+% poisons later SAT counts in the same process.
 %
 % Two SAT counts in ONE process:  count 1 is UNSAT (0 models),  count 2
 % is SAT (2 models).  A correct engine (or a compiler build with Bug F

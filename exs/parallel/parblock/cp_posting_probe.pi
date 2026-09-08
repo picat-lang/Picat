@@ -1,7 +1,7 @@
 % cp_posting_probe:  minimal probes for the CP engine
 % behavior of the picat 39.13 base (identical on the official
 % picat39_13_src.tar.gz build and on this tree --- upstream,  not
-% the rebase;  docs/pvmbugs_report.tex,  "CP engine findings").
+% the rebase).
 %
 % K=3 N=4 (3,3)-free counting.  E[i] = edge i  (01 02 03 12 13 23).
 % The infeasible V=1 prefix  E1=E2=E3=0  is refuted by the 3-set

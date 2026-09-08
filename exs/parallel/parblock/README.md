@@ -20,8 +20,8 @@ PICATPATH=lib2 emu/picat exs/parallel/parblock/<file>.pi [args]
 
 The `_tasks` / `_race` batteries are the two-way tests; `demo`
 is a short runnable tour; the `queens_*` / `ramsey_*` files are real
-workloads. See `docs/pvmbugs_report.tex` (sibling dir) for the engine
-bugs each battery pins and the adopted workarounds.
+workloads. The header notes in each battery file describe the engine
+defects it pins and the adopted workarounds.
 
 ## Files
 

@@ -155,8 +155,8 @@ serial(5, S) =>
 % ground(V) is a defensive guard:  the normal drop-out path is a
 % plain clause failure (a strategy with no solution makes
 % `V = sol_x()` fail and the clause dies before this line --
-% failing function bodies fail the call; no silent-unbound
-% behavior was found, see docs/pvmbugs_report.tex), but a
+% failing function bodies fail the call; no silent-unbound behavior
+% was found), but a
 % non-ground V reaching pvm_report would make
 % pvm_serialize_solution reject the term and trip the session's
 % bad flag -- the guard converts that into a plain clause failure.
@@ -187,7 +187,7 @@ strat_of(T, V) =>
 % NOTE: an infeasible strategy must THROW immediately rather than run
 % its search: a search that exhausts (finds no solution) INSIDE the
 % delegation window hangs the whole session at collect (emu bug,
-% repro pqu3.pi, see docs/pvmbugs_report.tex).  The throw is caught
+% repro pqu3.pi).  The throw is caught
 % by the clause's catch -> clause fail -> the strategy drops out of
 % the race.
 sol_none2() = Qs =>

@@ -14,8 +14,8 @@
 %                        T = sum(parblock_pvm.par_run(NT, Tasks))
 %
 % DESIGN NOTE (history):  the one-count-per-worker shape was adopted
-% when this file was written because of Bug E (docs/pvmbugs_report.tex,
-% Section 6):  count_all(solve(...)) repeated within ONE process used to
+% when this file was written because of Bug E:  count_all(solve(...))
+% repeated within ONE process used to
 % corrupt cumulative CP-solver state (later counts silently returned 0,
 % hangs in some orderings).  That defect is FIXED (commit e085229) and
 % repeated counts in one process are safe again.  This file keeps the

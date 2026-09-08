@@ -50,8 +50,7 @@ loads the embedded copy of the standard library (`emu/picat_bc.h`),
 which predates the option, and a module named `sat` on `PICATPATH`
 cannot override an embedded one. No generator for `emu/picat_bc.h`
 exists in the repository, so the option stays inert until the standard
-library is re-embedded (see the Limitations section of
-[docs/satext_report.tex](docs/satext_report.tex)). The environment
+library is re-embedded. The environment
 variable and `bp.c_satext_set_solver/1` above reach the same C state
 without going through `sat.pi`, so they work today.
 

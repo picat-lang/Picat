@@ -115,7 +115,7 @@ run(N, NT) =>
 % lifted strictly) or exhausts the instance (B proven optimal).
 % Strict integer lifts, bounded above by 5N, make the loop
 % terminate. T0 is threaded so the leaf can time the whole run.
-% Reset discipline (Bug F, docs/pvmbugs_report.tex Section 7): the
+% Reset discipline (Bug F): the
 % ROOT process runs one SAT solve per iteration (as worker 0 of each
 % session) plus the retrieval solve, all in the same process; the
 % reset at each round boundary kills the stale SAT frames of the

@@ -7,7 +7,7 @@
 %   NT = 0   all N*N single-value counts run in ONE process (the phase-0
 %            serial par_run) -- a regression stress for repeated
 %            count_all(solve(...)) in one process:  before the Bug E fix
-%            (docs/pvmbugs_report.tex,  Section 6) a handful of these
+%            a handful of these
 %            counts corrupted the later ones (silent 0s,  hangs)
 %   NT > 0   the mode-2 fixed-chunk split of par_run hands each
 %            worker a contiguous chunk of the N*N tasks;  with NT

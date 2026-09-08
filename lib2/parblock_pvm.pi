@@ -22,12 +22,11 @@
 %
 % Task names:  F in  {F}  /  {F, A}  must be UNQUALIFIED references
 % visible in the calling program;  a module-QUALIFIED dynamic
-% dispatch of a function hangs (engine bug (a),  docs/
-% pvmbugs_report.tex,  repros q1/q2.pi).  Cross-module unqualified
+% dispatch of a function hangs (engine bug (a),  repros q1/q2.pi).
+% Cross-module unqualified
 % dispatch is verified (scratch/reif/parblock/dynpvm.pi).
 %
-% Substrate notes carried over from 1a's triage (docs/
-% pvmbugs_report.tex):
+% Substrate notes carried over from 1a's triage:
 %   - mode 2 has no call_cleanup/delegate windows,  so the codec
 %    truncation (bug b) and the in-window search hang (bug c) do
 %    not apply;  the {I, R}  /  {I, {err, E}}  index-tagged TUPLE
@@ -63,8 +62,7 @@
 %  next choice point and exit;  the root collects (R = 1/0) and
 %  materializes the winner (bp.pvm_solution).
 %
-%  Discipline (all pinned in the 1a battery,  docs/
-%  pvmbugs_report.tex + the probe notes here):
+%  Discipline (all pinned in the 1a battery):
 %   - the root NEVER calls bp.pvm_worker_id in a mode-1 session
 %     (segments;  the 1a battery does not call it either);
 %   - a candidate that cannot complete must THROW inside the window
@@ -339,7 +337,7 @@ pvalscan(I, M, A, S) =>
 % the serial outer loop keeps the element order (and the result
 % list order);  each element is one self-contained session (a
 % session always unwinds through collect,  so back-to-back sessions
-% are clean -- the q4 precedent,  docs/pvmbugs_report.tex).
+% are clean -- the q4 precedent).
 % All F throw for an element -> $parblock_mrace_empty(X),  thrown
 % AFTER the element session has collected (supported throw point).
 

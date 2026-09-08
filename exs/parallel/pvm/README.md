@@ -155,5 +155,5 @@ picat exs/parallel/pvm/term_report.pi
 Every negative verdict above runs on a live session: `pvm_collect`
 refuses the result (hard `run_time_error`) if any worker died, so an
 "UNSAT" / "optimal" line is trusted only when every worker reported.
-Full validation matrix in the engineering report
-(`docs/fokus_report.tex`, §Verification).
+The table above is the validation matrix (worked examples + the
+capability checks in `term_report.pi`).

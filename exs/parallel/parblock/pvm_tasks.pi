@@ -31,11 +31,11 @@
 %     still run in mode 2 --  side-effect parity is NOT asserted);
 %   - task names are unqualified references of this module  (a
 %     module-qualified dynamic dispatch of a function hangs,  engine
-%     bug (a),  docs/pvmbugs_report.tex,  repros q1/q2.pi);
+%     bug (a),  repros q1/q2.pi);
 %     cross-module unqualified dispatch is verified in
 %     scratch/reif/parblock/dynpvm.pi.
 %
-%   Substrate notes (docs/pvmbugs_report.tex):  mode 2 has no
+%   Substrate notes:  mode 2 has no
 %   call_cleanup / delegate windows,  so the codec truncation
 %   (bug b) and the in-window search hang (bug c) do not apply;
 %   the {I, R}  /  {I, {err, E}}  index-tagged TUPLE reports are
