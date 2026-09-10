@@ -1,0 +1,109 @@
+/*
+by ChatGPT with the following prompt:
+
+Can you implement the predicate mst_nondet(Vs, Es, TreeEs, Cost),
+which is similar to mst(Vs, Es, TreeEs, Cost) but returns
+nondeterministically through TreeEs the next minimum spanning tree on
+backtracking?
+
+You can change Kruskal’s algorithm grouping edges by weight, and
+nondeterministically choose an edge in the group with the minimum
+weight.
+
+You can sort the edges by weight before grouping so that grouping the
+edges only takes linear time.
+
+Picat> mst_nondet([a,b,c], [{a,b,1},{a,c,1},{b,c,1}], TreeEs, Cost).
+*/
+mst_nondet(Vs, Es, TreeEs, Cost) =>
+    mst_weight_groups(sort(Es, 3), Groups),
+    Parent = new_map(),
+    Size = new_map(),
+    foreach (V in Vs)
+        Parent.put(V, V),
+        Size.put(V, 1)
+    end,
+    mst_groups(Groups, Parent, Size, TreeEs),
+    length(TreeEs) =:= max(0, length(Vs) - 1),
+    Cost = sum([E[3] : E in TreeEs]).
+
+% Group the sorted edges by weight, deterministically.
+mst_weight_groups([], Groups) =>
+    Groups = [].
+mst_weight_groups([E | Es], Groups) =>
+    mst_split(Es, E[3], Same, Rest),
+    Groups = [[E | Same] | More],
+    mst_weight_groups(Rest, More).
+
+mst_split([E | Es], W, Same, Rest), E[3] =:= W =>
+    Same = [E | Tail],
+    mst_split(Es, W, Tail, Rest).
+mst_split(Es, _, Same, Rest) =>
+    Same = [],
+    Rest = Es.
+
+% Process the precomputed groups in increasing weight order.
+mst_groups([], _, _, TreeEs) =>
+    TreeEs = [].
+mst_groups([Group | Groups], Parent, Size, TreeEs) =>
+    mst_group(Group, Group, Parent, Size, Selected),
+    mst_groups(Groups, Parent, Size, Later),
+    TreeEs = Selected ++ Later.
+
+% Nondeterministically select a maximal forest in this group.
+mst_group(Group, Candidates, Parent, Size, Selected) =>
+    if mst_closed(Group, Parent) then
+        Selected = []
+    else
+        mst_feasible(Group, Candidates, Parent),
+        mst_pick(Candidates, E, Tail),
+        RU = mst_root(Parent, E[1]),
+        RV = mst_root(Parent, E[2]),
+        RU != RV,
+        mst_union(Parent, Size, RU, RV),
+        Selected = [E | More],
+        mst_group(Group, Tail, Parent, Size, More)
+    end.
+
+% No edge in this group can join distinct components.
+mst_closed(Group, Parent) =>
+    foreach (E in Group)
+        mst_root(Parent, E[1]) == mst_root(Parent, E[2])
+    end.
+
+% Prune if the remaining candidates cannot complete the group.
+mst_feasible(Group, Candidates, Parent) =>
+    Probe = copy_term(Parent),
+    foreach (E in Candidates)
+        RU = mst_root(Probe, E[1]),
+        RV = mst_root(Probe, E[2]),
+        if RU != RV then
+            Probe.put(RU, RV)
+        end
+    end,
+    mst_closed(Group, Probe).
+
+% Subsequent choices use only the suffix, avoiding duplicates.
+mst_pick([E | Es], Picked, Tail) ?=>
+    Picked = E,
+    Tail = Es.
+mst_pick([_ | Es], Picked, Tail) =>
+    mst_pick(Es, Picked, Tail).
+
+% Union by component size; updates are undone on backtracking.
+mst_union(Parent, Size, RU, RV) =>
+    SU = Size.get(RU),
+    SV = Size.get(RV),
+    if SU < SV then
+        Parent.put(RU, RV),
+        Size.put(RV, SU + SV)
+    else
+        Parent.put(RV, RU),
+        Size.put(RU, SU + SV)
+    end.
+
+mst_root(Parent, V) = Root =>
+    Root = V,
+    while (Parent.get(Root) != Root)
+        Root := Parent.get(Root)
+    end.
