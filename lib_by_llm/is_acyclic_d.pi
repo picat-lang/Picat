@@ -1,0 +1,30 @@
+/*
+by ChatGPT with the following prompt:
+
+Implement a predicate in Picat named is_acyclic_d(Vs,Es), which checks
+if the directed graph G = (Vs,Es) is acyclic.
+*/
+
+% Assumes every edge endpoint belongs to Vs.
+is_acyclic_d(Vs, Es) =>
+    Adj = new_map(),
+    foreach ({U,V} in Es)
+        Adj.put(U, [V|Adj.get(U, [])])
+    end,
+
+    State = new_map(),
+    foreach (V in Vs)
+        acyclic_d_visit(V, Adj, State)
+    end.
+
+acyclic_d_visit(V, Adj, State) =>
+    Status = State.get(V, unseen),
+    if Status == active then
+        fail
+    elseif Status == unseen then
+        State.put(V, active),
+        foreach (W in Adj.get(V, []))
+            acyclic_d_visit(W, Adj, State)
+        end,
+        State.put(V, done)
+    end.

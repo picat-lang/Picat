@@ -1,0 +1,31 @@
+/*
+by ChatGPT with the following prompt:
+
+Implement a predicate in Picat named is_scc(Vs,Es), which checks if
+the undirected graph G = (Vs,Es) is strongly connected.
+*/
+
+% Assumes every edge endpoint belongs to Vs.
+% The empty graph is considered connected.
+is_scc([], _) => true.
+is_scc(Vs, Es) =>
+    Vs = [Start|_],
+    Adj = new_map(),
+    foreach ({U,V} in Es)
+        Adj.put(U, [V|Adj.get(U, [])]),
+        Adj.put(V, [U|Adj.get(V, [])])
+    end,
+
+    Seen = new_map(),
+    scc_visit(Start, Adj, Seen),
+    foreach (V in Vs)
+        Seen.has_key(V)
+    end.
+
+scc_visit(V, Adj, Seen) =>
+    if not Seen.has_key(V) then
+        Seen.put(V, true),
+        foreach (W in Adj.get(V, []))
+            scc_visit(W, Adj, Seen)
+        end
+    end.

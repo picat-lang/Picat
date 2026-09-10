@@ -1,0 +1,38 @@
+/*
+by ChatGPT with the following prompt:
+
+Implement a predicate in Picat named is_scc_d(Vs,Es), where Vs is a
+set of vertices represented as a list of ground terms, Es is a set of
+edges each of which has the form {V1,V2}. The predicate checks if the
+directed graph G = (Vs,Es) is strongly connected.
+*/
+
+% Assumes every edge endpoint belongs to Vs.
+% The empty graph is considered strongly connected.
+is_scc_d([], _) => true.
+is_scc_d(Vs, Es) =>
+    Vs = [Start|_],
+    Forward = new_map(),
+    Reverse = new_map(),
+    foreach ({U,V} in Es)
+        Forward.put(U, [V|Forward.get(U, [])]),
+        Reverse.put(V, [U|Reverse.get(V, [])])
+    end,
+
+    SeenForward = new_map(),
+    SeenReverse = new_map(),
+    scc_visit(Start, Forward, SeenForward),
+    scc_visit(Start, Reverse, SeenReverse),
+
+    foreach (V in Vs)
+        SeenForward.has_key(V),
+        SeenReverse.has_key(V)
+    end.
+
+scc_visit(V, Adj, Seen) =>
+    if not Seen.has_key(V) then
+        Seen.put(V, true),
+        foreach (W in Adj.get(V, []))
+            scc_visit(W, Adj, Seen)
+        end
+    end.

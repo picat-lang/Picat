@@ -1,0 +1,31 @@
+/*
+by ChatGPT with the following prompt:
+
+Implement a predicate in Picat named is_acyclic(Vs,Es), which checks
+if the undirected graph G = (Vs,Es) is acyclic.
+*/
+
+% Assumes every endpoint belongs to Vs and each undirected
+% edge appears once in Es. Self-loops count as cycles.
+is_acyclic(Vs, Es) =>
+    Adj = new_map(),
+    foreach ({U,V} in Es)
+        Adj.put(U, [V|Adj.get(U, [])]),
+        Adj.put(V, [U|Adj.get(V, [])])
+    end,
+
+    Seen = new_map(),
+    foreach (V in Vs)
+        if not Seen.has_key(V) then
+            acyclic_visit(V, [], Adj, Seen)
+        end
+    end.
+
+acyclic_visit(V, Parent, Adj, Seen) =>
+    not Seen.has_key(V),
+    Seen.put(V, true),
+    foreach (W in Adj.get(V, []))
+        if not member(W, Parent) then
+            acyclic_visit(W, [V], Adj, Seen)
+        end
+    end.
