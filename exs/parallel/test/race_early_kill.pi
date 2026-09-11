@@ -1,0 +1,25 @@
+% race_early_kill:  the race_bug "hang" case -- the FIRST candidate can
+% never complete.  The old mode-1 race blocked on it (the other
+% candidates never ran; OS timeout).  First-wins mode 2 must run both
+% candidates concurrently, let quick win, and SIGKILL the never-
+% finishing loser, so the race RETURNS in ~quick's time, not ~never's.
+%
+%   never = sum(1..100000000000)  (effectively never finishes)
+%   quick = sum(1..100000000)     = 5000000050000000 (~1.4 s)
+%
+% Usage (repo root):  PICATPATH=lib2 emu/picat exs/parallel/test/race_early_kill.pi
+module race_early_kill.
+import parblock_pvm.
+
+never() = Y => Y = sum([I : I in 1..100000000000]).
+quick() = Y => Y = sum([I : I in 1..100000000]).
+
+main() =>
+    race_begin(2),
+    ( race_cl(1, never)
+    ; race_cl(2, quick)
+    ; true ),
+    race_end(R),
+    ( R = [won, 2, 5000000050000000],
+      println(("PASS: quick won, never-finishing loser killed (R=", R, ")"))
+    ; println(("FAIL: R=", R)), halt(1) ).

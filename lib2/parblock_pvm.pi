@@ -40,7 +40,7 @@
 %    a task exception that is not ground cannot be reported (same
 %    bad-flag risk as 1a's ground(V) guard).
 %
-% ================ mode 1 (portfolio race) backends ================
+% ============ portfolio race backends (first-wins mode 2) ============
 %
 %   race(NT, F, Xs) = P          P = (W, Y)
 %   race_res(NT, F, Xs) = S      S = [won, W, Y]  |  exhausted
@@ -49,42 +49,38 @@
 %   par_any(NT, P, Xs) = S       S = [sat, X]  |  none
 %   par_all(NT, P, Xs) = S       S = ok  |  [fail, X]
 %
-%  Substrate (emu/parvm.c, the 1a battery
-%  exs/parallel/parblock/pvm_race.pi):  the engine forks
-%  children AT CHOICE POINTS under the pool size NT (the current
-%  process keeps the first disjunct,  a child takes the rest);  a
-%  candidate's inner search is wrapped in the bp.pvm_delegate(1/0)
-%  window,  making its frames eligible for pool forking;  the first
-%  process to complete a candidate reports BY VALUE (the codec is
-%  exact for tuples / arrays of ground terms,  truncated for lists
-%  consed from window-exit values -- bug b -- hence the index-tagged
-%  (I, V) tuple reports);  the others notice the found flag at their
-%  next choice point and exit;  the root collects (R = 1/0) and
-%  materializes the winner (bp.pvm_solution).
+%  Substrate (emu/parvm.c):  the race family runs on first-wins
+%  mode 2 (bp.pvm_fork_rw):  the fixed-chunk split forks the
+%  candidates UP FRONT,  every candidate runs CONCURRENTLY in its
+%  own worker (its slice via pvm_worker_id / pvm_chunk),  and the
+%  FIRST pvm_report wins by CAS on found -- the root's collect then
+%  waits for the winner's completion marker,  SIGKILLs the
+%  still-running losers and returns early (R = 1/0,  the winner via
+%  bp.pvm_solution).  This is why parblock avoids mode 1/3:  those
+%  fork at choice points inside a delegate window (an OR-parallel CP
+%  SEARCH substrate),  which re-runs the first value in every
+%  process for a race of independent deterministic candidates
+%  (race_bug).  The count-all family (par_run / map_par / par_all /
+%  par_run_dyn) uses plain mode 2 (bp.pvm_fork(NT, 2, M)).
 %
-%  Discipline (all pinned in the 1a battery):
-%   - the root NEVER calls bp.pvm_worker_id in a mode-1 session
-%     (segments;  the 1a battery does not call it either);
-%   - a candidate that cannot complete must THROW inside the window
-%     (a plain clause failure in the window hangs the session at
-%     collect -- bug c);  function candidates are total by language
-%     semantics:  a function call with no matching rule THROWS
-%     (never silently fails);
-%   - a report is guarded by ground(...) (1a's ground(V) guard);
-%   - a root-level exception DURING a live mode-1 session is not a
-%     supported path (it leaves the session dirty:  the next
-%     pvm_fork in the process is rejected and orphaned children
-%     interleave their output).  Every family member therefore
-%     routes every possible throw onto a supported path before the
-%     root may throw:  par_all is a mode-2 session (task-error
+%  Discipline (kept from the 1a battery):
+%   - a candidate that cannot complete must THROW (total-or-throw);
+%     function candidates are total by language semantics:  a
+%     function call with no matching rule THROWS (never silently
+%     fails);
+%   - each worker reports at most one (its first completer);  a
+%     worker with no completer in its slice exits without reporting;
+%   - a root-level exception DURING a live session is not a
+%     supported path.  Every family member therefore routes every
+%     possible throw onto a supported path before the root may
+%     throw:  par_all is a count-all mode-2 session (task-error
 %     reports,  rethrown by the root AFTER collect,  exactly like
 %     par_run),  map_race throws $parblock_mrace_empty(X)
 %     only after its element session has collected.
 %
 %  Async refinement of the phase-0 written-order schedule (1a rule):
 %  the reported winner is the first candidate that COMPLETES in
-%  wall-clock time (the root's written-order walk is the bias,  not
-%  a guarantee);  the guaranteed part is that the winner is a
+%  wall-clock time;  the guaranteed part is that the winner is a
 %  genuine completer with an exact value.
 %
 %  NT = 0 falls back to the phase-0 serial combinator.
@@ -160,7 +156,7 @@ pvperr(I, M, A) = E =>
         ; pvperr(I + 1, M, A) = E ) ) ).
 
 % ====================================================================
-%  mode 1 (portfolio race) backends
+%  portfolio race backends  (first-wins mode 2:  bp.pvm_fork_rw)
 % ====================================================================
 
 % -------------------------- race / race_res ------------------------
@@ -180,35 +176,34 @@ pvrr1(0, M, F, Xs, S) =>
 pvrr1(NT, M, F, Xs, S) =>
     ( M = 0, S = exhausted
     ;
-      ( bp.pvm_fork(NT, 1, 1),
-        pvwalkr(F, 1, M, Xs, V),
-        bp.pvm_collect(R),
-        ( R = 1,
-          bp.pvm_solution(S0),
-          S0 = (W, Y),
-          S = [won, W, Y]
+      ( bp.pvm_fork_rw(NT, M),
+        bp.pvm_worker_id(I),
+        ( I > 0,
+          bp.pvm_chunk(Lo, Hi),
+          rvww(F, Xs, Hi, Lo, Rep),
+          ( Rep = $rv_none, halt
+          ; bp.pvm_report(Rep), halt )
         ;
-          S = exhausted ) ) ).
+          ( bp.pvm_collect(R),
+            ( R = 1,
+              bp.pvm_solution(S0),
+              S0 = (W, Y),
+              S = [won, W, Y]
+            ;
+              S = exhausted ) ) ) ) ).
 
-% the candidate walk;  the choice point of this disjunction is a
-% fork site (the current process keeps clause I,  a pool child takes
-% I+1..M);  when the pool is saturated the root walks on itself.
-pvwalkr(F, I, M, Xs, V) =>
-    ( I > M, true
+% worker:  the FIRST candidate in [Lo..Hi] that completes (total-or-
+% throw) wins this worker's slot;  each worker reports at most one.
+% The first-wins mode-2 (bp.pvm_fork_rw) fixed-chunk split runs the
+% candidates CONCURRENTLY and kills the losers as soon as the first
+% winner reports -- unlike the mode-1 choice-point fork,  which re-ran
+% the first value in every process (race_bug).
+rvww(F, Xs, Hi, I, Rep) =>
+    ( I > Hi, Rep = $rv_none
     ;
-      ( pvcl_r(F, Xs[I], V) ; pvwalkr(F, I + 1, M, Xs, V) ) ).
-
-pvcl_r(F, X, V) =>
-    bp.pvm_delegate(1),
-    call_cleanup(catch(pvst_r(F, X, V), E, false), bp.pvm_delegate(0)),
-    ground(V),
-    bp.pvm_report((X, V)).
-
-% total-or-throw:  a function call with no matching rule already
-% throws,  so this strategy either reports a value or throws away.
-pvst_r(F, X, V) =>
-    ( apply(F, X) = V
-    ; throw($parblock_race_drop(X)) ).
+      ( catch( ( apply(F, Xs[I]) = V, Rep = (Xs[I], V) ),
+               _,
+               rvww(F, Xs, Hi, I + 1, Rep) ) ) ).
 
 % ---------------------------- par_any -----------------------------
 
@@ -222,31 +217,29 @@ pvpa1(0, M, P, Xs, S) =>
 pvpa1(NT, M, P, Xs, S) =>
     ( M = 0, S = none
     ;
-      ( bp.pvm_fork(NT, 1, 1),
-        pvwalka(P, 1, M, Xs),
-        bp.pvm_collect(R),
-        ( R = 1,
-          bp.pvm_solution(W),
-          S = [sat, W]
+      ( bp.pvm_fork_rw(NT, M),
+        bp.pvm_worker_id(I),
+        ( I > 0,
+          bp.pvm_chunk(Lo, Hi),
+          pva_worker(P, Xs, Hi, Lo, Rep),
+          ( Rep = $rv_none, halt
+          ; bp.pvm_report(Rep), halt )
         ;
-          S = none ) ) ).
+          ( bp.pvm_collect(R),
+            ( R = 1,
+              bp.pvm_solution(W),
+              S = [sat, W]
+            ;
+              S = none ) ) ) ) ).
 
-pvwalka(P, I, M, Xs) =>
-    ( I > M, true
+% worker:  the first X in [Lo..Hi] where P(X) holds (once) is a
+% witness;  a plain failure or a throw moves to the next candidate
+% (first-wins mode-2,  concurrent + early kill).
+pva_worker(P, Xs, Hi, I, Rep) =>
+    ( I > Hi, Rep = $rv_none
     ;
-      ( pvcl_a(P, Xs[I]) ; pvwalka(P, I + 1, M, Xs) ) ).
-
-% a throwing P(X) drops out (the serial contract);  so does a plain
-% failure,  converted to a throw so the window never clause-fails.
-pvcl_a(P, X) =>
-    bp.pvm_delegate(1),
-    call_cleanup(catch(pvst_a(P, X), E, false), bp.pvm_delegate(0)),
-    ground(X),
-    bp.pvm_report(X).
-
-pvst_a(P, X) =>
-    ( once(call(P, X))
-    ; throw($parblock_any_drop(X)) ).
+      ( catch( once(call(P, Xs[I])), _, fail ) -> Rep = Xs[I]
+      ; pva_worker(P, Xs, Hi, I + 1, Rep) ) ).
 
 % ---------------------------- map_par -----------------------------
 
@@ -354,29 +347,29 @@ pvmrc1(0, Fs, X) = Y =>
 
 pvmrc1(NT, Fs, X) = Y =>
     M = len(Fs),
-    bp.pvm_fork(NT, 1, 1),
-    pvwalkm(Fs, X, 1, M, V),
-    bp.pvm_collect(R),
-    ( R = 1,
-      bp.pvm_solution(S0),
-      S0 = (_F, Y)
+    ( bp.pvm_fork_rw(NT, M),
+      bp.pvm_worker_id(I),
+      ( I > 0,
+        bp.pvm_chunk(Lo, Hi),
+        pvm_worker(Fs, X, Hi, Lo, Rep),
+        ( Rep = $rv_none, halt
+        ; bp.pvm_report(Rep), halt )
+      ;
+        ( bp.pvm_collect(R),
+          ( R = 1,
+            bp.pvm_solution(S0),
+            S0 = (_F, Y)
+          ;
+            throw($parblock_mrace_empty(X)) ) ) ) ).
+
+% worker:  the first F in [Lo..Hi] that completes on X (total-or-
+% throw) wins this element's slot (first-wins mode-2,  concurrent +
+% early kill).
+pvm_worker(Fs, X, Hi, I, Rep) =>
+    ( I > Hi, Rep = $rv_none
     ;
-      throw($parblock_mrace_empty(X)) ).
-
-pvwalkm(Fs, X, I, M, V) =>
-    ( I > M, true
-    ;
-      ( pvcl_m(Fs, X, I, V) ; pvwalkm(Fs, X, I + 1, M, V) ) ).
-
-pvcl_m(Fs, X, I, V) =>
-    bp.pvm_delegate(1),
-    call_cleanup(catch(pvst_m(Fs, X, I, V), E, false), bp.pvm_delegate(0)),
-    ground(V),
-    bp.pvm_report((I, V)).
-
-pvst_m(Fs, X, I, V) =>
-    ( apply(Fs[I], X) = V
-    ; throw($parblock_mr_drop(I)) ).
+      ( catch( ( apply(Fs[I], X) = V, Rep = (I, V) ),
+               _, pvm_worker(Fs, X, Hi, I + 1, Rep) ) ) ).
 % ====================================================================
 %  race block forms  (phase 2)
 % ====================================================================
@@ -459,45 +452,73 @@ pvst_m(Fs, X, I, V) =>
 %      multi-report collect);  see the note in parblock.pi.
 
 race_begin(NT) =>
-    ( NT > 0, bp.pvm_fork(NT, 1, 1)
-    ; bp.pvm_fork(1, 1, 1) ).
+    bp.pvm_par_begin(NT).
 
 race_cl(I, F) =>
-    racebcl(I, F, parblock_raceb_narg).
+    bp.pvm_par_task({I, F, parblock_raceb_narg}),
+    false.
 
 race_cl(I, F, A) =>
-    racebcl(I, F, A).
-
-%  the clause body,  exactly the pvcl_r shape (proven in the 1c
-%  battery):  the per-clause delegate window makes the strategy's
-%  frames eligible for pool forking;  the report is by value,
-%  tagged with the written clause position.
-racebcl(I, F, A) =>
-    bp.pvm_delegate(1),
-    call_cleanup(catch(racebval(F, A) = V, E, false), bp.pvm_delegate(0)),
-    ground(V),
-    bp.pvm_report((I, V)).
-
-%  total-or-throw:  a function call with no matching rule throws,  so
-%  a candidate either completes with a value or throws away (caught
-%  above);  the failing disjunct is unreachable,  kept for the
-%  discipline.
-racebval(F, parblock_raceb_narg) = V =>
-    ( V = apply(F)
-    ; throw($parblock_raceb_drop(0)) ).
-
-racebval(F, A) = V =>
-    ( V = apply(F, A)
-    ; throw($parblock_raceb_drop(A)) ).
+    bp.pvm_par_task({I, F, A}),
+    false.
 
 race_end(R) =>
-    bp.pvm_collect(Rc),
-    ( Rc = 1,
-      bp.pvm_solution(S0),
-      S0 = (I, V),
-      R = [won, I, V]
+    bp.pvm_par_collect(NT, Ts),
+    Tasks = [racebtask(T) : T in Ts],
+    raceb_run(NT, Tasks) = R.
+
+%  strip the index and the no-arg marker,  yielding the race task
+%  descriptor ({F}  or  {F, A});  registration order == index order.
+racebtask({I, F, parblock_raceb_narg}) = {F}.
+racebtask({I, F, A}) = {F, A}.
+
+%  The mode-2 race:  every registered candidate runs in its own
+%  worker (the fixed-chunk split runs them CONCURRENTLY),  the first
+%  to complete reports and wins.  This replaces the mode-1
+%  choice-point fork,  which re-ran the first clause in every
+%  process (race_bug).  R = [won, I, V];  every candidate dropped
+%  -> throw $parblock_raceb_empty.
+raceb_run(0, Tasks) = R =>
+    raceb_walk(Tasks, 1, R).
+
+raceb_run(NT, Tasks) = R =>
+    M = len(Tasks),
+    ( M = 0, throw($parblock_raceb_empty)
     ;
-      throw($parblock_raceb_empty) ).
+      ( bp.pvm_fork_rw(NT, M),
+        bp.pvm_worker_id(I),
+        ( I > 0,
+          bp.pvm_chunk(Lo, Hi),
+          raceb_worker(Tasks, Hi, Lo, Rep),
+          ( Rep = $rv_none, halt
+          ; bp.pvm_report(Rep), halt )
+        ;
+          ( bp.pvm_collect(Rc),
+            ( Rc = 1,
+              bp.pvm_solution(S0),
+              S0 = (W, Y),
+              R = [won, W, Y]
+            ;
+              throw($parblock_raceb_empty) ) ) ) ) ).
+
+%  serial (NT = 0):  written-order walk,  first completer wins.
+raceb_walk(Tasks, I, R) =>
+    ( I > len(Tasks), throw($parblock_raceb_empty)
+    ;
+      ( catch( ( Task = Tasks[I], V = racebtask_run(Task), R = [won, I, V] ),
+               _, raceb_walk(Tasks, I + 1, R) ) ) ).
+
+%  worker:  the FIRST completer in [Lo..Hi] wins this worker's slot.
+raceb_worker(Tasks, Hi, I, Rep) =>
+    ( I > Hi, Rep = $rv_none
+    ;
+      ( catch( ( Task = Tasks[I], V = racebtask_run(Task), Rep = (I, V) ),
+               _, raceb_worker(Tasks, Hi, I + 1, Rep) ) ) ).
+
+%  total-or-throw dispatch (UNQUALIFIED task references;  engine bug
+%  (a) hangs on a module-qualified dynamic function call).
+racebtask_run({F}) = apply(F).
+racebtask_run({F, A}) = apply(F, A).
 
 % ====================================================================
 %  par block forms  (phase 3:  statement-level par_run)

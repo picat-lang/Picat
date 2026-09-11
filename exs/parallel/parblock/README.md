@@ -10,7 +10,9 @@
   `parblock_pvm_dyn` (`lib2/parblock_pvm.pi`, `lib2/parblock_pvm_dyn.pi`).
   These run the same contracts on the `emu/parvm.c` fork-pool:
   `par_run*` on **mode 2** (fixed-chunk / dynamic-cursor partition) and
-  the race family on **mode 1** (first-solution portfolio).
+  the race family on **first-wins mode 2** (`bp.pvm_fork_rw`): the
+  candidates fork up front and run concurrently, the first report wins
+  by CAS, the losers are killed (early return).
 
 Run everything from the **repo root**:
 
@@ -32,7 +34,7 @@ defects it pins and the adopted workarounds.
 | `pvm_tasks.pi` | `par_run(NT,Tasks)` contract battery (5 cases) | `main([C, NT])` |
 | `pvm_dyn_tasks.pi` | `par_run_dyn` vs fixed `par_run` vs serial (6 cases) | `main([C, NT])` |
 | `pvm_race.pi` | raw **mode-1** portfolio substrate (`pvm_fork`/`pvm_delegate`/`pvm_report`/`pvm_collect` + `race_clause`) | `main([C, NT])` |
-| `race_pvm_tasks.pi` | mode-1 race family vs serial (13 cases) | `main =>` (full NT matrix) |
+| `race_pvm_tasks.pi` | first-wins mode-2 race family vs serial (13 cases) | `main =>` (full NT matrix) |
 | `race_begin_tasks.pi` | phase-2 **race block forms** (8 cases) | `main =>` (full NT matrix) |
 | `par_begin_tasks.pi` | phase-3 **par block forms** (9 cases) | `main =>` (full NT matrix) |
 | `queens_count{,2,_multi}.pi` | n-queens counting on `par_run(NT,Tasks)` | `main([N, NT])` |
@@ -125,13 +127,13 @@ never a specific placement).
 | entry | substrate | illustrated by |
 |---|---|---|
 | `par_run(NT, Tasks) = Rs` | mode 2, fixed-chunk split; task-ordered results, first-thrower rethrown after collect | `pvm_tasks` (5 cases); `queens_count{,2,_multi}`; `ramsey_m2`; `par_run_primes`; `par_run_queens`; `par_run_perft` |
-| `race(NT, F, Xs) = P` | mode 1 portfolio (`race_res` wrap) | `race_pvm_tasks` case_race/case_race2 |
-| `race_res(NT, F, Xs) = S` | mode 1 portfolio | `race_pvm_tasks` case_race / case_race_exhaust; `race_perfect` |
+| `race(NT, F, Xs) = P` | first-wins mode 2 portfolio (`race_res` wrap) | `race_pvm_tasks` case_race/case_race2 |
+| `race_res(NT, F, Xs) = S` | first-wins mode 2 portfolio | `race_pvm_tasks` case_race / case_race_exhaust; `race_perfect` |
 | `map_par(NT, F, Xs) = Ys` | mode 2 (ordered map) | `race_pvm_tasks` case_mappar; `map_par_totient`; `par_run_collatz` |
-| `map_race(NT, Fs, Xs) = Ys` | serial element loop, one mode-1 session per element | `race_pvm_tasks` case_maprace*; `map_race_mersenne` |
-| `par_any(NT, P, Xs) = S` | mode 1 | `race_pvm_tasks` case_parany*; `par_any_twinprime` |
+| `map_race(NT, Fs, Xs) = Ys` | serial element loop, one first-wins mode-2 session per element | `race_pvm_tasks` case_maprace*; `map_race_mersenne` |
+| `par_any(NT, P, Xs) = S` | first-wins mode 2 | `race_pvm_tasks` case_parany*; `par_any_twinprime` |
 | `par_all(NT, P, Xs) = S` | **mode 2** (all elements must be tested, fail-fast term) | `race_pvm_tasks` case_parall*; `par_all_primegap` |
-| `race_begin(NT)` / `race_cl(I, F)` / `race_cl(I, F, A)` / `race_end(R)` | mode 1 **block forms** (phase 2) | `race_begin_tasks` (8 cases); raw substrate in `pvm_race`; `race_block_perfect` |
+| `race_begin(NT)` / `race_cl(I, F)` / `race_cl(I, F, A)` / `race_end(R)` | first-wins mode 2 **block forms** (register-then-run) | `race_begin_tasks` (8 cases); raw mode-1 substrate in `pvm_race`; `race_block_perfect` |
 | `par_begin(NT)` / `par_cl(I, F)` / `par_cl(I, F, A)` / `par_end(Rs)` | **par block forms** (phase 3): serial registration walk + mode-2 `par_run` | `par_begin_tasks` (9 cases); `par_block_counts` |
 
 ### Race block forms (phase 2)

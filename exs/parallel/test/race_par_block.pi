@@ -1,0 +1,30 @@
+% race_par_block:  reproducer for race_bug (parblock race_begin /
+% race_cl / race_end).  The mode-1 choice-point fork re-ran the first
+% clause in every process (only slow ran; fast never started; winner
+% nondeterministic; ~2x wall).  First-wins mode 2 (bp.pvm_fork_rw)
+% must make fast win at every NT >= 2, kill the slow loser and exit 0.
+%
+%   slow = sum(1..600000000) = 180000000300000000  (~15 s)
+%   fast = sum(1..100000000) =  5000000050000000   (~1.4 s)
+%
+% Usage (repo root):  PICATPATH=lib2 emu/picat exs/parallel/test/race_par_block.pi <NT>
+module race_par_block.
+import parblock_pvm.
+
+slow() = Y => Y = sum([I : I in 1..600000000]).
+fast() = Y => Y = sum([I : I in 1..100000000]).
+
+main([NTs]) =>
+    NT = to_int(NTs),
+    race_begin(NT),
+    ( race_cl(1, slow)
+    ; race_cl(2, fast)
+    ; true ),
+    race_end(R),
+    ( ( NT = 0 ; NT = 1 ),
+      R = [won, 1, 180000000300000000],
+      println(("PASS: serial written-order, slow won (NT=", NT, ")"))
+    ; NT >= 2,
+      R = [won, 2, 5000000050000000],
+      println(("PASS: fast won, race terminated early (NT=", NT, ")"))
+    ; println(("FAIL: R=", R)), halt(1) ).

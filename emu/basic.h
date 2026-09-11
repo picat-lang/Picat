@@ -384,6 +384,10 @@ typedef struct {
     BPLONG w_lo;          /* mode 2: this worker's value-chunk bounds */
     BPLONG w_hi;
     BPLONG aval;          /* mode 2: value count A; mode 3: chunk size C */
+    BPLONG first_wins;    /* mode 2 race-wins (bp.pvm_fork_rw): the first
+                             report CASes found and serializes the winner;
+                             collect then kills the rest and returns early.
+                             Plain mode-2 count-all keeps first_wins = 0. */
 } pvm_t;
 
 /* defined in both builds (the PAR_THREADS section and the

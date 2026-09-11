@@ -46,6 +46,7 @@
 /* M2 cpreds (defined below, in both PAR_THREADS sections) */
 int c_pvm_fork(void);
 int c_pvm_fork_lb(void);
+int c_pvm_fork_rw(void);
 int c_pvm_delegate(void);
 int c_pvm_worker_id(void);
 int c_pvm_chunk(void);
@@ -861,6 +862,7 @@ void Cboot_parvm()
     insert_cpred("pvm_delegate", 1, c_pvm_delegate);
     insert_cpred("pvm_fork", 3, c_pvm_fork);
     insert_cpred("pvm_fork_lb", 4, c_pvm_fork_lb);
+    insert_cpred("pvm_fork_rw", 2, c_pvm_fork_rw);
     insert_cpred("pvm_worker_id", 1, c_pvm_worker_id);
     insert_cpred("pvm_chunk", 2, c_pvm_chunk);
     insert_cpred("pvm_claim", 2, c_pvm_claim);
@@ -2991,12 +2993,12 @@ BPLONG pvm_deleg_reentry(BPLONG_PTR f)
 }
 
 static int pvm_fork_arm(BPLONG nt, BPLONG mode, BPLONG aval,
-                        BPLONG base, int have_base);
+                        BPLONG base, int have_base, int first_wins);
 
 int c_pvm_fork()
 {
     return pvm_fork_arm(INTVAL(ARG(1, 3)), INTVAL(ARG(2, 3)),
-                        INTVAL(ARG(3, 3)), 0, BP_FALSE);
+                        INTVAL(ARG(3, 3)), 0, BP_FALSE, 0);
 }
 
 /* Like pvm_fork, but a mode-2 run with the live bound: B is the
@@ -3012,11 +3014,26 @@ int c_pvm_fork()
 int c_pvm_fork_lb()
 {
     return pvm_fork_arm(INTVAL(ARG(1, 4)), INTVAL(ARG(2, 4)),
-                        INTVAL(ARG(3, 4)), INTVAL(ARG(4, 4)), BP_TRUE);
+                        INTVAL(ARG(3, 4)), INTVAL(ARG(4, 4)), BP_TRUE, 0);
+}
+
+/* Like pvm_fork(NT, 2, M) -- the mode-2 fixed-chunk split -- but a
+   first-wins (race) session: workers are forked up-front exactly as
+   in count-all mode (each slice via pvm_worker_id / pvm_chunk), yet
+   the FIRST pvm_report wins by CAS on found and serializes the
+   solution, and the root's pvm_collect then SIGKILLs the remaining
+   workers and returns as soon as the winner is complete. Use it to
+   race independent candidates (the parblock race family): the
+   loser slices are killed instead of being waited out. Plain
+   pvm_fork(NT, 2, M) (count-all / exhaustive) is untouched. */
+int c_pvm_fork_rw()
+{
+    return pvm_fork_arm(INTVAL(ARG(1, 2)), 2, INTVAL(ARG(2, 2)),
+                        0, BP_FALSE, 1);
 }
 
 static int pvm_fork_arm(BPLONG nt, BPLONG mode, BPLONG aval,
-                        BPLONG base, int have_base)
+                        BPLONG base, int have_base, int first_wins)
 {
     long i;
 
@@ -3088,6 +3105,7 @@ static int pvm_fork_arm(BPLONG nt, BPLONG mode, BPLONG aval,
         pvm_rent_nfires = 99;
         pvm_rent_nfails = 99;
         pvm_last_deleg_status = -1;
+        pvm.first_wins = first_wins;
     }
     if (pvm_open_shm() != BP_TRUE) {
         bp_exception = illegal_arguments;
@@ -3144,6 +3162,18 @@ static int pvm_fork_arm(BPLONG nt, BPLONG mode, BPLONG aval,
     {
         BPLONG C = (aval + nt - 1) / nt;
         BPLONG nt_eff = (aval + C - 1) / C;
+        if (first_wins) {
+            /* race-wins: the root is a pure collector and must stop
+               as soon as the first winner reports (or every worker
+               exits without one). Install the per-session SIGCHLD
+               reaper so pvm_nchildren tracks the live workers and the
+               collect's poll can detect "all exited". */
+            struct sigaction sa;
+            sa.sa_handler = pvm_sigchld;
+            sigemptyset(&sa.sa_mask);
+            sa.sa_flags = SA_RESTART;
+            sigaction(SIGCHLD, &sa, NULL);
+        }
         for (i = 0; i < nt_eff; i++) {
             pid_t pid;
             pvm.wid = (BPLONG)i + 1;
@@ -3239,6 +3269,16 @@ int c_pvm_report()
         return BP_ERROR;
     }
     if (pvm.mode == 2) {
+        if (pvm.first_wins) {
+            /* race-wins (bp.pvm_fork_rw): the FIRST report wins by
+               CAS on found and serializes the solution; a second
+               report is a no-op. The root's collect waits for the
+               marker, kills the rest and returns early. */
+            if (!__sync_bool_compare_and_swap(&pvm_shm->found, 0, 1))
+                return BP_TRUE;
+            DEREF(t);
+            return pvm_serialize_solution(t);
+        }
         /* all-results: any ground term, appended to the session's
            result buffer; the root's pvm_collect hands back the list
            of all reported terms, in report order. */
@@ -3272,7 +3312,14 @@ int c_pvm_collect()
         return BP_ERROR;
     }
     if (pvm_is_fork_child && pvm.mode == 2) {
-        /* a mode-2 worker reaching collect: its user program failed
+        if (pvm.first_wins) {
+            /* race-wins worker that found no winner in its slice:
+               exit cleanly -- a no-winner slice is normal in a race
+               (the count-all undercount guard below does not apply). */
+            pvm_reap_my_children();
+            pvm_worker_exit(0, 0);    /* noreturn */
+        }
+        /* a count-all worker reaching collect: its user program failed
            the report branch upstream and backtracked into the root
            branch, so its slice count never reaches the result list
            (a silent undercount) -- and running the root's collect
@@ -3301,7 +3348,16 @@ int c_pvm_collect()
     }
     if (!pvm_is_fork_child && (pvm.mode == 1 || pvm.mode == 3))
         pvm_seat_release();   /* the root is out of the frontier */
-    if ((pvm.mode == 1 || pvm.mode == 3) && pvm_shm->found) {
+    if (pvm.mode == 2 && pvm.first_wins && !pvm_shm->found) {
+        /* race-wins, no winner yet: the root is a pure collector, so
+           wait for the first report (found) or for every worker to
+           have exited (all slices empty -> exhausted). The per-session
+           SIGCHLD reaper decrements pvm_nchildren as workers exit. */
+        while (!pvm_shm->found && pvm_nchildren > 0)
+            usleep(1000);
+    }
+    if (((pvm.mode == 1 || pvm.mode == 3) ||
+         (pvm.mode == 2 && pvm.first_wins)) && pvm_shm->found) {
         /* the finder's CAS on found precedes its marker write: wait
            for it before the sweep can SIGKILL a direct-child finder
            (a signalled exit is quiet, so the loss would be silent).
@@ -3324,7 +3380,8 @@ int c_pvm_collect()
     } else
         pvm_reap_my_children();
     if ((pvm_child_bad || pvm_shm->bad) &&
-        !((pvm.mode == 1 || pvm.mode == 3) && pvm_shm->found &&
+        !(((pvm.mode == 1 || pvm.mode == 3) ||
+           (pvm.mode == 2 && pvm.first_wins)) && pvm_shm->found &&
           pvm_shm->sol_len >= 0)) {
         /* a worker died inside the search (arena overflow, OOM,
            ...): in count mode the total would be a silent undercount,
@@ -3339,8 +3396,8 @@ int c_pvm_collect()
         pvm_shm = NULL;
         return BP_ERROR;
     }
-    if (pvm.mode == 2) {
-        /* all-results: build R = the list of all reported terms, in
+    if (pvm.mode == 2 && !pvm.first_wins) {
+        /* count-all: build R = the list of all reported terms, in
            report order. The reaps above killed every writer, so the
            cursor is final and each record's marker must be set -- a
            record still at its zeroed state came from a process that
@@ -3495,8 +3552,17 @@ static int pvm_serial_fork_arm(BPLONG nt, BPLONG mode, BPLONG aval)
     pvm.aval = (mode == 3) ? aval : 0;
     pvm.w_lo = 1;
     pvm.w_hi = aval;
+    pvm.first_wins = 0;
     pvm.armed = 1;
     return BP_TRUE;
+}
+
+/* Single engine: race-wins mode-2 runs inline; the first report wins
+   (c_pvm_report / c_pvm_collect use pvm.first_wins). */
+int c_pvm_fork_rw()
+{
+    pvm.first_wins = 1;
+    return pvm_serial_fork_arm(INTVAL(ARG(1, 2)), 2, INTVAL(ARG(2, 2)));
 }
 
 int c_pvm_worker_id()
@@ -3549,6 +3615,15 @@ int c_pvm_report()
         return BP_ERROR;
     }
     if (pvm.mode == 2) {
+        if (pvm.first_wins) {
+            /* race-wins (bp.pvm_fork_rw): the first report wins. */
+            if (pvm_shm->found)
+                return BP_TRUE;
+            pvm_shm->found = 1;
+            DEREF(t);
+            pvm_serial_sol = t;
+            return BP_TRUE;
+        }
         DEREF(t);
         if (pvm_serial_m2_n >= PVM_SER_M2_CAP) {
             bp_exception = out_of_range;  /* the result list is full */
@@ -3573,7 +3648,7 @@ int c_pvm_collect()
         bp_exception = illegal_arguments;
         return BP_ERROR;
     }
-    if (pvm.mode == 2) {
+    if (pvm.mode == 2 && !pvm.first_wins) {
         BPLONG l = nil_sym;
         long i = pvm_serial_m2_n - 1;
         LOCAL_OVERFLOW_CHECK_WITH_MARGIN("pvm",
@@ -3628,6 +3703,7 @@ void Cboot_parvm()
     insert_cpred("pvm_delegate", 1, c_pvm_delegate);
     insert_cpred("pvm_fork", 3, c_pvm_fork);
     insert_cpred("pvm_fork_lb", 4, c_pvm_fork_lb);
+    insert_cpred("pvm_fork_rw", 2, c_pvm_fork_rw);
     insert_cpred("pvm_worker_id", 1, c_pvm_worker_id);
     insert_cpred("pvm_chunk", 2, c_pvm_chunk);
     insert_cpred("pvm_claim", 2, c_pvm_claim);

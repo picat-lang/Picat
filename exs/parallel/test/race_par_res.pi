@@ -1,0 +1,27 @@
+% race_par_res:  reproducer for race_bug on the FUNCTIONAL form
+% (race_res / race).  Same contract as race_par_block:  with first-wins
+% mode 2, fast (candidate 2) must win at every NT >= 2 and return
+% early;  serial (NT = 0/1) keeps the written-order winner (slow).
+%
+%   cand(1) = slow = sum(1..600000000)  = 180000000300000000 (~15 s)
+%   cand(2) = fast = sum(1..100000000)  =  5000000050000000  (~1.4 s)
+%
+% Usage (repo root):  PICATPATH=lib2 emu/picat exs/parallel/test/race_par_res.pi <NT>
+module race_par_res.
+import parblock_pvm.
+
+cand(1) = slow().
+cand(2) = fast().
+slow() = Y => Y = sum([I : I in 1..600000000]).
+fast() = Y => Y = sum([I : I in 1..100000000]).
+
+main([NTs]) =>
+    NT = to_int(NTs),
+    S = race_res(NT, cand, [1, 2]),
+    ( ( NT = 0 ; NT = 1 ),
+      S = [won, 1, 180000000300000000],
+      println(("PASS: serial written-order, slow won (NT=", NT, ")"))
+    ; NT >= 2,
+      S = [won, 2, 5000000050000000],
+      println(("PASS: fast won, race terminated early (NT=", NT, ")"))
+    ; println(("FAIL: S=", S)), halt(1) ).
