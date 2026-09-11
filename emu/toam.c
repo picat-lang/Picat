@@ -298,7 +298,23 @@ catch_exception:{
 
 forward_exception_as_is:{
         BPLONG_PTR parent_ar = (BPLONG_PTR)AR_AR(AR);
+        BPLONG exn;
         if (bp_exception == (BPLONG)NULL) bp_exception = unknown_exception;
+        exn = bp_exception;
+        /* The uncaught-exception forward target $forward_exception is
+           only a bare symbol in this tree (insert_sym creates a new
+           predicate with etype = T_ORDI and ep = nil_sym); dispatching
+           to it would jump to a garbage address and segfault.  If it is
+           not a real predicate, report the exception cleanly and stop
+           instead of crashing. */
+        if (GET_ETYPE(forward_exception_psc) != T_PRED) {
+            fflush(NULL);
+            fprintf(stderr, "*** uncaught exception: ");
+            write_term1(exn, stderr);
+            fprintf(stderr, "\n");
+            fflush(stderr);
+            exit(1);
+        }
         *LOCAL_TOP-- = bp_exception;
         bp_exception = (BPLONG)NULL;
 
