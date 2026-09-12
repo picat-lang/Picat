@@ -30,7 +30,8 @@ untouched.
 | `race_par_block.pi` | block race (`race_begin/race_cl/race_end`): slow first, fast second. `NT=0/1` serial written-order (slow wins); `NT>=2` **fast wins and the race terminates early**. |
 | `race_par_res.pi` | functional `race_res`: same contract. |
 | `race_early_kill.pi` | the "hang" case: a never-finishing first candidate + a quick one; quick must win and the loser must be killed (the race returns in ~quick's time, not ~never's). |
-| `test_race.sh` | runs all three at the relevant NT values, asserts `PASS` + no segfault / no `uncaught exception`, and re-checks a count-all mode-2 example (`queens_count 10 4 = 724`) is unaffected. |
+| `tsp_race.pi` | **TSP portfolio race** on first-wins mode 2: a deterministic 40-city instance raced by randomized strategies (random multi-restart 2-opt, insertion-start 2-opt, heavy random 2-opt) with per-run random seeds + seed jitter. Checks serial determinism (NT=0/1 = written order), correctness (winner's length equals a serial recompute), **nondeterminism** (>= 2 distinct winners over 12 races at NT=4 -- proves all candidates truly run concurrently, so the race_bug "only the first clause ran" class cannot pass), and no exceptions. |
+| `test_race.sh` | runs the above at the relevant NT values, asserts `PASS` + no segfault / no `uncaught exception`, and re-checks a count-all mode-2 example (`queens_count 10 4 = 724`) is unaffected. |
 
 ## Run
 

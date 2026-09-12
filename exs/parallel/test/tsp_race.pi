@@ -1,0 +1,236 @@
+% tsp_race:  TSP portfolio race on the first-wins mode-2 substrate
+% (bp.pvm_fork_rw).  A deterministic 40-city Euclidean instance is
+% raced by a portfolio of randomized strategies -- random multi-restart
+% 2-opt, insertion-start 2-opt, and a heavier random multi-restart --
+% each parameterized by a per-run random seed, plus a seed-derived
+% jitter so the candidates' runtimes overlap and the winner is a
+% genuine scheduling outcome.
+%
+% The battery checks:
+%   - serial determinism:  NT=0 and NT=1 equal the serial reference
+%     (parblock.race_res), written order, reproducible;
+%   - correctness:         every race's winner is a real candidate
+%     (its reported length equals tspstrat(winning spec) recomputed
+%     serially) -- NT=2 and NT=4;
+%   - nondeterminism:      over 12 races at NT=4 with fresh random2()
+%     seeds, at least 2 DISTINCT winners must occur -- proving all
+%     candidates truly run concurrently (the race_bug class, where only
+%     the first clause ever ran, cannot pass this);
+%   - no hangs / no exceptions (bad = 0).
+%
+% Usage (repo root):  PICATPATH=lib2 emu/picat exs/parallel/test/tsp_race.pi
+%   (also run by test_race.sh)
+module tsp_race.
+import parblock.
+import parblock_pvm.
+
+
+% ============================ instance ============================
+tsp_inst(Seed) = (N, Cs, D) =>
+    N = 40,
+    Cs = gen_cities(N, Seed),
+    D = dist_mat(N, Cs).
+
+gen_cities(N, S0) = Cs =>
+    Cs = new_list(N),
+    gen_c(1, N, Cs, S0).
+gen_c(I, N, Cs, S0) =>
+    ( I > N -> true
+    ;
+      (S1, V1) = lcg(S0),
+      (S2, V2) = lcg(S1),
+      Cs[I] := (V1 mod 1000001, V2 mod 1000001),
+      gen_c(I + 1, N, Cs, S2) ).
+
+dist_mat(N, Cs) = D =>
+    D = new_list(N),
+    foreach (I in 1..N)
+        D[I] := new_list(N),
+        Row = D[I],
+        foreach (J in 1..N)
+            (X1, Y1) = Cs[I],
+            (X2, Y2) = Cs[J],
+            Row[J] := (X1 - X2) * (X1 - X2) + (Y1 - Y2) * (Y1 - Y2)
+        end
+    end.
+
+d2(D, A, B) = V => R = D[A], V = R[B].
+
+% ============================ LCG ============================
+lcg(S) = (S1, V) =>
+    S1 = (S * 1103515245 + 12345) mod 2147483648,
+    V = S1.
+
+% ============================ tours ============================
+perm(N, S0) = (P, S) => perm_loop(N, [I : I in 1..N], S0, P, S).
+perm_loop(1, P, S, P2, S2) => P2 = P, S2 = S.
+perm_loop(K, P, S0, P2, S2) =>
+    K > 1,
+    (S1, V) = lcg(S0),
+    J = 1 + (V mod K),
+    P1 = swp(P, J, K),
+    perm_loop(K - 1, P1, S1, P2, S2).
+
+swp(P, J, K) = [ sw1(I, P, J, K) : I in 1..len(P) ].
+sw1(I, P, J, K) = V =>
+    ( I = J -> V = P[K]
+    ; I = K -> V = P[J]
+    ; V = P[I] ).
+
+tlen(T, D) = R =>
+    tlen1(T, D, 1, 0, Acc),
+    R = Acc + d2(D, T[len(T)], T[1]).
+tlen1(T, D, I, Acc, Res) =>
+    ( I >= len(T) -> Res = Acc
+    ; NAcc = Acc + d2(D, T[I], T[I + 1]),
+      tlen1(T, D, I + 1, NAcc, Res) ).
+
+improve(T, D, R) =>
+    ( find_move(T, D, T2) -> improve(T2, D, R)
+    ; R = T ).
+
+find_move(T, D, T2) =>
+    N = len(T),
+    find_i(T, D, N, 1, T2).
+find_i(T, D, N, I, T2) =>
+    ( I > N - 2 -> fail
+    ; ( find_j(T, D, N, I, T2) -> true
+      ; find_i(T, D, N, I + 1, T2) ) ).
+find_j(T, D, N, I, T2) =>
+    find_j1(T, D, N, I, I + 2, T2).
+find_j1(T, D, N, I, J, T2) =>
+    ( J > N -> fail
+    ; ( good_move(T, D, I, J) -> T2 = revseg(T, I, J)
+      ; find_j1(T, D, N, I, J + 1, T2) ) ).
+
+good_move(T, D, I, J) =>
+    N = len(T),
+    not( (I = 1, J = N) ),
+    ( I = 1 -> A = T[N] ; A = T[I - 1] ),
+    B = T[I],
+    C = T[J],
+    ( J = N -> E = T[1] ; E = T[J + 1] ),
+    d2(D, A, C) + d2(D, B, E) < d2(D, A, B) + d2(D, C, E).
+
+revseg(T, I, J) =
+    [T[K] : K in 1..(I - 1)] ++
+    reverse([T[K] : K in I..J]) ++
+    [T[K] : K in (J + 1)..len(T)].
+
+% ============================ strategies ============================
+% 1 = random multi-restart 2-opt
+% 2 = insertion-start 2-opt (fewer restarts, better initial tours)
+% 3 = heavy random multi-restart 2-opt (more restarts, better quality)
+solve(SID, Seed, N, Cs, D) = Best =>
+    R = restart_count(SID, Seed),
+    best1(1, R, SID, N, Seed, Cs, D, 1000000000000000000, Best).
+
+restart_count(SID, S) = R =>
+    ( SID = 1 -> R = 8 + (S mod 6)
+    ; SID = 2 -> R = 6 + (S mod 4)
+    ; R = 14 + (S mod 8) ).
+
+best1(I, R, SID, N, S, Cs, D, Best, Res) =>
+    ( I > R -> Res = Best
+    ;
+      (S1, _) = lcg(S),
+      init_tour(SID, N, S1, Cs, D, T0),
+      improve(T0, D, T1),
+      L = tlen(T1, D),
+      best1(I + 1, R, SID, N, S1, Cs, D, min(Best, L), Res) ).
+
+init_tour(SID, N, S, Cs, D, T) =>
+    ( SID = 1 -> (P, _) = perm(N, S), T = P
+    ; SID = 2 -> ins_tour(N, S, Cs, D, T)
+    ; SID = 3 -> (P, _) = perm(N, S), T = P ).
+
+ins_tour(N, S, Cs, D, T) =>
+    (P, _) = perm(N, S),
+    T0 = [P[1], P[2]],
+    Rest = [P[I] : I in 3..N],
+    ins1(Rest, T0, D, T).
+
+ins1([], T, D, T2) => T2 = T.
+ins1([C | Rest], T, D, T2) =>
+    ins_best(C, T, D, T1),
+    ins1(Rest, T1, D, T2).
+
+ins_best(C, T, D, T2) =>
+    N = len(T),
+    bestpos(C, T, D, 1, N, 1, 1000000000000000000, T2).
+
+bestpos(C, T, D, I, N, BestP, BestInc, T2) =>
+    ( I > N -> T2 = ins_at(T, C, BestP)
+    ;
+      ( I = 1 -> A = T[N], B = T[1]
+      ; A = T[I - 1], B = T[I] ),
+      Inc = d2(D, A, C) + d2(D, C, B) - d2(D, A, B),
+      ( Inc < BestInc -> bestpos(C, T, D, I + 1, N, I, Inc, T2)
+      ; bestpos(C, T, D, I + 1, N, BestP, BestInc, T2) ) ).
+
+ins_at(T, C, P) = [T[I] : I in 1..(P - 1)] ++ [C] ++ [T[I] : I in P..len(T)].
+
+% ============================ portfolio strategy ============================
+% deterministic per (SID, Seed):  solve + seed-derived jitter so candidates'
+% runtimes overlap (the race winner is then a genuine scheduling outcome)
+work(N) => foreach (J in 1..N) true end.
+
+jitter(S) =>
+    J = 20000000 + (S mod 60000000),
+    work(J).
+
+tspstrat([SID, Seed]) = Len =>
+    (N, Cs, D) = tsp_inst(20260912),
+    Len = solve(SID, Seed, N, Cs, D),
+    jitter(Seed).
+
+
+% ============================ driver ============================
+main =>
+    Fixed = [[1, 11], [2, 22], [1, 33], [3, 44]],
+    parblock.race_res(tspstrat, Fixed) = [won, Ws, Ys],
+    race_res(0, tspstrat, Fixed) = R0,
+    race_res(1, tspstrat, Fixed) = R1,
+    OkD0 = ( R0 = [won, Ws, Ys] ),
+    OkD1 = ( R1 = [won, Ws, Ys] ),
+    printf("serial/NT0/NT1: winner %s len %s  [%s][%s]\n",
+           to_string(Ws), to_string(Ys), to_string(OkD0), to_string(OkD1)),
+    run2(1, Fixed, Ok2),
+    printf("NT=2 (4 races, correctness): %s\n", to_string(Ok2)),
+    run4(1, [], 0, Wins, Bad),
+    DW = distinct_count(Wins),
+    Ok4 = ( Bad = 0, DW >= 2 ),
+    printf("NT=4 (12 races): winners=%s distinct=%d bad=%d  need>=2: %s\n",
+           to_string(Wins), DW, Bad, to_string(Ok4)),
+    ( OkD0, OkD1, Ok2, Ok4, printf("TSP RACE: PASS\n"), true
+    ; printf("TSP RACE: FAIL\n"), halt(1) ),
+    true.
+
+run2(I, Fixed, Ok) =>
+    ( I > 4 -> Ok = true
+    ; race_res(2, tspstrat, Fixed) = [won, W, Y],
+      Y = tspstrat(W),
+      run2(I + 1, Fixed, Ok) ).
+
+run4(I, Wins, Bad, WinsOut, BadOut) =>
+    ( I > 12 -> WinsOut = Wins, BadOut = Bad
+    ;
+      Specs = [[1, random2()], [2, random2()], [1, random2()], [3, random2()]],
+      catch( (race_res(4, tspstrat, Specs) = [won, W, Y],
+              Y = tspstrat(W),
+              Wi = index_of(Specs, W),
+              run4(I + 1, [Wi | Wins], Bad, WinsOut, BadOut)),
+             _,
+             run4(I + 1, Wins, Bad + 1, WinsOut, BadOut) ) ).
+
+index_of(L, X) = I => index_of(L, X, 1) = I.
+index_of([], _, _) = 0 => true.
+index_of([H | T], X, I) = J =>
+    ( H = X -> J = I
+    ; index_of(T, X, I + 1) = J ).
+
+distinct_count(Wins) = len(distinct_list(Wins)).
+distinct_list([]) = [].
+distinct_list([H | T]) = L =>
+    ( member(H, T) -> L = distinct_list(T)
+    ; L = [H | distinct_list(T)] ).

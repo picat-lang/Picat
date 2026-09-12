@@ -47,7 +47,13 @@ done
 out=$(timeout 20 "$PICAT" "$T/race_early_kill.pi" 2>&1)
 chk "race_early_kill (no hang, loser killed)" "$?" "$out"
 
-# 4. count-all mode 2 (bp.pvm_fork(NT,2,M)) is untouched by first-wins
+# 4. TSP portfolio race: correctness + nondeterminism on first-wins
+#    mode 2 with randomized strategies (>= 2 distinct winners over 12
+#    races at NT=4 proves genuine concurrency).
+out=$(timeout 150 "$PICAT" "$T/tsp_race.pi" 2>&1)
+chk "tsp_race (portfolio nondeterminism)" "$?" "$out"
+
+# 5. count-all mode 2 (bp.pvm_fork(NT,2,M)) is untouched by first-wins
 out=$(timeout 60 "$PICAT" "$ROOT/exs/parallel/pvm/queens_count.pi" 10 4 2>&1)
 if [ "$?" -ne 0 ] || ! printf '%s' "$out" | grep -q "724"; then
     echo "FAIL: count-all queens_count -> expected 724, got: $(printf '%s' "$out" | tail -1)"
