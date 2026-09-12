@@ -31,6 +31,7 @@ untouched.
 | `race_par_res.pi` | functional `race_res`: same contract. |
 | `race_early_kill.pi` | the "hang" case: a never-finishing first candidate + a quick one; quick must win and the loser must be killed (the race returns in ~quick's time, not ~never's). |
 | `tsp_race.pi` | **TSP portfolio race** on first-wins mode 2: a deterministic 40-city instance raced by randomized strategies (random multi-restart 2-opt, insertion-start 2-opt, heavy random 2-opt) with per-run random seeds + seed jitter. Checks serial determinism (NT=0/1 = written order), correctness (winner's length equals a serial recompute), **nondeterminism** (>= 2 distinct winners over 12 races at NT=4 -- proves all candidates truly run concurrently, so the race_bug "only the first clause ran" class cannot pass), and no exceptions. |
+| `tsp_opts_race.pi` | **Solver-option portfolio**: the same small TSP modelled with `import cp` (`circuit` + `element` + `sum`, solved with `$min`). Each parallel candidate is an option set -- a single labeling option (`ff`, `ffc`, `ffd`, `leftmost`, ...) or a **random combination of two or more options** drawn from a 10-option pool. No artificial pacing -- the solve times differ and that is the point: the first to prove the optimum wins. Checks serial determinism (NT=0/1 = written order), correctness (winner = optimum), race health (no exceptions), and reports each winning option-set plus a per-option win tally (which options help the most). |
 | `test_race.sh` | runs the above at the relevant NT values, asserts `PASS` + no segfault / no `uncaught exception`, and re-checks a count-all mode-2 example (`queens_count 10 4 = 724`) is unaffected. |
 
 ## Run
@@ -43,9 +44,15 @@ cd emu && make -f Makefile.linux64 picat && cd ..
 bash exs/parallel/test/test_race.sh
 ```
 
+The race tests compare concurrent finish times (which option wins, the
+nondeterminism tally), so `test_race.sh` pins every run -- and, through
+the inherited affinity mask, every forked worker -- to **cores 0..89**
+with `taskset`.  On a many-core machine without the pinning the timing
+results are not reliable (CPU migration / contention shifts the winner).
+
 Each `.pi` is self-checking (prints `PASS: ...` or `FAIL: ...` and
 exits non-zero on failure), so they can also be run individually, e.g.:
 
 ```
-PICATPATH=lib2 emu/picat exs/parallel/test/race_par_block.pi 2
+taskset -c 0-89 env PICATPATH=lib2 emu/picat exs/parallel/test/race_par_block.pi 2
 ```

@@ -1,0 +1,118 @@
+% tsp_opts_race:  a solver-option portfolio raced on the first-wins
+% mode-2 substrate (bp.pvm_fork_rw).  A small deterministic Euclidean
+% TSP is modelled with the cp library (circuit + element + sum, solved
+% with $min); each parallel candidate labels the SAME model with its
+% own option set -- either a single solver option (ff, ffc, ffd,
+% leftmost, ...) or a RANDOM COMBINATION of two or more options drawn
+% from the pool.  The candidates run concurrently and the first to
+% prove the optimum wins, so the races reveal which option sets are
+% fastest on this instance (no artificial pacing is added -- the solve
+% times differ and that is the point).
+%
+% Checks:
+%   - serial determinism: NT=0 and NT=1 equal the serial reference
+%     (parblock.race_res), written order;
+%   - correctness:        every winner's objective equals the optimum
+%     (all option sets prove the same minimum);
+%   - race health:        no exceptions (bad = 0), all races complete.
+% The per-option win tally over the 12 NT=4 races (each race runs a
+% fresh random portfolio of 4 option sets) shows which options help
+% the most.
+%
+% Usage (repo root):  PICATPATH=lib2 emu/picat exs/parallel/test/tsp_opts_race.pi
+%   (also run by test_race.sh)
+module tsp_opts_race.
+import cp.
+import parblock.
+import parblock_pvm.
+
+pool = [ff, ffc, ffd, leftmost, backward, updown, split, degree, constr, rand].
+
+% ---- the model:  Euclidean TSP as a Hamiltonian cycle ------------
+tsp_opt(Opts, N, D) = Obj =>
+    X = new_list(N),
+    X :: 1..N,
+    circuit(X),                    % X[I] = the city visited after I
+    Edge = new_list(N),
+    Edge :: 0..100000,
+    foreach (I in 1..N)
+        element(X[I], D[I], Edge[I])  % Edge[I] = Dist[I, X[I]]
+    end,
+    sum(Edge) #= Obj,
+    solve(Opts ++ [$min(Obj)], X).
+
+instance() = (N, D) =>
+    N = 10,
+    Cs = [ ((I * 37) mod 100, (I * 61) mod 100) : I in 1..N ],
+    D = new_list(N),
+    foreach (I in 1..N)
+        D[I] := new_list(N),
+        Row = D[I],
+        foreach (J in 1..N)
+            (X1, Y1) = Cs[I], (X2, Y2) = Cs[J],
+            Row[J] := (X1 - X2) * (X1 - X2) + (Y1 - Y2) * (Y1 - Y2)
+        end
+    end.
+
+% ---- one portfolio candidate:  solve with a specific option set ----
+tspstrat(Opts) = Len =>
+    (N, D) = instance(),
+    Len = tsp_opt(Opts, N, D).
+
+% ---- random option-set (single option or a combination of 2+) -----
+rand_spec(Pool) = Spec =>
+    K = 1 + (random2() mod 4),     % 1..4 options in the set
+    Spec = rs(Pool, K).
+
+rs(_, 0) = [].
+rs(Pool, K) = [Pool[I] | Rest] =>
+    L = len(Pool),
+    I = 1 + (random2() mod L),
+    RestPool = [Pool[J] : J in 1..L, J != I],
+    Rest = rs(RestPool, K - 1).
+
+rand_portfolio(Pool, M) = [ rand_spec(Pool) : _ in 1..M ].
+
+% ---- driver ------------------------------------------------------
+main =>
+    Fixed = [[ff], [ffc], [ff, ffc], [ffc, degree]],
+    parblock.race_res(tspstrat, Fixed) = [won, Ws, Ys],
+    race_res(0, tspstrat, Fixed) = R0,
+    race_res(1, tspstrat, Fixed) = R1,
+    OkD0 = ( R0 = [won, Ws, Ys] ),
+    OkD1 = ( R1 = [won, Ws, Ys] ),
+    printf("serial/NT0/NT1: winner %s optimum %s  [%s][%s]\n",
+           to_string(Ws), to_string(Ys), to_string(OkD0), to_string(OkD1)),
+    run2(1, Fixed, Ys, Ok2),
+    printf("NT=2 (4 races, winner = optimum): %s\n", to_string(Ok2)),
+    run4(1, pool(), Ys, [], 0, Wins, Bad),
+    Ok4 = ( Bad = 0 ),
+    printf("NT=4 (12 races, fresh random portfolios):\n"),
+    foreach (W in Wins)
+        printf("    won: %s\n", to_string(W))
+    end,
+    printf("  per-option wins (winning option-set contains it):\n"),
+    foreach (O in pool())
+        C = len([1 : S in Wins, member(O, S)]),
+        printf("    %-12w %d\n", to_string(O), C)
+    end,
+    printf("  bad=%d\n", Bad),
+    ( OkD0, OkD1, Ok2, Ok4, printf("TSP OPTS RACE: PASS\n"), true
+    ; printf("TSP OPTS RACE: FAIL\n"), halt(1) ),
+    true.
+
+run2(I, Fixed, Ys, Ok) =>
+    ( I > 4 -> Ok = true
+    ; race_res(2, tspstrat, Fixed) = [won, _, Y],
+      Y = Ys,                      % winner must prove the optimum
+      run2(I + 1, Fixed, Ys, Ok) ).
+
+run4(I, Pool, Ys, Wins, Bad, WinsOut, BadOut) =>
+    ( I > 12 -> WinsOut = Wins, BadOut = Bad
+    ;
+      Specs = rand_portfolio(Pool, 4),
+      catch( (race_res(4, tspstrat, Specs) = [won, W, Y],
+              Y = Ys,
+              run4(I + 1, Pool, Ys, [W | Wins], Bad, WinsOut, BadOut)),
+             _,
+             run4(I + 1, Pool, Ys, Wins, Bad + 1, WinsOut, BadOut) ) ).
