@@ -47,10 +47,19 @@
    % hang (root parked in its successor-chain wait) is a wall-clock
    % step breaking the (a) wait's realtime futex deadline, bounded
    % by a monotonic keepalive timer plus a liveness backstop; the
-   % sporadic too-low "optimum" (a live-worker coverage gap the
-   % liveness veto cannot see) has not recurred in any run of the
-   % verification batteries since, so the driver-side serial
-   % self-check (RECHECK) that guarded it is gone.
+    % sporadic too-low "optimum" (a live-worker coverage gap the
+    % liveness veto cannot see) was declared not-recurred, so the
+    % driver-side serial self-check (RECHECK) that guarded it was
+    % removed -- BUT it RECURRED on 2026-09-14: under load (shared
+    % node, cores pinned 0-89) 3 of 10 runs returned a WRONG "proven
+    % optimum" -- N=80 -> P=145, N=100 -> P=188, and N=80 ->
+    % P=0/lifts=0 in 64 ms (falsely proving the all-zero model
+    % optimal); the 0/1-knapsack DP optima are 160 / 200.  The
+    % documented mechanism is load-sensitive (a wall-clock step
+    % breaking the (a) wait's realtime futex deadline, above).  Until
+    % the engine gap is fixed, do NOT trust an NT>=1 optimal verdict
+    % under load -- cross-check against the DP optimum or the serial
+    % $max reference.
  % Verified N x NT grid for this build: 10, 12, 14, 16, 20, 30, 40,
  % 50, 60, 80, 100 at NT in 0..16 (all vs the 0/1-knapsack DP
  % optima; NT >= 1 runs 3x, N=20 NT=8 additionally 200x).
@@ -68,6 +77,11 @@
 %                                               $max reference (serial)
 %   N=20 NT=4 picat exs/parallel/pvm/backpack_pvm.pi  mode-4, 4 processes
 %   N=40 NT=8 picat exs/parallel/pvm/backpack_pvm.pi
+%
+% WARNING (2026-09-14): under load this driver produced WRONG "proven
+% optimum" results (the recurring live-worker coverage gap, below),
+% so an NT>=1 optimal verdict must be cross-checked against the DP
+% optimum or the serial $max reference until the engine gap is fixed.
 %
 % N defaults to 20, NT to 0.
 import sat.

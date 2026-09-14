@@ -69,6 +69,43 @@ Bug F cure), and the R(4,4) N=18 cell lands at ~150–250 s wall at
 paid ~3.3 s per reclaimed slice for the previous solve's replay,
 whereas a fresh 14-bit slice solve builds + solves in ~150 ms serial).
 
+### Knapsack re-measurement (2026-09-14, cores 0–89 pinned, best of 3)
+
+Same-batch serial `$max` reference vs the parallel cells, all under
+`taskset -c 0-89` (the whole process tree — workers inherit the
+affinity mask), on the post-rebase engine:
+
+| driver | cell | serial best | parallel best | measured | reported |
+|---|---|---|---|---|---|
+| `backpack_band` (banded mode-4) | N=80 NT=16 | 1270 ms | 1142 ms | **1.11×** | **2.33× / 2.34×** |
+| `backpack_band` (banded mode-4) | N=100 NT=16 | 4912 ms | 4577 ms | **1.07×** | **2.03× / 2.04×** |
+| `backpack_band` (banded mode-4) | N=80 NT=8 | 1270 ms | 1434 ms | 0.89× | — |
+| `backpack_band` (banded mode-4) | N=80 NT=4 | 1270 ms | 966 ms | 1.31× | — |
+| `backpack_pvm` (mode-1 lift) | N=80 NT=16 | 1270 ms | 2010 ms | **0.63×** | **1.22×** |
+| `backpack_pvm` (mode-1 lift) | N=100 NT=16 | 4912 ms | 3229 ms | 1.52× | ~1.0× |
+
+The headline numbers do **not** reproduce on the current engine: the
+serial `$max` reference is now ~2× faster than the batch above (N=80:
+1270 ms vs 2543 ms) while the parallel wall time is roughly unchanged,
+so the banded speedup collapses from ~2.3× to ~1.1× (best cell NT=4;
+non-monotonic in NT). The mode-1 lift is at or below serial at N=80.
+
+**Correctness warning:** on this measurement 3 of 10 `backpack_pvm`
+runs returned a *wrong* "proven optimum" — N=80 → P=145, N=100 →
+P=188, and N=80 → **P=0 / lifts=0 in 64 ms** (falsely "proving" the
+all-zero model optimal). The 0/1-knapsack DP optima are N=80 → 160
+and N=100 → 200 (every serial and `backpack_band` run returned them).
+This is the "too-low optimum" live-worker coverage gap (a silent
+coverage hole the liveness veto cannot see, because the workers are
+alive), which `backpack_pvm.pi` had documented as not-recurred — it
+recurred under load on this node. The documented mechanism is
+load-sensitive (a wall-clock step breaking the futex realtime
+deadline in the successor-chain wait). Until the engine gap is fixed,
+**do not trust a mode-1 `backpack_pvm` optimal verdict under load**;
+cross-check against the DP optimum or the serial `$max` reference.
+The banded driver (`backpack_band`) returned the correct optimum in
+every run of this batch.
+
 ## Reproducing each row
 
 ```sh
