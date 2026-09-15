@@ -91,11 +91,13 @@
 import sat.
 
 main =>
+    satext_with_builtin,
     n_from_env(N),
     nt_from_env(NT),
     run(N, NT).
 
 main(Args) =>
+    satext_with_builtin,
     ( Args = [],
       n_from_env(N), nt_from_env(NT)
     ; Args = [A1],
@@ -104,6 +106,16 @@ main(Args) =>
       N = to_int(A1), NT = to_int(A2)
     ),
     run(N, NT).
+
+% the built-in engine answers every solve: an external satext
+% portfolio's wall budget can return "no decisive answer", which
+% fails the solve goal WITHOUT a verdict -- and this driver reads a
+% failed solve as "no model here", i.e. a false infeasibility, in
+% the lift rounds AND in the verification bands.  The knapsack
+% encoding solves are short (~130 ms built-in), so the built-in is
+% also faster than a portfolio spawn.
+satext_with_builtin =>
+    bp.c_satext_set_solver(["builtin"]).
 
 run(N, 0) =>
     % the built-in $max reference (what library users get today).
@@ -150,6 +162,17 @@ bnb(N, NT, B, Iter, T0) =>
 % is self-contained (a fresh fork plus a fresh shared block, the shm
 % is re-created with clean state at each arm), so a retry is always
 % sound; the bound B is unchanged.
+%
+% An INFEASIBLE verdict (R=0) is NEVER accepted from a single
+% session: it is verified by an independent second session
+% (verify_unsat, 2-of-2 consensus) before the loop accepts B
+% optimal.  A found model is always genuine (reported by value from
+% a real solve), so only the negative verdict needs verification --
+% the mode-1 fork machinery can misfire under load and falsely
+% exhaust a subtree (the recursive coverage gap: every delegation
+% level re-uses the same fragile decision points, so no per-worker
+% check proves coverage), and a single false UNSAT would end the
+% loop at a too-low bound.
 bnb_try(N, NT, B, Iter, T0, Tries) =>
     sat.reset_store(),
     catch( session_round(N, NT, B, Rc), E, refused(Rc, E, Tries) ),
@@ -161,7 +184,91 @@ bnb_try(N, NT, B, Iter, T0, Tries) =>
       Ps > B,
       writef("  lift %d: P %d -> %d%n", Iter + 1, B, Ps),
       bnb(N, NT, Ps, Iter + 1, T0)
-    ; final(N, NT, B, Iter, T0) ).
+    ; verify_unsat(N, NT, B, Iter, T0, 0) ).
+
+% the infeasibility verdict, VERIFIED by a banded MODE-2 session --
+% the proven protocol (static value partition, every band must
+% report, serial band solves with no fork machinery inside): the
+% objective range B+1..5N is partitioned into bands; any band
+% finding a model reverses the first (false UNSAT) verdict and the
+% loop continues lifting from it; all bands empty confirms B
+% optimal.  A failed band solve is retried, then the band reports
+% $failed and the root refuses the verdict loudly -- never a silent
+% empty band.  A refused verification session (a dead worker: the
+% collect raises run_time_error) is retried on a fresh one.
+verify_unsat(N, NT, B, Iter, T0, Tries) =>
+    U = 5 * N,
+    W = U - B,
+    ( W <= 0 ->
+        final(N, NT, B, Iter, T0)
+    ; nchunks(NT, W, Nch),
+      catch( band_reports(N, NT, B, W, Nch, Rep), E, vrefused(Rep, E, Tries) ),
+      ( Rep = $retry ->
+          writef("  verify session refused (coverage guard), retry %d%n", Tries + 1),
+          verify_unsat(N, NT, B, Iter, T0, Tries + 1)
+      ; verify_step(N, NT, B, Iter, T0, Rep)
+      )
+    ).
+
+% one banded verification round: the bands partition B+1..B+W; every
+% band must report (the length check rejects a torn session, the
+% collect refuses a dead one).  The worker HALTS after its report:
+% every mode-2 process runs the same program, and a worker that
+% returned would go on executing the caller's code with unbound
+% session vars (the parblock discipline).
+band_reports(N, NT, B, W, Nch, Rep) =>
+    bp.pvm_fork_lb(NT, 2, W, B),
+    bp.pvm_worker_id(I),
+    ( I > 0,
+      bp.pvm_chunk(Lo, Hi),
+      ( Lo > Hi ->
+          bp.pvm_report({Lo, 0})
+      ; band_value(N, B + Lo, B + Hi, 0, V),
+        bp.pvm_report({Lo, V})
+      ),
+      halt
+    ; bp.pvm_collect(Rep0),
+      length(Rep0) == Nch,
+      Rep = Rep0
+    ).
+
+vrefused(Rep, E, Tries) =>
+    if Tries < 3 then Rep = $retry else throw(E) end.
+
+% one band: find a model with Lo <= P <= Hi (a SERIAL solve -- no
+% fork machinery inside).  With the built-in engine every solve
+% yields a real verdict: success = a model (V = P), failure = the
+% band is genuinely empty (V = 0) -- never a silent guess.
+band_value(N, Lo, Hi, Tries, V) =>
+    ( bp_band(N, Lo, Hi, X, Wd, Vd, P) ->
+          V = P
+      ; V = 0
+    ).
+
+verify_step(N, NT, B, Iter, T0, Rep) =>
+    Vs = [V : {_, V} in Rep],
+    Vmax = max(Vs),
+    ( Vmax > B ->
+          writef("  UNSAT reversed by verification: P %d -> %d%n", B, Vmax),
+          bnb(N, NT, Vmax, Iter + 1, T0)
+      ; final(N, NT, B, Iter, T0)
+    ).
+
+% the mode-2 chunking is by size, not by worker count (backpack_band's
+% nchunks): the engine cuts the W values into chunks of ceil(W/NT) and
+% forks one static worker per chunk.
+nchunks(NT, W, Nch) =>
+    C = (W + NT - 1) // NT,
+    Nch = (W + C - 1) // C.
+
+% the band instance: the backpack encoding plus Lo <= P <= Hi (a
+% SERIAL solve -- no pvm_delegate, no fork machinery inside).
+bp_band(N, Lo, Hi, X, Wd, Vd, P) =>
+    bp_vars(N, 0, X, Wd, Vd, P0),
+    P0 #>= Lo,
+    P0 #=< Hi,
+    P = P0,
+    solve([ff], [X, Wd, Vd, P]).
 
 session_round(N, NT, B, Rc) =>
     bp.pvm_fork(NT, 1, 0),
@@ -180,6 +287,19 @@ refused(Rc, E, Tries) =>
 % so the loop never carries a decoded term across a re-arm. Root
 % process only.
 final(N, NT, B, Iter, T0) =>
+    final_try(N, NT, B, Iter, T0, 0).
+
+% the retrieval at the PROVEN bound.  A failed retrieval is FATAL,
+% never a backtrack point: the loop has already proven B optimal (the
+% infeasibility round returned), so if this predicate merely FAILS,
+% the B&B disjunction ( lift ... ; final ... ) BACKTRACKS into an
+% earlier frame's final, which re-answers at a LOWER bound with a
+% suboptimal model -- a wrong optimum (observed 2026-09-15: the loop
+% proved 160, the retrievals at 160 and 157 returned no decisive
+% answer -- the satext portfolio's wall budget -- and the 156 frame
+% printed P=156).  A transient failure is retried up to 3 times
+% (each retry re-arms the satext wall budget), then thrown.
+final_try(N, NT, B, Iter, T0, Tries) =>
     % the retrieval solve follows the proving iteration's failed
     % in-process solve in the root: reset before the fresh build
     % (same Bug F discipline as the bnb round boundary).
@@ -187,15 +307,14 @@ final(N, NT, B, Iter, T0) =>
     % retrieval is bounded at P #>= B: since B is proven optimal,
     % any solution has value exactly B.
     bp_vars(N, B, X, Wd, Vd, P),
-    solve([ff], [X, Wd, Vd, P]),
-    % plain conjunction (not an if-then-else): in this build an
-    % "Cond -> G1 ; G2" inside a predicate that runs after a
-    % re-armed session silently drops the goals that follow it in
-    % the process. A violated invariant fails the search plainly
-    % instead of calling a handler.
-    P == B,
-    check_final(N, X, Wd, P, B),
-    report_final(N, NT, B, Iter, T0, X).
+    ( solve([ff], [X, Wd, Vd, P]),
+      P == B,
+      check_final(N, X, Wd, P, B) ->
+        report_final(N, NT, B, Iter, T0, X)
+    ; Tries < 3,
+      writef("  retrieval failed (no decisive answer), retry %d%n", Tries + 1),
+      final_try(N, NT, B, Iter, T0, Tries + 1)
+    ; throw($retrieval_failed(B, Iter)) ).
 
 report_final(N, NT, B, Iter, T0, X) =>
     bp.c_wall_ms(T1),

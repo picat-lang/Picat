@@ -114,21 +114,52 @@ Changes inserted:
   fresh shared block, so a retry is always sound) and prints
   `session refused (coverage guard), retry N`.
 
-**Result (measured, 2026-09-15, cores 0–89 pinned).** With the checks
-in place the wrong-answer rate drops from 39/60 (~65%) to 16/60 at
-N=80 NT=16 — the remaining silent drops are deeper in the mode-1
-choice-point-fork protocol (the landing/skip mechanics misfire under
-load), and full root-causing of those is open. Every remaining
-invariant catch is **loud**: 53 refused sessions were caught and
-retried in the 60-run batch. **The mode-2 substrate stays sound**:
-the banded driver (`backpack_band`, mode-2 `pvm_fork_lb` with the
-proven every-leaf-must-report discipline) returned the correct
-optimum in **60/60** runs under the identical stress, and all
-regression batteries pass (test_race.sh, the queens/ramsey matrix,
-term_report). The verdict to record: **whole-tree infeasibility /
-optimization verdicts from the mode-1 choice-point fork are not
-proven on this substrate; the mode-2 value-partition shape
-(`backpack_band`) is.**
+**Result (measured, 2026-09-15, cores 0–89 pinned).** The fix went
+through three stages, each found by tracing a failing run:
+
+1. *Engine coverage guards* (39/60 → 16/60): the searched-coverage
+   check and the rearm fix above — 53 loud refusals caught and
+   retried in the batch. The remaining drops are deeper in the
+   mode-1 choice-point-fork protocol (every delegation level re-uses
+   the same fragile decision points, so no per-worker check proves
+   coverage).
+2. *Retrieval backtrack* (16/60 → 5/60): the loop had already proved
+   160 optimal, but the final **retrieval solve** failed (below) and
+   `final` merely *failed* — so the B&B disjunction
+   `( lift … ; final … )` **backtracked** into an earlier frame's
+   final, which re-answered at a **lower** bound (the trace shows
+   the retrievals at 160 and 157 failing, then the 156 frame
+   printing P=156). Cure: a failed retrieval **retries** (3x), then
+   **throws** (`$retrieval_failed`) — never a backtrack point.
+3. *The satext no-verdict hazard* (5/60 → **0/60**): the external
+   solver portfolio is configured without a built-in fallback, so
+   when its wall budget elapsed the solve goal **failed without a
+   verdict** — and a failed solve is read by this driver (and the
+   lift rounds!) as "no model here", i.e. a **false infeasibility**.
+   Cure: the driver pins the **built-in engine**
+   (`bp.c_satext_set_solver(["builtin"])`) — the knapsack-encoding
+   solves are short (~130 ms built-in vs ~490 ms portfolio spawn),
+   so the built-in is also faster, and every solve now yields a real
+   verdict.
+4. *Banded verification of the negative verdict*: a found model is
+   always genuine (report-by-value from a real solve), so only R=0
+   needs trust — the driver therefore **verifies every infeasibility
+   verdict** with a banded **mode-2** session (the proven protocol:
+   static value partition of `B+1..5N`, every band must report,
+   serial band solves with no fork machinery inside); any band
+   finding a model reverses the verdict and the loop continues
+   lifting. 8 false UNSATs were caught and reversed this way during
+   the stages above.
+
+**Final result: 0 wrong in the 60-run stress at N=80 NT=16 (and
+60/60 for the banded driver under the identical stress)**; N=100
+correct; all regression batteries pass (test_race.sh, the
+queens/ramsey matrix, term_report, both benches). The verdict to
+record: **an infeasibility verdict from the mode-1 choice-point fork
+is not, by itself, proof** — it is made trustworthy by the stack
+above (coverage guards + no-verdict-failure solves + banded
+mode-2 verification), and the mode-2 value-partition shape
+(`backpack_band`) is the proven substrate.
 
 ## Reproducing each row
 

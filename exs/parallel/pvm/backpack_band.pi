@@ -174,12 +174,26 @@ bp_model0(N, X, Wd, Vd, P) =>
   % the proven bound re-derives an optimal model (B is feasible by
   % construction); the verify step recomputes weight and value from X
   % alone and asserts P == B. Runs OUTSIDE any session.
+  % A failed retrieval is FATAL, never a backtrack point: the loop
+  % has already proven B optimal, so a merely-failing final would
+  % backtrack the B&B disjunction ( round ... ; final ... ) into an
+  % earlier frame's final, which re-answers at a LOWER bound -- a
+  % wrong optimum (the satext portfolio's wall budget can return "no
+  % decisive answer" and fail the solve goal).  A transient failure
+  % is retried up to 3 times, then thrown.
   final(N, NT, B, Iter, T0) =>
+      final_try(N, NT, B, Iter, T0, 0).
+
+  final_try(N, NT, B, Iter, T0, Tries) =>
       bp_vars(N, B, X, Wd, Vd, P),
-      solve([ff], [X, Wd, Vd, P]),
-      P == B,
-      check_final(N, X, Wd, P, B),
-      report_final(N, NT, B, Iter, T0, X).
+      ( solve([ff], [X, Wd, Vd, P]),
+        P == B,
+        check_final(N, X, Wd, P, B) ->
+          report_final(N, NT, B, Iter, T0, X)
+      ; Tries < 3,
+        writef("  retrieval failed (no decisive answer), retry %d%n", Tries + 1),
+        final_try(N, NT, B, Iter, T0, Tries + 1)
+      ; throw($retrieval_failed(B, Iter)) ).
 
   report_final(N, NT, B, Iter, T0, X) =>
       bp.c_wall_ms(T1),
