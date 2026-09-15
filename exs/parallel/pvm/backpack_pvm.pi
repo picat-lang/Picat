@@ -79,9 +79,13 @@
 %   N=40 NT=8 picat exs/parallel/pvm/backpack_pvm.pi
 %
 % WARNING (2026-09-14): under load this driver produced WRONG "proven
-% optimum" results (the recurring live-worker coverage gap, below),
-% so an NT>=1 optimal verdict must be cross-checked against the DP
-% optimum or the serial $max reference until the engine gap is fixed.
+% optimum" results (the recurring live-worker coverage gap, below).
+% CURE (same date): the engine now enforces a searched-territory
+% invariant -- a worker that never searched its delegated chunk is
+% REFUSED at the collect (loud run_time_error) instead of served as a
+% silent wrong optimum -- and this driver retries a refused session on
+% a fresh one (up to 3 times).  A refused session is printed as
+% "session refused (coverage guard), retry N".
 %
 % N defaults to 20, NT to 0.
 import sat.
@@ -137,25 +141,37 @@ run(N, NT) =>
 % it. It precedes the instance build (bp_vars), so it cannot touch
 % live constraints.
 bnb(N, NT, B, Iter, T0) =>
+    bnb_try(N, NT, B, Iter, T0, 0).
+
+% one B&B round; a REFUSED session (the engine's loud coverage-guard
+% run_time_error from pvm_collect: a worker that never searched its
+% delegated chunk is refused instead of served as a silent wrong
+% optimum) is retried on a fresh session up to 3 times.  Every session
+% is self-contained (a fresh fork plus a fresh shared block, the shm
+% is re-created with clean state at each arm), so a retry is always
+% sound; the bound B is unchanged.
+bnb_try(N, NT, B, Iter, T0, Tries) =>
     sat.reset_store(),
-    bp.pvm_fork(NT, 1, 0),
-    % one body for every process: a mode-1 worker resumes inside
-    % its delegated value (never through a worker_id branch), so the
-    % report sits where the search itself succeeds; a process whose
-    % territory holds no model of value >= B+1 fails the model and
-    % takes the true branch, which drops it out of the process at
-    % the collect (a worker never executes the root's post-collect
-    % code).
-    ( bp_model(N, B, X, Wd, Vd, P),
-      bp.pvm_report(P)
-    ; true ),
-    bp.pvm_collect(Rc),
-    ( Rc = 1,
+    catch( session_round(N, NT, B, Rc), E, refused(Rc, E, Tries) ),
+    ( Rc = $retry ->
+        writef("  session refused (coverage guard), retry %d%n", Tries + 1),
+        bnb_try(N, NT, B, Iter, T0, Tries + 1)
+    ; Rc = 1,
       bp.pvm_solution(Ps),
       Ps > B,
       writef("  lift %d: P %d -> %d%n", Iter + 1, B, Ps),
       bnb(N, NT, Ps, Iter + 1, T0)
     ; final(N, NT, B, Iter, T0) ).
+
+session_round(N, NT, B, Rc) =>
+    bp.pvm_fork(NT, 1, 0),
+    ( bp_model(N, B, X, Wd, Vd, P),
+      bp.pvm_report(P)
+    ; true ),
+    bp.pvm_collect(Rc).
+
+refused(Rc, E, Tries) =>
+    if Tries < 3 then Rc = $retry else throw(E) end.
 
 % the loop's leaf: B is proven optimal. One plain serial solve at
 % the proven bound re-derives an optimal model (B is feasible by

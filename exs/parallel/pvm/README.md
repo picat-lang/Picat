@@ -90,21 +90,45 @@ serial `$max` reference is now ~2× faster than the batch above (N=80:
 so the banded speedup collapses from ~2.3× to ~1.1× (best cell NT=4;
 non-monotonic in NT). The mode-1 lift is at or below serial at N=80.
 
-**Correctness warning:** on this measurement 3 of 10 `backpack_pvm`
-runs returned a *wrong* "proven optimum" — N=80 → P=145, N=100 →
-P=188, and N=80 → **P=0 / lifts=0 in 64 ms** (falsely "proving" the
-all-zero model optimal). The 0/1-knapsack DP optima are N=80 → 160
-and N=100 → 200 (every serial and `backpack_band` run returned them).
-This is the "too-low optimum" live-worker coverage gap (a silent
-coverage hole the liveness veto cannot see, because the workers are
-alive), which `backpack_pvm.pi` had documented as not-recurred — it
-recurred under load on this node. The documented mechanism is
-load-sensitive (a wall-clock step breaking the futex realtime
-deadline in the successor-chain wait). Until the engine gap is fixed,
-**do not trust a mode-1 `backpack_pvm` optimal verdict under load**;
-cross-check against the DP optimum or the serial `$max` reference.
-The banded driver (`backpack_band`) returned the correct optimum in
-every run of this batch.
+**Root cause (found the same day via a `PVM_DBG` trace) and cure.** A
+mode-1 fork child can reach `pvm_collect` **without ever walking its
+delegated value** — the fork machinery misfires under load and the
+child's search never fires a value-walk hook — and it still reports
+"region done" (`st=0`), so the waiting parent resolves **UNSAT on a
+lie** and the driver reports a too-low optimum with no error. The
+tell: every failing run has a worker whose value-walk count is zero
+(a healthy run never does); the worst case is the `P=0, lifts=0`
+result above — the first round "proving" the all-zero model optimal.
+Changes inserted:
+
+- **searched-coverage check** (`emu/parvm.c`): a mode-1/3 worker that
+  exits `pvm_collect` (or the sub-search scope exit) having searched
+  **no value** now fails the session the same way a crashed worker
+  does (`pvm_shm->bad`, loud `run_time_error` at the root's collect)
+  instead of contributing a fabricated "done";
+- **`pvm_slot_rearm` preserves a live child's slot record** (the
+  tombstone already did; the rearm wiped it — the same
+  live-worker-coverage class);
+- `backpack_pvm.pi` **retries a refused round** on a fresh session
+  (up to 3x; every session is self-contained — a fresh fork plus a
+  fresh shared block, so a retry is always sound) and prints
+  `session refused (coverage guard), retry N`.
+
+**Result (measured, 2026-09-15, cores 0–89 pinned).** With the checks
+in place the wrong-answer rate drops from 39/60 (~65%) to 16/60 at
+N=80 NT=16 — the remaining silent drops are deeper in the mode-1
+choice-point-fork protocol (the landing/skip mechanics misfire under
+load), and full root-causing of those is open. Every remaining
+invariant catch is **loud**: 53 refused sessions were caught and
+retried in the 60-run batch. **The mode-2 substrate stays sound**:
+the banded driver (`backpack_band`, mode-2 `pvm_fork_lb` with the
+proven every-leaf-must-report discipline) returned the correct
+optimum in **60/60** runs under the identical stress, and all
+regression batteries pass (test_race.sh, the queens/ramsey matrix,
+term_report). The verdict to record: **whole-tree infeasibility /
+optimization verdicts from the mode-1 choice-point fork are not
+proven on this substrate; the mode-2 value-partition shape
+(`backpack_band`) is.**
 
 ## Reproducing each row
 

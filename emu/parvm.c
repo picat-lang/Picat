@@ -982,6 +982,20 @@ static int pvm_is_fork_child = 0;
    fails). */
 static int pvm_m2_reported = 0;
 
+/* Mode 1/3, per-process (COW'd, reset at spawn): the number of
+   delegated values this process has SEARCHED since its spawn (hook
+   WALK firings + PENDING first-value walks).  A spawned worker that
+   reaches pvm_collect with found unset and this counter at 0 never
+   searched its chunk -- an st=0 "region done" from it would silently
+   drop the unsearched territory (the false-infeasible gap: the (a)
+   waiter resolves "exhausted" on the lie and the root reports a
+   too-low optimum with no error, observed 2026-09-14 at 39/60 runs
+   of backpack_pvm N=80 NT=16).  c_pvm_collect and the scope exit
+   refuse the session instead (the safe direction, the liveness-veto
+   rule): the root's collect raises run_time_error and a re-armed
+   session retries. */
+static long pvm_values_walked = 0;
+
 /* Delegation window (process-local, COW'd with the rest of the engine
    state): bp.pvm_delegate(1) before solve(), bp.pvm_delegate(0) after.
    Only a frame whose first qualifying firing happens with the window
@@ -1991,6 +2005,7 @@ static int pvm_spawn_chunk(BPLONG_PTR ar, int s, long from)
         pvm_forked_from[s] = from;
         pvm_rent_nfires = 0;
         pvm_rent_nfails = 0;
+        pvm_values_walked = 0;   /* my own searches only */
         AR_CPF(ar) = (BPLONG)&pvm_deleg_fail_word;
         pvm_skip_count = skip;
         pvm_skip_frame = (BPLONG)ar;
@@ -2200,6 +2215,16 @@ int pvm_fork_frame(BPLONG_PTR ar, BPLONG_PTR p)
         pvm_dbg("SCOPE-EXIT", ar, (long)pvm_my_rootframe);
         if (succ)
             pvm_worker_exit(PVM_ST_TRANSFER, succ);
+        else if (pvm_values_walked == 0) {
+            /* searched-territory invariant: this worker never
+               searched a value of its delegated chunk, so an st=0
+               "region done" here is a lie (the false-infeasible gap)
+               -- refuse the session instead (the safe direction). */
+            pvm_dbg("NOWALK-SCOPE", ar, 0);
+            pvm_child_bad = 1;
+            pvm_shm->bad = 1;
+            pvm_worker_exit(1, 0);
+        }
         else
             pvm_worker_exit(0, 0);
         }
@@ -2397,6 +2422,7 @@ int pvm_fork_frame(BPLONG_PTR ar, BPLONG_PTR p)
         }
         if (pvm_forked_tried[s] < C) {
             pvm_forked_tried[s]++;
+            pvm_values_walked++;   /* searched-territory invariant */
             pvm_dbg("WALK", ar, pvm_forked_tried[s]);
             pvm_dump_once("WALK-DUMP", ar, s, p);
             return 0;   /* search this value ourselves */
@@ -2488,6 +2514,7 @@ int pvm_fork_frame(BPLONG_PTR ar, BPLONG_PTR p)
     pvm_forked_root[s] = 0;
     pvm_forked_tail[s] = 0;
     pvm_forked_pending[s] = 1;
+    pvm_values_walked++;   /* the caller walks this frame's value 1 */
     pvm_dbg("PEND", ar, 0);
     return 0;
 }
@@ -2613,6 +2640,16 @@ void pvm_slot_rearm(BPLONG_PTR ar)
     int s = pvm_slot_lookup(ar);
 
     if (s < 0) return;
+    if (pvm_forked_pid[s] > 0) {
+        /* a live child still covers this frame's remaining values:
+           keep the record so the scope exit can still hand off to it
+           (pvm_slot_tombstone preserves the pid for the same reason;
+           wiping it here orphaned the child -- a false-infeasible
+           gap).  pvm_deleg_wait clears pid[s] when the chain
+           resolves, so a rearm after a resolved wait proceeds. */
+        pvm_dbg("REARM-LIVE", ar, (long)pvm_forked_pid[s]);
+        return;
+    }
     pvm_forked_ar[s] = 0;
     pvm_forked_re[s] = 0;
     pvm_forked_e1H[s] = 0;
@@ -3341,6 +3378,28 @@ int c_pvm_collect()
             pvm_reap_quiet = 1;
             for (i = 0; i < pvm_nchildren; i++)
                 kill((pid_t)pvm_my_children[i], SIGKILL);
+        }
+        if (!pvm_shm->found && pvm_values_walked == 0 &&
+            pvm_my_rootframe != 0) {
+            /* searched-territory invariant: this worker never
+               searched a single value of its delegated chunk, so an
+               st=0 "region done" here would silently drop the
+               unsearched territory -- the (a) waiter resolves
+               "exhausted" on the lie and the root reports a too-low
+               optimum with no error (the false-infeasible gap,
+               observed 2026-09-14).  Refuse the session instead (the
+               safe direction, the liveness-veto rule): the root's
+               collect raises run_time_error and a re-armed session
+               retries. */
+            pvm_dbg("NOWALK", NULL, 0);
+            pvm_child_bad = 1;
+            pvm_shm->bad = 1;
+            pvm_reap_quiet = 1;
+            for (i = 0; i < pvm_nchildren; i++)
+                kill((pid_t)pvm_my_children[i], SIGKILL);
+            pvm_reap_my_children();
+            pvm_reap_quiet = 0;
+            pvm_worker_exit(1, 0);    /* crash status: the root refuses */
         }
         pvm_reap_my_children();
         pvm_reap_quiet = 0;
