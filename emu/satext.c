@@ -87,12 +87,21 @@
   *                              re-run as a fallback after an external
   *                              selection; to have it answer on timeout
   *                              include it as a racer ("builtin").
-  *              SATEXT_PRT_BUDGET_MS
-  *                              portfolio wall budget in ms per solve
-  *                              (default 60000, 0 = no budget); on
-  *                              expiry the race is killed and the solve
-  *                              fails with St=0 (the built-in is not
-  *                              re-run unless it is itself a racer).
+ *              SATEXT_PRT_BUDGET_MS
+ *                              portfolio wall budget in ms per solve
+ *                              (default 60000, 0 = no budget); on
+ *                              expiry the race is killed and the solve
+ *                              fails with St=0 (the built-in is not
+ *                              re-run unless it is itself a racer).
+ *                              DANGER: a failed solve is
+ *                              indistinguishable from an UNSAT at the
+ *                              Picat level (both fail the solve goal),
+ *                              so a caller treating a failed solve as
+ *                              "no solution" silently concludes a
+ *                              false infeasibility; distinguish with
+ *                              c_satext_last_status (2 = UNSAT, 0 = no
+ *                              verdict), and see the WARNING the
+ *                              engine prints when it happens.
   *              SATEXT_PRT_MIN  estimated CNF size in bytes below which
  *                              a portfolio collapses to its first
  *                              solver (default 64 KiB).

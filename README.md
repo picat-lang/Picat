@@ -71,7 +71,14 @@ Environment variables (all read by the satext layer):
 - `SATEXT_PRT_BUDGET_MS` — portfolio wall budget in ms per solve
   (default 60000; `0` = no budget). On expiry the race (including any
   `builtin` racer) is killed and the solve **fails with `St=0`** — the
-  built-in is never re-run as a fallback.
+  built-in is never re-run as a fallback. **Danger:** a failure here
+  is *indistinguishable from an UNSAT at the Picat level* — both
+  simply fail the `solve` goal — so a caller that treats a failed
+  solve as "no solution" silently concludes a false infeasibility
+  (e.g. a B&B loop reads it as "bound proven optimal"). Check
+  `c_satext_last_status(St)` after a failed solve (2 = UNSAT, 0 = no
+  verdict), or set `0` for no budget. The engine prints an explicit
+  `satext: WARNING:` line to stderr whenever this happens.
 - `SATEXT_PRT_STATS` — non-empty: print a per-solve line to stderr
   with each racer's wall time and the winner.
 - `SATEXT_SHIM` — path of the `satshim` helper, used to hand a large

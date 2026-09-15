@@ -156,10 +156,20 @@ int c_sat_start(){
                re-run after an external selection. */
         } else if (satext_ext_status() == 0) {
             fprintf(stderr,
-                    "satext: no decisive answer (wall budget elapsed or "
-                    "unknown); not running the built-in solver (unset "
-                    "SATEXT_SOLVER, or add 'builtin' to the solver list to "
-                    "include the built-in solver)\n");
+                    "satext: WARNING: no solver gave a decisive answer "
+                    "(wall budget elapsed, or a spawn/transfer failure).\n"
+                    "satext: WARNING: this solve FAILED WITHOUT A VERDICT "
+                    "-- it is NOT an UNSAT result, but at the Picat level "
+                    "it is indistinguishable from one: the solve goal "
+                    "simply fails, so a caller that treats a failed solve "
+                    "as \"no solution\" will silently conclude a false "
+                    "infeasibility (e.g. a B&B loop reads it as \"bound "
+                    "proven optimal\").\n"
+                    "satext: remedies: unset SATEXT_SOLVER, add 'builtin' "
+                    "to the solver list, or set SATEXT_PRT_BUDGET_MS=0 "
+                    "(no wall budget); distinguish the two outcomes after "
+                    "a failed solve with c_satext_last_status(St) "
+                    "(2 = UNSAT, 0 = no verdict).\n");
             /* use_ext stays 1, res stays 0: BP_FALSE, St=0 */
         } else {
             res = (satext_ext_status() == 1) ? 10 : 20;
