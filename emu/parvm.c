@@ -125,13 +125,24 @@ static long pvm_enc_term(BPLONG t, BPLONG_PTR b, long pos, long cap)
 
         /* list walk: UNTAGGED_ADDR yields an untagged ADDRESS as an
            integer, so the stride must be explicit pointer arithmetic
-           (+1 word = +8 bytes); an integer +1 would step one byte. */
+           (+1 word = +8 bytes); an integer +1 would step one byte.
+           The tail slot is dereferenced at every step:  a cons whose
+           tail variable was bound through a comprehension/loop
+           accumulator can hold a REF cell (tag 0) pointing at the
+           accumulator's cell,  which the later binding updated in
+           place -- a raw FOLLOW loads the REF,  whose tag is not
+           LST,  and the walk would stop early,  silently dropping
+           the whole tail (the record [PVM_T_LIST, n, off...] has no
+           tail field and the decoder materializes a proper list).
+           A literal or aliased tail stores the direct LST pointer
+           and needs no deref,  but the deref is a no-op there. */
         cur = t;
         n = 0;
         while (ISLIST(cur)) {
             n++;
             cp = (BPLONG_PTR)UNTAGGED_ADDR(cur);
             cur = FOLLOW(cp + 1);
+            DEREF(cur);
         }
         rec = pos;
         epos = pos + 2 + n;
@@ -151,6 +162,7 @@ static long pvm_enc_term(BPLONG t, BPLONG_PTR b, long pos, long cap)
             b[rec + 2 + i] = s0;
             epos = r;
             cur = FOLLOW(cp + 1);
+            DEREF(cur);
         }
         return epos;
     }
