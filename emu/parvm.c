@@ -2212,6 +2212,35 @@ int pvm_fork_frame(BPLONG_PTR ar, BPLONG_PTR p)
         rs = pvm_slot_lookup((BPLONG_PTR)pvm_my_rootframe);
         if (rs >= 0 && pvm_forked_pid[rs] > 0)
             succ = pvm_forked_pid[rs];
+        if (!succ) {
+            /* The successor decision must be AUTHORITATIVE: the slot
+               record can be stale (tombstone/rearm paths) while a
+               child I spawned is still alive and covering values
+               nobody else walks -- exiting 0 here orphans it (the
+               false-infeasible gap).  Cross-check the per-process
+               spawn list: a live child with no done record is handed
+               off to (recovery, not refusal).  More than one such
+               child means the protocol is already broken: flag the
+               session (the driver retries on a fresh one). */
+            int k2;
+            long live = 0, pid2, d2, ds2;
+            for (k2 = 0; k2 < pvm_nchildren; k2++) {
+                pid2 = pvm_my_children[k2];
+                if (kill((pid_t)pid2, 0) == 0 &&
+                    !pvm_done_lookup(pid2, &d2, &ds2)) {
+                    live++;
+                    if (live == 1) succ = pid2;
+                }
+            }
+            if (live > 1) {
+                pvm_dbg("SCOPE-MULTI", ar, live);
+                pvm_child_bad = 1;
+                pvm_shm->bad = 1;
+                pvm_worker_exit(1, 0);
+            }
+            if (succ)
+                pvm_dbg("SCOPE-RECOVER", ar, succ);
+        }
         pvm_dbg("SCOPE-EXIT", ar, (long)pvm_my_rootframe);
         if (succ)
             pvm_worker_exit(PVM_ST_TRANSFER, succ);
@@ -3400,6 +3429,34 @@ int c_pvm_collect()
             pvm_reap_my_children();
             pvm_reap_quiet = 0;
             pvm_worker_exit(1, 0);    /* crash status: the root refuses */
+        }
+        {
+            /* live-children invariant: my (a) waits resolve every
+               child chain before my search continues, so at a healthy
+               collect no child I spawned is still alive and
+               unreported.  One that is means my search returned while
+               a sub-region was still being walked -- an st=0 here
+               would be a lie.  Refuse the session (the safe
+               direction); a crash would be covered by the atexit, but
+               this path is a healthy _exit. */
+            long live = 0, k2, pid2, d2, ds2;
+            for (k2 = 0; k2 < pvm_nchildren; k2++) {
+                pid2 = pvm_my_children[k2];
+                if (kill((pid_t)pid2, 0) == 0 &&
+                    !pvm_done_lookup(pid2, &d2, &ds2))
+                    live++;
+            }
+            if (live > 0) {
+                pvm_dbg("COLLECT-LIVE", NULL, live);
+                pvm_child_bad = 1;
+                pvm_shm->bad = 1;
+                pvm_reap_quiet = 1;
+                for (i = 0; i < pvm_nchildren; i++)
+                    kill((pid_t)pvm_my_children[i], SIGKILL);
+                pvm_reap_my_children();
+                pvm_reap_quiet = 0;
+                pvm_worker_exit(1, 0);    /* the root refuses */
+            }
         }
         pvm_reap_my_children();
         pvm_reap_quiet = 0;

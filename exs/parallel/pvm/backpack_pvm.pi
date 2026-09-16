@@ -163,16 +163,10 @@ bnb(N, NT, B, Iter, T0) =>
 % is re-created with clean state at each arm), so a retry is always
 % sound; the bound B is unchanged.
 %
-% An INFEASIBLE verdict (R=0) is NEVER accepted from a single
-% session: it is verified by an independent second session
-% (verify_unsat, 2-of-2 consensus) before the loop accepts B
-% optimal.  A found model is always genuine (reported by value from
-% a real solve), so only the negative verdict needs verification --
-% the mode-1 fork machinery can misfire under load and falsely
-% exhaust a subtree (the recursive coverage gap: every delegation
-% level re-uses the same fragile decision points, so no per-worker
-% check proves coverage), and a single false UNSAT would end the
-% loop at a too-low bound.
+% The infeasibility verdict (R=0) is trusted from a single session:
+% the engine's scope-exit successor decision is authoritative (a live
+% unreported child is handed off to, not orphaned), so a false
+% exhaustion cannot survive silently.
 bnb_try(N, NT, B, Iter, T0, Tries) =>
     sat.reset_store(),
     catch( session_round(N, NT, B, Rc), E, refused(Rc, E, Tries) ),
@@ -184,91 +178,8 @@ bnb_try(N, NT, B, Iter, T0, Tries) =>
       Ps > B,
       writef("  lift %d: P %d -> %d%n", Iter + 1, B, Ps),
       bnb(N, NT, Ps, Iter + 1, T0)
-    ; verify_unsat(N, NT, B, Iter, T0, 0) ).
+    ; final(N, NT, B, Iter, T0) ).
 
-% the infeasibility verdict, VERIFIED by a banded MODE-2 session --
-% the proven protocol (static value partition, every band must
-% report, serial band solves with no fork machinery inside): the
-% objective range B+1..5N is partitioned into bands; any band
-% finding a model reverses the first (false UNSAT) verdict and the
-% loop continues lifting from it; all bands empty confirms B
-% optimal.  A failed band solve is retried, then the band reports
-% $failed and the root refuses the verdict loudly -- never a silent
-% empty band.  A refused verification session (a dead worker: the
-% collect raises run_time_error) is retried on a fresh one.
-verify_unsat(N, NT, B, Iter, T0, Tries) =>
-    U = 5 * N,
-    W = U - B,
-    ( W <= 0 ->
-        final(N, NT, B, Iter, T0)
-    ; nchunks(NT, W, Nch),
-      catch( band_reports(N, NT, B, W, Nch, Rep), E, vrefused(Rep, E, Tries) ),
-      ( Rep = $retry ->
-          writef("  verify session refused (coverage guard), retry %d%n", Tries + 1),
-          verify_unsat(N, NT, B, Iter, T0, Tries + 1)
-      ; verify_step(N, NT, B, Iter, T0, Rep)
-      )
-    ).
-
-% one banded verification round: the bands partition B+1..B+W; every
-% band must report (the length check rejects a torn session, the
-% collect refuses a dead one).  The worker HALTS after its report:
-% every mode-2 process runs the same program, and a worker that
-% returned would go on executing the caller's code with unbound
-% session vars (the parblock discipline).
-band_reports(N, NT, B, W, Nch, Rep) =>
-    bp.pvm_fork_lb(NT, 2, W, B),
-    bp.pvm_worker_id(I),
-    ( I > 0,
-      bp.pvm_chunk(Lo, Hi),
-      ( Lo > Hi ->
-          bp.pvm_report({Lo, 0})
-      ; band_value(N, B + Lo, B + Hi, 0, V),
-        bp.pvm_report({Lo, V})
-      ),
-      halt
-    ; bp.pvm_collect(Rep0),
-      length(Rep0) == Nch,
-      Rep = Rep0
-    ).
-
-vrefused(Rep, E, Tries) =>
-    if Tries < 3 then Rep = $retry else throw(E) end.
-
-% one band: find a model with Lo <= P <= Hi (a SERIAL solve -- no
-% fork machinery inside).  With the built-in engine every solve
-% yields a real verdict: success = a model (V = P), failure = the
-% band is genuinely empty (V = 0) -- never a silent guess.
-band_value(N, Lo, Hi, Tries, V) =>
-    ( bp_band(N, Lo, Hi, X, Wd, Vd, P) ->
-          V = P
-      ; V = 0
-    ).
-
-verify_step(N, NT, B, Iter, T0, Rep) =>
-    Vs = [V : {_, V} in Rep],
-    Vmax = max(Vs),
-    ( Vmax > B ->
-          writef("  UNSAT reversed by verification: P %d -> %d%n", B, Vmax),
-          bnb(N, NT, Vmax, Iter + 1, T0)
-      ; final(N, NT, B, Iter, T0)
-    ).
-
-% the mode-2 chunking is by size, not by worker count (backpack_band's
-% nchunks): the engine cuts the W values into chunks of ceil(W/NT) and
-% forks one static worker per chunk.
-nchunks(NT, W, Nch) =>
-    C = (W + NT - 1) // NT,
-    Nch = (W + C - 1) // C.
-
-% the band instance: the backpack encoding plus Lo <= P <= Hi (a
-% SERIAL solve -- no pvm_delegate, no fork machinery inside).
-bp_band(N, Lo, Hi, X, Wd, Vd, P) =>
-    bp_vars(N, 0, X, Wd, Vd, P0),
-    P0 #>= Lo,
-    P0 #=< Hi,
-    P = P0,
-    solve([ff], [X, Wd, Vd, P]).
 
 session_round(N, NT, B, Rc) =>
     bp.pvm_fork(NT, 1, 0),

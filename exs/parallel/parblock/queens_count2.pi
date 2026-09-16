@@ -37,8 +37,12 @@
 %
 % Known totals (OEIS A000170),  asserted below for 8/10/12/13:
 %   8=92, 10=724, 12=14200, 13=73712
-import cp.
+import cp2.
 import parblock_pvm.
+%
+% NOTE (run path):  this file imports cp2/sat2 (lib/),  so it runs with
+%   PICATPATH=lib2:lib
+% (multipath:  lib2 first,  lib for cp2/sat2).
 
 main()          => run(8, 4).
 main([NS])      => run(to_int(NS), 4).
@@ -77,8 +81,10 @@ range_of(I, NT, Total, Lo, Hi) =>
     Lo = S.
 
 % one task:  count all solutions whose first two queens have joint
-% value in [Lo..Hi];  an infeasible slice that fails (not returns 0)
-% is the count 0.
+% value in [Lo..Hi].  The zero-slice trap has TWO layers:  the
+% CONSTRAINT POSTING can fail (callsite-specific,  the model build
+% lives here -- guarded below),  and the COUNT can fail or throw
+% (handled once by cp2's count_all_solve inside count_range).
 rcount(Blk) = C =>
     Blk = {N, Lo, Hi},
     count_range(N, Lo, Hi, C)
@@ -94,7 +100,7 @@ count_range(N, Lo, Hi, C) =>
         Q[I] #!= Q[J],
         abs(Q[I] - Q[J]) #!= J - I
     end,
-    C = count_all(solve([ff], Q)).
+    C = count_all_solve([ff], Q).
 
 expect_of(8,  92).
 expect_of(10, 724).

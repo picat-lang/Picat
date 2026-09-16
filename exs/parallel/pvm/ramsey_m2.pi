@@ -70,6 +70,11 @@
 % oracle agrees (N=5: 12).
 
 import sat.
+import sat2.
+%
+% NOTE (run path):  this file imports cp2/sat2 (lib/),  so it runs with
+%   PICATPATH=lib2:lib
+% (multipath:  lib2 first,  lib for cp2/sat2).
 
 main =>
     k_from_env(K),
@@ -181,8 +186,9 @@ slice_count(K, N, M, Lo, C) =>
     no_k_sets(N, K, MM, AllSets, E),
     degree_order(N, E, D),
     ( M > 0, prefix(M, E, Lo) ; true ),
-    (C = count_all(solve([], [E, D])) -> true
-    ; C = 0).
+    % the zero-slice trap (a failed or thrown count IS the count 0) is
+    % handled by sat2's count_all_solve -- no per-callsite guard here.
+    C = count_all_solve([], [E, D]).
 
 % unit constraints E[J] #= bit_J(Lo), J = M..1 (Lo = 1 + bit pattern)
 prefix(0, _E, _V) => true.

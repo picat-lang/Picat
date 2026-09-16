@@ -140,9 +140,14 @@
 % Usage:  from the repo root:
 %   emu/picat -path lib2 exs/parallel/parblock/ramsey_m2_cp.pi
 import cp.
+import cp2.
 import parblock_pvm.
 import parblock_pvm_dyn.
 import parblock_env.
+%
+% NOTE (run path):  this file imports cp2/sat2 (lib/),  so it runs with
+%   PICATPATH=lib2:lib
+% (multipath:  lib2 first,  lib for cp2/sat2).
 
 main =>
     K = from_env("K", 3),
@@ -228,12 +233,12 @@ safe_slice(M, Lo, E, D, C) =>
     end,
     safe_count(E, D, C).
 
+% the zero-slice trap has TWO layers:  the CONSTRAINT POSTING can fail
+% (callsite-specific -- guarded by the "; C = 0" at the task boundary
+% above),  and the COUNT can fail or throw (handled once by cp2's
+% count_all_solve here).
 safe_count(E, D, C) =>
-    catch(count_here(E, D, C), Err, C = 0).
-
-count_here(E, D, C) =>
-    CC = count_all(solve([], [E, D])),
-    C = CC.
+    C = count_all_solve([], [E, D]).
 
 % unit constraints E[J] #= bit_J(V),  J = M..1  (V = 1 + bit pattern)
 prefix(0, _E, _V) => true.

@@ -580,3 +580,18 @@ uf_is_prim(Name) =>
 include "global_reif.pi".
 
 include "global_reif_graph.pi".
+
+%%
+%% count_all_solve(Opts,Vars) = C:  count_all(solve(Opts,Vars)) with the
+%% zero-slice trap handled here instead of at every counting site.  For
+%% SOME CP shapes (FD propagation proves a zero-solution slice
+%% inconsistent),  count_all(solve(...)) FAILS (plainly,  or hard as
+%% error(failed)) instead of returning 0 -- a failed or thrown count is
+%% the count 0;  everything else is the exact count.  This is the
+%% library-level replacement for the per-callsite "; C = 0" fallbacks
+%% and slice_count guards.  (The stale-count failure mode is a separate
+%% one,  handled by cp_reset_store() at the task boundary -- the Bug E
+%% cure -- not here.)
+%%
+count_all_solve(Opts, Vars) = C =>
+    catch( ( count_all(solve(Opts, Vars)) = C0, C = C0 ; C = 0 ), _, C = 0 ).

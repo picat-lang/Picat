@@ -32,7 +32,11 @@
 % count_all counts without materializing the solutions, so no process
 % ever holds a solution list: N=16 needs no sized arena at all.
 %
-import cp.
+import cp2.
+%
+% NOTE (run path):  this file imports cp2/sat2 (lib/),  so it runs with
+%   PICATPATH=lib2:lib
+% (multipath:  lib2 first,  lib for cp2/sat2).
 
 main => run(10, 0).
 main(Args) =>
@@ -45,7 +49,7 @@ nt_of([])   = 0.
 nt_of([NS]) = to_int(NS).
 
 run(N, 0) =>
-    slice_count(N, 1, N*N, C),
+    count_q(N, 1, N*N, C),
     writeln(a=C).
 run(N, NT) =>
     bp.pvm_fork(NT, 2, N*N),
@@ -61,8 +65,12 @@ run(N, NT) =>
       writeln(b=C)
     ).
 
-% count_q fails (it does not return 0) for some zero-solution slices;
-% a failed count IS the count 0.
+% the zero-slice trap has TWO layers:  for some slices the CONSTRAINT
+% POSTING itself fails (FD propagation collapses the domain before
+% count_all runs) -- that layer is callsite-specific (the model build
+% lives here),  guarded by slice_count's "; C = 0" below.  The COUNT
+% layer (a failed or thrown count) is handled once by cp2's
+% count_all_solve inside count_q.
 slice_count(N, Lo, Hi, C) =>
     count_q(N, Lo, Hi, C)
     ;
@@ -77,4 +85,4 @@ count_q(N, Lo, Hi, C) =>
         Q[I] #!= Q[J],
         abs(Q[I]-Q[J]) #!= J-I
     end,
-    C = count_all(solve([ff], Q)).
+    C = count_all_solve([ff], Q).
