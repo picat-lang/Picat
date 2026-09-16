@@ -121,6 +121,9 @@ struct ftab_ent
     BYTE eos;  /* at, past, not */
     BYTE eof_action;  /* ERROR, CODE, or RESET */
     BYTE type;  /* BINARY or TEXT */
+    CHAR *qi_tmp_name;  /* atomic .qi writes:  the temp path this
+                           stream is actually writing;  NULL normally */
+    CHAR *qi_final_name;  /* the .qi path the temp is renamed to at close */
 };
 
 #define READ_MODE 0
@@ -920,6 +923,19 @@ void release_file_index(int i)
     file_table[i].fdes = NULL;
     file_table[i].name_atom = nil_sym;
     file_table[i].aliases = nil_sym;
+    if (file_table[i].qi_tmp_name != NULL) {
+        /* closed without b_CLOSE_c (the compile releases its output
+           stream through this path,  not through close/1):  the
+           compile wrote what it wrote -- rename the temp into place,
+           mirroring the un-redirected behavior (whatever the compile
+           produced is what lands in the .qi).  The rename stays
+           atomic:  readers only ever see a complete file. */
+        rename(file_table[i].qi_tmp_name, file_table[i].qi_final_name);
+        free(file_table[i].qi_tmp_name);
+        free(file_table[i].qi_final_name);
+        file_table[i].qi_tmp_name = NULL;
+        file_table[i].qi_final_name = NULL;
+    }
 }
 
 /*
@@ -1822,7 +1838,34 @@ int b_TELL_cc(BPLONG fop, BPLONG mode)
     }
 
     if (temp_out_file_i < 0) {  /* not in table */
+        CHAR *qi_tmp = NULL, *qi_final = NULL;
         get_file_name(fop);
+        {
+            /* Atomic .qi writes:  two concurrent picats compiling the
+               same module would otherwise truncate and interleave the
+               same .qi (a torn write -- a third picat loading the
+               module reads a partial file),  and a reader racing a
+               writer sees the half-written file.  A .qi is written to
+               a unique temp and renamed into place at close:  rename
+               is atomic on POSIX,  so readers only ever see a
+               complete file and concurrent writers each produce one
+               (the last rename wins).  A crash mid-write leaks the
+               temp and leaves the previous complete .qi in place. */
+            size_t flen = strlen(full_file_name);
+            if (INTVAL(mode) != 1 && flen > 3 &&
+                strcmp(full_file_name + flen - 3, ".qi") == 0) {
+                qi_tmp = malloc(flen + 32);
+                qi_final = malloc(flen + 1);
+                if (qi_tmp == NULL || qi_final == NULL) {
+                    free(qi_tmp); free(qi_final);
+                    qi_tmp = NULL; qi_final = NULL;
+                } else {
+                    strcpy(qi_final, full_file_name);
+                    sprintf(qi_tmp, "%s.tmp.%d", full_file_name, (int)getpid());
+                    strcpy(full_file_name, qi_tmp);
+                }
+            }
+        }
         if(INTVAL(mode) == 1)
 #ifdef WIN32
             tempfile = fopen(full_file_name, "ab");
@@ -1836,6 +1879,7 @@ int b_TELL_cc(BPLONG fop, BPLONG mode)
         tempfile = fopen(full_file_name, "w");
 #endif
         if (tempfile == NULL) {
+            free(qi_tmp); free(qi_final);
             bp_exception = c_permission_error(et_OPEN, et_SOURCE_SINK, fop);
             return BP_ERROR;
         }
@@ -1847,6 +1891,8 @@ int b_TELL_cc(BPLONG fop, BPLONG mode)
         file_table[temp_out_file_i].name_atom = fop;
         file_table[temp_out_file_i].fdes = tempfile;
         file_table[temp_out_file_i].type = STREAM_TYPE_TEXT;
+        file_table[temp_out_file_i].qi_tmp_name = qi_tmp;
+        file_table[temp_out_file_i].qi_final_name = qi_final;
         out_line_no = 0;
         line_position = 0;
     } else {
@@ -1891,6 +1937,7 @@ int b_OPEN_ccf(BPLONG fop, BPLONG sop, BPLONG Index)
 {
     register BPLONG_PTR top;
     BPLONG index, mode;
+    CHAR *qi_tmp = NULL, *qi_final = NULL;
 
     DEREF(sop);
     DEREF(fop);
@@ -1900,6 +1947,26 @@ int b_OPEN_ccf(BPLONG fop, BPLONG sop, BPLONG Index)
         if (!picatpath_read_fallback()) {
             bp_exception = c_existence_error(et_SOURCE_SINK, fop);
             return BP_ERROR;
+        }
+    }
+    {
+        /* atomic .qi writes (see b_TELL_cc):  the open/3-4 write path
+           must redirect like tell does,  else a .qi written here
+           truncates the file in place and a concurrent loader reads
+           the partial bytecode. */
+        size_t flen = strlen(full_file_name);
+        if (mode == 1 && flen > 3 &&
+            strcmp(full_file_name + flen - 3, ".qi") == 0) {
+            qi_tmp = malloc(flen + 32);
+            qi_final = malloc(flen + 1);
+            if (qi_tmp == NULL || qi_final == NULL) {
+                free(qi_tmp); free(qi_final);
+                qi_tmp = NULL; qi_final = NULL;
+            } else {
+                strcpy(qi_final, full_file_name);
+                sprintf(qi_tmp, "%s.tmp.%d", full_file_name, (int)getpid());
+                strcpy(full_file_name, qi_tmp);
+            }
         }
     }
     switch (mode) {
@@ -1928,11 +1995,13 @@ int b_OPEN_ccf(BPLONG fop, BPLONG sop, BPLONG Index)
         bp_exception = illegal_arguments; return BP_ERROR;
     }
     if (!tempfile) {
+        free(qi_tmp); free(qi_final);
         bp_exception = c_permission_error(et_OPEN, et_SOURCE_SINK, fop);
         return BP_ERROR;
     }
     index = next_file_index();
     if (index < 0) {
+        free(qi_tmp); free(qi_final);
         bp_exception = out_of_range; return BP_ERROR;
     }
     file_table[index].mode = mode;
@@ -1941,6 +2010,8 @@ int b_OPEN_ccf(BPLONG fop, BPLONG sop, BPLONG Index)
     file_table[index].aliases = nil_sym;
     file_table[index].eos = STREAM_NOT_EOS;
     file_table[index].type = STREAM_TYPE_TEXT;  /* default type */
+    file_table[index].qi_tmp_name = qi_tmp;
+    file_table[index].qi_final_name = qi_final;
 
     /**/
     if (mode == 0) {
@@ -2013,6 +2084,17 @@ int b_CLOSE_c(BPLONG Index)
             return BP_FALSE;
         }
         fclose(file_table[i].fdes);
+        if (file_table[i].qi_tmp_name != NULL) {
+            /* atomic .qi write:  the temp is complete -- rename it
+               into place (rename is atomic on POSIX,  so readers only
+               ever see a complete .qi and concurrent writers each
+               produce one). */
+            rename(file_table[i].qi_tmp_name, file_table[i].qi_final_name);
+            free(file_table[i].qi_tmp_name);
+            free(file_table[i].qi_final_name);
+            file_table[i].qi_tmp_name = NULL;
+            file_table[i].qi_final_name = NULL;
+        }
         release_file_index(i);
         if (in_file_i == i) {
             in_file_i = 0;  /* reset to user */

@@ -404,6 +404,31 @@ int load_syms(BPLONG file_type)
    Given the name of a bytecode module, this function binds Lst to a list of 
    public predicate and function symbols defined in the module 
 *************************************************************************/
+/* 1 iff file_name ends in .qi and the SIBLING .pi (same directory)
+   exists and is NEWER than the .qi (the stale-.qi guard for
+   c_GET_MODULE_SIGNATURE_cf).  Only the same-directory sibling is
+   consulted:  the stdlib compiles <module>.pi in the same directory
+   shape as this lookup,  so a .pi in another PICATPATH component is
+   unreachable from here and must not shadow the .qi. */
+static int qi_is_stale(CHAR *file_name)
+{
+    size_t flen = strlen(file_name);
+    struct stat qst, pst;
+    CHAR pi_name[MAX_FILE_NAME_LEN];
+
+    if (flen <= 3 || strcmp(file_name + flen - 3, ".qi") != 0)
+        return 0;
+    if (stat(file_name, &qst) != 0)
+        return 0;
+
+    strcpy(pi_name, file_name);
+    pi_name[flen - 2] = 'p';
+    pi_name[flen - 1] = 'i';
+    if (stat(pi_name, &pst) == 0 && pst.st_mtime > qst.st_mtime)
+        return 1;
+    return 0;
+}
+
 int c_GET_MODULE_SIGNATURE_cf() {
     BPLONG File;
     CHAR file_name[MAX_FILE_NAME_LEN];
@@ -434,11 +459,25 @@ int c_GET_MODULE_SIGNATURE_cf() {
             fp = fopen(file_name, "r");
 #endif
         }
-        if (fp == NULL) {
-            printf("file %s not exist\n", file_name);
-            bp_exception = file_does_not_exist;
-            return BP_ERROR;
-        }
+    }
+    if (fp != NULL && qi_is_stale(file_name)) {
+        /*  Stale-.qi guard:  the signature loader prefers an existing
+            .qi unconditionally,  so an edited .pi is shadowed by its
+            stale .qi forever (the "delete the .qi after editing"
+            discipline).  Checked on the RESOLVED name.  Reject the
+            .qi when its same-directory .pi is NEWER:  the stdlib then
+            compiles the .pi fresh and regenerates the .qi
+            automatically.  A .qi with no sibling .pi (a module
+            distributed as .qi only) is always accepted. */
+        fclose(fp);
+        fp = NULL;
+        printf("picat: %s is stale (its .pi is newer); compiling the .pi\n",
+               file_name);
+    }
+    if (fp == NULL) {
+        printf("file %s not exist\n", file_name);
+        bp_exception = file_does_not_exist;
+        return BP_ERROR;
     }
     /* printf("\n     ...... loading file %s curr_fence=%x\n", file,curr_fence); */
 
