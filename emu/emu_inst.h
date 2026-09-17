@@ -300,6 +300,7 @@ lab_fail:
     SF_MARK_ABANDONED(SF, AR_SF(B));
     AR = B;
     H = HB;
+    cpden_search_gen++;   /* the heap just retreated: cache validity changes */
     SF = (BPLONG_PTR)AR_SF(AR);
 
     top = (BPLONG_PTR)AR_T(AR);
@@ -6762,12 +6763,16 @@ lab_garbage_collect:
         if (LOCAL_TOP - H < op1+LARGE_MARGIN) {
             if (op1 != 0) {op1 = stack_size+op1+LARGE_MARGIN-(LOCAL_TOP - H);}
             gc_is_working = 1;
+            __atomic_add_fetch(&gc_working_count, 1, __ATOMIC_SEQ_CST);
             if (expand_local_global_stacks(op1) == BP_ERROR) {
                 bp_exception = et_OUT_OF_MEMORY_STACK;
+                gc_is_working = 0;
+                __atomic_sub_fetch(&gc_working_count, 1, __ATOMIC_SEQ_CST);
                 goto interrupt_handler;
             }
             RESTORE_AR; RESTORE_TOP;
             gc_is_working = 0;
+            __atomic_sub_fetch(&gc_working_count, 1, __ATOMIC_SEQ_CST);
         }
         toam_LOCAL_OVERFLOW_CHECK(8);
     }

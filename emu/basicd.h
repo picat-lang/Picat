@@ -85,6 +85,17 @@ BPULONG toam_signal_vec;
 int user_signal;
 EVENT_FUNC event_func;
 int in_critical_region = 0;
+/*  Number of engines currently running a GC or an arena expansion.
+    Shared (not PAR_TLS):  the timer thread is a pthread without a VM
+    context,  so it cannot see the per-engine TLS flags -- with
+    gc_is_working PAR_TLS its guard never fired and it derefenced
+    heap terms while the GC moved them (nonogram_regular:  SIGSEGV in
+    timerThread).  The counter is touched with atomics from all
+    engines.  */
+volatile int gc_working_count = 0;
+/*  Backtrack generation, per engine:  incremented on every fail.  The
+    CP exclusion-list cache keys record validity on it (see clpfd.c).  */
+PAR_TLS long cpden_search_gen = 0;
 BPLONG fd_region_low;
 BPLONG fd_region_up;
 

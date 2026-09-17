@@ -552,10 +552,13 @@ DWORD WINAPI timerThread(LPVOID timer_no) {
         BPLONG timer;
 
         component_no = *(BPLONG *)timer_no;
-        /* must be synchronized with the garbage collector */
+        /* must be synchronized with the garbage collector:  the engine
+           flags are per-engine (PAR_TLS),  invisible from this thread
+           (a pthread without a VM context),  so the shared
+           gc_working_count is the guard */
         for (; ; ) {
             ENTER_CRITICAL_SECTION;
-            while (gc_is_working) bp_sleep(5);
+            while (gc_working_count > 0) bp_sleep(5);
             in_critical_region = 1;
             timer = cg_lookup_component(TimeOut, component_no);
             if (timer == 0) {
@@ -578,7 +581,7 @@ DWORD WINAPI timerThread(LPVOID timer_no) {
 
             ENTER_CRITICAL_SECTION;
             /* busy waiting, wait until gc is not working */
-            while (gc_is_working) bp_sleep(5);
+            while (gc_working_count > 0) bp_sleep(5);
             in_critical_region = 1;
             timer = cg_lookup_component(TimeOut, component_no);
             if (timer == 0) {

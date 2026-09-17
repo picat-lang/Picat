@@ -50,6 +50,7 @@ int garbage_collector()
     if (toam_signal_vec != 0 || in_critical_region != 0) return BP_TRUE;
 
     gc_is_working = 1;
+    __atomic_add_fetch(&gc_working_count, 1, __ATOMIC_SEQ_CST);
 
     //  printf("==>GC local_top=%x heap_top=%x b(%x)->h =%x, hbreg=%x\n",local_top,heap_top,breg,AR_H(breg),hbreg);
     // show_ar_chain_upto_b(arreg);
@@ -61,18 +62,27 @@ int garbage_collector()
     gc_initialize_ar_chain();
 
     if (sfreg < breg)
-        if (gc_globalize_sf_chain() == BP_ERROR) return BP_ERROR;
+        if (gc_globalize_sf_chain() == BP_ERROR) { gc_is_working = 0;
+            __atomic_sub_fetch(&gc_working_count, 1, __ATOMIC_SEQ_CST);
+            return BP_ERROR; }
     no_gcs++;
     /* printf("=>packTrail\n"); */
     packEntireTrail();
     /* printf("=>eliDup\n"); */
-    if (eliminateDuplicatedTrailInTopSegment() == BP_ERROR) return BP_ERROR;
+    if (eliminateDuplicatedTrailInTopSegment() == BP_ERROR) { gc_is_working = 0;
+        __atomic_sub_fetch(&gc_working_count, 1, __ATOMIC_SEQ_CST);
+        return BP_ERROR; }
     /* printf("=>stack\n"); */
-    if (gcStack() == BP_ERROR) return BP_ERROR;
+    if (gcStack() == BP_ERROR) { gc_is_working = 0;
+        __atomic_sub_fetch(&gc_working_count, 1, __ATOMIC_SEQ_CST);
+        return BP_ERROR; }
     /* printf("=>heap\n"); */
-    if (gcHeap() == BP_ERROR) return BP_ERROR;
+    if (gcHeap() == BP_ERROR) { gc_is_working = 0;
+        __atomic_sub_fetch(&gc_working_count, 1, __ATOMIC_SEQ_CST);
+        return BP_ERROR; }
 
     gc_is_working = 0;
+    __atomic_sub_fetch(&gc_working_count, 1, __ATOMIC_SEQ_CST);
     //  check_susp_frames_reep("<=GC");
     //  printf("<==GC local_top=%x heap_top=%x\n",local_top,heap_top);
     //  show_ar_chain_upto_b(arreg);

@@ -302,10 +302,9 @@ typedef struct cpden_rec {
     int n;               /* total entries */
     int cap;             /* allocated capacity of the arrays above */
     int n1;              /* entries from list1 (rest: list2) */
-    BPLONG_PTR hbmin;    /* backtrack floor at register time: every cell
-                            was below it,  and the floor is monotone
-                            non-decreasing,  so the cells are never
-                            freed by backtracking */
+    long gen;            /* backtrack generation at register time:  the
+                            registered memory is intact while the
+                            generation is unchanged */
     unsigned long key[2];
     int hits;
     int bad;
@@ -366,6 +365,19 @@ static PAR_TLS long cpden_maint = 0;
 extern PAR_TLS BPLONG gc_time;   /* gcstack.c */
 static PAR_TLS BPLONG_PTR cpden_arena_base = (BPLONG_PTR)0;
 static PAR_TLS long cpden_gc_snap = 0;
+/*  Backtrack generation:  incremented on every fail.  heap_top only
+    retreats on the fail path (H = HB, emu_inst.h) and inside the GC
+    (gc_time, guarded separately),  so a record registered at
+    generation G points into memory that is still allocated -- and
+    still holds the registered list -- as long as the generation is
+    still G.  This replaces an earlier backtrack-floor oracle
+    (min AR_H over the live choice points):  that walk is O(depth),
+    far too costly per call (measured on latin_squares:  19.3M
+    exclusion calls),  and,  anchored at the start-up frame breg0,  it
+    excluded essentially every list,  turning the cache into pure
+    overhead.  The generation check is O(1) and keeps the cache
+    useful:  records re-register once per rewind and hit in between. */
+extern PAR_TLS long cpden_search_gen;
 
 static void cpden_wipe(void)
 {
@@ -752,7 +764,7 @@ static int cpden_verify(const cpden_rec *r)
    scratch buffers are returned to the pool either way). */
 static int cpden_register(const unsigned long key[2], BPLONG_PTR *vslot,
                           int *c, BPLONG *cell, int n, int n1, int cap,
-                          BPLONG_PTR hbmin)
+                          long gen)
 {
     int ri, h;
     cpden_rec *r;
@@ -804,7 +816,7 @@ static int cpden_register(const unsigned long key[2], BPLONG_PTR *vslot,
     r->cap = cap;
     r->key[0] = key[0];
     r->key[1] = key[1];
-    r->hbmin = hbmin;
+    r->gen = gen;
     r->hits = 0;
     r->bad = 0;
     r->n = n;
@@ -1053,13 +1065,13 @@ int b_EXCLUDE_ELM_DVARS(BPLONG P_elm, BPLONG P_list1, BPLONG P_list2)
             int ri = cpden_find(key);
             if (ri >= 0) {
                 cpden_rec *rr = &cpden_recs[ri];
-                if ((BPLONG_PTR)hbreg >= rr->hbmin && cpden_fp_ok(rr)) {
+                if (rr->gen == cpden_search_gen && cpden_fp_ok(rr)) {
                     rr->hits++;
                     if ((rr->hits % CPDEN_VERIFY_EVERY) != 1 || cpden_verify(rr)) {
                         cpden_note_hit();
                         return cpden_apply_dvar(rr, elm, P_elm);
                     }
-                } else if ((BPLONG_PTR)hbreg >= rr->hbmin && rr->n > 0
+                } else if (rr->gen == cpden_search_gen && rr->n > 0
                            && cpden_prefix_ok(rr)) {
                     if (cpden_extend_tail(rr)) {
                         cpden_note_hit();
@@ -1100,7 +1112,7 @@ start:
 
         if (building) {
             if ((BPLONG_PTR)ptr >= hbreg) stable = 0;
-            cpden_scratch_add(&s, ptr, 0, P_list);
+            if (stable) cpden_scratch_add(&s, ptr, 0, P_list);
             if (processing_part == 1) s.n1++;
         }
 
@@ -1115,15 +1127,9 @@ start:
     if (building) {
         int called_register = 0;
         if (s.n > 0 && stable) {
-            BPLONG_PTR fl = cpden_heap_floor();
-            int i;
-            for (i = 0; i < s.n; i++) {
-                if (s.vslot[i] >= fl || s.cell[i] >= (BPLONG)fl) { stable = 0; break; }
-            }
-            if (stable) {
-                cpden_register(key, s.vslot, s.c, s.cell, s.n, s.n1, s.cap, fl);
-                called_register = 1;
-            }
+            cpden_register(key, s.vslot, s.c, s.cell, s.n, s.n1, s.cap,
+                           cpden_search_gen);
+            called_register = 1;
         }
         if (!called_register) cpden_scratch_free(&s);
     }
@@ -1165,13 +1171,13 @@ int b_EXCLUDE_ELM_VCS(BPLONG elm, BPLONG P_list)
             int ri = cpden_find(key);
             if (ri >= 0) {
                 cpden_rec *rr = &cpden_recs[ri];
-                if ((BPLONG_PTR)hbreg >= rr->hbmin && cpden_fp_ok(rr)) {
+                if (rr->gen == cpden_search_gen && cpden_fp_ok(rr)) {
                     rr->hits++;
                     if ((rr->hits % CPDEN_VERIFY_EVERY) != 1 || cpden_verify(rr)) {
                         cpden_note_hit();
                         return cpden_apply_vcs(rr, elm);
                     }
-                } else if ((BPLONG_PTR)hbreg >= rr->hbmin && rr->n > 0
+                } else if (rr->gen == cpden_search_gen && rr->n > 0
                            && cpden_prefix_ok(rr)) {
                     if (cpden_extend_tail(rr)) {
                         cpden_note_hit();
@@ -1222,7 +1228,7 @@ int b_EXCLUDE_ELM_VCS(BPLONG elm, BPLONG P_list)
 
         if (building) {
             if ((BPLONG_PTR)lp >= hbreg || (BPLONG_PTR)ptr >= hbreg) stable = 0;
-            cpden_scratch_add(&s, ptr + 1, (int)INTVAL(P_c), lraw);
+            if (stable) cpden_scratch_add(&s, ptr + 1, (int)INTVAL(P_c), lraw);
         }
 
         DEREF_NONVAR(P_list);
@@ -1230,15 +1236,9 @@ int b_EXCLUDE_ELM_VCS(BPLONG elm, BPLONG P_list)
     if (building) {
         int called_register = 0;
         if (s.n > 0 && stable) {
-            BPLONG_PTR fl = cpden_heap_floor();
-            int i;
-            for (i = 0; i < s.n; i++) {
-                if (s.vslot[i] >= fl || s.cell[i] >= (BPLONG)fl) { stable = 0; break; }
-            }
-            if (stable) {
-                cpden_register(key, s.vslot, s.c, s.cell, s.n, s.n, s.cap, fl);
-                called_register = 1;
-            }
+            cpden_register(key, s.vslot, s.c, s.cell, s.n, s.n, s.cap,
+                           cpden_search_gen);
+            called_register = 1;
         }
         if (!called_register) cpden_scratch_free(&s);
     }

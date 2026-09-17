@@ -495,6 +495,8 @@ extern BPLONG number_of_symbols;
 extern BPULONG toam_signal_vec;
 extern int user_signal;
 extern int in_critical_region;
+extern volatile int gc_working_count;  /* GC/expansion in progress, any engine */
+extern PAR_TLS long cpden_search_gen;  /* incremented on every fail */
 extern BPLONG fd_region_low;
 extern BPLONG fd_region_up;
 

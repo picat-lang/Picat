@@ -774,13 +774,17 @@ extern PAR_TLS BPLONG no_gcs;
 #define EXPAND_STACK(margin) if (ULTRAUNLIKELY(LOCAL_TOP - H <= margin)) {     \
         if (toam_signal_vec == 0 && in_critical_region == 0) {  \
             gc_is_working = 1;                                  \
+            __atomic_add_fetch(&gc_working_count, 1, __ATOMIC_SEQ_CST); \
             if (expand_local_global_stacks(0) == BP_ERROR) {    \
                 fprintf(stderr, "%% error: OUT OF MEMORY\n");   \
                 bp_exception = et_OUT_OF_MEMORY_STACK;          \
+                gc_is_working = 0;                              \
+                __atomic_sub_fetch(&gc_working_count, 1, __ATOMIC_SEQ_CST); \
                 goto interrupt_handler;                         \
             }                                                   \
             RESTORE_AR; RESTORE_TOP;                            \
             gc_is_working = 0;                                  \
+            __atomic_sub_fetch(&gc_working_count, 1, __ATOMIC_SEQ_CST); \
         }                                                       \
     }
 
