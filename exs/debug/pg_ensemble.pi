@@ -1,0 +1,420 @@
+% =====================================================================
+% Picagramer HIERARCHICAL ENSEMBLE layer.
+%
+% An ENSEMBLE is a closed unit with FIXED proportions, drawn at an anchor
+% point A with an orientation Or (0 = horizontal, 1 = vertical) chosen by
+% the PARENT solve.  It exposes an ASYMMETRIC bounding box (x0,x1,y0,y1)
+% and named ports; the ports lie ON the box perimeter so links can reach
+% them.  Using a sub-ensemble in a parent means the parent's solve decides
+% the anchor translation and (for the few two-orientation parts) the
+% orientation; the sub-ensemble's internal geometry is never re-solved.
+%
+% Hierarchy: solve a sub-ensemble once, ground it, and use its (padded)
+% bounding box and ports at the next level -- implicit, not the user's job.
+% =====================================================================
+import cp, pg_geom, pg_el, pg_core, pg_shape, pg_schematic.
+
+% a point at Base + constraint offsets DX/DY (Base may be a variable)
+p_at(Base, DX, DY) = P =>
+    P = new_pt(),
+    cpts(Base, BX, BY), cpts(P, PX, PY),
+    PX #= BX + DX, PY #= BY + DY.
+
+% a terminal/voltage point: a free point drawn as a solid disc
+port(D) = P =>
+    P = new_pt(),
+    _ = pg_shape.disc(D, P, 7, new_map([fill=black, stroke=none])).
+
+% a fresh orientation design variable (0 = horizontal, 1 = vertical)
+new_orient() = Or => Or :: 0..1.
+
+% a terminal/voltage point: a solid disc PRIMITIVE with its own bounding
+% box, included in the solver so links that are not connected to it never
+% pass through it.
+terminal(D) = T =>
+    PT = new_pt(),
+    _ = pg_shape.disc(D, PT, 7, new_map([fill=black, stroke=none])),
+    cpts(PT, TX, TY),
+    X0 #= TX - 8, X1 #= TX + 8, Y0 #= TY - 8, Y1 #= TY + 8,
+    T = new_map([p=PT, bx=TX, by=TY, x0=X0, x1=X1, y0=Y0, y1=Y1]).
+
+% a terminal placed ON a port of an ensemble (marks it); links connecting
+% to that port may reach it, all others must stay out of its box.
+terminal_at(D, P, HostE, HostPort) = T =>
+    _ = pg_shape.disc(D, P, 7, new_map([fill=black, stroke=none])),
+    cpts(P, TX, TY),
+    X0 #= TX - 8, X1 #= TX + 8, Y0 #= TY - 8, Y1 #= TY + 8,
+    T = new_map([p=P, host=HostE, hp=HostPort, x0=X0, x1=X1, y0=Y0, y1=Y1]).
+
+% does link L connect to the port that terminal T marks?
+is_host(L, T) =>
+    (L.get(e1) == T.get(host), L.get(p1) == T.get(hp)) ;
+    (L.get(e2) == T.get(host), L.get(p2) == T.get(hp)).
+
+% parent solve: label the document's coordinate variables plus the given
+% extra design variables (orientations, ...) and find one feasible layout
+% a component's OWN local solve: grounds the component's internal design
+% variables (its disposition) so the parent sees a fixed, opaque unit --
+% the anchor stays free for the parent's solve to translate.  Every free
+% coordinate in the design is bounded first: leaving previously-built
+% unbounded vars in the store stalls the CP solver's propagation.
+solve_local(D, Vars) =>
+    B = pg_core.bounds(D),
+    All = pg_el.coord_vars(D.elements, []) ++ Vars,
+    foreach (V in All)
+        if var(V) then V :: B.b_x0..B.b_x1 end
+    end,
+    once(solve([split], Vars)).
+
+solve_ens(D, ExtraVars) =>
+    B = pg_core.bounds(D),
+    Vars = pg_el.coord_vars(D.elements, []) ++ ExtraVars,
+    foreach (V in Vars)
+        if var(V) then V :: B.b_x0..B.b_x1 end
+    end,
+    once(solve([split], Vars)).
+
+% --- resistor: box 56x32 (H) / 32x56 (V), leads to ports at +-48 ---------
+resistor(D, A, Or) = R =>
+    % the component's OWN solve: it decides its disposition (orientation)
+    % individually, then builds grounded relative to its free anchor
+    solve_local(D, [Or]),
+    CP = begin_comp(D),
+    cpts(A, AX, AY),
+    C = new_pt(), cpts(C, CX, CY), CX #= AX, CY #= AY,
+    W #= 56 - Or*24, H #= 32 + Or*24,
+    Bx = pg_shape.box_at(D, C, W, H),
+    Bx.props.put(fill, white), Bx.props.put(stroke, black),
+    Bx.props.put(stroke_width, 2), Bx.props.put(compid, CP),
+    Dx #= 48*(1-Or), Dy #= 48*Or,
+    Ex #= 28*(1-Or), Ey #= 28*Or,
+    Ndx #= -Dx, Ndy #= -Dy, Nex #= -Ex, Ney #= -Ey,
+    Pa = p_at(A, Dx, Dy), Pb = p_at(A, Ndx, Ndy),
+    Ea = p_at(A, Ex, Ey), Eb = p_at(A, Nex, Ney),
+    wire(D, Pa, Ea), wire(D, Eb, Pb),
+    Hw #= 48*(1-Or) + 16*Or, Hh #= 16*(1-Or) + 48*Or,
+    X0 #= AX - Hw, X1 #= AX + Hw, Y0 #= AY - Hh, Y1 #= AY + Hh,
+    end_comp(D),
+    R = new_map([a=Pa, b=Pb, bx=AX, by=AY, x0=X0, x1=X1, y0=Y0, y1=Y1]).
+
+% --- capacitor: two plates, 12 apart, ports at +-40 ----------------------
+capacitor(D, A, Or) = C =>
+    solve_local(D, [Or]),
+    CP = begin_comp(D),
+    cpts(A, AX, AY),
+    Dx #= 6*(1-Or), Dy #= 6*Or,
+    Ndx #= -Dx, Ndy #= -Dy,
+    M1 = p_at(A, Dx, Dy), M2 = p_at(A, Ndx, Ndy),
+    Px #= 16*Or, Py #= 16*(1-Or),
+    Npx #= -Px, Npy #= -Py,
+    P1a = p_at(M1, Px, Py), P1b = p_at(M1, Npx, Npy),
+    P2a = p_at(M2, Px, Py), P2b = p_at(M2, Npx, Npy),
+    wire(D, P1a, P1b), wire(D, P2a, P2b),
+    Lx #= 40*(1-Or), Ly #= 40*Or,
+    Nlx #= -Lx, Nly #= -Ly,
+    Pa = p_at(A, Lx, Ly), Pb = p_at(A, Nlx, Nly),
+    wire(D, Pa, M1), wire(D, M2, Pb),
+    Hw #= 40*(1-Or) + 16*Or, Hh #= 16*(1-Or) + 40*Or,
+    X0 #= AX - Hw, X1 #= AX + Hw, Y0 #= AY - Hh, Y1 #= AY + Hh,
+    end_comp(D),
+    C = new_map([a=Pa, b=Pb, bx=AX, by=AY, x0=X0, x1=X1, y0=Y0, y1=Y1]).
+
+% --- diode: base line | triangle > bar, ports at +-40 --------------------
+diode(D, A, Or) = Dd =>
+    solve_local(D, [Or]),
+    CP = begin_comp(D),
+    cpts(A, AX, AY),
+    Bx0 #=  14*(1-Or), By0 #=  14*Or,
+    Ax0 #= -14*(1-Or), Ay0 #= -14*Or,
+    Base = p_at(A, Bx0, By0), Apex = p_at(A, Ax0, Ay0),
+    Px #= 14*Or, Py #= 14*(1-Or),
+    Npx #= -Px, Npy #= -Py,
+    B1 = p_at(Base, Px, Py), B2 = p_at(Base, Npx, Npy),
+    D1 = p_at(Apex, Px, Py), D2 = p_at(Apex, Npx, Npy),
+    wire(D, B1, B2),
+    _ = pg_shape.polyline(D, [B1, Apex], new_map([fill=none, stroke=black, stroke_width=2])),
+    _ = pg_shape.polyline(D, [B2, Apex], new_map([fill=none, stroke=black, stroke_width=2])),
+    _ = pg_shape.polyline(D, [D1, D2], new_map([fill=none, stroke=black, stroke_width=3])),
+    Lx #= 40*(1-Or), Ly #= 40*Or,
+    Nlx #= -Lx, Nly #= -Ly,
+    Pa = p_at(A, Lx, Ly), Pb = p_at(A, Nlx, Nly),
+    wire(D, Pa, Base), wire(D, Apex, Pb),
+    Hw #= 40*(1-Or) + 16*Or, Hh #= 16*(1-Or) + 40*Or,
+    X0 #= AX - Hw, X1 #= AX + Hw, Y0 #= AY - Hh, Y1 #= AY + Hh,
+    end_comp(D),
+    Dd = new_map([a=Pa, b=Pb, bx=AX, by=AY, x0=X0, x1=X1, y0=Y0, y1=Y1]).
+
+% --- label: text in a box sized so the text fits -------------------------
+label(D, A, Str, Size) = L =>
+    CP = begin_comp(D),
+    cpts(A, AX, AY),
+    W = round(Str.length * Size * 0.62) + 12,
+    H = round(Size * 1.3) + 10,
+    B = pg_shape.box_at(D, A, W, H),
+    B.props.put(fill, white), B.props.put(stroke, none), B.props.put(compid, CP),
+    _ = pg_shape.text(D, A, Str, Size,
+        new_map([text_anchor=middle, v_anchor=middle])),
+    X0 #= AX - W//2, X1 #= AX + W//2, Y0 #= AY - H//2, Y1 #= AY + H//2,
+    end_comp(D),
+    L = new_map([bx=AX, by=AY, x0=X0, x1=X1, y0=Y0, y1=Y1]).
+
+% --- labeled parts: part + an upright label ABOVE it ---------------------
+% the label stays upright above the part (the "does not rotate with the
+% part" choice); the combined asymmetric box covers both and keeps the
+% ports on the box perimeter.
+labeled_resistor(D, A, Or, Str) = R =>
+    R = add_label(D, resistor(D, A, Or), Str, Or).
+labeled_capacitor(D, A, Or, Str) = C =>
+    C = add_label(D, capacitor(D, A, Or), Str, Or).
+labeled_diode(D, A, Or, Str) = Dd =>
+    Dd = add_label(D, diode(D, A, Or), Str, Or).
+
+add_label(D, C, Str, Or) = Cl =>
+    Size = 14,
+    W = round(Str.length * Size * 0.62) + 12,
+    H = round(Size * 1.3) + 10,
+    LH = H//2,
+    La = new_pt(), cpts(La, LAX, LAY),
+    % label above the part's top edge
+    LAX #= C.get(bx),
+    LAY #= C.get(y0) - (6 + LH),
+    _ = label(D, La, Str, Size),
+    PX0 = C.get(x0), PX1 = C.get(x1),
+    X0 #= min(PX0, LAX - W//2), X1 #= max(PX1, LAX + W//2),
+    Y0 #= C.get(y0) - (6 + H), Y1 #= C.get(y1),
+    Cl = new_map([a=C.get(a), b=C.get(b), bx=C.get(bx), by=C.get(by),
+        x0=X0, x1=X1, y0=Y0, y1=Y1]).
+
+% --- NPN transistor (fixed orientation), centre A -------------------------
+transistor(D, A) = Q =>
+    [B, C, E] = transistor_npn(D, A, 1),
+    cpts(A, AX, AY),
+    X0 #= AX - 70, X1 #= AX + 70, Y0 #= AY - 80, Y1 #= AY + 80,
+    Q = new_map([b=B, c=C, e=E, bx=AX, by=AY, x0=X0, x1=X1, y0=Y0, y1=Y1]).
+
+% --- NAND gate as a grounded ensemble -------------------------------------
+% two series NPNs (Q1 above Q2), a collector resistor to Vcc, ground at the
+% emitter; single orientation.  Ports a, b sit on the box's LEFT edge and
+% out on its RIGHT edge, so links can reach them.
+nand_ens(D, A) = G =>
+    cpts(A, AX, AY),
+    CP = begin_comp(D),
+    C1 = p_at(A, 0, -80), C2 = p_at(A, 0, 80),
+    [Q1b, Q1c, Q1e] = transistor_npn(D, C1, 1),
+    [Q2b, Q2c, Q2e] = transistor_npn(D, C2, 1),
+    OUT = Q1c,                             % collector node (Q1e meets Q2c)
+    RcC = p_at(A, 18, -200),
+    Bx = pg_shape.box_at(D, RcC, 32, 56),
+    Bx.props.put(fill, white), Bx.props.put(stroke, black),
+    Bx.props.put(stroke_width, 2),
+    Vcc = p_at(A, 18, -248),
+    Rn = p_at(A, 18, -172), Rs = p_at(A, 18, -228),
+    wire(D, OUT, Rn), wire(D, Rs, Vcc),
+    ground(D, Q2e),
+    % extend the output to the box's right edge so out is on the perimeter
+    OXP = p_at(A, 90, -160),
+    wire(D, OUT, OXP),
+    end_comp(D),
+    X0 #= AX - 80, X1 #= AX + 90, Y0 #= AY - 250, Y1 #= AY + 185,
+    G = new_map([a=Q1b, b=Q2b, out=OXP, bx=AX, by=AY, x0=X0, x1=X1, y0=Y0, y1=Y1]).
+
+% --- Manhattan link between ports P (on E1) and Q (on E2) -----------------
+link(D, P, Q, E1, P1, E2, P2) = L =>
+    cpts(P, PX, PY), cpts(Q, QX, QY),
+    SD :: 0..1,
+    B1 = new_pt(), cpts(B1, B1X, B1Y),
+    B2 = new_pt(), cpts(B2, B2X, B2Y),
+    B3 = new_pt(), cpts(B3, B3X, B3Y),
+    % four legs, three bends.  SD=0: horizontal detour leg first (wire
+    % fans out sideways, then drops); SD=1: vertical detour leg first.
+    % The detour variable (B1X resp. B1Y) free lets side-by-side runs
+    % replace overlapping ones; set equal to the port coordinate it
+    % degenerates to the plain 2-bend Z.
+    % SD=0: horizontal first (P->B1 at y=PY), then vertical, horizontal,
+    % vertical.  Free: B1X (the fan-out x) and B2Y (the mid height).
+    % B1X = PY... i.e. B1X = PX degenerates to the plain 2-bend Z.
+    (SD #= 0) #=> (B1Y #= PY #/\ B2X #= B1X #/\ B2Y #= B3Y #/\ B3X #= QX),
+    % SD=1: vertical first, then horizontal, vertical, horizontal.
+    % Free: B1Y (the fan-out height) and B2X (the arrival x).
+    (SD #= 1) #=> (B1X #= PX #/\ B2Y #= B1Y #/\ B3X #= B2X #/\ B3Y #= QY),
+    route(D, [P, B1, B2, B3, Q]),
+    L = new_map([e1=E1, p1=P1, e2=E2, p2=P2,
+        l1={P,B1}, l2={B1,B2}, l3={B2,B3}, l4={B3,Q}]),
+    add_link(D, L).
+
+
+
+
+% --- two bounding boxes must not intersect (with padding) -----------------
+no_box_ovl(E1, E2) => no_box_ovl(E1, E2, 0).
+no_box_ovl(E1, E2, Pad) =>
+    X01 = E1.get(x0), X11 = E1.get(x1), Y01 = E1.get(y0), Y11 = E1.get(y1),
+    X02 = E2.get(x0), X12 = E2.get(x1), Y02 = E2.get(y0), Y12 = E2.get(y1),
+    Ox #<=> (X01 - Pad #< X12 + Pad #/\ X02 - Pad #< X11 + Pad),
+    Oy #<=> (Y01 - Pad #< Y12 + Pad #/\ Y02 - Pad #< Y11 + Pad),
+    Ov #<=> Ox #/\ Oy,
+    #~Ov.
+
+% a point stays outside an ensemble's padded bounding box
+no_pt_in_box(P, En, Pad) =>
+    cpts(P, PX, PY),
+    Out #<=> (PX #< En.get(x0) - Pad) #\/ (PX #> En.get(x1) + Pad)
+        #\/ (PY #< En.get(y0) - Pad) #\/ (PY #> En.get(y1) + Pad),
+    Out #= 1.
+
+% --- every link leg stays out of every ensemble's padded box ------------
+% except that a link's first/last leg may touch the box of its source /
+% target port (Pad=0 for its own box, full Pad for the others).
+no_link_through(_, [], _, _) => true.
+no_link_through(D, [L|Ls], Ens, Terminals, Pad) =>
+    E1 = L.get(e1), E2 = L.get(e2),
+    {P,B1} = L.get(l1), {B1b,B2} = L.get(l2), {B2c,B3} = L.get(l3),
+    {B3b,Q} = L.get(l4),
+    foreach (En in Ens)
+        ( En == E1 -> no_seg_box(P, B1, En, 0) ; no_seg_box(P, B1, En, Pad) )
+    end,
+    foreach (En in Ens)
+        % the middle legs get pad 0 at the link's own source/target boxes
+        % too: a wire may run along the edge of the gate whose pin it
+        % leaves or reaches
+        ( En == E1 ; En == E2 ->
+            no_seg_box(B1, B2, En, 0),
+            no_seg_box(B2, B3, En, 0)
+        ;
+            no_seg_box(B1, B2, En, Pad),
+            no_seg_box(B2, B3, En, Pad) )
+    end,
+    foreach (En in Ens)
+        ( En == E2 -> no_seg_box(B3, Q, En, 0) ; no_seg_box(B3, Q, En, Pad) )
+    end,
+    foreach (T in Terminals)
+        ( is_host(L, T) -> true ; check_legs_terms(D, L, T, 2) )
+    end,
+    no_link_through(D, Ls, Ens, Terminals, Pad).
+no_link_through(_, [], _, _, _) => true.
+
+check_legs_terms(D, L, T, Pad) =>
+    {P,B1} = L.get(l1), {B1b,B2} = L.get(l2), {B2c,B3} = L.get(l3),
+    {B3b,Q} = L.get(l4),
+    no_seg_box(P, B1, T, Pad), no_seg_box(B1, B2, T, Pad),
+    no_seg_box(B2, B3, T, Pad), no_seg_box(B3, Q, T, Pad).
+
+
+
+% an axis-aligned segment stays out of the padded box interior (reified
+% orientation, so it works before the coordinates are labelled)
+no_seg_box(A, B, En, Pad) =>
+    cpts(A, AX, AY), cpts(B, BX, BY),
+    X0 = En.get(x0), X1 = En.get(x1), Y0 = En.get(y0), Y1 = En.get(y1),
+    Hor #<=> (AY #= BY),
+    Vert #<=> (AX #= BX),
+    InY #<=> (AY #> Y0 - Pad #/\ AY #< Y1 + Pad),
+    OvX #<=> ((AX #< X1 + Pad #/\ BX #> X0 - Pad) #\/ (BX #< X1 + Pad #/\ AX #> X0 - Pad)),
+    PassH #<=> (InY #/\ OvX),
+    InX #<=> (AX #> X0 - Pad #/\ AX #< X1 + Pad),
+    OvY #<=> ((AY #< Y1 + Pad #/\ BY #> Y0 - Pad) #\/ (BY #< Y1 + Pad #/\ AY #> Y0 - Pad)),
+    PassV #<=> (InX #/\ OvY),
+    Bad #<=> (Hor #/\ PassH) #\/ (Vert #/\ PassV),
+    #~Bad.
+
+% --- implicit hierarchy ---------------------------------------------------
+% schematic/6: ONE call builds a whole circuit declaratively.  Phase 1
+% places the grounded parts (their anchor translations + orientations,
+% padded boxes disjoint); phase 2 creates the TERMINALS and the links and
+% places terminals + routes links together, so terminals land where the
+% links can reach them and links avoid every box (including terminals
+% they are not connected to) and never overlap collinearly.
+schematic(D, Parts, Anchors, Oris, Terminals, Links, Pad) =>
+    % the sub-ensembles solved and fixed themselves (solve_local in their
+    % constructors); the parent then places them (phase 1: anchors) and
+    % routes the links (phase 2)
+    foreach (I in 1..Parts.length, J in I+1..Parts.length)
+        no_box_ovl(Parts[I], Parts[J], Pad)
+    end,
+    solve_ens(D, Oris),
+    % phase 2: terminals + links, placed and routed together
+    TAll = Parts ++ Terminals,
+    foreach (T in Terminals, E in Parts)
+        no_box_ovl(T, E, Pad)
+    end,
+    foreach (I in 1..Terminals.length, J in I+1..Terminals.length)
+        no_box_ovl(Terminals[I], Terminals[J], Pad)
+    end,
+    Ls = [link(D, E1.get(P1), E2.get(P2), E1, P1, E2, P2) : {E1,P1,E2,P2} in Links],
+    B = pg_core.bounds(D),
+    Vars = pg_el.coord_vars(D.elements, []),
+    foreach (V in Vars)
+        if var(V) then V :: B.b_x0..B.b_x1 end
+    end,
+    no_link_through(D, Ls, Parts, Terminals, Pad),
+    NS = D.get(no_shared_links, false),
+    ( NS -> no_shared_links(D, Ls) ; true ),
+    once(solve([split], Vars)).
+
+% phase 1 of a hierarchy: label only the given anchors + orientations
+solve_anchors(D, Anchors, Oris) =>
+    B = pg_core.bounds(D),
+    Vars = [C : A in Anchors, C in [x(A), y(A)]] ++ Oris,
+    foreach (V in Vars)
+        if var(V) then V :: B.b_x0..B.b_x1 end
+    end,
+    once(solve([split], Vars)).
+
+% --- no two links run collinearly along the same track -----------------
+% only legs of DIFFERENT links are compared (a single link's own legs may
+% be collinear in a degenerate shape, e.g. a straight vertical link).
+no_shared_links(D, Ls) =>
+    LLegs = [{A,B,L} : L in Ls, {A,B} in [L.get(l1), L.get(l2), L.get(l3), L.get(l4)]],
+    foreach (I in 1..LLegs.length, J in I+1..LLegs.length)
+        % Dp, not D: D is this predicate's first parameter -- the
+        % document -- so the old {C,D,...} pattern tried to unify the
+        % document with a leg point and failed on EVERY cross-link pair
+        {A,B,L1} = LLegs[I], {C,Dp,L2} = LLegs[J],
+        if L1 != L2, not same_net(L1, L2) then
+            no_shared_runs(A, B, C, Dp)
+        else
+            true
+        end
+    end.
+
+% two links are on the same electrical net if they share an (ensemble,port)
+same_net(L1, L2) =>
+    (L1.get(e1) == L2.get(e1), L1.get(p1) == L2.get(p1))
+    ; (L1.get(e1) == L2.get(e2), L1.get(p1) == L2.get(p2))
+    ; (L1.get(e2) == L2.get(e1), L1.get(p2) == L2.get(p1))
+    ; (L1.get(e2) == L2.get(e2), L1.get(p2) == L2.get(p2)).
+
+% two axis-aligned segments must not overlap collinearly with positive
+% length (redundant wire runs on the same track)
+no_shared_runs(A, B, C, D) =>
+    cpts(A, AX, AY), cpts(B, BX, BY), cpts(C, CX, CY), cpts(D, DX, DY),
+    % STRICT: no two different nets share ANY stretch of track
+    Vx #<=> (AX #= BX #/\ CX #= DX #/\ AX #= CX),
+    CYin #<=> ((AY #< CY #/\ CY #< BY) #\/ (BY #< CY #/\ CY #< AY)),
+    DYin #<=> ((AY #< DY #/\ DY #< BY) #\/ (BY #< DY #/\ DY #< AY)),
+    AYin #<=> ((CY #< AY #/\ AY #< DY) #\/ (DY #< AY #/\ AY #< CY)),
+    BYin #<=> ((CY #< BY #/\ BY #< DY) #\/ (DY #< BY #/\ BY #< CY)),
+    Vov #<=> (CYin #\/ DYin #\/ AYin #\/ BYin),
+    Hx #<=> (AY #= BY #/\ CY #= DY #/\ AY #= CY),
+    CXin #<=> ((AX #< CX #/\ CX #< BX) #\/ (BX #< CX #/\ CX #< AX)),
+    DXin #<=> ((AX #< DX #/\ DX #< BX) #\/ (BX #< DX #/\ DX #< AX)),
+    AXin #<=> ((CX #< AX #/\ AX #< DX) #\/ (DX #< AX #/\ AX #< CX)),
+    BXin #<=> ((CX #< BX #/\ BX #< DX) #\/ (DX #< BX #/\ BX #< CX)),
+    Hov #<=> (CXin #\/ DXin #\/ AXin #\/ BXin),
+    Run #<=> (Vx #/\ Vov) #\/ (Hx #/\ Hov),
+    #~Run.
+
+
+solve_phase1(D, ExtraVars) => solve_ens(D, ExtraVars).
+
+solve_phase2(D, Ens, Pad) =>
+    B = pg_core.bounds(D),
+    Vars = pg_el.coord_vars(D.elements, []),
+    foreach (V in Vars)
+        if var(V) then V :: B.b_x0..B.b_x1 end
+    end,
+    no_link_through(D, links(D), Ens, Pad),
+    once(solve([split], Vars)).
+
+links(D) = Ls => Ls = [L : L in D.get(links, [])].
+add_link(D, L) => D.put(links, D.get(links, []) ++ [L]).

@@ -36,8 +36,7 @@
 %   (queens_first-style in-region reports have no such loss: there
 %   a worker reports its own discovery.)
 %
-% ENGINE BUGS (emu-level, all pre-existing, pinned while building this;
-% minimal repros in scratch/reif/parblock/):
+% ENGINE BUGS (emu-level, all pre-existing, pinned while building this):
 %  (a) A MODULE-QUALIFIED dynamic call/apply whose target compiles to a
 %      FUNCTION hangs -- in pure serial code, with no PVM at all
 %      (repro: q1.pi call(mod.ff,1) / q2.pi apply on mod.ff, both hang;
@@ -166,8 +165,8 @@ serial(5, S) =>
 % catch inside the delegation window, a subsequent `[T | V]`
 % cons of that value displays fine but the PVM codec
 % (pvm_enc_term's list walk, emu/parvm.c) reads it back as just
-% its first element -- an emu bug (probe: scratch/reif/parblock/
-% sc.pi);  a tuple references rather than splices V and
+% its first element (fixed: the walk now derefs the tail);  a
+% tuple references rather than splices V and
 % round-trips exactly.  Do not splice window-exit values into
 % lists in 1b task-parallel code either.
 race_clause(T, V) =>

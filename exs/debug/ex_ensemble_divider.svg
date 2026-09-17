@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="311" height="150" viewBox="-47 -40 311 150">
+<rect x="-47" y="-40" width="311" height="150" fill="white"/>
+<circle cx="0" cy="50" r="7" fill="black" stroke="none" stroke-width="2" opacity="1"/>
+<rect x="20.0" y="34.0" width="56" height="32" fill="white" stroke="black" stroke-width="2" opacity="1"/>
+<line x1="96" y1="50" x2="76" y2="50" stroke="black" stroke-width="2" opacity="1"/>
+<line x1="20" y1="50" x2="0" y2="50" stroke="black" stroke-width="2" opacity="1"/>
+<rect x="33.5" y="0.0" width="29" height="28" fill="white" stroke="none" stroke-width="2" opacity="1"/>
+<rect x="132.0" y="34.0" width="56" height="32" fill="white" stroke="black" stroke-width="2" opacity="1"/>
+<line x1="208" y1="50" x2="188" y2="50" stroke="black" stroke-width="2" opacity="1"/>
+<line x1="132" y1="50" x2="112" y2="50" stroke="black" stroke-width="2" opacity="1"/>
+<rect x="145.5" y="0.0" width="29" height="28" fill="white" stroke="none" stroke-width="2" opacity="1"/>
+<polyline points="96,50 96,50 96,0 112,0 112,50" fill="none" stroke="black" stroke-width="2" opacity="1"/>
+<line x1="192" y1="50" x2="224" y2="50" stroke="black" stroke-width="2" opacity="1"/>
+<line x1="198" y1="60" x2="218" y2="60" stroke="black" stroke-width="2" opacity="1"/>
+<line x1="204" y1="70" x2="212" y2="70" stroke="black" stroke-width="2" opacity="1"/>
+<text x="48" y="14" font-family="DejaVu Sans" font-size="14" font-weight="normal" font-style="normal" fill="darkslategray" text-anchor="middle" dominant-baseline="central" letter-spacing="0" opacity="1">R1</text>
+<text x="160" y="14" font-family="DejaVu Sans" font-size="14" font-weight="normal" font-style="normal" fill="darkslategray" text-anchor="middle" dominant-baseline="central" letter-spacing="0" opacity="1">R2</text>
+</svg>

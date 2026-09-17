@@ -1,0 +1,407 @@
+module pg_ascii.
+
+% =====================================================================
+% Picagramer ASCII output: a faithful terminal rendering for inspecting
+% wire geometry -- overlapping wires, crossings, proportions.
+%
+%   ascii(D)                 print the drawing + legend to stdout
+%
+% FAITHFUL WHERE IT MATTERS (nothing looks coincident unless it is):
+%   - The picture is capped at 160 columns; the scale follows from the
+%     span and SY = 2*SX keeps it proportional in the terminal (a cell
+%     is ~2x taller than wide).
+%   - Cells where two DIFFERENT nets land but their segments do not
+%     really share track are marked ':' (squeezed: distinct tracks
+%     closer than one cell).  Real overlaps get '#', 90-degree
+%     crossings '+', so a coincidence is only ever shown where the
+%     geometry really has one.
+%   - Nets are rebuilt from the routed wires (top-level $seg/$polyline,
+%     i.e. elements not inside a component) by joining segments that
+%     share an endpoint; every net is drawn with one letter (a, b, c,
+%     ...) so runs of letters trace each net.  Component-internal wires
+%     (inside begin_comp/end_comp) are drawn as generic | - / chars
+%     without letters, so letters only mark real routed nets.
+%   - Cell priority (later paints over earlier): box borders and
+%     component text, generic shapes, internal wires, net letters,
+%     terminals, '+' at 90-degree crossings of DIFFERENT nets, '#'
+%     where segments of different nets REALLY share track (colinear,
+%     positive-length overlap).  Same-net shared track (a fan-out pair)
+%     keeps its letter.
+%   - The legend lists the nets, the real '#' overlaps and the number
+%     of '+' crossings.
+% =====================================================================
+
+import pg_geom, pg_el, pg_core.
+
+% --- entry point -------------------------------------------------------
+ascii(D) =>
+    Es = pg_core.ordered_elements(D),
+    {Routed, Intern, Bodies, Terminals, Texts, Others} = classify(Es),
+    RSegs = flat([el_segs(E) : E in Routed]),
+    ISegs = flat([el_segs(E) : E in Intern]),
+    Tagged = net_tags(RSegs),
+    Letter = letters(Tagged),
+    % faithful scale: the min gap between distinct wire tracks, per axis
+    {X0, X1, Y0, Y1} = pg_core.content_bbox(D),
+    {SX, SY} = scale_pair(X1 - X0, 160),
+    Cols = round((X1 - X0) / SX) + 1,
+    Rows = round((Y1 - Y0) / SY) + 1,
+    Gr = new_array(Rows, Cols),
+    foreach (R in 1..Rows, C in 1..Cols)
+        Gr[R,C] := ' '
+    end,
+    Owner = new_array(Rows, Cols),         % net per painted letter cell
+    Conf = new_array(Rows, Cols),          % cells contested by 2+ nets
+    foreach (R in 1..Rows, C in 1..Cols)   % new_array leaves cells unbound
+        Owner[R,C] := 0, Conf[R,C] := 0
+    end,
+    foreach (E in Bodies) paint_body(Gr, X0, SX, Y1, SY, E) end,
+    foreach (E in Texts) paint_text(Gr, X0, SX, Y1, SY, E) end,
+    foreach (E in Others) paint_other(Gr, X0, SX, Y1, SY, E) end,
+    foreach ({P1, P2} in ISegs)
+        paint_seg(Gr, X0, SX, Y1, SY, P1, P2, int_ch(P1, P2))
+    end,
+    foreach ({P1, P2, G} in Tagged)
+        paint_routed(Gr, Owner, Conf, X0, SX, Y1, SY, P1, P2, G,
+            Letter.get(G, '?'))
+    end,
+    foreach (E in Terminals) paint_terminal(Gr, X0, SX, Y1, SY, E) end,
+    {Crosses, Ovls} = marks(Tagged, X0, SX, Y1, SY),
+    foreach ({R, C} in Crosses)
+        set_cell(Gr, R, C, '+')
+    end,
+    foreach ({_, _, Cells} in Ovls)
+        foreach ({R, C} in Cells)
+            set_cell(Gr, R, C, '#')
+        end
+    end,
+    % contested cells not explained by a real overlap or a crossing are
+    % SQUEEZED: distinct tracks closer than one cell, never a coincidence
+    Sq = 0,
+    foreach (R in 1..Rows, C in 1..Cols)
+        ( Conf[R,C] == 1 ->
+            ( Gr[R,C] == '+' ; Gr[R,C] == '#' -> true
+            ; Gr[R,C] := ':', Sq := Sq + 1 )
+        ; true )
+    end,
+    % the drawing (trailing blanks trimmed)
+    foreach (R in 1..Rows)
+        Last = max([C : C in 1..Cols, Gr[R,C] != ' '] ++ [1]),
+        printf("%s\n", [Gr[R,C] : C in 1..Last])
+    end,
+    % the legend
+    nl,
+    Gs = dedup(sort([G : {_, _, G} in Tagged])),
+    println("nets:"),
+    foreach (G in Gs)
+        SegsG = [{P1, P2} : {P1, P2, G2} in Tagged, G2 == G],
+        Xs = [x(P) : {P1, P2} in SegsG, P in [P1, P2]],
+        Ys = [y(P) : {P1, P2} in SegsG, P in [P1, P2]],
+        printf("  %s: %d segments, bbox (%d,%d)-(%d,%d)\n",
+            [Letter.get(G)], SegsG.length, min(Xs), min(Ys), max(Xs), max(Ys))
+    end,
+    ( Sq == 0 -> println(": squeezed cells: none")
+    ; printf(": squeezed cells (distinct tracks closer than one cell): %d\n", Sq) ),
+    ( Ovls == [] -> println("real overlaps (#): none") ; true ),
+    foreach ({G1, G2, Cells} in Ovls)
+        printf("  %s x %s: %d cells\n",
+            [Letter.get(G1)], [Letter.get(G2)], Cells.length)
+    end,
+    printf("+ crossings: %d\n", Crosses.length),
+    printf("scale: 1 col = %w units, 1 row = %w units, grid %d x %d\n",
+        SX, SY, Cols, Rows).
+
+% --- classify the elements ---------------------------------------------
+% routed wires: top-level segs/polylines (compid none); internal wires:
+% elements inside a component (compid is the comp path)
+classify(Es) = {Routed, Intern, Bodies, Terminals, Texts, Others} =>
+    Routed = [], Intern = [], Bodies = [], Terminals = [], Texts = [], Others = [],
+    foreach (E in Es)
+        ( E = $seg(_, _, P) ->
+            ( routed(P) -> Routed := Routed ++ [E] ; Intern := Intern ++ [E] )
+        ; E = $polyline(_, P) ->
+            ( routed(P) -> Routed := Routed ++ [E] ; Intern := Intern ++ [E] )
+        ; E = $box(_, _, _, _, _) -> Bodies := Bodies ++ [E]
+        ; E = $labelled_box(_, _, _, _, _, _, _) -> Bodies := Bodies ++ [E]
+        ; E = $disc(_, _, P) ->
+            ( P.get(compid, none) != none -> Bodies := Bodies ++ [E]
+            ; Terminals := Terminals ++ [E] )
+        ; E = $text(_, _, _, _) -> Texts := Texts ++ [E]
+        ; Others := Others ++ [E] )
+    end.
+
+routed(P) => P.get(compid, none) == none.
+
+% the wire segments of one element, as {P1, P2} pairs
+el_segs(E) = Ss, E = $seg(A, B, _) => Ss = [{A, B}].
+el_segs(E) = Ss, E = $polyline(Pts, _) =>
+    Ss = [{Pts[I], Pts[I+1]} : I in 1..Pts.length-1].
+el_segs(_) = [] => true.
+
+% --- nets: join routed segments that share an endpoint (union-find) ----
+net_tags(Segs) = Tagged =>
+    Key2G = new_map(),
+    GKeys = new_map(),
+    Next = new_map([n=0]),
+    Tagged = [],
+    foreach (S in Segs)
+        {P1, P2} = S,
+        K1 = pkey(P1), K2 = pkey(P2),
+        G1 = Key2G.get(K1, 0), G2 = Key2G.get(K2, 0),
+        ( G1 == 0, G2 == 0 ->
+            G = Next.get(n, 0) + 1, Next.put(n, G),
+            Key2G.put(K1, G), Key2G.put(K2, G),
+            GKeys.put(G, [K1, K2])
+        ; G1 != 0, G2 == 0 ->
+            G = G1, Key2G.put(K2, G),
+            GKeys.put(G, GKeys.get(G) ++ [K2])
+        ; G1 == 0, G2 != 0 ->
+            G = G2, Key2G.put(K1, G),
+            GKeys.put(G, GKeys.get(G) ++ [K1])
+        ; G1 == G2 ->
+            G = G1
+        ;
+            G = G1,
+            foreach (K in GKeys.get(G2))
+                Key2G.put(K, G)
+            end,
+            GKeys.put(G, GKeys.get(G) ++ GKeys.get(G2))
+        ),
+        Tagged := Tagged ++ [{P1, P2, G}]
+    end.
+
+pkey(P) = K => K = {round(x(P)), round(y(P))}.
+
+% one letter per net, in order of first appearance
+letters(Tagged) = Lm =>
+    Pool = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@%$&=!{}[]",
+    Lm = new_map(), N = new_map([n=0]),
+    foreach ({_, _, G} in Tagged)
+        ( Lm.has_key(G) -> true
+        ; N.get(n, 0) < Pool.length ->
+            Lm.put(G, Pool[N.get(n, 0) + 1]), N.put(n, N.get(n, 0) + 1)
+        ; Lm.put(G, '?') )
+    end.
+
+% --- scale: capped at Target columns, proportional rows -----------------
+% A terminal cell is ~2x taller than wide, so SY = 2*SX keeps the
+% picture proportional in the terminal.  Distinct tracks closer than
+% one cell are squeezed and marked ':' (see cell_nets/marks).
+scale_pair(SpanX, Target) = {SX, SY} =>
+    A = 2,
+    SX = max(SpanX, 1) / (Target - 1),
+    SY = A * SX.
+
+dedup([]) = [] => true.
+dedup([X]) = [X] => true.
+dedup([X, Y|Rest]) = D, X == Y => D = dedup([Y|Rest]).
+dedup([X, Y|Rest]) = [X|dedup([Y|Rest])] => true.
+
+% --- painting ------------------------------------------------------------
+cx(X0, SX, X) = C => C = round((X - X0) / SX) + 1.
+cy(Y1, SY, Y) = R => R = round((Y1 - Y) / SY) + 1.
+
+paint_body(Gr, X0, SX, Y1, SY, E), E = $box(C, W, H, _, _) =>
+    box_frame(Gr, X0, SX, Y1, SY,
+        x(C) - W//2, x(C) + W//2, y(C) - H//2, y(C) + H//2).
+paint_body(Gr, X0, SX, Y1, SY, E), E = $labelled_box(C, W, H, Str, _, _, _) =>
+    C0 = cx(X0, SX, x(C) - W//2), C1 = cx(X0, SX, x(C) + W//2),
+    box_frame(Gr, X0, SX, Y1, SY,
+        x(C) - W//2, x(C) + W//2, y(C) - H//2, y(C) + H//2),
+    Lines = pg_el.text_lines(Str),
+    N = Lines.length,
+    RC = cy(Y1, SY, y(C)),
+    foreach ({L, I} in zip(Lines, 1..N))
+        R = RC + I - 1 - (N - 1) // 2,
+        SC = (C0 + C1 - L.length) // 2,
+        foreach (J in 1..L.length)
+            ( SC + J - 1 > C0, SC + J - 1 < C1 ->
+                set_cell(Gr, R, SC + J - 1, L[J])
+            ; true )
+        end
+    end.
+
+paint_body(Gr, X0, SX, Y1, SY, E), E = $disc(C, _, _) =>
+    set_cell(Gr, cy(Y1, SY, y(C)), cx(X0, SX, x(C)), 'O').
+paint_body(_, _, _, _, _, _) => true.
+
+box_frame(Gr, X0, SX, Y1, SY, XL, XR, YT, YB) =>
+    C0 = cx(X0, SX, XL), C1 = cx(X0, SX, XR),
+    R0 = cy(Y1, SY, YT), R1 = cy(Y1, SY, YB),
+    draw_h(Gr, C0, C1, R0, '-'), draw_h(Gr, C0, C1, R1, '-'),
+    draw_v(Gr, R0, R1, C0, '|'), draw_v(Gr, R0, R1, C1, '|'),
+    set_cell(Gr, R0, C0, '+'), set_cell(Gr, R0, C1, '+'),
+    set_cell(Gr, R1, C0, '+'), set_cell(Gr, R1, C1, '+').
+
+paint_text(Gr, X0, SX, Y1, SY, E), E = $text(Pt, Str, _, P) =>
+    Lines = pg_el.text_lines(Str),
+    TA = P.get(text_anchor, start),
+    foreach ({L, I} in zip(Lines, 1..Lines.length))
+        XC = cx(X0, SX, x(Pt)),
+        ( TA == middle -> SC = XC - L.length // 2
+        ; TA == end -> SC = XC - L.length
+        ; SC = XC ),
+        R = cy(Y1, SY, y(Pt)) + I - 1,
+        foreach (J in 1..L.length)
+            set_cell(Gr, R, SC + J - 1, L[J])
+        end
+    end.
+
+paint_text(_, _, _, _, _, _) => true.
+
+paint_terminal(Gr, X0, SX, Y1, SY, E), E = $disc(C, _, _) =>
+    set_cell(Gr, cy(Y1, SY, y(C)), cx(X0, SX, x(C)), 'O').
+
+paint_other(Gr, X0, SX, Y1, SY, E), E = $arc(C, R, T0, T1, _, _) =>
+    N = 16,
+    foreach (I in 0..N-1)
+        A0 = T0 + (T1-T0)*I/N, A1 = T0 + (T1-T0)*(I+1)/N,
+        paint_seg(Gr, X0, SX, Y1, SY, arc_pt(C, R, A0), arc_pt(C, R, A1), '/')
+    end.
+paint_other(Gr, X0, SX, Y1, SY, E), E = $poly(Pts, _) =>
+    N = Pts.length,
+    foreach (I in 1..N)
+        paint_seg(Gr, X0, SX, Y1, SY, Pts[I], Pts[(I mod N) + 1], '/')
+    end.
+paint_other(Gr, X0, SX, Y1, SY, E), E = $arrow(T, H, _) =>
+    paint_seg(Gr, X0, SX, Y1, SY, T, H, '/'),
+    set_cell(Gr, cy(Y1, SY, y(H)), cx(X0, SX, x(H)), head_ch(T, H)).
+paint_other(_, _, _, _, _, _) => true.
+
+arc_pt(C, R, Deg) = P =>
+    Rad = to_radians(Deg),
+    P = $pt(x(C) + R*cos(Rad), y(C) + R*sin(Rad)).
+
+head_ch(T, H) = '>' , x(H) > x(T) => true.
+head_ch(T, H) = '<' , x(H) < x(T) => true.
+head_ch(T, H) = 'v' , y(H) > y(T) => true.
+head_ch(_, _) = '^' => true.
+
+% internal (component) wire character: generic, no letter
+int_ch(P1, P2) = '|' , x(P1) == x(P2) => true.
+int_ch(P1, P2) = '-' , y(P1) == y(P2) => true.
+int_ch(_, _) = '/' => true.
+
+paint_seg(Gr, X0, SX, Y1, SY, P1, P2, Ch) =>
+    draw_line(Gr, cx(X0, SX, x(P1)), cy(Y1, SY, y(P1)),
+        cx(X0, SX, x(P2)), cy(Y1, SY, y(P2)), Ch).
+
+% a routed net segment: paint its cells, remembering ownership; a cell
+% already owned by a DIFFERENT net is contested (squeezed)
+paint_routed(Gr, Owner, Conf, X0, SX, Y1, SY, P1, P2, G, Ch) =>
+    C1 = cx(X0, SX, x(P1)), R1 = cy(Y1, SY, y(P1)),
+    C2 = cx(X0, SX, x(P2)), R2 = cy(Y1, SY, y(P2)),
+    foreach ({R, C} in seg_cells(R1, C1, R2, C2))
+        ( owner_at(Owner, R, C) == 0 ->
+            set_cell(Gr, R, C, Ch), set_owner(Owner, R, C, G)
+        ; owner_at(Owner, R, C) == G -> true
+        ; set_conf(Conf, R, C) )
+    end.
+
+% the cells a segment covers, as {R, C} pairs
+seg_cells(R1, C1, R2, C2) = Cells =>
+    ( R1 == R2 -> Cells = [{R1, C} : C in min(C1, C2)..max(C1, C2)]
+    ; C1 == C2 -> Cells = [{R, C1} : R in min(R1, R2)..max(R1, R2)]
+    ; Cells = bres_path(C1, R1, C2, R2) ).
+
+bres_path(X1, Y1, X2, Y2) = Path =>
+    DX = abs(X2 - X1),
+    ( X2 > X1 -> SX = 1 ; SX = -1 ),
+    DY = -abs(Y2 - Y1),
+    ( Y2 > Y1 -> SY = 1 ; SY = -1 ),
+    Err = DX + DY,
+    Path = bres_acc(X1, Y1, X2, Y2, DX, DY, SX, SY, Err, []).
+
+bres_acc(X, Y, X2, Y2, DX, DY, SX, SY, Err, Acc) = Path =>
+    ( X == X2, Y == Y2 -> Path = [{Y, X}|Acc]
+    ; Err2 = 2*Err,
+      ( Err2 >= DY -> E = Err + DY, X3 = X + SX ; E = Err, X3 = X ),
+      ( Err2 =< DX -> E2 = E + DX, Y3 = Y + SY ; E2 = E, Y3 = Y ),
+      Path = bres_acc(X3, Y3, X2, Y2, DX, DY, SX, SY, E2, [{Y, X}|Acc]) ).
+
+owner_at(Owner, R, C) = O =>
+    Rows = Owner.length, Cols = Owner[1].length,
+    ( R >= 1, R =< Rows, C >= 1, C =< Cols -> O = Owner[R,C] ; O = 0 ).
+
+set_owner(Owner, R, C, G) =>
+    Rows = Owner.length, Cols = Owner[1].length,
+    ( R >= 1, R =< Rows, C >= 1, C =< Cols -> Owner[R,C] := G ; true ).
+
+set_conf(Conf, R, C) =>
+    Rows = Conf.length, Cols = Conf[1].length,
+    ( R >= 1, R =< Rows, C >= 1, C =< Cols -> Conf[R,C] := 1 ; true ).
+
+% --- marks: crossings and real overlaps between DIFFERENT nets ----------
+marks(Tagged, X0, SX, Y1, SY) = {Crosses, Ovls} =>
+    Crosses = [], Ovls = [],
+    N = Tagged.length,
+    foreach (I in 1..N, J in I+1..N)
+        {P1, P2, G1} = Tagged[I], {Q1, Q2, G2} = Tagged[J],
+        ( G1 == G2 -> true
+        ; vert(P1, P2), horz(Q1, Q2), cross_at(P1, P2, Q1, Q2) ->
+            Crosses := Crosses ++ [{cy(Y1, SY, y(Q1)), cx(X0, SX, x(P1))}]
+        ; horz(P1, P2), vert(Q1, Q2), cross_at(Q1, Q2, P1, P2) ->
+            Crosses := Crosses ++ [{cy(Y1, SY, y(P1)), cx(X0, SX, x(Q1))}]
+        ; vert(P1, P2), vert(Q1, Q2), x(P1) == x(Q1) ->
+            LO = max([min(y(P1), y(P2)), min(y(Q1), y(Q2))]),
+            HI = min([max(y(P1), y(P2)), max(y(Q1), y(Q2))]),
+            ( LO < HI ->
+                Ovls := Ovls ++ [{G1, G2,
+                    [{R, cx(X0, SX, x(P1))} : R in cy(Y1, SY, HI)..cy(Y1, SY, LO)]}]
+            ; true )
+        ; horz(P1, P2), horz(Q1, Q2), y(P1) == y(Q1) ->
+            LO = max([min(x(P1), x(P2)), min(x(Q1), x(Q2))]),
+            HI = min([max(x(P1), x(P2)), max(x(Q1), x(Q2))]),
+            ( LO < HI ->
+                Ovls := Ovls ++ [{G1, G2,
+                    [{cy(Y1, SY, y(P1)), C} : C in cx(X0, SX, LO)..cx(X0, SX, HI)]}]
+            ; true )
+        ; true )
+    end.
+
+vert(P1, P2) => x(P1) == x(P2), y(P1) != y(P2).
+horz(P1, P2) => y(P1) == y(P2), x(P1) != x(P2).
+
+% a vertical V crosses a horizontal H strictly inside both spans
+cross_at(V1, V2, H1, H2) =>
+    min(x(H1), x(H2)) < x(V1), x(V1) < max(x(H1), x(H2)),
+    min(y(V1), y(V2)) < y(H1), y(H1) < max(y(V1), y(V2)).
+
+% --- cell primitives ------------------------------------------------------
+draw_line(Gr, C1, R1, C2, R2, Ch) =>
+    ( R1 == R2 -> draw_h(Gr, C1, C2, R1, Ch)
+    ; C1 == C2 -> draw_v(Gr, R1, R2, C1, Ch)
+    ; bres(Gr, C1, R1, C2, R2, Ch) ).
+
+draw_h(Gr, C1, C2, R, Ch) =>
+    foreach (C in min(C1, C2)..max(C1, C2))
+        set_cell(Gr, R, C, Ch)
+    end.
+
+draw_v(Gr, R1, R2, C, Ch) =>
+    foreach (R in min(R1, R2)..max(R1, R2))
+        set_cell(Gr, R, C, Ch)
+    end.
+
+bres(Gr, X1, Y1, X2, Y2, Ch) =>
+    DX = abs(X2 - X1),
+    ( X2 > X1 -> SX = 1 ; SX = -1 ),
+    DY = -abs(Y2 - Y1),
+    ( Y2 > Y1 -> SY = 1 ; SY = -1 ),
+    Err = DX + DY,
+    bres_loop(Gr, X1, Y1, X2, Y2, DX, DY, SX, SY, Err, Ch).
+
+bres_loop(Gr, X, Y, X2, Y2, DX, DY, SX, SY, Err, Ch) =>
+    set_cell(Gr, Y, X, Ch),
+    ( X == X2, Y == Y2 -> true
+    ; Err2 = 2*Err,
+      ( Err2 >= DY -> E = Err + DY, X3 = X + SX ; E = Err, X3 = X ),
+      ( Err2 =< DX -> E2 = E + DX, Y3 = Y + SY ; E2 = E, Y3 = Y ),
+      bres_loop(Gr, X3, Y3, X2, Y2, DX, DY, SX, SY, E2, Ch) ).
+
+set_cell(Gr, R, C, Ch) =>
+    Rows = Gr.length, Cols = Gr[1].length,
+    ( R >= 1, R =< Rows, C >= 1, C =< Cols -> Gr[R,C] := Ch ; true ).
+
+flat(Ls) = Flat =>
+    Flat = [], foreach (L in Ls) Flat := Flat ++ L end.

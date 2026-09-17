@@ -1,0 +1,323 @@
+module pg_schematic.
+
+% =====================================================================
+% Picagramer electronic-schematic module: discrete passive and active
+% components, ICs, busses and proper line crossings.
+%
+%   wire(D, A, B)                       thin line
+%   route(D, Pts)                       polyline (90-degree wire routing)
+%   junction(D, P)                      connected-crossing dot
+%   hop(D, P)                           unconnected-crossing arc (bridge)
+%   resistor_h(D, A, B) / resistor_v(D, A, B)   IEC rectangle
+%   capacitor_h(D, A, B) / capacitor_v(D, A, B) parallel plates
+%   inductor_h(D, A, B) / inductor_v(D, A, B)   coil
+%   diode_h(D, A, B) / diode_v(D, A, B)         base line | triangle | bar
+%   ground(D, P)                        three-limb ground symbol
+%   transistor_npn(D, C, S)             NPN BJT (C = centre, S = scale)
+%   ic(D, P, W, H)                      IC outline box
+%   bus(D, Pts, Width)                  thick bus line
+%
+% CONSTRAINT-DRIVEN: components never compute derived coordinates.  They
+% post equations that must hold (terminal alignment, the component centre
+% is the midpoint of its terminals, fixed sizes like plate separation,
+% 45-deg lead direction, etc.); the layout solver (solve/1) then finds
+% the values that satisfy every equation.  Terminals A,B,C,P may be
+% fixed OR constraint variables.
+% =====================================================================
+
+import cp, pg_geom, pg_el, pg_core, pg_shape.
+
+% --- a point constrained to Base + (OFX,OFY) ------------------------------
+% Base may be a constraint-variable point; OFX/OFY are GROUND offsets (the
+% equation X #= BX+OFX is posted, never eagerly computed).  This is the
+% only place components create geometry points -- no computed $pt() offsets.
+ptc(Base, OFX, OFY) = P =>
+    P = new_pt(),
+    cpts(Base, BX, BY),
+    cpts(P, X, Y),
+    X #= BX + OFX, Y #= BY + OFY.
+
+% --- wires ---------------------------------------------------------------
+% Wires carry the current component path (compid) so the no-overlap rule
+% knows which wires belong to which body.
+wire(D, A, B) =>
+    P = new_map([stroke=black, stroke_width=2]),
+    P.put(compid, pg_core.comp_of(D)),
+    _ = pg_shape.seg(D, A, B, P).
+
+route(D, Pts) =>
+    P = new_map([stroke=black, stroke_width=2]),
+    P.put(compid, pg_core.comp_of(D)),
+    _ = pg_shape.polyline(D, Pts, P).
+
+% --- component ownership helpers ------------------------------------------
+% Each component instance pushes a unique id onto the current path; its
+% internal elements inherit that path (nested components extend it).  The
+% no-overlap constraint lets a wire pass through a body only when the
+% body's path is a prefix of the wire's path.
+begin_comp(D) = CP =>
+    Cid = pg_core.new_comp_id(D),
+    pg_core.push_comp(D, Cid),
+    CP = pg_core.comp_of(D).
+
+end_comp(D) => pg_core.pop_comp(D).
+
+% mark a body element as belonging to the current component
+body_of(D, Bx) =>
+    Bx.props.put(compid, pg_core.comp_of(D)).
+
+% connected crossing: filled dot
+junction(D, P) => _ = pg_shape.disc(D, P, 5, new_map([fill=black, stroke=none])).
+
+% unconnected crossing: right-bulging bridge on the (broken) vertical wire
+% around a horizontal wire; the vertical wire is drawn in two segments with
+% a gap between P.y-R and P.y+R, bridged by this arc
+hop(D, P) => _ = pg_shape.arc(D, P, 7, 90, 270, new_map([stroke=black, stroke_width=2])).
+
+% --- resistor (IEC box) ---------------------------------------------------
+% the box is a fixed 56x32 (resp. 32x56) rectangle centred on the midpoint
+% of the terminals; the terminals are aligned on one axis; the leads
+% connect the terminals to the box side-midpoints (they just grow/shrink)
+resistor_h(D, A, B) =>
+    CP = begin_comp(D),
+    cpts(A, AX, AY), cpts(B, BX, BY),
+    AY #= BY,                        % terminals on one horizontal line
+    C = new_pt(), midpoint(C, A, B), % box centre is the terminal midpoint
+    Bx = pg_shape.box_at(D, C, 56, 32),
+    Bx.props.put(fill, white), Bx.props.put(stroke, black),
+    Bx.props.put(stroke_width, 2),
+    Bx.props.put(compid, CP),
+    wire(D, A, west(Bx)),            % lead reaches the box edge
+    wire(D, east(Bx), B),
+    end_comp(D).
+
+resistor_v(D, A, B) =>
+    CP = begin_comp(D),
+    cpts(A, AX, AY), cpts(B, BX, BY),
+    AX #= BX,                        % terminals on one vertical line
+    C = new_pt(), midpoint(C, A, B),
+    Bx = pg_shape.box_at(D, C, 32, 56),
+    Bx.props.put(fill, white), Bx.props.put(stroke, black),
+    Bx.props.put(stroke_width, 2),
+    Bx.props.put(compid, CP),
+    wire(D, A, north(Bx)),
+    wire(D, south(Bx), B),
+    end_comp(D).
+
+% --- capacitor ------------------------------------------------------------
+% two parallel plates, fixed 12 apart, height 32, symmetric about the
+% terminal midpoint; leads meet the plate midpoints exactly
+capacitor_h(D, A, B) =>
+    CP = begin_comp(D),
+    cpts(A, AX, AY), cpts(B, BX, BY),
+    AY #= BY,
+    C = new_pt(), midpoint(C, A, B),
+    P1T = ptc(C, -6, -16), P1B = ptc(C, -6, 16),
+    P2T = ptc(C, 6, -16),  P2B = ptc(C, 6, 16),
+    P1M = ptc(C, -6, 0),   P2M = ptc(C, 6, 0),
+    wire(D, A, P1M),
+    wire(D, P1T, P1B),
+    wire(D, P2T, P2B),
+    wire(D, P2M, B),
+    end_comp(D).
+
+capacitor_v(D, A, B) =>
+    CP = begin_comp(D),
+    cpts(A, AX, AY), cpts(B, BX, BY),
+    AX #= BX,
+    C = new_pt(), midpoint(C, A, B),
+    P1L = ptc(C, -16, -6), P1R = ptc(C, 16, -6),
+    P2L = ptc(C, -16, 6),  P2R = ptc(C, 16, 6),
+    P1M = ptc(C, 0, -6),   P2M = ptc(C, 0, 6),
+    wire(D, A, P1M),
+    wire(D, P1L, P1R),
+    wire(D, P2L, P2R),
+    wire(D, P2M, B),
+    end_comp(D).
+
+% --- inductor -------------------------------------------------------------
+% 4 fixed half-circle coils (radius 14) tiled so they span EXACTLY between
+% the terminals (block half-width N*R); leads meet the coil block edges
+inductor_h(D, A, B) =>
+    CP = begin_comp(D),
+    cpts(A, AX, AY), cpts(B, BX, BY),
+    AY #= BY,
+    C = new_pt(), midpoint(C, A, B),
+    R = 14, N = 4,
+    WL = ptc(C, -N*R, 0), WR = ptc(C, N*R, 0),
+    wire(D, A, WL),
+    foreach (I in 0..N-1)
+        CC = ptc(C, -N*R + R + 2*I*R, 0),
+        _ = pg_shape.arc(D, CC, R, 180, 360,
+            new_map([stroke=black, stroke_width=2]))
+    end,
+    wire(D, WR, B),
+    end_comp(D).
+
+inductor_v(D, A, B) =>
+    CP = begin_comp(D),
+    cpts(A, AX, AY), cpts(B, BX, BY),
+    AX #= BX,
+    C = new_pt(), midpoint(C, A, B),
+    R = 14, N = 4,
+    WT = ptc(C, 0, -N*R), WB = ptc(C, 0, N*R),
+    wire(D, A, WT),
+    foreach (I in 0..N-1)
+        CC = ptc(C, 0, -N*R + R + 2*I*R),
+        _ = pg_shape.arc(D, CC, R, 90, 270,
+            new_map([stroke=black, stroke_width=2]))
+    end,
+    wire(D, WB, B),
+    end_comp(D).
+
+% --- diode (standard IEC: base line | triangle -> apex | bar) --------------
+% the anode wire meets a base line perpendicular to it and centred on the
+% junction; the triangle points at the bar, whose middle is exactly where
+% the triangle apex (node) touches it and the cathode wire continues
+diode_h(D, A, B) =>
+    CP = begin_comp(D),
+    cpts(A, AX, AY), cpts(B, BX, BY),
+    AY #= BY,
+    C = new_pt(), midpoint(C, A, B),
+    H = 14,
+    Base = ptc(C, -H, 0),
+    BT   = ptc(C, -H, -H), BB = ptc(C, -H, H),
+    Apex = ptc(C, H, 0),
+    BarT = ptc(C, H, -H), BarB = ptc(C, H, H),
+    wire(D, A, Base),
+    wire(D, BT, BB),
+    _ = pg_shape.polyline(D, [BT, Apex],
+        new_map([fill=none, stroke=black, stroke_width=2])),
+    _ = pg_shape.polyline(D, [BB, Apex],
+        new_map([fill=none, stroke=black, stroke_width=2])),
+    _ = pg_shape.polyline(D, [BarT, BarB],
+        new_map([fill=none, stroke=black, stroke_width=3])),
+    wire(D, Apex, B),
+    end_comp(D).
+
+diode_v(D, A, B) =>
+    CP = begin_comp(D),
+    cpts(A, AX, AY), cpts(B, BX, BY),
+    AX #= BX,
+    C = new_pt(), midpoint(C, A, B),
+    W = 14,
+    Base = ptc(C, 0, -W),
+    BL   = ptc(C, -W, -W), BR = ptc(C, W, -W),
+    Apex = ptc(C, 0, W),
+    BarL = ptc(C, -W, W), BarR = ptc(C, W, W),
+    wire(D, A, Base),
+    wire(D, BL, BR),
+    _ = pg_shape.polyline(D, [BL, Apex],
+        new_map([fill=none, stroke=black, stroke_width=2])),
+    _ = pg_shape.polyline(D, [BR, Apex],
+        new_map([fill=none, stroke=black, stroke_width=2])),
+    _ = pg_shape.polyline(D, [BarL, BarR],
+        new_map([fill=none, stroke=black, stroke_width=3])),
+    wire(D, Apex, B),
+    end_comp(D).
+
+% --- ground ---------------------------------------------------------------
+% three centred horizontal lines, widths 32/20/8, spaced 10 apart
+ground(D, P) =>
+    CP = begin_comp(D),
+    L1 = ptc(P, -16, 0),  R1 = ptc(P, 16, 0),
+    L2 = ptc(P, -10, 10), R2 = ptc(P, 10, 10),
+    L3 = ptc(P, -4, 20),  R3 = ptc(P, 4, 20),
+    wire(D, L1, R1),
+    wire(D, L2, R2),
+    wire(D, L3, R3),
+    end_comp(D).
+
+% --- NPN transistor (C = centre, S = scale) -------------------------------
+% Matches the KiCad Q_NPN_BCE convention: circle, vertical base bar (left),
+% base lead exits horizontally to the left; collector and emitter leave the
+% bar at 45 deg inside the circle and EXIT THE DISC PERPENDICULAR to the
+% base (vertically, up/down) at x = CX+0.45R; a small FILLED arrow sits on
+% the emitter inner lead pointing outward.  Returns [Base,Collector,Emitter]
+% connection points.
+transistor_npn(D, C, S) = [B, Cl, E] =>
+    CP = begin_comp(D),
+    cpts(C, CX, CY),
+    R = round(40*S),
+    Bdy = pg_shape.disc(D, C, R, new_map([fill=white, stroke=black, stroke_width=2])),
+    Bdy.props.put(compid, CP),
+    % KiCad proportions of R (ground offsets for ptc)
+    O225 = R*9//40, O676 = R*27//40, O45 = R*18//40, O90 = R*36//40,
+    % external pins sit at least one radius beyond the disc (min lead)
+    O200 = R*80//40,
+    % arrow proportions (deliberately large so it reads at every scale)
+    O2 = R*2//40, O6 = R*6//40, O17 = R*17//40, O22 = R*22//40,
+    O35 = R*35//40,
+    % base bar (vertical, inside-left) + base lead out through the circle
+    BarT = ptc(C, -O225, -O676), BarB = ptc(C, -O225, O676),
+    BarM = ptc(C, -O225, 0),
+    B  = ptc(C, -O200, 0),
+    wire(D, BarT, BarB),
+    wire(D, BarM, B),
+    % collector: 45 deg from the bar to the circle edge, then VERTICAL up
+    C1 = ptc(C, -O225, -O225),
+    Ce = ptc(C, O45, -O90),
+    Cl = ptc(C, O45, -O200),
+    wire(D, C1, Ce),
+    wire(D, Ce, Cl),
+    % emitter: 45 deg from the bar to the circle edge, then VERTICAL down
+    E1 = ptc(C, -O225, O225),
+    Ee = ptc(C, O45, O90),
+    E  = ptc(C, O45, O200),
+    wire(D, E1, Ee),
+    wire(D, Ee, E),
+    % emitter arrow: a large filled triangle on the inner emitter lead,
+    % pointing outward (down-right, along the emitter direction) -- tip
+    % just before the lead exits the circle, base perpendicular to the lead
+    A1 = ptc(C, -O2, O22),
+    A2 = ptc(C, O6, O17),
+    A3 = ptc(C, O17, O35),
+    _ = pg_shape.poly(D, [A1, A2, A3],
+        new_map([fill=black, stroke=black, stroke_width=2])),
+    end_comp(D).
+
+% --- IC outline ----------------------------------------------------------
+ic(D, P, W, H) =>
+    CP = begin_comp(D),
+    B = pg_shape.box_at(D, P, W, H),
+    B.props.put(fill, white), B.props.put(stroke, black),
+    B.props.put(stroke_width, 2),
+    B.props.put(compid, CP),
+    end_comp(D).
+
+% --- bus (thick line) ----------------------------------------------------
+bus(D, Pts, Width) => _ = pg_shape.polyline(D, Pts,
+    new_map([stroke=black, stroke_width=Width])).
+
+% --- NAND gate (RTL: two series NPN transistors) --------------------------
+% Q1 and Q2 sit in series between the output node and ground; the collector
+% resistor Rc pulls the output up to Vcc, and both inputs A and B must be
+% high (both transistors on) to pull the output low.  Vcc and ground are
+% drawn locally (a small dot + ground symbol).  Returns [A, B, Out].
+nand_gate(D, X, Y) = [A, B, Out] =>
+    CP = begin_comp(D),
+    Y2 = Y + 100,
+    Q1 = $pt(X, Y), Q2 = $pt(X, Y2),
+    [Q1b, Q1c, Q1e] = transistor_npn(D, Q1, 0.5),
+    [Q2b, Q2c, Q2e] = transistor_npn(D, Q2, 0.5),
+    wire(D, Q1e, Q2c),                        % series connection
+    XC = X + 9, RcY = Y - 116,
+    RcT = $pt(XC, RcY),
+    resistor_v(D, RcT, Q1c),                  % collector pull-up
+    _ = pg_shape.disc(D, RcT, 4, new_map([fill=black, stroke=none])),
+    GY = Y + 146,
+    G = $pt(XC, GY),
+    wire(D, Q2e, G),
+    ground(D, G),
+    % output brought down to the A level, then to the right edge
+    XO = X + 64,
+    wire(D, Q1c, $pt(XC, Y)),
+    wire(D, $pt(XC, Y), $pt(XO, Y)),
+    Out = $pt(XO, Y),
+    % inputs with base resistors on the left
+    XA = X - 140,
+    A = $pt(XA, Y),
+    B = $pt(XA, Y2),
+    resistor_h(D, A, Q1b),
+    resistor_h(D, B, Q2b),
+    end_comp(D).

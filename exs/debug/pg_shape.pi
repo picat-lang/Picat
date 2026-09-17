@@ -1,0 +1,226 @@
+module pg_shape.
+
+% =====================================================================
+% Picagramer shapes: document-aware constructors and box anchors.
+%
+% The document-aware constructors create a fresh center point (a CP
+% variable), build the element, and register it in the document.
+% Box anchors (east/west/north/south) are created once at construction
+% and stored, so they are stable across calls; the "tip of an arrow
+% reaches the middle of a side" idiom is just
+%       Arr = arrow(D, B1.east, B2.south),   pg.pin(Arr.tip, B2.south)
+% =====================================================================
+
+import cp, pg_geom, pg_el, pg_core.
+
+% --- document-aware constructors ---------------------------------------
+% A box stores its four side-middle anchor points (east/west/north/south)
+% so they are stable: repeated east(B) calls return the very same point.
+% Props is always the LAST argument; the named forms take Id right after
+% the document.  (Unnamed + named variants differ in arity, so there is
+% no ambiguity.)
+box(D, W, H) = E =>
+    C = new_pt(),
+    E = pg_el.mk_box(C, W, H, mk_anchors(C, W, H)),
+    add(D, E).
+box(D, W, H, Props) = E =>
+    C = new_pt(),
+    E = pg_el.mk_box(C, W, H, mk_anchors(C, W, H), Props),
+    add(D, E).
+box(D, Id, W, H, Props) = E =>
+    C = new_pt(),
+    E = pg_el.mk_box(C, W, H, mk_anchors(C, W, H), Props),
+    add(D, Id, E).
+
+% box with an explicitly given center point C
+box_at(D, C, W, H) = E =>
+    E = pg_el.mk_box(C, W, H, mk_anchors(C, W, H)),
+    add(D, E).
+box_at(D, Id, C, W, H) = E =>
+    E = pg_el.mk_box(C, W, H, mk_anchors(C, W, H)),
+    add(D, Id, E).
+
+labelled_box(D, Str, W, H) = E => E = labelled_box(D, Str, W, H, 28, new_map()).
+labelled_box(D, Str, W, H, FS) = E => E = labelled_box(D, Str, W, H, FS, new_map()).
+labelled_box(D, Str, W, H, FS, Props) = E =>
+    {W2, H2} = fit_size(Str, FS, W, H),
+    C = new_pt(),
+    E = pg_el.mk_labelled_box(C, W2, H2, Str, FS, mk_anchors(C, W2, H2), Props),
+    add(D, E).
+labelled_box(D, Id, Str, W, H, FS, Props) = E =>
+    {W2, H2} = fit_size(Str, FS, W, H),
+    C = new_pt(),
+    E = pg_el.mk_labelled_box(C, W2, H2, Str, FS, mk_anchors(C, W2, H2), Props),
+    add(D, Id, E).
+
+% fit_size: replace 'auto' width/height with sizes that keep the text
+% inside the box (estimated from the longest line); ground numbers pass
+% through unchanged.
+fit_size(Str, FS, W, H) = {W2, H2} =>
+    Lines = pg_el.text_lines(Str),
+    MaxLen = max([L.length : L in Lines]),
+    ( W == auto -> W2 = round(MaxLen * FS * 0.58) + 32 ; W2 = W ),
+    ( H == auto -> H2 = round(Lines.length * FS * 1.2) + 24 ; H2 = H ).
+
+arrow(D, Tail, Head) = E =>
+    E = pg_el.mk_arrow(Tail, Head, new_map()),
+    add(D, E).
+arrow(D, Tail, Head, Props) = E =>
+    E = pg_el.mk_arrow(Tail, Head, Props),
+    add(D, E).
+arrow(D, Id, Tail, Head, Props) = E =>
+    E = pg_el.mk_arrow(Tail, Head, Props),
+    add(D, Id, E).
+
+% --- document-aware primitive constructors ------------------------------
+% seg/polyline default compid from the document's current comp path, so
+% elements drawn inside a component (via direct pg_shape calls) carry it
+% too -- a renderer can then tell routed nets from component internals
+seg(D, A, B) = E => E = pg_el.mk_seg(A, B), add(D, E).
+seg(D, A, B, Props) = E =>
+    ( Props.has_key(compid) -> true ; Props.put(compid, pg_core.comp_of(D)) ),
+    E = pg_el.mk_seg(A, B, Props), add(D, E).
+dot(D, P) = E => E = pg_el.mk_dot(P), add(D, E).
+dot(D, P, Props) = E => E = pg_el.mk_dot(P, Props), add(D, E).
+disc(D, C, R) = E => E = pg_el.mk_disc(C, R), add(D, E).
+disc(D, C, R, Props) = E => E = pg_el.mk_disc(C, R, Props), add(D, E).
+ellipse(D, C, RX, RY) = E => E = pg_el.mk_ellipse(C, RX, RY), add(D, E).
+ellipse(D, C, RX, RY, Props) = E => E = pg_el.mk_ellipse(C, RX, RY, Props), add(D, E).
+arc(D, C, R, T0, T1) = E => E = pg_el.mk_arc(C, R, T0, T1), add(D, E).
+arc(D, C, R, T0, T1, Props) = E => E = pg_el.mk_arc(C, R, T0, T1, Props), add(D, E).
+poly(D, Pts) = E => E = pg_el.mk_poly(Pts), add(D, E).
+poly(D, Pts, Props) = E => E = pg_el.mk_poly(Pts, Props), add(D, E).
+polyline(D, Pts) = E => E = pg_el.mk_polyline(Pts), add(D, E).
+polyline(D, Pts, Props) = E =>
+    ( Props.has_key(compid) -> true ; Props.put(compid, pg_core.comp_of(D)) ),
+    E = pg_el.mk_polyline(Pts, Props), add(D, E).
+text(D, P, Str, Size) = E => E = pg_el.mk_text(P, Str, Size), add(D, E).
+text(D, P, Str, Size, Props) = E => E = pg_el.mk_text(P, Str, Size, Props), add(D, E).
+
+% --- box anchors ---------------------------------------------------------
+% (stored at construction; east/west/north/south are stable across calls)
+east(B) = E, B = $box(_,_,_,$anch(E,_,_,_),_) => true.
+east(B) = E, B = $labelled_box(_,_,_,_,_,$anch(E,_,_,_),_) => true.
+west(B) = W, B = $box(_,_,_,$anch(_,W,_,_),_) => true.
+west(B) = W, B = $labelled_box(_,_,_,_,_,$anch(_,W,_,_),_) => true.
+north(B) = N, B = $box(_,_,_,$anch(_,_,N,_),_) => true.
+north(B) = N, B = $labelled_box(_,_,_,_,_,$anch(_,_,N,_),_) => true.
+south(B) = S, B = $box(_,_,_,$anch(_,_,_,S),_) => true.
+south(B) = S, B = $labelled_box(_,_,_,_,_,$anch(_,_,_,S),_) => true.
+
+% corner points (list: top-left, top-right, bottom-right, bottom-left)
+% derived from the stable anchors, so they are consistent
+corners(B) = [TL, TR, BR, BL] =>
+    E = east(B), W = west(B), N = north(B), S = south(B),
+    cpts(E,EX,EY), cpts(W,WX,WY), cpts(N,NX,NY), cpts(S,SX,SY),
+    TL = new_pt(), cpts(TL,TX1,TY1), TX1 #= WX, TY1 #= NY,
+    TR = new_pt(), cpts(TR,TX2,TY2), TX2 #= EX, TY2 #= NY,
+    BR = new_pt(), cpts(BR,TX3,TY3), TX3 #= EX, TY3 #= SY,
+    BL = new_pt(), cpts(BL,TX4,TY4), TX4 #= WX, TY4 #= SY.
+
+% build the four side-middle anchors for a box, posting their constraints
+mk_anchors(C, W, H) = A =>
+    cpts(C,CX,CY),
+    E = new_pt(), cpts(E,EX,EY),
+        EX*2 #>= CX*2 + W - 1, EX*2 #=< CX*2 + W, EY #= CY,
+    Wd = new_pt(), cpts(Wd,WX,WY),
+        WX*2 #>= CX*2 - W - 1, WX*2 #=< CX*2 - W, WY #= CY,
+    N = new_pt(), cpts(N,NX,NY),
+        NX #= CX, NY*2 #>= CY*2 - H - 1, NY*2 #=< CY*2 - H,
+    S = new_pt(), cpts(S,SX,SY),
+        SX #= CX, SY*2 #>= CY*2 + H - 1, SY*2 #=< CY*2 + H,
+    A = $anch(E, Wd, N, S).
+
+% mid of a segment
+mid(S) = M => S = $seg(A,B,_), M = new_pt(), pg_geom.midpoint(M, A, B).
+
+% --- decision diamond ----------------------------------------------------
+% A poly whose four corners are C plus/minus S on the axes.  Returns a
+% handle $dmnd(C,N,S,E,W) (center + north/south/east/west corner points)
+% so arrows can connect to it; see dmnd_c/1..dmnd_w/1.
+diamond(D, C, S) = $dmnd(C, N, B, E, W) =>
+    cpts(C,CX,CY),
+    N = new_pt(), cpts(N,NX,NY), NX #= CX, NY #= CY - S,
+    B = new_pt(), cpts(B,BX,BY), BX #= CX, BY #= CY + S,
+    E = new_pt(), cpts(E,EX,EY), EX #= CX + S, EY #= CY,
+    W = new_pt(), cpts(W,WX,WY), WX #= CX - S, WY #= CY,
+    Dm = pg_el.mk_poly([N, E, B, W], new_map([fill=white, stroke=steelblue, stroke_width=2])),
+    add(D, Dm).
+
+dmnd_c(H) = C, H = $dmnd(C,_,_,_,_) => true.
+dmnd_n(H) = N, H = $dmnd(_,N,_,_,_) => true.
+dmnd_s(H) = B, H = $dmnd(_,_,B,_,_) => true.
+dmnd_e(H) = E, H = $dmnd(_,_,_,E,_) => true.
+dmnd_w(H) = W, H = $dmnd(_,_,_,_,W) => true.
+
+% --- grid / frame --------------------------------------------------------
+% axis-aligned grid of Nx x Ny cells covering the given corner points
+% (TL, BR must be ground or already-constrained points; Nx,Ny ground)
+grid(D, TL, BR, Nx, Ny) =>
+    cpts(TL,TX,TY), cpts(BR,BX,BY),
+    foreach (I in 0..Nx)
+        L = new_pt(), R = new_pt(),
+        cpts(L,LX,LY), cpts(R,RX,RY),
+        LX #= TX + (BX-TX)*I//Nx, RX #= LX, LY #= TY, RY #= BY,
+        add(D, pg_el.mk_seg(L, R))
+    end,
+    foreach (J in 0..Ny)
+        T = new_pt(), B = new_pt(),
+        cpts(T,TX2,TY2), cpts(B,BX2,BY2),
+        TX2 #= TX, BX2 #= BX, TY2 #= TY + (BY-TY)*J//Ny, BY2 #= TY2,
+        add(D, pg_el.mk_seg(T, B))
+    end.
+
+% --- box-level layout relations ----------------------------------------
+% (edge-to-edge on boxes via their stable anchors; for raw points use
+%  hdist/vdist/align_x/align_y from pg_geom)
+right(B2, B1, Gap) => hdist(B1.east, B2.west, Gap).
+left(B2, B1, Gap) => hdist(B2.east, B1.west, Gap).
+above(A, B, Gap) => vdist(A.south, B.north, Gap).  % A above B
+below(A, B, Gap) => vdist(B.south, A.north, Gap).  % A below B
+
+% --- convenience layouts -------------------------------------------------
+% stack A above B, both centered on x
+stack(A, B, Gap) => vdist(A.south, B.north, Gap), align_x(A, B).
+% side_by_side: B to the right of A, both centered on y
+side_by_side(A, B, Gap) => hdist(A.east, B.west, Gap), align_y(A, B).
+
+% --- label: text (transparent background by default) ----------------------
+% The background box is drawn only when the caller asks for it (a "bg"
+% prop, e.g. bg=white), so a label never covers the shapes underneath it.
+label(D, P, Str, Size, Props) =>
+    Lines = pg_el.text_lines(Str),
+    W = round(max([L.length : L in Lines]) * Size * 0.62) + 12,
+    H = round(Lines.length * Size * 1.3) + 10,
+    BG = Props.get(bg, none),
+    if BG != none then
+        B = box_at(D, P, W, H),
+        B.props.put(fill, BG), B.props.put(stroke, none), B.props.put(layer, 19)
+    end,
+    P2 = new_map(),
+    foreach (K in keys(Props))
+        P2.put(K, Props.get(K))
+    end,
+    P2.put(text_anchor, middle), P2.put(v_anchor, middle),
+    _ = text(D, P, Str, Size, P2).
+
+% --- rotated label --------------------------------------------------------
+% text rotated by Ang (SVG degrees, + = clockwise; -90 reads bottom-to-top
+% i.e. "rotated left"); background box only with a "bg" prop (default
+% transparent) and sized for the rotation
+label_rot(D, P, Str, Size, Ang, Props) =>
+    Lines = pg_el.text_lines(Str),
+    W = round(max([L.length : L in Lines]) * Size * 0.62) + 12,
+    H = round(Lines.length * Size * 1.3) + 10,
+    BG = Props.get(bg, none),
+    if BG != none then
+        B = box_at(D, P, H, W),
+        B.props.put(fill, BG), B.props.put(stroke, none), B.props.put(layer, 19)
+    end,
+    P2 = new_map(),
+    foreach (K in keys(Props))
+        P2.put(K, Props.get(K))
+    end,
+    P2.put(text_anchor, middle), P2.put(v_anchor, middle),
+    P2.put(rotation, Ang),
+    _ = text(D, P, Str, Size, P2).

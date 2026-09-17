@@ -33,7 +33,7 @@
 %     module-qualified dynamic dispatch of a function hangs,  engine
 %     bug (a),  repros q1/q2.pi);
 %     cross-module unqualified dispatch is verified in
-%     scratch/reif/parblock/dynpvm.pi.
+%     exs/parallel/parblock/dynpvm.pi.
 %
 %   Substrate notes:  mode 2 has no
 %   call_cleanup / delegate windows,  so the codec truncation

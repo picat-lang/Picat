@@ -1,0 +1,29 @@
+% Picagramer hierarchical-ensemble voltage divider -- declarative.
+%
+% Only the parts (labeled resistors) and the links are declared; the
+% hierarchy is implicit: each part is a grounded ensemble, and a single
+% schematic/5 call places them (padded boxes disjoint) and routes the
+% Manhattan link around the fixed boxes.  Terminal voltage points are
+% solid discs.
+import pg_ascii, pg_ensemble, pg_geom, pg_el, pg_core, pg_shape, pg_svg, pg_raster, pg_schematic.
+
+main =>
+    D = design(0, 2000, 0, 1600),
+
+    A1 = new_pt(), A2 = new_pt(),
+    Or1 = new_orient(), Or2 = new_orient(),
+    R1 = labeled_resistor(D, A1, Or1, "R1"),
+    R2 = labeled_resistor(D, A2, Or2, "R2"),
+
+    schematic(D, [R1, R2], [A1, A2], [Or1, Or2], [],
+        [{R1, a, R2, b}],        % the series junction R1.a -> R2.b
+        8),
+
+    % terminal voltage points (solid discs) at the divider ends
+    _ = pg_shape.disc(D, R1.get(b), 7, new_map([fill=black, stroke=none])),   % Vcc
+    ground(D, R2.get(a)),                                                    % gnd symbol
+
+    svg(D, "ex_ensemble_divider.svg"),
+    png(D, "ex_ensemble_divider.png"),
+    pdf(D, "ex_ensemble_divider.pdf"),
+    pg_ascii.ascii(D).

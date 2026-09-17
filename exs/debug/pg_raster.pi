@@ -1,0 +1,339 @@
+module pg_raster.
+
+% =====================================================================
+% Picagramer raster output.
+%   ppm/2 : built-in scanline rasterizer (fast preview; text is drawn
+%           as light placeholder blocks).
+%   png/2,3 : publication-ready PNG.  The SVG is rasterized by a real
+%           layout engine (Firefox headless) giving true anti-aliased
+%           font rendering; png(D,File,Scale) renders at Scale x for
+%           print / hi-DPI.  Falls back to ppm+ImageMagick if firefox
+%           is unavailable.
+% =====================================================================
+
+import pg_geom, pg_el, pg_core, pg_svg, os.
+
+% --- entry points ------------------------------------------------------
+ppm(D, File) =>
+    write_ppm(D, File).
+
+% png/2,3: publication-ready PNG by rasterizing the SVG with a real layout
+% engine (Firefox headless: true font rendering, anti-aliasing, hi-DPI).
+%   png(D, File)        -> 1x (1 layout unit = 1 px)
+%   png(D, File, Scale) -> Scale x (e.g. 2 or 3 for print/300dpi)
+% Falls back to the built-in PPM rasterizer + ImageMagick if firefox is
+% missing.  Centering/cropping follow the document (see pg_svg.svg/2).
+png(D, File) => png(D, File, 1).
+png(D, File, Scale) =>
+    ( firefox_available() ->
+        render_firefox(D, File, Scale)
+    ; fallback_png(D, File)
+    ).
+
+% pdf/2: vector PDF via the cropped SVG (cairosvg).  The page size
+% matches the SVG viewport, so the PDF is ready to embed in LaTeX.
+pdf(D, File) =>
+    Svg = File ++ ".svg",
+    pg_svg.svg(D, Svg),
+    Cmd = "python3 -c \"import cairosvg; cairosvg.svg2pdf(url='" ++ Svg ++
+          "', write_to='" ++ File ++ "')\"",
+    _ = command(Cmd),
+    rm(Svg).
+
+firefox_available() =>
+    _ = command("which firefox >/dev/null 2>&1").
+
+render_firefox(D, File, Scale) =>
+    Tmp = "/tmp/pg_render_" ++ to_string(random()),
+    _ = command("mkdir -p " ++ Tmp),
+    Svg = Tmp ++ "/doc.svg",
+    pg_svg.svg_scaled(D, Svg, Scale),
+    {PX, PY} = pg_svg.svg_pixels(D, Scale),
+    Cmd = "cd " ++ Tmp ++ " && firefox --headless" ++
+          " --window-size=" ++ to_string(PX) ++ "," ++ to_string(PY) ++
+          " --screenshot file://" ++ Svg,
+    _ = command(Cmd),
+    _ = command("cp " ++ Tmp ++ "/screenshot.png " ++ File),
+    _ = command("rm -rf " ++ Tmp).
+
+% fallback: built-in rasterizer (text is a placeholder) + ImageMagick
+fallback_png(D, File) =>
+    Tmp = File ++ ".ppm",
+    write_ppm(D, Tmp),
+    _ = command("convert " ++ Tmp ++ " " ++ File),
+    rm(Tmp).
+
+write_ppm(D, File) =>
+    {VX,VY,VW,VH,DX,DY} = pg_svg.svg_view(D),
+    W = round(VW), H = round(VH),
+    Img = new_array(H, W),
+    foreach (Y in 1..H, X in 1..W)
+        Img[Y,X] := 0xFFFFFF
+    end,
+    OX = VX - DX, OY = VY - DY,
+    foreach (E in pg_core.ordered_elements(D))
+        raster_el(Img, E, OX, OY)
+    end,
+    FD = open(File, write),
+    printf(FD, "P6\n%d %d\n255\n", W, H),
+    foreach (Y in 1..H)
+        foreach (X in 1..W)
+            C = Img[Y,X],
+            R = (C >> 16) /\ 255,
+            G = (C >> 8) /\ 255,
+            B0 = C /\ 255,
+            write_byte(FD, [R, G, B0])
+        end
+    end,
+    close(FD).
+
+% --- colors: atoms -> RGB ints -----------------------------------------
+rgb(black) = 0x000000.
+rgb(white) = 0xFFFFFF.
+rgb(darkslategray) = 0x2F3640.
+rgb(navy) = 0x2C3E50.
+rgb(slate) = 0x708090.
+rgb(slategray) = 0x708090.
+rgb(gray) = 0x808080.
+rgb(grey) = 0x808080.
+rgb(lightgray) = 0xDDDDDD.
+rgb(lightgrey) = 0xDDDDDD.
+rgb(darkgray) = 0x404040.
+rgb(steelblue) = 0x4682B4.
+rgb(blue) = 0x2E86C1.
+rgb(lightblue) = 0xBFD7EA.
+rgb(teal) = 0x16A085.
+rgb(lightgreen) = 0xC8E6C9.
+rgb(green) = 0x27AE60.
+rgb(darkgreen) = 0x1E8449.
+rgb(yellow) = 0xF1C40F.
+rgb(lightyellow) = 0xFCF3CF.
+rgb(gold) = 0xD4A017.
+rgb(orange) = 0xE67E22.
+rgb(darkorange) = 0xD35400.
+rgb(red) = 0xC0392B.
+rgb(darkred) = 0x922B21.
+rgb(pink) = 0xE74C8B.
+rgb(purple) = 0x8E44AD.
+rgb(lavender) = 0xE8DAEF.
+rgb(cyan) = 0x1ABC9C.
+rgb(magenta) = 0xAF7AC5.
+rgb(brown) = 0xA52A2A.
+rgb(none) = none.
+rgb(C) = C.               % already a numeric RGB value
+
+strk(P) = rgb(P.get(stroke, darkslategray)).
+fill(P, Default) = rgb(P.get(fill, Default)).
+
+% --- rasterize one element ---------------------------------------------
+raster_el(Img, E, OX, OY), E = $seg(A,B,P) =>
+    Col = strk(P),
+    ( Col == none -> true ;
+      draw_thick_line(Img, x(A)-OX, y(A)-OY, x(B)-OX, y(B)-OY, Col, P.get(stroke_width, 2)) ).
+raster_el(Img, E, OX, OY), E = $dot(P,P1) =>
+    R = P1.get(dot_r, 5),
+    Col = fill(P1, darkslategray),
+    ( Col == none -> true ; fill_circle(Img, x(P)-OX, y(P)-OY, R, Col) ).
+raster_el(Img, E, OX, OY), E = $disc(C,R,P) =>
+    Col = fill(P, darkslategray),
+    ( Col == none -> true ; fill_circle(Img, x(C)-OX, y(C)-OY, R, Col) ).
+raster_el(Img, E, OX, OY), E = $ellipse(C,RX,RY,P) =>
+    Col = fill(P, darkslategray),
+    ( Col == none -> true ; fill_ellipse(Img, x(C)-OX, y(C)-OY, RX, RY, Col) ).
+raster_el(Img, E, OX, OY), E = $arc(C,R,T0,T1,P) =>
+    Col = strk(P),
+    ( Col == none -> true ; draw_arc(Img, C, R, T0, T1, OX, OY, Col, P.get(stroke_width, 2)) ).
+raster_el(Img, E, OX, OY), E = $poly(Pts,P) =>
+    F = fill(P, white), S = strk(P),
+    ( F == none -> true ; fill_poly(Img, Pts, OX, OY, F) ),
+    ( S == none -> true ; stroke_poly(Img, Pts, OX, OY, S, P.get(stroke_width, 2), true) ).
+raster_el(Img, E, OX, OY), E = $polyline(Pts,P) =>
+    S = strk(P),
+    ( S == none -> true ; stroke_poly(Img, Pts, OX, OY, S, P.get(stroke_width, 2), false) ).
+raster_el(Img, E, OX, OY), E = $text(Pt,Str,Size,P) =>
+    % placeholder (the PNG path uses a real layout engine for text)
+    Lines = pg_el.text_lines(Str),
+    FS = P.get(font_size, Size),
+    X0 = x(Pt)-OX, Y0 = y(Pt)-OY,
+    foreach ({L, I} in zip(Lines, 0..Lines.length-1))
+        FW = max(1, round(L.length * FS * 0.55)),
+        TA = P.get(text_anchor, start),
+        ( TA == middle -> XS = X0 - FW//2 ; TA == end -> XS = X0 - FW ; XS = X0 ),
+        YS = Y0 + round(I*FS*1.2),
+        fill_rect(Img, XS, YS, FW, FS, 0xEEF1F5),
+        stroke_rect(Img, XS, YS, FW, FS, 0x9AA7B4, 2)
+    end.
+raster_el(Img, E, OX, OY), E = $box(C,W,H,_,P) =>
+    X0 = x(C)-OX - W//2, Y0 = y(C)-OY - H//2,
+    F = fill(P, white), S = strk(P),
+    ( F == none -> true ; fill_rect(Img, X0, Y0, W, H, F) ),
+    ( S == none -> true ; stroke_rect(Img, X0, Y0, W, H, S, P.get(stroke_width, 2)) ).
+raster_el(Img, E, OX, OY), E = $labelled_box(C,W,H,Str,FS,_,P) =>
+    X0 = x(C)-OX - W//2, Y0 = y(C)-OY - H//2,
+    F = fill(P, white), S = strk(P),
+    ( F == none -> true ; fill_rect(Img, X0, Y0, W, H, F) ),
+    ( S == none -> true ; stroke_rect(Img, X0, Y0, W, H, S, P.get(stroke_width, 2)) ),
+    Lines = pg_el.text_lines(Str),
+    foreach ({L, I} in zip(Lines, 0..Lines.length-1))
+        FW = max(1, round(L.length * FS * 0.55)),
+        YS = y(C)-OY-FS//2 + round(I*FS*1.2),
+        fill_rect(Img, x(C)-OX-FW//2, YS, FW, FS, 0xEEF1F5),
+        stroke_rect(Img, x(C)-OX-FW//2, YS, FW, FS, 0x9AA7B4, 2)
+    end.
+raster_el(Img, E, OX, OY), E = $arrow(T,H,P) =>
+    Col = strk(P),
+    ( Col == none -> true ; draw_thick_line(Img, x(T)-OX, y(T)-OY, x(H)-OX, y(H)-OY, Col, P.get(stroke_width, 2)) ),
+    draw_arrowhead(Img, T, H, OX, OY, P).
+
+draw_arc(Img, C, R, T0, T1, OX, OY, Col, Wd) =>
+    N = 24,
+    foreach (I in 0..N-1)
+        A0 = T0 + (T1-T0)*I/N, A1 = T0 + (T1-T0)*(I+1)/N,
+        P0 = arc_pt(C, R, A0), P1 = arc_pt(C, R, A1),
+        draw_thick_line(Img, x(P0)-OX, y(P0)-OY, x(P1)-OX, y(P1)-OY, Col, Wd)
+    end.
+
+arc_pt(C, R, Deg) = P =>
+    Rad = to_radians(Deg),
+    PX = x(C) + R*cos(Rad), PY = y(C) + R*sin(Rad),
+    P = $pt(PX, PY).
+
+draw_arrowhead(Img, T, H, OX, OY, P) =>
+    Col = strk(P),
+    Style = P.get(head, solid),
+    ( Style == none -> true
+    ; Style == open -> draw_open_head(Img, T, H, OX, OY, Col)
+    ; true ->
+        Sz = P.get(arrow_size, 26),
+        DX = x(H)-x(T), DY = y(H)-y(T),
+        Len = sqrt(DX*DX + DY*DY),
+        Ux = DX/Len, Uy = DY/Len,
+        Px = -Uy, Py = Ux,
+        Bx = x(H) - Ux*Sz, By = y(H) - Uy*Sz,
+        X1 = round(x(H)-OX),  Y1 = round(y(H)-OY),
+        X2 = round(Bx + Px*Sz*0.45-OX), Y2 = round(By + Py*Sz*0.45-OY),
+        X3 = round(Bx - Px*Sz*0.45-OX), Y3 = round(By - Py*Sz*0.45-OY),
+        fill_tri(Img, X1,Y1, X2,Y2, X3,Y3, Col)
+    ).
+
+draw_open_head(Img, T, H, OX, OY, Col) =>
+    Sz = 26,
+    DX = x(H)-x(T), DY = y(H)-y(T),
+    Len = sqrt(DX*DX + DY*DY),
+    Ux = DX/Len, Uy = DY/Len,
+    Px = -Uy, Py = Ux,
+    Bx = x(H) - Ux*Sz, By = y(H) - Uy*Sz,
+    X1 = round(x(H)-OX),  Y1 = round(y(H)-OY),
+    X2 = round(Bx + Px*Sz*0.45-OX), Y2 = round(By + Py*Sz*0.45-OY),
+    X3 = round(Bx - Px*Sz*0.45-OX), Y3 = round(By - Py*Sz*0.45-OY),
+    draw_thick_line(Img, X1,Y1, X2,Y2, Col, 2),
+    draw_thick_line(Img, X1,Y1, X3,Y3, Col, 2),
+    draw_thick_line(Img, X2,Y2, X3,Y3, Col, 2).
+
+% --- primitives ---------------------------------------------------------
+draw_thick_line(Img, X1, Y1, X2, Y2, Col, Wd) =>
+    foreach (Off in -Wd//2..Wd//2)
+        if Off == 0 then
+            draw_line(Img, X1, Y1, X2, Y2, Col)
+        else
+            draw_line(Img, X1+Off, Y1, X2+Off, Y2, Col)
+        end
+    end.
+
+draw_line(Img, X1, Y1, X2, Y2, Col) =>
+    RX1 = round(X1), RY1 = round(Y1), RX2 = round(X2), RY2 = round(Y2),
+    DX = abs(RX2-RX1),
+    ( RX2 > RX1 -> SX = 1 ; SX = -1 ),
+    DY = -abs(RY2-RY1),
+    ( RY2 > RY1 -> SY = 1 ; SY = -1 ),
+    Err = DX + DY,
+    loop_bresenham(Img, RX1, RY1, RX2, RY2, DX, DY, SX, SY, Err, Col).
+
+loop_bresenham(Img, X, Y, X2, Y2, DX, DY, SX, SY, Err, Col) =>
+    set_px(Img, X, Y, Col),
+    ( X == X2, Y == Y2 ->
+        true
+    ; Err2 = 2*Err,
+      ( Err2 >= DY -> E = Err + DY, X1 = X + SX ; E = Err, X1 = X ),
+      ( Err2 =< DX -> E2 = E + DX, Y1 = Y + SY ; E2 = E, Y1 = Y ),
+      loop_bresenham(Img, X1, Y1, X2, Y2, DX, DY, SX, SY, E2, Col)
+    ).
+
+fill_circle(Img, CX, CY, R, Col) =>
+    R = round(R),
+    foreach (Y in CY-R..CY+R)
+        foreach (X in CX-R..CX+R)
+            if (X-CX)*(X-CX)+(Y-CY)*(Y-CY) =< R*R then
+                set_px(Img, X, Y, Col)
+            end
+        end
+    end.
+
+fill_ellipse(Img, CX, CY, RX, RY, Col) =>
+    RX = round(RX), RY = round(RY),
+    foreach (Y in CY-RY..CY+RY)
+        DY = Y - CY,
+        HW = round(RX * sqrt(1 - DY*DY/(RY*RY))),
+        foreach (X in CX-HW..CX+HW)
+            set_px(Img, X, Y, Col)
+        end
+    end.
+
+fill_rect(Img, X0, Y0, W, H, Col) =>
+    foreach (Y in round(Y0)..round(Y0)+H-1)
+        foreach (X in round(X0)..round(X0)+W-1)
+            set_px(Img, X, Y, Col)
+        end
+    end.
+
+stroke_rect(Img, X0, Y0, W, H, Col, Wd) =>
+    draw_thick_line(Img, X0, Y0, X0+W, Y0, Col, Wd),
+    draw_thick_line(Img, X0+W, Y0, X0+W, Y0+H, Col, Wd),
+    draw_thick_line(Img, X0+W, Y0+H, X0, Y0+H, Col, Wd),
+    draw_thick_line(Img, X0, Y0+H, X0, Y0, Col, Wd).
+
+stroke_poly(Img, Pts, OX, OY, Col, Wd, Close) =>
+    N = Pts.length,
+    foreach (I in 1..N-1)
+        P = Pts[I], Q = Pts[I+1],
+        draw_thick_line(Img, x(P)-OX, y(P)-OY, x(Q)-OX, y(Q)-OY, Col, Wd)
+    end,
+    ( Close = true, N >= 2 ->
+        P = Pts[N], Q = Pts[1],
+        draw_thick_line(Img, x(P)-OX, y(P)-OY, x(Q)-OX, y(Q)-OY, Col, Wd)
+    ; true ).
+
+% even-odd scanline fill of a polygon
+fill_poly(Img, Pts, OX, OY, Col) =>
+    YMin = min([round(y(P))-OY : P in Pts]),
+    YMax = max([round(y(P))-OY : P in Pts]),
+    foreach (Y in YMin..YMax)
+        Xs = [],
+        foreach (I in 1..Pts.length)
+            P1 = Pts[I], P2 = Pts[(I mod Pts.length)+1],
+            Y1 = round(y(P1))-OY, Y2 = round(y(P2))-OY,
+            if Y1 != Y2, (Y1 =< Y, Y < Y2 ; Y2 =< Y, Y < Y1) then
+                Xc = round(x(P1)-OX + (x(P2)-OX - (x(P1)-OX)) * (Y-Y1) // (Y2-Y1)),
+                Xs := [Xc|Xs]
+            end
+        end,
+        Xs := sort(Xs),
+        fill_span(Img, Xs, Y, Col)
+    end.
+
+fill_span(_Img, [], _Y, _Col) => true.
+fill_span(Img, [X1, X2|Xs], Y, Col) =>
+    foreach (X in X1..X2)
+        set_px(Img, X, Y, Col)
+    end,
+    fill_span(Img, Xs, Y, Col).
+fill_span(_Img, [_], _Y, _Col) => true.   % odd leftover: ignore
+
+fill_tri(Img, X1,Y1, X2,Y2, X3,Y3, Col) =>
+    fill_poly(Img, [$pt(X1,Y1), $pt(X2,Y2), $pt(X3,Y3)], 0, 0, Col).
+
+set_px(Img, X, Y, Col) =>
+    H = Img.length, W = Img[1].length,
+    if X >= 1, X =< W, Y >= 1, Y =< H then
+        Img[Y,X] := Col
+    end.

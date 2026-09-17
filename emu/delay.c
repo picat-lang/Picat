@@ -101,7 +101,7 @@ BPLONG_PTR frozen_cs(BPLONG_PTR cs, BPLONG_PTR Plist)
             frame > local_top iff its block is still allocated;
             otherwise its memory was reclaimed by a backtrack and it
             must never be resurrected.  */
-        if (!FRAME_IS_DEAD(frame) && frame > local_top) {
+        if (!FRAME_IS_DEAD(frame)) {
             tmp = build_delayed_call_on_the_heap(frame);
             if (tmp == -1) return (BPLONG_PTR)-1;
             FOLLOW(Plist) = ADDTAG(heap_top, LST);
@@ -115,15 +115,22 @@ BPLONG_PTR frozen_cs(BPLONG_PTR cs, BPLONG_PTR Plist)
 
 /*  A suspension frame is born when the instantiation event of a dvar
     launches a frozen/delayed call that then suspends; the source dvar
-    appears among the frame's call arguments.  The frame is meaningful
-    only while some dvar of its call is still instantiated (the trigger
-    still holds; re-firing after a search rewind re-derives the same
-    constraint, which is harmless).  When a search exhausts and backtracks
-    away, its still-sleeping frames sit below every remaining choice-point
-    snapshot, so no backtrack ever abandons them; with their source dvars
-    re-opened (uninstantiated), they are zombie calls that must be
-    discarded (Bug E).  Frames whose arguments contain no dvar keep the
-    legacy behaviour.  */
+    appears among the frame's call arguments.
+    NOT a zombie test:  the source-dvar state cannot distinguish a LIVE
+    frame (a reified constraint's delayed call waiting on
+    un-instantiated dvars -- its trigger is a FUTURE instantiation
+    event,  and "no instantiated dvar" is its normal waiting state)
+    from a rewind-zombie (Bug E).  Reading the former as the latter
+    (skip at c_frozen_f,  worse: mark SUSP_EXIT) broke reified
+    propagation and UNSAT-ified solves 3.9#12 answers (exs/debug
+    ex_ensemble_divider:  the schematic/5 reified #<=> web;  the
+    acyclic global's cycle rejection -- the full 3-cycle accepted as
+    acyclic).  Genuinely-abandoned frames are already SUSP_EXIT via
+    SF_MARK_ABANDONED (emu_inst.h),  and a rewind-zombie is merely
+    re-listed here (the legacy behaviour),  which is harmless.  The
+    only liveness test that matters is the block's memory:  frame >
+    local_top (see frozen_cs).  Kept for documentation and possible
+    future discrimination that uses more than the dvar state.  */
 int sf_frame_source_alive(BPLONG_PTR frame)
 {
     SYM_REC_PTR sym_ptr;
@@ -166,23 +173,28 @@ int c_frozen_f() {
     while (AR_PREV(frame) != (BPLONG)frame) {  /* end of chain */
         /*  sfreg is append-only, so it accumulates frames of dead
             searches.  A frame is usable only while its block is still
-            allocated (frame > local_top, see frozen_cs) and its trigger
-            still holds (sf_frame_source_alive).  Frames abandoned by a
-            backtrack are already SUSP_EXIT (SF_MARK_ABANDONED in
-            emu_inst.h).  What remains is zombie material from an
-            exhausted or failed search (Bug E): discard it here.  */
-        if (!FRAME_IS_DEAD(frame) && frame > local_top) {
-            if (sf_frame_source_alive(frame)) {
-                tmp = build_delayed_call_on_the_heap(frame);
-                if (tmp == -1) return BP_ERROR;
-                cell = bp_build_list();
-                unify(bp_get_car(cell), tmp);
-                P_goal_rest = bp_get_cdr(cell);
-                unify(P_goal, cell);
-                P_goal = P_goal_rest;
-            }
-            else
-                AR_STATUS(frame) = SUSP_EXIT;  /* zombie: kill it here */
+            allocated (frame > local_top, see frozen_cs).  Frames
+            abandoned by a backtrack are already SUSP_EXIT
+            (SF_MARK_ABANDONED in emu_inst.h).
+            The source-dvar state must NOT select here:  a LIVE
+            reified constraint's delayed call waits on un-instantiated
+            dvars (its trigger is a FUTURE instantiation event),  which
+            is exactly the shape a dvar-state test reads as zombie
+            -- skipping such a frame (worse:  marking it SUSP_EXIT)
+            broke reified propagation and UNSAT-ified solves that
+            3.9#12 answers (exs/debug ex_ensemble_divider:  the
+            schematic/5 reified #<=> web;  the acyclic global's cycle
+            rejection -- the full 3-cycle accepted as acyclic).  A
+            rewind-zombie is merely re-listed (the legacy behaviour),
+            which re-derives the same constraint and is harmless.  */
+        if (!FRAME_IS_DEAD(frame)) {
+            tmp = build_delayed_call_on_the_heap(frame);
+            if (tmp == -1) return BP_ERROR;
+            cell = bp_build_list();
+            unify(bp_get_car(cell), tmp);
+            P_goal_rest = bp_get_cdr(cell);
+            unify(P_goal, cell);
+            P_goal = P_goal_rest;
         }
         frame = (BPLONG_PTR)AR_PREV(frame);
     }

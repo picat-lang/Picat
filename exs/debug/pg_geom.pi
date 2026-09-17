@@ -1,0 +1,106 @@
+module pg_geom.
+
+% =====================================================================
+% Picagramer geometry kernel.
+%
+% A point is $pt(X,Y) where X,Y are either numbers (fixed coordinates)
+% or Picat constraint (domain) variables (free coordinates).  Higher
+% elements are built from points; points are built from coordinate
+% variables.  Everything is hierarchical, and the leaf values are the
+% coordinate variables that the layout solver labels.
+% =====================================================================
+
+import cp, pg_el.
+
+% --- point construction -----------------------------------------------
+new_pt() = P => P = $pt(X,Y), X = new_dvar(), Y = new_dvar().
+new_pt(X, Y) = P => P = $pt(X,Y).
+pt(X, Y) = P => P = $pt(X,Y).
+
+% --- accessors ---------------------------------------------------------
+x(P) = X, P = $pt(X,_) => true.
+y(P) = Y, P = $pt(_,Y) => true.
+
+% --- numeric vector math (ground values; render-time helpers) ----------
+padd(P, Q) = R => R = $pt(x(P)+x(Q), y(P)+y(Q)).
+psub(P, Q) = R => R = $pt(x(P)-x(Q), y(P)-y(Q)).
+pscale(P, K) = R => R = $pt(x(P)*K, y(P)*K).
+dist2(P, Q) = D => DX = x(P)-x(Q), DY = y(P)-y(Q), D = DX*DX + DY*DY.
+dist(P, Q) = D  => D = sqrt(dist2(P,Q)).
+pmid(P, Q) = R  => R = $pt((x(P)+x(Q))/2.0, (y(P)+y(Q))/2.0).
+
+% rotate P by Deg degrees around the origin
+rot(P, Deg) = R =>
+    Rad = to_radians(Deg),
+    R = $pt(x(P)*cos(Rad) - y(P)*sin(Rad), x(P)*sin(Rad) + y(P)*cos(Rad)).
+
+% rotate P by Deg degrees around center C
+rot_around(P, C, Deg) = R =>
+    R = padd(rot(psub(P,C), Deg), C).
+
+% unit vector from A to B (ground values)
+unit(A, B) = U =>
+    D = dist(A, B),
+    U = $pt((x(B)-x(A))/D, (y(B)-y(A))/D).
+
+% =====================================================================
+% Constraint relations between points (posted as CP constraints).
+% All are linear-safe; half-unit operations use the floor-form
+% (2*M in [S-1, S]) so they are always feasible and exact for even sizes.
+% Relations accept points OR boxes (a box is treated by its center).
+% =====================================================================
+
+% pt_of: the coordinate point of a point, box or labelled box
+pt_of(P) = P, P = $pt(_,_) => true.
+pt_of(E) = C, E = $box(C,_,_,_,_) => true.
+pt_of(E) = C, E = $labelled_box(C,_,_,_,_,_,_) => true.
+
+% extract coordinates into two variables (constraint gotcha: x(P) must
+% NOT appear inside a constraint expression, so extract first)
+cpts(P, X, Y) => cpts1(pt_of(P), X, Y).
+cpts1(P, X, Y) => X = x(P), Y = y(P).
+
+% pin: P and Q must coincide
+pin(P, Q) => cpts(P,X1,Y1), cpts(Q,X2,Y2), X1 #= X2, Y1 #= Y2.
+
+% midpoint: M is the midpoint of A and B (floor-form; exact to half a unit,
+% always feasible, linear: 2*M in [A+B-1, A+B])
+midpoint(M, A, B) =>
+    cpts(M,XM,YM), cpts(A,XA,YA), cpts(B,XB,YB),
+    XM*2 #>= XA+XB-1, XM*2 #=< XA+XB,
+    YM*2 #>= YA+YB-1, YM*2 #=< YA+YB.
+
+% align_x / align_y: same coordinate
+align_x(A, B) => cpts(A,X1,_), cpts(B,X2,_), X1 #= X2.
+align_y(A, B) => cpts(A,_,Y1), cpts(B,_,Y2), Y1 #= Y2.
+
+% B lies Gap units to the right of A (same y)
+hdist(A, B, Gap) => cpts(A,X1,Y1), cpts(B,X2,Y2), X1+Gap #=< X2, Y1 #= Y2.
+
+% B lies Gap units below A (same x); y grows downwards (SVG convention)
+vdist(A, B, Gap) => cpts(A,X1,Y1), cpts(B,X2,Y2), Y1+Gap #=< Y2, X1 #= X2.
+
+% B is at most Gap units to the right of A (same y): an UPPER bound on the
+% separation, so free terminals stay near the circuit instead of drifting
+% apart in a large canvas
+hspan_max(A, B, Gap) => cpts(A,X1,Y1), cpts(B,X2,Y2), X1+Gap #>= X2, Y1 #= Y2.
+
+% B is at most Gap units below A (same x)
+vspan_max(A, B, Gap) => cpts(A,X1,Y1), cpts(B,X2,Y2), Y1+Gap #>= Y2, X1 #= X2.
+
+% P.x is DX units to the right of Q.x (DX may be negative); y unconstrained
+off_x(P, Q, DX) => cpts(P, PX, _), cpts(Q, QX, _), PX #= QX + DX.
+
+% P.y is DY units below Q.y (DY may be negative); x unconstrained
+off_y(P, Q, DY) => cpts(P, _, PY), cpts(Q, _, QY), PY #= QY + DY.
+
+% set_x / set_y: fix one coordinate of a point to a value (combinators so
+% the examples do not need to import cp themselves)
+set_x(P, X) => cpts(P, PX, _), PX #= X.
+set_y(P, Y) => cpts(P, _, PY), PY #= Y.
+
+% min_y / max_y: bound one coordinate (guiding constraints for auto-layout)
+min_y(P, Y) => cpts(P, _, PY), PY #>= Y.
+max_y(P, Y) => cpts(P, _, PY), PY #=< Y.
+min_x(P, X) => cpts(P, PX, _), PX #>= X.
+max_x(P, X) => cpts(P, PX, _), PX #=< X.

@@ -1,0 +1,254 @@
+module pg_svg.
+
+% =====================================================================
+% Picagramer SVG renderer.  Walks the document's elements (in layer /
+% z-order) and emits an SVG file.  Style comes from each element's props
+% map:
+%   stroke, fill, stroke_width, opacity, dash, arrow_size
+%   Text: fill, font_family, font_size, font_weight (normal|bold),
+%         font_style (normal|italic), text_anchor (start|middle|end),
+%         v_anchor (baseline|top|middle|bottom), letter_spacing
+%   labelled_box label color: fill_text
+% Text is vector (publication quality); a text value may be a single
+% string or a list of strings (multi-line).
+% Coordinates are layout units (integer); geometry is exact.
+% =====================================================================
+
+import pg_geom, pg_el, pg_core.
+
+% svg/2: the output is AUTO-CROPPED to the content by default (bounding
+% box + margin) -- ideal for embedding as a PDF illustration.  Set
+% D.put(crop, false) to instead center the content in the canvas, and
+% D.put(margin, N) to control the crop margin (default 40).
+svg(D, File) =>
+    B = pg_core.bounds(D),
+    {VX,VY,VW,VH,DX,DY} = svg_view(D),
+    emit_svg(D, File, VW, VH, VX, VY, VW, VH, DX, DY).
+
+% svg_view: the viewport {VX,VY,VW,VH} and the centering translation
+% {DX,DY} for the current document.  Call after solve (coordinates must
+% be ground).
+svg_view(D) = {VX, VY, VW, VH, DX, DY} =>
+    B = pg_core.bounds(D), W = pg_core.b_x1(B), H = pg_core.b_y1(B),
+    M = D.get(margin, 40),
+    Crop = D.get(crop, true),
+    {CX0,CX1,CY0,CY1} = pg_core.content_bbox(D),
+    ( Crop = true ->
+        VX = CX0 - M, VY = CY0 - M,
+        VW = CX1 - CX0 + 2*M, VH = CY1 - CY0 + 2*M,
+        DX = 0, DY = 0
+    ; VX = 0, VY = 0, VW = W, VH = H,
+      DX = (W - (CX0 + CX1)) / 2, DY = (H - (CY0 + CY1)) / 2
+    ).
+
+% svg_dim: like svg/2 but with an explicit output size in pixels; the
+% viewBox stays in layout units, so the drawing scales losslessly.  Used
+% by the hi-DPI PNG renderer.
+svg_dim(D, File, WPx, HPx) =>
+    {VX,VY,VW,VH,DX,DY} = svg_view(D),
+    emit_svg(D, File, WPx, HPx, VX, VY, VW, VH, DX, DY).
+
+% svg_scaled/svg_pixels: write the SVG at Scale x and report the pixel
+% size of the (possibly cropped) output.
+svg_scaled(D, File, Scale) =>
+    {VX,VY,VW,VH,DX,DY} = svg_view(D),
+    emit_svg(D, File, round(VW*Scale), round(VH*Scale), VX, VY, VW, VH, DX, DY).
+
+svg_pixels(D, Scale) = {PX, PY} =>
+    {VX,VY,VW,VH,_,_} = svg_view(D),
+    PX = round(VW*Scale), PY = round(VH*Scale).
+
+emit_svg(D, File, WPx, HPx, VX, VY, VW, VH, DX, DY) =>
+    FD = open(File, write),
+    printf(FD, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"),
+    printf(FD, "<svg xmlns=\"http://www.w3.org/2000/svg\" "),
+    printf(FD, "width=\"%w\" height=\"%w\" viewBox=\"%w %w %w %w\">\n",
+        WPx, HPx, VX, VY, VW, VH),
+    printf(FD, "<rect x=\"%w\" y=\"%w\" width=\"%w\" height=\"%w\" fill=\"white\"/>\n",
+        VX, VY, VW, VH),
+    ( DX =:= 0, DY =:= 0 ->
+        true
+    ; printf(FD, "<g transform=\"translate(%w,%w)\">\n", DX, DY) ),
+    foreach (E in pg_core.ordered_elements(D))
+        svg_el(FD, E)
+    end,
+    ( DX =:= 0, DY =:= 0 -> true ; printf(FD, "</g>\n") ),
+    printf(FD, "</svg>\n"),
+    close(FD).
+
+svg_el(FD, E), E = $seg(A,B,P) => svg_line(FD, A, B, P).
+svg_el(FD, E), E = $dot(P,P1) =>
+    R = P1.get(dot_r, 5),
+    printf(FD, "<circle cx=\"%w\" cy=\"%w\" r=\"%w\" fill=\"%w\" opacity=\"%w\"/>\n",
+        x(P), y(P), R, P1.get(fill, darkslategray), P1.get(opacity, 1)).
+svg_el(FD, E), E = $disc(C,R,P) =>
+    printf(FD, "<circle cx=\"%w\" cy=\"%w\" r=\"%w\" fill=\"%w\" stroke=\"%w\" stroke-width=\"%w\" opacity=\"%w\"/>\n",
+        x(C), y(C), R, P.get(fill, darkslategray), P.get(stroke, none), P.get(stroke_width, 2), P.get(opacity, 1)).
+svg_el(FD, E), E = $ellipse(C,RX,RY,P) =>
+    printf(FD, "<ellipse cx=\"%w\" cy=\"%w\" rx=\"%w\" ry=\"%w\" fill=\"%w\" stroke=\"%w\" stroke-width=\"%w\" opacity=\"%w\"/>\n",
+        x(C), y(C), RX, RY, P.get(fill, darkslategray), P.get(stroke, none), P.get(stroke_width, 2), P.get(opacity, 1)).
+svg_el(FD, E), E = $arc(C,R,T0,T1,P) =>
+    P0 = arc_pt(C,R,T0), P1 = arc_pt(C,R,T1),
+    ( T1 > T0 -> Sweep = 1 ; Sweep = 0 ),
+    printf(FD, "<path d=\"M %w %w A %w %w 0 0 %d %w %w\" fill=\"none\" stroke=\"%w\" stroke-width=\"%w\" opacity=\"%w\"/>\n",
+        x(P0), y(P0), R, R, Sweep, x(P1), y(P1), P.get(stroke, darkslategray), P.get(stroke_width, 2), P.get(opacity, 1)).
+svg_el(FD, E), E = $poly(Pts,P) => svg_poly(FD, "polygon", Pts, P).
+svg_el(FD, E), E = $polyline(Pts,P) => svg_poly(FD, "polyline", Pts, P).
+svg_el(FD, E), E = $text(Pt,Str,Size,P) =>
+    svg_text_open(FD, x(Pt), y(Pt), Size, P),
+    svg_text_body(FD, x(Pt), Str, Size),
+    printf(FD, "</text>\n").
+svg_el(FD, E), E = $box(C,W,H,_,P) =>
+    printf(FD, "<rect x=\"%w\" y=\"%w\" width=\"%w\" height=\"%w\"%s fill=\"%w\" stroke=\"%w\" stroke-width=\"%w\" opacity=\"%w\"/>\n",
+        x(C)-W/2.0, y(C)-H/2.0, W, H, rounded_attr(P), P.get(fill, white), P.get(stroke, darkslategray),
+        P.get(stroke_width, 2), P.get(opacity, 1)).
+svg_el(FD, E), E = $labelled_box(C,W,H,Str,FS,_,P) =>
+    printf(FD, "<rect x=\"%w\" y=\"%w\" width=\"%w\" height=\"%w\"%s fill=\"%w\" stroke=\"%w\" stroke-width=\"%w\" opacity=\"%w\"/>\n",
+        x(C)-W/2.0, y(C)-H/2.0, W, H, rounded_attr(P), P.get(fill, white), P.get(stroke, darkslategray),
+        P.get(stroke_width, 2), P.get(opacity, 1)),
+    P2 = label_props(P),
+    svg_text_open(FD, x(C), y(C), FS, P2),
+    svg_text_body(FD, x(C), Str, FS),
+    printf(FD, "</text>\n").
+svg_el(FD, E), E = $arrow(T,H,P) =>
+    svg_line(FD, T, H, P),
+    svg_arrowhead(FD, T, H, P).
+
+svg_line(FD, A, B, P) =>
+    printf(FD, "<line x1=\"%w\" y1=\"%w\" x2=\"%w\" y2=\"%w\" stroke=\"%w\" stroke-width=\"%w\"%s opacity=\"%w\"/>\n",
+        x(A), y(A), x(B), y(B), P.get(stroke, darkslategray), P.get(stroke_width, 2), dash_attr(P), P.get(opacity, 1)).
+
+% dash/rounded attribute helpers ('' when unset)
+dash_attr(P) = S, D = P.get(dash, none), D == none => S = "".
+dash_attr(P) = S, D = P.get(dash, none) => S = " stroke-dasharray=\"" ++ dash_str(D) ++ "\"".
+
+dash_str(D) = S, integer(D) => S = to_string(D) ++ "," ++ to_string(D).
+dash_str(D) = S, list(D), D.length >= 2 => S = to_string(D[1]) ++ "," ++ to_string(D[2]).
+dash_str(D) = S => S = to_string(D).
+
+rounded_attr(P) = S, R = P.get(rounded, none), R == none => S = "".
+rounded_attr(P) = S, R = P.get(rounded, none) => S = " rx=\"" ++ to_string(R) ++ "\" ry=\"" ++ to_string(R) ++ "\"".
+
+svg_poly(FD, Tag, Pts, P) =>
+    Str = join_points(Pts),
+    ( Tag == polygon -> F = white ; F = none ),
+    printf(FD, "<%s points=\"%s\" fill=\"%w\" stroke=\"%w\" stroke-width=\"%w\"%s opacity=\"%w\"/>\n",
+        Tag, Str, P.get(fill, F), P.get(stroke, darkslategray), P.get(stroke_width, 2), dash_attr(P), P.get(opacity, 1)).
+
+join_points([]) = "".
+join_points([P]) = to_string(x(P)) ++ "," ++ to_string(y(P)).
+join_points([P|Ps]) = to_string(x(P)) ++ "," ++ to_string(y(P)) ++ " " ++ join_points(Ps).
+
+svg_arrowhead(FD, T, H, P) =>
+    Sz = P.get(arrow_size, 26),
+    Dx = x(H)-x(T), Dy = y(H)-y(T),
+    Len = sqrt(Dx*Dx + Dy*Dy),
+    Ux = Dx/Len, Uy = Dy/Len,
+    Px = -Uy, Py = Ux,                       % perpendicular
+    Bx = x(H) - Ux*Sz, By = y(H) - Uy*Sz,    % back of the head
+    X1 = x(H),  Y1 = y(H),
+    X2 = Bx + Px*Sz*0.45, Y2 = By + Py*Sz*0.45,
+    X3 = Bx - Px*Sz*0.45, Y3 = By - Py*Sz*0.45,
+    Col = P.get(stroke, darkslategray),
+    Style = P.get(head, solid),
+    ( Style == solid ->
+        printf(FD, "<polygon points=\"%w,%w %w,%w %w,%w\" fill=\"%w\" opacity=\"%w\"/>\n",
+            X1, Y1, X2, Y2, X3, Y3, Col, P.get(opacity, 1))
+    ; Style == open ->
+        printf(FD, "<polygon points=\"%w,%w %w,%w %w,%w\" fill=\"white\" stroke=\"%w\" stroke-width=\"2\" opacity=\"%w\"/>\n",
+            X1, Y1, X2, Y2, X3, Y3, Col, P.get(opacity, 1))
+    ; Style == none -> true
+    ; ( Style == diamond ; Style == filled_diamond ) ->
+        B2x = x(H) - Ux*Sz*2, B2y = y(H) - Uy*Sz*2,
+        ( Style == filled_diamond -> F = Col ; F = white ),
+        printf(FD, "<polygon points=\"%w,%w %w,%w %w,%w %w,%w\" fill=\"%w\" stroke=\"%w\" stroke-width=\"2\" opacity=\"%w\"/>\n",
+            X1, Y1, X2, Y2, B2x, B2y, X3, Y3, F, Col, P.get(opacity, 1))
+    ; true
+    ).
+
+% point on a circle: center + radius at angle Deg (degrees, y down)
+arc_pt(C, R, Deg) = P =>
+    Rad = to_radians(Deg),
+    PX = x(C) + R*cos(Rad),
+    PY = y(C) + R*sin(Rad),
+    P = $pt(PX, PY).
+
+% =====================================================================
+% Publication-quality text.
+%
+% Text properties (all optional):
+%   fill          color (default darkslategray)
+%   font_family   e.g. "DejaVu Sans", "Lato", "Ubuntu" (default DejaVu Sans)
+%   font_size     overrides the Size argument
+%   font_weight   normal | bold
+%   font_style    normal | italic
+%   text_anchor   start | middle | end
+%   v_anchor      baseline | top | middle | bottom   (vertical alignment)
+%   letter_spacing  extra tracking in px
+%   opacity
+% A text value may be a single string or a list of strings (multi-line;
+% lines are stacked with 1.2 x line-height, all sharing the same anchor).
+% =====================================================================
+
+% open the <text> tag with all typographic attributes
+svg_text_open(FD, X, Y, Size, P) =>
+    FS = P.get(font_size, Size),
+    FF = P.get(font_family, "DejaVu Sans"),
+    FWT = P.get(font_weight, normal),
+    FST = P.get(font_style, normal),
+    Col = P.get(fill, darkslategray),
+    TA = P.get(text_anchor, start),
+    DB = v_baseline(P.get(v_anchor, baseline)),
+    LS = P.get(letter_spacing, 0),
+    Rot = P.get(rotation, 0),
+    printf(FD, "<text x=\"%w\" y=\"%w\" font-family=\"%w\" font-size=\"%w\" font-weight=\"%w\" font-style=\"%w\" fill=\"%w\" text-anchor=\"%w\" dominant-baseline=\"%w\" letter-spacing=\"%w\"%s opacity=\"%w\">",
+        X, Y, FF, FS, FWT, FST, Col, TA, DB, LS, rot_attr(X, Y, Rot), P.get(opacity, 1)).
+
+% SVG transform attribute for rotated text (empty when not rotated)
+rot_attr(_X, _Y, 0) = "".
+rot_attr(X, Y, A) = " transform=\"rotate(" ++ to_string(A) ++ " " ++ to_string(X) ++ " " ++ to_string(Y) ++ ")\"".
+
+% map a v_anchor to an SVG dominant-baseline keyword
+v_baseline(baseline) = alphabetic.
+v_baseline(top) = hanging.
+v_baseline(middle) = central.
+v_baseline(bottom) = 'text-after-edge'.
+v_baseline(_) = alphabetic.
+
+% body: the lines themselves (single string or list of strings)
+svg_text_body(FD, X, Str, Size) =>
+    svg_text_lines(FD, X, pg_el.text_lines(Str), Size).
+
+% escape XML special characters in text content
+xml_escape("") = "".
+xml_escape([C|Cs]) = R =>
+    ( C == '&' -> R = "&amp;" ++ xml_escape(Cs)
+    ; C == '<' -> R = "&lt;" ++ xml_escape(Cs)
+    ; C == '>' -> R = "&gt;" ++ xml_escape(Cs)
+    ; R = [C|xml_escape(Cs)] ).
+
+svg_text_lines(FD, _X, [L], _Size) => printf(FD, "%s", xml_escape(L)).
+svg_text_lines(FD, X, [L|Ls], Size) =>
+    printf(FD, "%s", xml_escape(L)),
+    svg_text_rest(FD, X, Ls, round(Size * 1.2)).
+svg_text_rest(_FD, _X, [], _LH) => true.
+svg_text_rest(FD, X, [L|Ls], LH) =>
+    printf(FD, "<tspan x=\"%d\" dy=\"%d\">%s</tspan>", X, LH, xml_escape(L)),
+    svg_text_rest(FD, X, Ls, LH).
+
+% props for a labelled-box label: keep the typographic props, map
+% fill_text -> fill, do NOT inherit the box's fill/stroke, and center the
+% label both horizontally (text_anchor=middle) and vertically
+% (v_anchor=middle) unless the user overrides.
+label_props(P) = P2 =>
+    P2 = new_map(),
+    foreach (K in keys(P))
+        ( K == fill -> true
+        ; K == fill_text -> P2.put(fill, P.get(K))
+        ; K == stroke -> true
+        ; K == stroke_width -> true
+        ; K == dash -> true
+        ; P2.put(K, P.get(K)) )
+    end,
+    ( has_key(P2, text_anchor) -> true ; P2.put(text_anchor, middle) ),
+    ( has_key(P2, v_anchor) -> true ; P2.put(v_anchor, middle) ).

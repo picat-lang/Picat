@@ -1,3 +1,5 @@
+% RUN (from the repo root; udf lives in lib2):
+%   PICATPATH=lib2 timeout 300 emu/picat exs/cp/udf_testsum.pi
  import cp.
  import udf.
  include "udf_ops.pi".

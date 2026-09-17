@@ -1,0 +1,190 @@
+module pg_el.
+
+% =====================================================================
+% Picagramer elements: named, hierarchical drawing objects.
+%
+% Every drawable element is a structure whose trailing argument is a
+% "props" map holding named properties (stroke, fill, width, font, id,
+% user-defined extras).  Properties are addressed naturally with the
+% accessor functions below, so `Box.w`, `Arr.tip.x`, `Box.props.get(id)`
+% read as named-property lookups.
+%
+% Element arities (FINAL - keep in sync):
+%   pt/2            $pt(X,Y)                      geometry point
+%   seg/3           $seg(A,B,Props)               line segment
+%   dot/2           $dot(P,Props)                 small filled mark
+%   disc/3          $disc(C,R,Props)              filled disc
+%   ellipse/4       $ellipse(C,RX,RY,Props)       filled ellipse
+%   arc/5           $arc(C,R,T0,T1,Props)         circular arc (degrees)
+%   poly/2          $poly(Pts,Props)              filled polygon (closed surface)
+%   polyline/2      $polyline(Pts,Props)          open polyline
+%   text/4          $text(P,Str,Size,Props)       text (P = anchor, baseline-left)
+%   box/5           $box(C,W,H,Anchors,Props)     axis-aligned rectangle
+%   labelled_box/7  $labelled_box(C,W,H,Str,FS,Anchors,Props)
+%   arrow/3         $arrow(Tail,Head,Props)       shaft + arrowhead at Head
+% Anchors = $anch(East,West,North,South): the four side-middle points,
+% created once at construction so they are stable across accessor calls.
+% =====================================================================
+
+% --- plain element constructors (do not add to a document) -------------
+% (mk_* prefix avoids clashing with the document-aware constructors in
+%  pg_shape, which share names like box/3, arrow/4, ...)
+mk_seg(A, B) = $seg(A, B, new_map()).
+mk_seg(A, B, Props) = $seg(A, B, Props).
+mk_dot(P) = $dot(P, new_map()).
+mk_dot(P, Props) = $dot(P, Props).
+mk_disc(C, R) = $disc(C, R, new_map()).
+mk_disc(C, R, Props) = $disc(C, R, Props).
+mk_ellipse(C, RX, RY) = $ellipse(C, RX, RY, new_map()).
+mk_ellipse(C, RX, RY, Props) = $ellipse(C, RX, RY, Props).
+mk_arc(C, R, T0, T1) = $arc(C, R, T0, T1, new_map()).
+mk_arc(C, R, T0, T1, Props) = $arc(C, R, T0, T1, Props).
+mk_poly(Pts) = $poly(Pts, new_map()).
+mk_poly(Pts, Props) = $poly(Pts, Props).
+mk_polyline(Pts) = $polyline(Pts, new_map()).
+mk_polyline(Pts, Props) = $polyline(Pts, Props).
+mk_text(P, Str, Size) = $text(P, Str, Size, new_map()).
+mk_text(P, Str, Size, Props) = $text(P, Str, Size, Props).
+mk_box(C, W, H, Anchors) = $box(C, W, H, Anchors, new_map()).
+mk_box(C, W, H, Anchors, Props) = $box(C, W, H, Anchors, Props).
+mk_labelled_box(C, W, H, Str, FS, Anchors) = $labelled_box(C, W, H, Str, FS, Anchors, new_map()).
+mk_labelled_box(C, W, H, Str, FS, Anchors, Props) = $labelled_box(C, W, H, Str, FS, Anchors, Props).
+mk_arrow(Tail, Head) = $arrow(Tail, Head, new_map()).
+mk_arrow(Tail, Head, Props) = $arrow(Tail, Head, Props).
+
+% --- accessors ---------------------------------------------------------
+a(E) = A, E = $seg(A,_,_) => true.
+b(E) = B, E = $seg(_,B,_) => true.
+p(E) = P, E = $dot(P,_) => true.
+p(E) = P, E = $text(P,_,_,_) => true.
+c(E) = C, E = $disc(C,_,_) => true.
+c(E) = C, E = $ellipse(C,_,_,_) => true.
+c(E) = C, E = $arc(C,_,_,_,_) => true.
+c(E) = C, E = $box(C,_,_,_,_) => true.
+c(E) = C, E = $labelled_box(C,_,_,_,_,_,_) => true.
+r(E) = R, E = $disc(_,R,_) => true.
+r(E) = R, E = $arc(_,R,_,_,_) => true.
+rx(E) = R, E = $ellipse(_,R,_,_) => true.
+ry(E) = R, E = $ellipse(_,_,R,_) => true.
+t0(E) = T, E = $arc(_,_,T,_,_) => true.
+t1(E) = T, E = $arc(_,_,_,T,_) => true.
+pts(E) = P, E = $poly(P,_) => true.
+pts(E) = P, E = $polyline(P,_) => true.
+str(E) = S, E = $text(_,S,_,_) => true.
+str(E) = S, E = $labelled_box(_,_,_,S,_,_,_) => true.
+font_size(E) = S, E = $text(_,_,S,_) => true.
+font_size(E) = S, E = $labelled_box(_,_,_,_,S,_,_) => true.
+w(E) = W, E = $box(_,W,_,_,_) => true.
+w(E) = W, E = $labelled_box(_,W,_,_,_,_,_) => true.
+h(E) = H, E = $box(_,_,H,_,_) => true.
+h(E) = H, E = $labelled_box(_,_,H,_,_,_,_) => true.
+src(E) = T, E = $arrow(T,_,_) => true.
+tip(E) = H, E = $arrow(_,H,_) => true.
+
+% --- props map (named properties) --------------------------------------
+props(E) = P, E = $seg(_,_,P) => true.
+props(E) = P, E = $dot(_,P) => true.
+props(E) = P, E = $disc(_,_,P) => true.
+props(E) = P, E = $ellipse(_,_,_,P) => true.
+props(E) = P, E = $arc(_,_,_,_,P) => true.
+props(E) = P, E = $poly(_,P) => true.
+props(E) = P, E = $polyline(_,P) => true.
+props(E) = P, E = $text(_,_,_,P) => true.
+props(E) = P, E = $box(_,_,_,_,P) => true.
+props(E) = P, E = $labelled_box(_,_,_,_,_,_,P) => true.
+props(E) = P, E = $arrow(_,_,P) => true.
+
+% named property read/write
+style(E, Key) = Val => Val = props(E).get(Key, not_a_value).
+style(E, Key, Default) = Val => Val = props(E).get(Key, Default).
+set_prop(E, Key, Val) => props(E).put(Key, Val).
+name(E, Id) => props(E).put(id, Id).
+
+% --- z-ordering ---------------------------------------------------------
+% Every element has a layer (z-axis) that controls draw order: higher
+% layers are drawn on top.  Sensible per-type defaults are provided, and
+% any element can override with its "layer" property:
+%       E.props.put(layer, 100)
+layer(E) = L => L = props(E).get(layer, def_layer(E)).
+def_layer(E) = 5, E = $dot(_,_) => true.
+def_layer(E) = 5, E = $disc(_,_,_) => true.
+def_layer(E) = 5, E = $ellipse(_,_,_,_) => true.
+def_layer(E) = 5, E = $poly(_,_) => true.
+def_layer(E) = 10, E = $box(_,_,_,_,_) => true.
+def_layer(E) = 10, E = $labelled_box(_,_,_,_,_,_,_) => true.
+def_layer(E) = 10, E = $seg(_,_,_) => true.
+def_layer(E) = 10, E = $polyline(_,_) => true.
+def_layer(E) = 10, E = $arc(_,_,_,_,_) => true.
+def_layer(E) = 15, E = $arrow(_,_,_) => true.
+def_layer(E) = 20, E = $text(_,_,_,_) => true.
+def_layer(E) = 0 => true.
+
+% --- text ----------------------------------------------------------------
+% text_lines(Str): normalize a text value into a list of lines.  A single
+% string is one line; a list of strings is a multi-line block.
+text_lines(Str) = Lines, Str = [H|_], list(H) => Lines = Str.
+text_lines(Str) = Lines => Lines = [Str].
+
+% --- bounding boxes (ground, post-solve) ---------------------------------
+% el_bbox(E): the axis-aligned bounding box {X0,X1,Y0,Y1} of an element.
+% Used for content centering and auto-cropping the output.
+% (px/py are local coordinate accessors; pg_el must not import pg_geom,
+%  which itself imports pg_el.)
+px(P) = X, P = $pt(X,_) => true.
+py(P) = Y, P = $pt(_,Y) => true.
+
+el_bbox(E) = BB, E = $seg(A,B,_) => BB = add_pt(add_pt(empty_bbox(), A), B).
+el_bbox(E) = BB, E = $dot(P,P1) => R = P1.get(dot_r, 5), BB = pad(bbox1(P), R).
+el_bbox(E) = BB, E = $disc(C,R,_) => BB = pad(bbox1(C), R).
+el_bbox(E) = BB, E = $ellipse(C,RX,RY,_) => BB = pad_xy(bbox1(C), RX, RY).
+el_bbox(E) = BB, E = $arc(C,R,_,_,_) => BB = pad(bbox1(C), R).
+el_bbox(E) = BB, E = $poly(Pts,_) => BB = bbox_pts(Pts).
+el_bbox(E) = BB, E = $polyline(Pts,_) => BB = bbox_pts(Pts).
+el_bbox(E) = BB, E = $text(P,Str,Size,Pr) => BB = text_bbox(P, Str, Size, Pr).
+el_bbox(E) = BB, E = $box(C,W,H,_,_) => BB = pad_xy(bbox1(C), W/2.0, H/2.0).
+el_bbox(E) = BB, E = $labelled_box(C,W,H,_,_,_,_) => BB = pad_xy(bbox1(C), W/2.0, H/2.0).
+el_bbox(E) = BB, E = $arrow(T,Hd,P) => Sz = P.get(arrow_size, 26), BB = pad(bbox2(T,Hd), Sz).
+el_bbox(E) = BB => BB = empty_bbox().
+
+empty_bbox() = {1000000000, -1000000000, 1000000000, -1000000000}.
+bbox1(P) = {px(P), px(P), py(P), py(P)}.
+bbox2(A, B) = add_pt(bbox1(A), B).
+add_pt({X0,X1,Y0,Y1}, P) = {min(X0,px(P)), max(X1,px(P)), min(Y0,py(P)), max(Y1,py(P))}.
+pad({X0,X1,Y0,Y1}, R) = {X0-R, X1+R, Y0-R, Y1+R}.
+pad_xy({X0,X1,Y0,Y1}, RX, RY) = {X0-RX, X1+RX, Y0-RY, Y1+RY}.
+bbox_pts(Pts) = BB => BB = fold_bbox(Pts, empty_bbox()).
+fold_bbox([], BB) = BB.
+fold_bbox([P|Ps], BB) = fold_bbox(Ps, add_pt(BB, P)).
+
+text_bbox(P, Str, Size, Pr) = {X0,X1,Y0,Y1} =>
+    Lines = text_lines(Str),
+    W = max([L.length : L in Lines]) * Size * 0.58,
+    H = Lines.length * Size * 1.2,
+    PX = px(P), PY = py(P),
+    ( Pr.get(text_anchor, start) == end -> X0 = PX - W, X1 = PX
+    ; Pr.get(text_anchor, start) == middle -> X0 = PX - W/2, X1 = PX + W/2
+    ; X0 = PX, X1 = PX + W ),
+    ( Pr.get(v_anchor, baseline) == top -> Y0 = PY, Y1 = PY + H
+    ; Pr.get(v_anchor, baseline) == middle -> Y0 = PY - H/2, Y1 = PY + H/2
+    ; Pr.get(v_anchor, baseline) == bottom -> Y0 = PY - H, Y1 = PY
+    ; Y0 = PY - H, Y1 = PY ).
+
+% =====================================================================
+% Collect every free coordinate variable of an element (transitively).
+% Used by the layout solver so that a single solve() labels the whole
+% drawing.  Props maps are skipped (they hold style, not geometry).
+% =====================================================================
+coord_vars(Elm, Acc) = Vars, map(Elm) => Vars = Acc.
+coord_vars(Elm, Acc) = Vars, Elm = $pt(X,Y) => Vars = add2(Acc, X, Y).
+coord_vars(Elm, Acc) = Vars, list(Elm) => Vars = fold_pts(Elm, Acc).
+coord_vars(Elm, Acc) = Vars, struct(Elm) => Vars = fold_pts(Elm.to_list, Acc).
+coord_vars(Elm, Acc) = Vars => Vars = Acc.
+
+fold_pts([], Acc) = Acc.
+fold_pts([H|T], Acc) = fold_pts(T, Acc2) => Acc2 = coord_vars(H, Acc).
+
+add2(Acc, X, Y) = Acc2 =>
+    Acc2 = add1(add1(Acc, X), Y).
+
+add1(Acc, V) = Acc2, var(V) => Acc2 = [V|Acc].
+add1(Acc, V) = Acc2 => Acc2 = Acc.

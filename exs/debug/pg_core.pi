@@ -1,0 +1,405 @@
+module pg_core.
+
+% =====================================================================
+% Picagramer core: the document, layout solver, constraint combinators
+% and the SVG renderer.
+%
+% A document is a map:
+%   bounds   = $b(X0,X1,Y0,Y1)   (canvas in layout units)
+%   elements = list of elements (newest first)
+%   <id>     = named elements (named-property lookup)
+%
+% IMPORTANT constraint gotcha (Picat): function calls such as x(P) are
+% NOT evaluated inside constraint expressions; they stay symbolic and
+% make invalid constraints.  Always extract coordinates into variables
+% first (see cpts/3) and then constrain the variables.
+% =====================================================================
+
+import cp, pg_geom, pg_el.
+
+% --- document ----------------------------------------------------------
+design(Bounds) = D => D = new_map([bounds=Bounds, elements=[]]).
+design(X0, X1, Y0, Y1) = D => D = design($b(X0, X1, Y0, Y1)).
+
+bounds(D) = B => B = D.get(bounds).
+b_x0(B) = X0, B = $b(X0,_,_,_) => true.
+b_x1(B) = X1, B = $b(_,X1,_,_) => true.
+b_y0(B) = Y0, B = $b(_,_,Y0,_) => true.
+b_y1(B) = Y1, B = $b(_,_,_,Y1) => true.
+
+add(D, E) => D.put(elements, [E|D.get(elements)]).
+add(D, Id, E) =>
+    D.put(elements, [E|D.get(elements)]),
+    name(E, Id),
+    D.put(Id, E).
+get(D, Id) = E => E = D.get(Id).
+elements(D) = Es => Es = D.get(elements).
+
+% Elements in draw order: by layer (z), then by original order.  Layers
+% default per element type (see pg_el.layer/1) and can be overridden via
+% each element's "layer" property.  Within a layer, earlier-added elements
+% are drawn first (beneath later ones), so a component's disc (added
+% first) never covers the leads/arrow drawn after it.
+ordered_elements(D) = Es =>
+    Raw = elements(D),
+    N = Raw.length,
+    Keyed = sort([{layer(Raw[I]), N - I + 1, Raw[I]} : I in 1..N]),
+    Es = [E : {_, _, E} in Keyed].
+
+% The axis-aligned bounding box {X0,X1,Y0,Y1} of all content (ground,
+% post-solve).  Used by the renderers for centering and auto-cropping.
+content_bbox(D) = {X0,X1,Y0,Y1} =>
+    X0 = 1000000000, X1 = -1000000000,
+    Y0 = 1000000000, Y1 = -1000000000,
+    foreach (E in elements(D))
+        {A0,A1,B0,B1} = pg_el.el_bbox(E),
+        X0 := min(X0,A0), X1 := max(X1,A1),
+        Y0 := min(Y0,B0), Y1 := max(Y1,B1)
+    end,
+    ( X0 > X1 ->
+        B = bounds(D),
+        X0 = 0, X1 = b_x1(B), Y0 = 0, Y1 = b_y1(B)
+    ; true ).
+
+% output options stored in the document
+crop(D) => D.put(crop, true).            % auto-crop output to content
+margin(D, M) => D.put(margin, M).        % crop margin (default 40)
+
+% =====================================================================
+% Constraint combinators.  Arguments are points (or boxes for the
+% box-level ones).  All are linear-safe; half-unit operations use the
+% floor-form (2*M in [S-1, S]) so they are always feasible and exact
+% for even sizes.
+% (pin/midpoint/align_x/align_y/hdist/vdist live in pg_geom)
+% =====================================================================
+
+% distance constraints (squared; nonlinear - use for small models only)
+dist_eq(A, B, D) => cpts(A,X1,Y1), cpts(B,X2,Y2),
+    (X1-X2)*(X1-X2)+(Y1-Y2)*(Y1-Y2) #= D*D.
+dist_le(A, B, D) => cpts(A,X1,Y1), cpts(B,X2,Y2),
+    (X1-X2)*(X1-X2)+(Y1-Y2)*(Y1-Y2) #=< D*D.
+
+% box relations (box = $box(C,W,H,_) or $labelled_box)
+% point P inside axis-aligned box B (inclusive)
+inside(P, B) => cpts(P,X,Y), cpts(B.c,CX,CY), W = B.w, H = B.h,
+    CX*2-W #=< X*2, X*2 #=< CX*2+W,
+    CY*2-H #=< Y*2, Y*2 #=< CY*2+H.
+
+% inner box I wholly inside outer box O
+contain(I, O) =>
+    cpts(I.c,IX,IY), cpts(O.c,OX,OY),
+    IW = I.w, IH = I.h, OW = O.w, OH = O.h,
+    IX*2-IW #>= OX*2-OW, IX*2+IW #=< OX*2+OW,
+    IY*2-IH #>= OY*2-OH, IY*2+IH #=< OY*2+OH.
+
+% =====================================================================
+% no_cross: no two segments (from $seg elements and $arrow shafts)
+% properly cross.  Implemented with reified orientation tests.
+% =====================================================================
+
+% orientation of turn A->B->C as a constraint result var O
+orient_ct(A, B, C, O) => cpts(A,AX,AY), cpts(B,BX,BY), cpts(C,CX,CY),
+    O #= (BX-AX)*(CY-AY) - (BY-AY)*(CX-AX).
+
+% segments AB and CD must not properly cross (interior-interior).  Two
+% segments cross iff both orientation pairs have opposite signs (the 4
+% sign combinations are all covered via the reified opposites).
+disjoint_segs(A, B, C, D) =>
+    orient_ct(A,B,C,O1), orient_ct(A,B,D,O2),
+    orient_ct(C,D,A,O3), orient_ct(C,D,B,O4),
+    N1 #<=> (O1 #< 0), P1 #<=> (O1 #> 0),
+    N2 #<=> (O2 #< 0), P2 #<=> (O2 #> 0),
+    N3 #<=> (O3 #< 0), P3 #<=> (O3 #> 0),
+    N4 #<=> (O4 #< 0), P4 #<=> (O4 #> 0),
+    Opp12 #<=> (N1 #/\ P2) #\/ (P1 #/\ N2),
+    Opp34 #<=> (N3 #/\ P4) #\/ (P3 #/\ N4),
+    Cross #<=> Opp12 #/\ Opp34,
+    #~Cross.
+
+% two MANHATTAN segments must not properly cross (interior-interior).
+% Every routing wire is axis-aligned by construction, so the orientation
+% test simplifies to pure comparisons -- no cross products.  The old
+% cross-product formulation posts products of variables, which propagate
+% poorly and made the bigger netlists (full adder, 2-bit adder)
+% practically unsolvable; this one keeps the large examples fast.
+disjoint_man(A, B, C, D) =>
+    cpts(A, AX, AY), cpts(B, BX, BY), cpts(C, CX, CY), cpts(D, DX, DY),
+    V1 #<=> (AX #= BX), H1 #<=> (AY #= BY),
+    V2 #<=> (CX #= DX), H2 #<=> (CY #= DY),
+    % S1 vertical & S2 horizontal: S1's x strictly inside S2's x-span and
+    % S2's y strictly inside S1's y-span
+    X1in #<=> (min(CX,DX) #< AX #/\ AX #< max(CX,DX)),
+    Y2in #<=> (min(AY,BY) #< CY #/\ CY #< max(AY,BY)),
+    % S1 horizontal & S2 vertical
+    X2in #<=> (min(AX,BX) #< CX #/\ CX #< max(AX,BX)),
+    Y1in #<=> (min(CY,DY) #< AY #/\ AY #< max(CY,DY)),
+    Cross #<=> (V1 #/\ H2 #/\ X1in #/\ Y2in) #\/ (H1 #/\ V2 #/\ X2in #/\ Y1in),
+    #~Cross.
+
+% extract the line segments (with endpoints AND their props, so the
+% component ownership survives for no_cross) of a document
+% (predicate form so non-line elements are simply skipped; polylines
+% yield one segment per consecutive pair)
+seg_of(E, Seg), E = $seg(A,B,P) => Seg = pg_el.mk_seg(A,B,P).
+seg_of(E, Seg), E = $arrow(T,H,_) => Seg = pg_el.mk_seg(T,H).
+seg_of(E, Seg), E = $polyline([P,Q|T], Pr) =>
+    ( Seg = pg_el.mk_seg(P,Q,Pr) ; seg_of($polyline([Q|T],Pr), Seg) ).
+
+segments_of(D) = Seqs => Seqs = flatten([segs_of_elem(E) : E in D.elements]).
+
+% all line segments of one element (polylines yield one per leg)
+segs_of_elem(E) = Seqs, E = $seg(A,B,P) => Seqs = [pg_el.mk_seg(A,B,P)].
+segs_of_elem(E) = Seqs, E = $arrow(T,H,_) => Seqs = [pg_el.mk_seg(T,H)].
+segs_of_elem(E) = Seqs, E = $polyline(Pts, Pr) => Seqs = poly_segs(Pts, Pr).
+segs_of_elem(_) = [].
+
+poly_segs([_], _) = [].
+poly_segs([P,Q|T], Pr) = [pg_el.mk_seg(P,Q,Pr) | poly_segs([Q|T], Pr)].
+
+% no two segments in the document cross.  Pairs that share an endpoint
+% (connected wires, consecutive polyline legs) can only touch there, so
+% they are skipped -- this removes most pairs in a netlist, where wires
+% meet at net nodes and rail segments.  Wires belonging to the SAME
+% component never cross by construction, so those are skipped too.
+% Every routing wire is Manhattan by construction, and component bodies
+% are already kept wire-free by no_overlap, so the pairwise test is the
+% pure-comparison disjoint_man: the old cross-product formulation posts
+% products of variables, which propagate poorly and made the bigger
+% netlists (full adder, 2-bit adder) practically unsolvable.
+no_cross(D) =>
+    Seqs = segments_of(D),
+    foreach (I in 1..Seqs.length, J in I+1..Seqs.length)
+        S1 = Seqs[I], S2 = Seqs[J],
+        % wires belonging to the SAME component (e.g. a transistor's own
+        % leads) never cross by construction; component-internal wires are
+        % short and stay near their own body, so only check pairs where at
+        % least one wire is an external (routing) wire
+        if not same_component(S1, S2) then
+            if at_least_one_external(S1, S2) then
+                if not shares_endpoint(S1, S2) then
+                    disjoint_man(S1.a, S1.b, S2.a, S2.b)
+                end
+            end
+        end
+    end.
+
+shares_endpoint(S1, S2) =>
+    (S1.a == S2.a) ; (S1.a == S2.b) ; (S1.b == S2.a) ; (S1.b == S2.b).
+
+% two wire segments belong to the same component if both carry a compid
+% and those compids are equal (external wires, compid=none, never match)
+same_component(S1, S2) =>
+    C1 = pg_el.props(S1).get(compid, none),
+    C2 = pg_el.props(S2).get(compid, none),
+    C1 != none, C1 == C2.
+
+% at least one of the two wires is an external (routing) wire
+at_least_one_external(S1, S2) =>
+    pg_el.props(S1).get(compid, none) == none ;
+    pg_el.props(S2).get(compid, none) == none.
+
+% =====================================================================
+% Layout solver.  All part/box/wire coordinates are free FD variables
+% controlled only by constraints.  solve() finds ONE solution satisfying
+% every posted constraint, optionally including hard "no crossings" and
+% "no wire-through-body" constraints (document booleans no_cross /
+% no_overlap).  For explicit optimisation use solve_opt/2 with an
+% objective (e.g. weighted wire length + bends).
+% =====================================================================
+solve(D) =>
+    B = D.bounds,
+    Vars = coord_vars(D.elements, []),
+    foreach (V in Vars)
+        if var(V) then V :: B.b_x0..B.b_x1 end
+    end,
+    NC = D.get(no_cross, false), NO = D.get(no_overlap, false),
+    ( NC -> no_cross(D) ; true ),
+    ( NO -> no_overlap(D) ; true ),
+    once(solve([split], Vars)).
+
+% Non-deterministic solve: backtracks over all layouts.  First-fail
+% + split labelling (domain bisection) copes best with the large
+% coordinate domains and the reified orientation/no-cross/no-overlap
+% constraints; labelling in element order otherwise explodes.
+solve_all(D) =>
+    B = D.bounds,
+    Vars = coord_vars(D.elements, []),
+    foreach (V in Vars)
+        if var(V) then V :: B.b_x0..B.b_x1 end
+    end,
+    solve([split], Vars).
+
+% Optimal layout: find the layout minimizing Objective (an expression on
+% the solved variables, e.g. the project makespan).  Uses minof/2.
+solve_opt(D, Objective) => minof(solve_all(D), Objective).
+
+% Minimum-wire layout: like solve/1 but minimises total wire length, so
+% parts sit close together and the routing is naturally short.  The
+% length is built as a cp variable (ground after solve_all), which
+% minof/2 can minimise.
+solve_short(D) =>
+    total_len_var(D, Len),
+    minof(solve_all(D), Len).
+
+% total wire length as a cp variable (sum over every wire element of its
+% Manhattan length); usable before the coordinates are ground
+total_len_var(D, Len) =>
+    Lens = [seg_len_var(E) : E in elements(D)],
+    Len #= sum(Lens).
+
+seg_len_var(E) = L, E = $seg(A,B,_) =>
+    cpts(A, AX, AY), cpts(B, BX, BY),
+    L :: 0..1000000000, L #= abs(BX-AX) + abs(BY-AY).
+seg_len_var(E) = L, E = $polyline(Pts,_) => L = plen_vars(Pts, 0).
+seg_len_var(_) = 0.
+plen_vars([_], Acc) = Acc.
+plen_vars([P,Q|T], Acc) = plen_vars([Q|T], Acc + pseg_len_var(P, Q)).
+pseg_len_var(P, Q) = L =>
+    cpts(P, PX, PY), cpts(Q, QX, QY),
+    L :: 0..1000000000, L #= abs(QX-PX) + abs(QY-PY).
+
+% ---- optimisation objective ---------------------------------------------
+% Manhattan length of one wire element (seg or polyline); 0 otherwise.
+seg_man(E) = L, E = $seg(A,B,_) => L = abs(x(B)-x(A)) + abs(y(B)-y(A)).
+seg_man(E) = L, E = $polyline(Pts,_) => L = fold_man(Pts, 0).
+seg_man(_) = 0.
+fold_man([_], Acc) = Acc.
+fold_man([P,Q|T], Acc) = fold_man([Q|T], Acc + abs(x(Q)-x(P)) + abs(y(Q)-y(P))).
+
+% number of direction changes (bends) in one polyline
+poly_bends(E) = B, E = $polyline(Pts,_) => B = count_bends(Pts).
+poly_bends(_) = 0.
+count_bends([_,_]) = 0.
+count_bends([A,B,C|T]) = count_bends([B,C|T]) + bend(A,B,C).
+bend(A,B,C) = Bn =>
+    DX1 = x(B)-x(A), DY1 = y(B)-y(A),
+    DX2 = x(C)-x(B), DY2 = y(C)-y(B),
+    ( DX1*DY2 == DY1*DX2 -> Bn = 0 ; Bn = 1 ).
+
+total_len(D)   = L => L = sum([seg_man(E) : E in elements(D)]).
+total_bends(D) = B => B = sum([poly_bends(E) : E in elements(D)]).
+
+objective(D, WLen, WBend) = Obj =>
+    Obj = WLen * total_len(D) + WBend * total_bends(D).
+
+% =====================================================================
+% Component ownership (for the no-overlap constraint): each component
+% instance gets a unique id and pushes a path; its internal elements
+% carry that path.  A wire may pass through a body only if the body's
+% path is a prefix of the wire's path (i.e. the wire belongs to it).
+% =====================================================================
+new_comp_id(D) = Id =>
+    Id = D.get(comp_seq, 0) + 1,
+    D.put(comp_seq, Id).
+
+push_comp(D, Id) =>
+    D.put(comp_path, D.get(comp_path, []) ++ [Id]).
+
+pop_comp(D) =>
+    P = D.get(comp_path, []),
+    ( P.length == 1 -> D.put(comp_path, []) ; D.put(comp_path, P[1..P.length-1]) ).
+
+comp_of(D) = P =>
+    P0 = D.get(comp_path, none),
+    ( P0 == [] -> P = none ; P = P0 ).
+
+% =====================================================================
+% no_overlap: no wire passes through the interior (bounding box) of any
+% component body unless it belongs to that component (path prefix rule).
+% Bodies are $box/$labelled_box/$disc elements that carry a compid prop;
+% wires are $seg/$polyline elements carrying a compid prop.
+% =====================================================================
+no_overlap(D) =>
+    Bodies = [E : E in elements(D), is_body(E)],
+    % a wire may pass through a body only if the body's compid is a
+    % prefix of the wire's compid (the wire belongs to that component,
+    % e.g. a transistor lead crossing its own disc); any other wire must
+    % stay out of the body's interior -- external (routing) wires and a
+    % neighbour component's wires alike
+    foreach (E in elements(D), is_wire(E))
+        C = compid_of(E),
+        Seqs = segs_of(E),
+        foreach (Seg in Seqs, B in Bodies)
+            if not overlap_ok(C, compid_of(B)) then
+                seg_no_box(Seg, B)
+            end
+        end
+    end,
+    % no two bodies overlap (interiors)
+    foreach (I in 1..Bodies.length, J in I+1..Bodies.length)
+        bodies_disjoint(Bodies[I], Bodies[J])
+    end.
+
+is_body(E), E = $box(_,_,_,_,P)   => P.get(compid, none) != none.
+is_body(E), E = $labelled_box(_,_,_,_,_,_,P) => P.get(compid, none) != none.
+is_body(E), E = $disc(_,_,P)      => P.get(compid, none) != none.
+is_body(_) => false.
+
+is_wire(E), E = $seg(_,_,P)       => true.
+is_wire(E), E = $polyline(_,P)    => true.
+is_wire(_) => false.
+
+compid_of(E) = C, E = $seg(_,_,P)      => C = P.get(compid, none).
+compid_of(E) = C, E = $polyline(_,P)   => C = P.get(compid, none).
+compid_of(E) = C, E = $box(_,_,_,_,P)  => C = P.get(compid, none).
+compid_of(E) = C, E = $labelled_box(_,_,_,_,_,_,P) => C = P.get(compid, none).
+compid_of(E) = C, E = $disc(_,_,P)     => C = P.get(compid, none).
+compid_of(_) = none.
+
+% a wire may pass through body B only if B's compid is a prefix of the
+% wire's compid (the wire is drawn inside that component)
+overlap_ok(none, _) => false.
+overlap_ok(W, B) => is_prefix(B, W).
+
+is_prefix(B, W), B == W => true.
+is_prefix(B, [H|T]) => is_prefix(B, T).
+is_prefix(_, _) => false.
+
+% extract the segments of a wire element (as a list)
+segs_of(E) = Seqs, E = $seg(_,_,_) => Seqs = [E].
+segs_of(E) = Seqs, E = $polyline(Pts,_) => Seqs = pairs(Pts).
+pairs([_]) = [].
+pairs([P,Q|T]) = [$seg(P,Q,new_map())|pairs([Q|T])].
+
+% segment AB must not pass through the interior of body B (bbox rule,
+% built lazily from the body's centre/size so variable positions work)
+seg_no_box(S, B) =>
+    body_cwh(B, C, W, H),
+    seg_outside(S, C, W, H).
+
+body_cwh(E, C, W, H), E = $box(C,W,H,_,_) => true.
+body_cwh(E, C, W, H), E = $labelled_box(C,W,H,_,_,_,_) => true.
+body_cwh(E, C, W, H), E = $disc(C,R,_) => W = R, H = R.
+
+% Manhattan segment stays out of the box interior.  The segment's
+% orientation (horizontal/vertical) may itself be undecided before
+% labeling, so it is REIFIED -- a plain (AY #= BY -> ...) test would
+% post the equality on unbound variables and force every wire
+% horizontal.  A diagonal segment is allowed (schematics use only
+% axis-aligned wires, so one that is truly diagonal never appears).
+seg_outside(S, C, W, H), S = $seg(A,B,_) =>
+    cpts(A, AX, AY), cpts(B, BX, BY),
+    cpts(C, CX, CY),
+    Hw #= W//2, Hh #= H//2,
+    Hor #<=> (AY #= BY),
+    Vert #<=> (AX #= BX),
+    % horizontal: y inside the box AND x-ranges overlapping
+    InY #<=> (AY #> CY - Hh #/\ AY #< CY + Hh),
+    OvX #<=> ((AX #< CX + Hw #/\ BX #> CX - Hw) #\/ (BX #< CX + Hw #/\ AX #> CX - Hw)),
+    PassH #<=> (InY #/\ OvX),
+    % vertical: x inside the box AND y-ranges overlapping
+    InX #<=> (AX #> CX - Hw #/\ AX #< CX + Hw),
+    OvY #<=> ((AY #< CY + Hh #/\ BY #> CY - Hh) #\/ (BY #< CY + Hh #/\ AY #> CY - Hh)),
+    PassV #<=> (InX #/\ OvY),
+    Bad #<=> (Hor #/\ PassH) #\/ (Vert #/\ PassV),
+    #~Bad.
+
+% two bodies' bounding boxes must not overlap (strict interior)
+bodies_disjoint(B1, B2) =>
+    body_cwh(B1, C1, W1, H1), body_cwh(B2, C2, W2, H2),
+    cpts(C1, X1, Y1), cpts(C2, X2, Y2),
+    Hw1 #= W1//2, Hh1 #= H1//2, Hw2 #= W2//2, Hh2 #= H2//2,
+    Ox #<=> (X1 - Hw1 #< X2 + Hw2 #/\ X2 - Hw2 #< X1 + Hw1),
+    Oy #<=> (Y1 - Hh1 #< Y2 + Hh2 #/\ Y2 - Hh2 #< Y1 + Hh1),
+    Ov #<=> Ox #/\ Oy,
+    #~Ov.
