@@ -302,6 +302,10 @@ typedef struct cpden_rec {
     int n;               /* total entries */
     int cap;             /* allocated capacity of the arrays above */
     int n1;              /* entries from list1 (rest: list2) */
+    BPLONG_PTR hbmin;    /* backtrack floor at register time: every cell
+                            was below it,  and the floor is monotone
+                            non-decreasing,  so the cells are never
+                            freed by backtracking */
     unsigned long key[2];
     int hits;
     int bad;
@@ -312,37 +316,123 @@ typedef struct {
     int rec;
 } cpden_slot;
 
-static cpden_slot cpden_tab[CPDEN_HT_SIZE];
-static cpden_rec *cpden_recs = (cpden_rec *)0;
-static int cpden_nrecs = 0, cpden_rec_cap = 0;
-static int cpden_nlive = 0;                    /* records currently in the table */
-static int cpden_freelist[CPDEN_HT_SIZE];
-static int cpden_nfree = 0;
-static long cpden_entries = 0;
+/*  All mutable cache state is per-engine (PAR_TLS):  several Picat VMs
+    can run concurrently in one process (parvm.c workers),  and a shared
+    cache would race on the table, the pools and the arrays.  */
+static PAR_TLS cpden_slot cpden_tab[CPDEN_HT_SIZE];
+static PAR_TLS cpden_rec *cpden_recs = (cpden_rec *)0;
+static PAR_TLS int cpden_nrecs = 0, cpden_rec_cap = 0;
+static PAR_TLS int cpden_nlive = 0;            /* records currently in the table */
+static PAR_TLS int cpden_freelist[CPDEN_HT_SIZE];
+static PAR_TLS int cpden_nfree = 0;
+static PAR_TLS long cpden_entries = 0;
 
 /* Churned keys (two verification failures) go here and are never cached
    again.  Separate open-addressing table so that live records can't
    clobber the entries; capped below table size so lookups terminate. */
-static cpden_slot cpden_blacktab[CPDEN_HT_SIZE];
-static int cpden_nblack = 0;
+static PAR_TLS cpden_slot cpden_blacktab[CPDEN_HT_SIZE];
+static PAR_TLS int cpden_nblack = 0;
 
 /* Recycled dense arrays between drop/register, bounded by count and by
    total bytes, so the heap allocator is out of the steady-state churn
    loop.  8-byte pool serves both vslot and cell arrays (opaque void*). */
-static void *cpden_pool8_a[CPDEN_POOL_MAX];
-static int cpden_pool8_c[CPDEN_POOL_MAX];
-static int cpden_pool8_n = 0;
-static long cpden_pool8_b = 0;
-static int *cpden_pool4_a[CPDEN_POOL_MAX];
-static int cpden_pool4_c[CPDEN_POOL_MAX];
-static int cpden_pool4_n = 0;
-static long cpden_pool4_b = 0;
+static PAR_TLS void *cpden_pool8_a[CPDEN_POOL_MAX];
+static PAR_TLS int cpden_pool8_c[CPDEN_POOL_MAX];
+static PAR_TLS int cpden_pool8_n = 0;
+static PAR_TLS long cpden_pool8_b = 0;
+static PAR_TLS int *cpden_pool4_a[CPDEN_POOL_MAX];
+static PAR_TLS int cpden_pool4_c[CPDEN_POOL_MAX];
+static PAR_TLS int cpden_pool4_n = 0;
+static PAR_TLS long cpden_pool4_b = 0;
 
-static int cpden_killed = 0;
-static long cpden_hits = 0;
-static long cpden_maint = 0;
+static PAR_TLS int cpden_killed = 0;
+static PAR_TLS long cpden_hits = 0;
+static PAR_TLS long cpden_maint = 0;
 #define CPDEN_KILL_MAINT 8192L
 #define CPDEN_KILL_RATIO 4L
+
+/*  The arena the cached pointers point into is not stable:
+    expand_local_global_stacks reallocs the stack+heap block and frees
+    the old one,  and garbage_collector relocates live heap terms
+    through the copy area.  Both leave every cached vslot/cell
+    pointer dangling (FOLLOW of a freed slot),  which segfaults the
+    dense apply (15_puzzle_solver_brebs:  b_EXCLUDE_ELM_DVARS after a
+    mid-search expansion).  O(1) guards instead:  the block base
+    (stack_low_addr) and the cumulative GC/expansion time (gc_time,
+    bumped inside garbage_collector and the expansion routines).  On
+    either change the cached state is dropped entirely and the next
+    call re-registers from scratch.  Per-engine (PAR_TLS) like the
+    cache itself.  */
+extern PAR_TLS BPLONG gc_time;   /* gcstack.c */
+static PAR_TLS BPLONG_PTR cpden_arena_base = (BPLONG_PTR)0;
+static PAR_TLS long cpden_gc_snap = 0;
+
+static void cpden_wipe(void)
+{
+    int ri, i;
+
+    for (ri = 0; ri < cpden_nrecs; ri++) {
+        cpden_rec *r = &cpden_recs[ri];
+        free(r->vslot);
+        if (r->c) free(r->c);
+        free(r->cell);
+    }
+    free(cpden_recs);
+    cpden_recs = (cpden_rec *)0;
+    cpden_nrecs = 0;
+    cpden_rec_cap = 0;
+    cpden_nlive = 0;
+    cpden_nfree = 0;
+    cpden_entries = 0;
+    for (i = 0; i < cpden_pool8_n; i++)
+        free(cpden_pool8_a[i]);
+    cpden_pool8_n = 0;
+    cpden_pool8_b = 0;
+    for (i = 0; i < cpden_pool4_n; i++)
+        free(cpden_pool4_a[i]);
+    cpden_pool4_n = 0;
+    cpden_pool4_b = 0;
+    memset(cpden_tab, 0, sizeof(cpden_tab));
+    memset(cpden_blacktab, 0, sizeof(cpden_blacktab));
+    cpden_nblack = 0;
+}
+
+static void cpden_arena_check(void)
+{
+    if (cpden_arena_base == (BPLONG_PTR)0) {
+        cpden_arena_base = stack_low_addr;
+        cpden_gc_snap = gc_time;
+        return;
+    }
+    if (stack_low_addr != cpden_arena_base || gc_time != cpden_gc_snap) {
+        cpden_wipe();
+        cpden_arena_base = stack_low_addr;
+        cpden_gc_snap = gc_time;
+        if (getenv("CPDEN_STATS") != (char *)0)
+            fprintf(stderr, "cpdense: WIPE arena moved or GC ran\n");
+    }
+}
+
+/*  Lowest backtrack target reachable from the live choice points:
+    min AR_H(B) over the chain.  Monotone non-decreasing while the
+    search runs (popping can only raise the min,  pushing adds
+    H = heap_top above everything),  so a heap region below it is
+    never freed by backtracking.  Called only on the register path;
+    the dense apply must stay O(1).  */
+static BPLONG_PTR cpden_heap_floor(void)
+{
+    BPLONG_PTR b, floor;
+
+    floor = heap_top;
+    b = breg;
+    for (;;) {
+        BPLONG_PTR h = (BPLONG_PTR)AR_H(b);
+        if (h < floor) floor = h;
+        if (b == (BPLONG_PTR)AR_B(b)) break;
+        b = (BPLONG_PTR)AR_B(b);
+    }
+    return floor;
+}
 
 static void cpden_report(void)
 {
@@ -356,13 +446,15 @@ static void cpden_report(void)
 
 static int cpdense_enabled(void)
 {
-    static int e = -1;
+    static PAR_TLS int e = -1;
     if (e < 0) {
         const char *v = getenv("CPDENSE");
         e = !(v && v[0] == '0');
         if (e)
             atexit(cpden_report);
     }
+    if (e && !cpden_killed)
+        cpden_arena_check();
     return e && !cpden_killed;
 }
 
@@ -659,7 +751,8 @@ static int cpden_verify(const cpden_rec *r)
    Returns 1 if the record was registered, 0 if it was skipped (the
    scratch buffers are returned to the pool either way). */
 static int cpden_register(const unsigned long key[2], BPLONG_PTR *vslot,
-                          int *c, BPLONG *cell, int n, int n1, int cap)
+                          int *c, BPLONG *cell, int n, int n1, int cap,
+                          BPLONG_PTR hbmin)
 {
     int ri, h;
     cpden_rec *r;
@@ -711,6 +804,7 @@ static int cpden_register(const unsigned long key[2], BPLONG_PTR *vslot,
     r->cap = cap;
     r->key[0] = key[0];
     r->key[1] = key[1];
+    r->hbmin = hbmin;
     r->hits = 0;
     r->bad = 0;
     r->n = n;
@@ -720,8 +814,11 @@ static int cpden_register(const unsigned long key[2], BPLONG_PTR *vslot,
     return 1;
 }
 
-/* dense walk for a cached record; returns 0 on conflict, 1 otherwise */
-static int cpden_apply_dvar(const cpden_rec *r, BPLONG elm)
+/* dense walk for a cached record; returns 0 on conflict, 1 otherwise.
+   The conflict check compares against the deref'd elm term (P_elm),
+   exactly as the plain walk does -- MAKEINT(elm) would allocate a
+   fresh cell for out-of-one-word-range values and miss the conflict. */
+static int cpden_apply_dvar(const cpden_rec *r, BPLONG elm, BPLONG P_elm)
 {
     BPLONG_PTR dv_ptr;
     int i;
@@ -731,7 +828,7 @@ static int cpden_apply_dvar(const cpden_rec *r, BPLONG elm)
         if (IS_SUSP_VAR(P_v)) {
             dv_ptr = (BPLONG_PTR)UNTAGGED_TOPON_ADDR(P_v);
             domain_set_false_noint(dv_ptr, elm);
-        } else if (P_v == MAKEINT(elm)) return 0;
+        } else if (P_v == P_elm) return 0;
     }
     return 1;
 }
@@ -941,6 +1038,7 @@ int b_EXCLUDE_ELM_DVARS(BPLONG P_elm, BPLONG P_list1, BPLONG P_list2)
     unsigned long key[2] = { 0, 0 };
     cpden_scratch s;
     int building = 0;
+    int stable = 1;     /* every cell below hbreg (backtrack-stable) */
 
     DEREF_NONVAR(P_elm);
     elm = INTVAL(P_elm);
@@ -955,16 +1053,17 @@ int b_EXCLUDE_ELM_DVARS(BPLONG P_elm, BPLONG P_list1, BPLONG P_list2)
             int ri = cpden_find(key);
             if (ri >= 0) {
                 cpden_rec *rr = &cpden_recs[ri];
-                if (cpden_fp_ok(rr)) {
+                if ((BPLONG_PTR)hbreg >= rr->hbmin && cpden_fp_ok(rr)) {
                     rr->hits++;
                     if ((rr->hits % CPDEN_VERIFY_EVERY) != 1 || cpden_verify(rr)) {
                         cpden_note_hit();
-                        return cpden_apply_dvar(rr, elm);
+                        return cpden_apply_dvar(rr, elm, P_elm);
                     }
-                } else if (rr->n > 0 && cpden_prefix_ok(rr)) {
+                } else if ((BPLONG_PTR)hbreg >= rr->hbmin && rr->n > 0
+                           && cpden_prefix_ok(rr)) {
                     if (cpden_extend_tail(rr)) {
                         cpden_note_hit();
-                        return cpden_apply_dvar(rr, elm);
+                        return cpden_apply_dvar(rr, elm, P_elm);
                     }
                 }
                 rr->bad++;
@@ -1000,6 +1099,7 @@ start:
         }
 
         if (building) {
+            if ((BPLONG_PTR)ptr >= hbreg) stable = 0;
             cpden_scratch_add(&s, ptr, 0, P_list);
             if (processing_part == 1) s.n1++;
         }
@@ -1012,10 +1112,20 @@ start:
         processing_part = 2;
         goto start;
     }
-    if (building && s.n > 0) {
-        cpden_register(key, s.vslot, s.c, s.cell, s.n, s.n1, s.cap);
-    } else if (building) {
-        cpden_scratch_free(&s);
+    if (building) {
+        int called_register = 0;
+        if (s.n > 0 && stable) {
+            BPLONG_PTR fl = cpden_heap_floor();
+            int i;
+            for (i = 0; i < s.n; i++) {
+                if (s.vslot[i] >= fl || s.cell[i] >= (BPLONG)fl) { stable = 0; break; }
+            }
+            if (stable) {
+                cpden_register(key, s.vslot, s.c, s.cell, s.n, s.n1, s.cap, fl);
+                called_register = 1;
+            }
+        }
+        if (!called_register) cpden_scratch_free(&s);
     }
     return 1;
 }
@@ -1042,6 +1152,7 @@ int b_EXCLUDE_ELM_VCS(BPLONG elm, BPLONG P_list)
     unsigned long key[2] = { 0, 0 };
     cpden_scratch s;
     int building = 0;
+    int stable = 1;     /* every cell below hbreg (backtrack-stable) */
 
     DEREF_NONVAR(elm);
     elm = INTVAL(elm);
@@ -1054,13 +1165,14 @@ int b_EXCLUDE_ELM_VCS(BPLONG elm, BPLONG P_list)
             int ri = cpden_find(key);
             if (ri >= 0) {
                 cpden_rec *rr = &cpden_recs[ri];
-                if (cpden_fp_ok(rr)) {
+                if ((BPLONG_PTR)hbreg >= rr->hbmin && cpden_fp_ok(rr)) {
                     rr->hits++;
                     if ((rr->hits % CPDEN_VERIFY_EVERY) != 1 || cpden_verify(rr)) {
                         cpden_note_hit();
                         return cpden_apply_vcs(rr, elm);
                     }
-                } else if (rr->n > 0 && cpden_prefix_ok(rr)) {
+                } else if ((BPLONG_PTR)hbreg >= rr->hbmin && rr->n > 0
+                           && cpden_prefix_ok(rr)) {
                     if (cpden_extend_tail(rr)) {
                         cpden_note_hit();
                         return cpden_apply_vcs(rr, elm);
@@ -1108,15 +1220,27 @@ int b_EXCLUDE_ELM_VCS(BPLONG elm, BPLONG P_list)
             return 0;
         }
 
-        if (building)
+        if (building) {
+            if ((BPLONG_PTR)lp >= hbreg || (BPLONG_PTR)ptr >= hbreg) stable = 0;
             cpden_scratch_add(&s, ptr + 1, (int)INTVAL(P_c), lraw);
+        }
 
         DEREF_NONVAR(P_list);
     }
-    if (building && s.n > 0) {
-        cpden_register(key, s.vslot, s.c, s.cell, s.n, s.n, s.cap);
-    } else if (building) {
-        cpden_scratch_free(&s);
+    if (building) {
+        int called_register = 0;
+        if (s.n > 0 && stable) {
+            BPLONG_PTR fl = cpden_heap_floor();
+            int i;
+            for (i = 0; i < s.n; i++) {
+                if (s.vslot[i] >= fl || s.cell[i] >= (BPLONG)fl) { stable = 0; break; }
+            }
+            if (stable) {
+                cpden_register(key, s.vslot, s.c, s.cell, s.n, s.n, s.cap, fl);
+                called_register = 1;
+            }
+        }
+        if (!called_register) cpden_scratch_free(&s);
     }
     return 1;
 }
