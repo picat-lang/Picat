@@ -1008,6 +1008,26 @@ static int pvm_m2_reported = 0;
    session retries. */
 static long pvm_values_walked = 0;
 
+/* Mode 1/3, per-process (COW'd, reset at spawn): the number of
+   delegated values this process has DISPATCHED past since its spawn
+   (hook SKIP firings -- the child re-entered its delegated frame and
+   advanced over values owned by others, heading for its own).  A
+   spawned worker whose delegated value does not exist (a pool wider
+   than the delegated disjunction: the disjunction ran out before its
+   assigned value) dispatches past the values that do exist, searches
+   nothing, and its territory is GENUINELY EMPTY -- an st=0 from it is
+   true, unlike the never-re-entered child of the false-infeasible gap.
+   The refusal sites therefore require BOTH counters at 0: walked == 0
+   and dispatched == 0.  A re-entered child always fires the hook at
+   least once (a SKIP or a WALK landing), so a legitimately empty
+   territory never trips the refusal, and the observed race class (the
+   fork misfire under load: no value-walk hook fires at all) keeps
+   both at 0 and is still caught.  Residual: a hypothetical race
+   variant whose per-process skip counter is corrupted past its
+   assigned value would be permitted -- corrupting child-private
+   memory is a different bug class. */
+static long pvm_skips_done = 0;
+
 /* Delegation window (process-local, COW'd with the rest of the engine
    state): bp.pvm_delegate(1) before solve(), bp.pvm_delegate(0) after.
    Only a frame whose first qualifying firing happens with the window
@@ -2018,6 +2038,7 @@ static int pvm_spawn_chunk(BPLONG_PTR ar, int s, long from)
         pvm_rent_nfires = 0;
         pvm_rent_nfails = 0;
         pvm_values_walked = 0;   /* my own searches only */
+        pvm_skips_done = 0;      /* my own dispatches only */
         AR_CPF(ar) = (BPLONG)&pvm_deleg_fail_word;
         pvm_skip_count = skip;
         pvm_skip_frame = (BPLONG)ar;
@@ -2256,11 +2277,15 @@ int pvm_fork_frame(BPLONG_PTR ar, BPLONG_PTR p)
         pvm_dbg("SCOPE-EXIT", ar, (long)pvm_my_rootframe);
         if (succ)
             pvm_worker_exit(PVM_ST_TRANSFER, succ);
-        else if (pvm_values_walked == 0) {
+        else if (pvm_values_walked == 0 && pvm_skips_done == 0) {
             /* searched-territory invariant: this worker never
-               searched a value of its delegated chunk, so an st=0
-               "region done" here is a lie (the false-infeasible gap)
-               -- refuse the session instead (the safe direction). */
+               dispatched a value of its delegated chunk (no SKIP, no
+               WALK: it never re-entered the frame -- the false-
+               infeasible gap), so an st=0 "region done" here is a lie
+               -- refuse the session instead (the safe direction).  A
+               worker that dispatched (skipped) but whose assigned
+               value does not exist searched nothing over genuinely
+               empty territory: its st=0 is true. */
             pvm_dbg("NOWALK-SCOPE", ar, 0);
             pvm_child_bad = 1;
             pvm_shm->bad = 1;
@@ -2453,6 +2478,11 @@ int pvm_fork_frame(BPLONG_PTR ar, BPLONG_PTR p)
         if (pvm_skip_armed && pvm_skip_frame == (BPLONG)ar &&
             pvm_skip_count > 0) {
             pvm_skip_count--;
+            pvm_skips_done++;   /* dispatched past a value of my frame:
+                                    an empty assigned value (the
+                                    disjunction ran out before mine) is
+                                    legitimately silent, see the
+                                    counter's header */
             if (pvm_skip_count <= 0) {
                 pvm_skip_count = 0;
                 pvm_skip_armed = 0;
@@ -3421,9 +3451,10 @@ int c_pvm_collect()
                 kill((pid_t)pvm_my_children[i], SIGKILL);
         }
         if (!pvm_shm->found && pvm_values_walked == 0 &&
-            pvm_my_rootframe != 0) {
+            pvm_skips_done == 0 && pvm_my_rootframe != 0) {
             /* searched-territory invariant: this worker never
-               searched a single value of its delegated chunk, so an
+               dispatched a single value of its delegated chunk (no
+               SKIP, no WALK: it never re-entered the frame), so an
                st=0 "region done" here would silently drop the
                unsearched territory -- the (a) waiter resolves
                "exhausted" on the lie and the root reports a too-low
@@ -3431,7 +3462,10 @@ int c_pvm_collect()
                observed 2026-09-14).  Refuse the session instead (the
                safe direction, the liveness-veto rule): the root's
                collect raises run_time_error and a re-armed session
-               retries. */
+               retries.  A worker that dispatched (skipped) but whose
+               assigned value does not exist searched nothing over
+               genuinely empty territory: its st=0 is true (the
+               counter's header). */
             pvm_dbg("NOWALK", NULL, 0);
             pvm_child_bad = 1;
             pvm_shm->bad = 1;
