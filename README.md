@@ -127,53 +127,114 @@ methodology and runnable harness are in
 Details (build, run loop, exclusions, example set, headless runs):
 [webasm/README.md](webasm/README.md)
 
-## 3. Parallel search inside the CP solver — `pvm` (fork-based)
+## 3. Structured concurrency for Picat — `parblock` (new modules `parblock`, `parblock_pvm`, `parblock_pvm_dyn`)
 
-An existing CP search can be parallelised by wrapping it in the
-`bp.pvm_*` builtins (`fork / delegate / claim / report / collect /
-solution`): the interpreter distributes the search over up to 4096
-fork()-ed copy-on-write workers, whose only inter-process state is one
-POSIX shared-memory block plus `waitpid`.  Measured on a 384-thread
-dual-socket EPYC node:
-
-- exhaustive counting is the near-linear regime: **14.7×** (n-Queens
-  counting N=16, 16 workers, 229.5 s → 15.6 s; ~80× estimated at
-  289 workers);
-- dynamic work-stealing over the frontier: **2.30×** for a whole-tree
-  unsatisfiability proof (R(4,4) ≤ 18, 384 workers claiming 2^14
-  leaves);
-- parallel branch-and-bound with periodic re-partitioning: **2.34×**
-  (0/1 knapsack N=80, 16 workers);
-- first-solution finds are load-sensitive (0.51–1.54× across node
-  loads — the parallelisable part is only the failing prefix).
-
-The full acceleration matrix (method, mode, parameters) with exact
-reproducing commands:
-[exs/parallel/pvm/README.md](exs/parallel/pvm/README.md);
-protocol reference: [exs/parallel/README.md](exs/parallel/README.md).
-
-## 4. Concurrency for native Picat — new modules `par`, `thread`, `pp`
-
-- `import par.` — data-parallel aggregates over lists/arrays of
-  64-bit integers (wrapping mod 2^64): `par_sum(X)=S`, `par_prod`,
-  `par_min`, `par_max`, `par_scan(X)=R` (prefix sums),
-  `par_scale(X,S)=R` (parallel map), `par_fib_fast(N)=R`,
-  `wall_ms()=T`.
-- `import thread.` — real OS threads running registered C worker tasks
-  (`sum_range`, `prod_range`, `bump`, `sleep_ms`):
-  `T = new_thread(Task,Args); T.start(); join(T); R = result(T);`,
-  plus `new_mutex`/`acquire_mutex`/`release_mutex`, semaphores,
-  counters, `this_thread()`.
-- `import pp.` — a clean functional front end over the two
-  (`psum`/`pprod`/`pmin`/`pmax`/`pscan`/`pscale`/`pfib`) with sequential
-  baselines (`fib_linear`, `fib_doubling`) for timing comparisons.
-
-The modules live in `lib2/`, so run with:
+A structured-concurrency construct family: every combinator has one
+sequential semantics core and one or two PVM backends that fork()-ed
+copy-on-write workers must honour (validated by two-way batteries,
+not by wall-clock outcomes). The modules live in `lib2/`, so run with
 `PICATPATH=<picat>/lib2 picat yourfile.pi`.
-Examples and the benchmark runner `bench_parallel.sh`:
-[exs/parallel/README.md](exs/parallel/README.md)
 
-## 5. Picat syntax checker — new folder `lsp/`
+List of calls (sequential core, `import parblock.` — everything runs
+in written order; the contracts the async backends must honour):
+
+- `par_run(Tasks) = Rs` — all tasks run, results in task order; a task
+  exception aborts the whole par
+- `map_par(F, Xs) = Ys` — ordered parallel map (== `map` today)
+- `race(F, Xs) = (W, Y)` — the first `X` in written order whose
+  `F(X)` terminates with a value wins; a throwing candidate drops
+  out; all-but-none throwing throws `$parblock_race_empty(Xs)`
+- `map_race(Fs, Xs) = Ys` — per element `X`, the first `F` in `Fs`
+  (written order) to terminate with `F(X)` wins
+- `par_any(P, Xs) = [sat, X] | none` — first `X` with `P(X)`
+- `par_all(P, Xs) = ok | [fail, X]` — fail-fast predicate check
+- `effect0(F)` / `effect1(F, A)` — runs AT MOST ONCE per key for the
+  life of the program, even when the surrounding search backtracks
+  and re-executes the call
+- `detach0(F) = H` / `detach1(F, A) = H` / `collect(H) = V` — the
+  task's value, or the rethrown exception, exactly once
+
+PVM backends (`import parblock_pvm.` — the same contracts, over up to
+4096 fork()-ed workers whose only inter-process state is one POSIX
+shared-memory block; `NT = 0` falls back to the serial core):
+
+- `par_run(NT, Tasks) = Rs` — the fixed-chunk split; results in task
+  order regardless of which worker ran what
+- `race(NT, F, Xs)`, `race_res(NT, F, Xs)`, `par_any(NT, P, Xs)`,
+  `par_all(NT, P, Xs)`, `map_par(NT, F, Xs)`, `map_race(NT, Fs, Xs)` —
+  the mode-1 portfolio: candidates are forked at choice points under
+  the pool size `NT`; the first to COMPLETE wins, the rest are killed
+- the block forms — the statement-level versions of the above:
+  `race_begin(NT)`, followed by a plain disjunction of
+  `race_cl(I, F)` clauses with a trailing `true` (the
+  exhaustion/found landing), then `race_end(R)` with
+  `R = [won, I, V]` (every clause dropped after the collect throws
+  `$parblock_raceb_empty`); `par_begin(NT)` / `par_cl(I, F)` /
+  `par_end(Rs)` is the statement-level `par_run` (a serial
+  registration walk, then the mode-2 split)
+- `import parblock_pvm_dyn.` — `par_run_dyn(NT, Tasks) = Rs`: the
+  dynamic shared-cursor backend. Every worker claims its NEXT free
+  task index from a session-wide cursor (`bp.pvm_claim`) instead of
+  receiving a fixed chunk, so uneven task costs don't strand a whole
+  chunk's fast siblings behind one slow task
+
+Minimal examples (from `exs/parallel/parblock/`):
+
+```picat
+% the smallest perfect number > 496:  race_res, the mode-1 portfolio
+module race_perfect.
+import parblock_pvm.
+
+cand(X) = Y =>                     % total-or-throw: the race discipline
+    ( isperfect(X), X > 496, Y = X
+    ; throw($parbat_notperf(X)) ).
+
+main =>
+    S = race_res(4, cand, [6, 28, 496, 8128]),
+    S = [won, W, Y],               % W = 8128 (the winning candidate), Y = 8128
+    println(Y).
+```
+
+```picat
+% the same race as a block form:  race_begin / race_cl / race_end
+main =>
+    race_begin(4),
+    ( race_cl(1, sol_mersenne)     % candidates are clauses, tried in
+    ; race_cl(2, sol_sigma)        % parallel; the first to COMPLETE
+    ; race_cl(3, sol_sequence)     % wins
+    ; true ),
+    race_end(R),
+    R = [won, I, V],               % I = the winning clause index
+    println(V).                    % 8128
+```
+
+```picat
+% par_run over fork()-ed workers:  results in task order, a throwing
+% task aborts the whole par with the serial exception term
+module demo_run.
+import parblock_pvm.
+
+sq(X) = X * X.
+boom(A) = Y => throw($demo_boom(A)).
+
+main =>
+    Rs = par_run(4, [{sq, 1}, {sq, 2}, {sq, 3}]),
+    Rs = [1, 4, 9],                % in task order, whatever ran where
+    println(Rs),
+    catch((Rs2 = par_run(4, [{sq, 4}, {boom, 7}]), println(Rs2)),
+          E, println(E)),          % $demo_boom(7)
+    true.
+```
+
+Notes: task names in `{F}` / `{F, A}` must be UNQUALIFIED references
+visible in the calling program — a module-qualified dynamic dispatch
+of a function hangs (engine bug, repros `q1/q2.pi`). The PVM
+acceleration matrix for the underlying `pvm` substrate and the full
+example set:
+[exs/parallel/README.md](exs/parallel/README.md),
+[exs/parallel/pvm/README.md](exs/parallel/pvm/README.md).
+
+## 4. Picat syntax checker — new folder `lsp/`
 
 `lsp/picat_syntax_check.py FILE.pi [MORE ...]` reports
 line/column-accurate syntax diagnostics (unbalanced delimiters,
@@ -182,14 +243,7 @@ literals, ...) where the Picat parser would only say `error` — useful
 for editor/LSP integration. Self-test:
 `python3 lsp/run_mutation_tests.py`.
 
-## 6. Smaller changes
-
-- `.gitignore`: editor backups (`*~`) and `.snapshots/`
-- internal: 64-bit bigint constructors (`emu/bigint.c`); the SAT
-  interface (`emu/kissat_picat.c`, `emu/cpreds.c`, `emu/common.mak`)
-  adjusted to carry the satext layer
-
-## 7. User-defined functions in constraints — very experimental (`udf`)
+## 5. User-defined functions in constraints — very experimental (`udf`)
 
 The `udf` module (`lib2/udf.pi`) lets you use *your own* functions inside
 constraint expressions, which the built-in solvers do not support.
@@ -231,6 +285,17 @@ The `udf` examples are:
 `exs/sat/udf_functions.pi`,
 `exs/mip/udf_functions.pi`,
 `exs/smt/udf_functions.pi`.
+
+Solver twins: `import cp2.` / `import sat2.` (in `lib/`, not
+preloaded — run with `PICATPATH` including `lib`, e.g.
+`PICATPATH=lib2:lib` when combined with `lib2` modules such as
+`udf`) re-export the whole `cp`/`sat` surface plus
+`count_all_solve(Opts, Vars) = C` — `count_all(solve(Opts, Vars))`
+with the zero-slice trap handled in one place (a failed or thrown
+count is the count 0; everything else is the exact count), which is
+the library-level replacement for the per-callsite `; C = 0`
+fallbacks in counting and branch-and-bound loops that also post
+`udf` constraints.
 
 __Current version 3.9#12.__
 
