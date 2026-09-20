@@ -33,8 +33,10 @@
 %   NewVars = pb.add_vars(K)       extends the store, existing
 %                                  constraints and indices stay valid
 %   X1 + X3 #>= 1                  sum constraints: #=<' '#>=' '#='
-%                                  '#<' '#>' (strict RHS a constant),
-%                                  with + - * (constant factor);
+%                                  '#<' '#>' (strict, the RHS a sum
+%                                  too), with + - * (constant
+%                                  factor) and sum(L) over lists
+%                                  and arrays;
 %                                  #\= and reification rejected
 %   Model = pb.solve()             solves the registered store
 %   solve(V)                       the UNIFORM solve: a goal over an
@@ -123,27 +125,25 @@ var_ok(_) =>
 '#<='(L, R) => post_lin('<=', L, R).
 '#>='(L, R) => post_lin('>=', L, R).
 '#='(L, R)  => post_lin('=', L, R).
-% strict relations, the RHS a pure constant (integrality makes the
-% shift exact):  sum < K  <=>  sum <= K-1;   sum > K  <=>  sum >= K+1
-'#<'(L, R) =>
-    (TR, _) = to_sum(R),
-    ( TR == [] -> true ; throw($pb_strict_rhs) ),
-    post_lin('<=', L, R - 1).
-'#>'(L, R) =>
-    (TR, _) = to_sum(R),
-    ( TR == [] -> true ; throw($pb_strict_rhs) ),
-    post_lin('>=', L, R + 1).
+% strict relations over sums (integrality makes the shift exact):
+%   L < R  <=>  L - R <= -1;   L > R  <=>  L - R >= 1
+'#<'(L, R) => post_lin_shift('<=', L, R, -1).
+'#>'(L, R) => post_lin_shift('>=', L, R, 1).
 % reification needs a boolean layer the OPB text has no room for
 '#!='(_, _)  => throw($pb_no_reif).
 '#\\='(_, _)  => throw($pb_no_reif).
 '#<=>'(_, _) => throw($pb_no_reif).
 '#=>'(_, _)  => throw($pb_no_reif).
 
-% L Rel R  =>  SumL - SumR Rel CR - CL, one linear constraint.  Every
-% var index is checked against the store, so a stale var term (one
-% from a previous problem, or beyond the current count) fails loudly
-% instead of poisoning the formula.  A missing store is fresh.
-post_lin(Rel, L, R) =>
+% L Rel R  =>  SumL - SumR Rel CR - CL + Shift, one linear constraint.
+% The difference is built INSIDE (an arithmetic term like L - R in a
+% call argument is evaluated by Picat and errors on compound terms).
+% Every var index is checked against the store, so a stale var term
+% (one from a previous problem, or beyond the current count) fails
+% loudly instead of poisoning the formula.  A missing store is fresh.
+post_lin(Rel, L, R) => post_lin_shift(Rel, L, R, 0).
+
+post_lin_shift(Rel, L, R, Shift) =>
     Map = get_global_map(),
     store_or_fresh(N, Cs),
     (TL, CL) = to_sum(L),
@@ -153,7 +153,7 @@ post_lin(Rel, L, R) =>
     ;   foreach ([_, I] in Terms)
             ( I >= 1, I =< N -> true ; throw($pb_var) )
         end,
-        K = CR - CL,
+        K = CR - CL + Shift,
         put(Map, pbstore, {N, [$c_lin(Rel, K, Terms) | Cs]})
     ).
 
@@ -194,8 +194,21 @@ to_sum(T) = (Terms, C), T =.. ['*', A, B], number(A) =>
     (TR, CR) = to_sum(B),
     Terms = merge_terms([[A * C1, I] : [C1, I] in TR]),
     C = A * CR.
+% sum over a list or array of linear terms
+to_sum(T) = (Terms, C), T =.. ['sum', Arr], (list(Arr) ; array(Arr)) =>
+    to_sum_list([Z : Z in Arr], Terms, C).
 to_sum(_) = (_, _) =>
     throw($pb_nonlinear).
+
+% literal patterns in non-first head positions fail to match an
+% unbound call arg in this build -- destructure in the body instead
+to_sum_list(Ls, Terms, C) =>
+    ( Ls == [] -> Terms = [], C = 0
+    ; Ls = [E | Es],
+      (T1, C1) = to_sum(E),
+      to_sum_list(Es, T2, C2),
+      Terms = merge_terms(T1 ++ T2),
+      C = C1 + C2 ).
 
 % merge coefficient terms per variable, drop zero coefficients,
 % indices ascending (the OPB text order)

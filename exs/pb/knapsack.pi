@@ -1,0 +1,16 @@
+% The standard knapsack-style idiom: a sum over a comprehension of
+% products, coefficient times variable.  The program is
+% solver-agnostic: swap `import pb` for `import cp` or `import sat`
+% and it runs unchanged.
+%
+% With pb:  PICATPATH=<picat>/lib2 PBSOL=<solver> emu/picat knapsack.pi
+
+import pb.
+
+main =>
+    Nums = [3, 34, 4, 12, 5, 2],
+    V = new_array(6),
+    V :: 0..1,
+    sum([Nums[I] * V[I] : I in 1..6]) #= 9,
+    solve(V),
+    printf("picked %w%n", [Nums[I] : I in 1..6, V[I] = 1]).

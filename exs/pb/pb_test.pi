@@ -27,6 +27,7 @@ main() =>
     ops_incremental(),
     ops_domain(),
     ops_array(),
+    ops_idioms(),
     ops_text(),
     printf("ALL PB TESTS PASSED%n").
 
@@ -234,6 +235,34 @@ ops_array() =>
     Y = new_array(2),
     catch(once((Y[1] + Y[2] #>= 1, true)), E, true),
     ck("undeclared var throws $pb_var", E, $pb_var).
+
+% the two idioms that used to fail: the knapsack-style sum over a
+% comprehension of products, and strict relations with variables on
+% both sides (the integrality shift applied to the whole sum)
+ops_idioms() =>
+    printf("ops idioms (sum of products, strict var RHS):%n"),
+    pb.reset(),
+    Nums = [3, 34, 4, 12, 5, 2],
+    V = new_array(6),
+    V :: 0..1,
+    sum([Nums[I] * V[I] : I in 1..6]) #= 9,
+    solve(V),
+    Pick = [Nums[I] : I in 1..6, V[I] = 1],
+    ck("sum of products = 9", sum(Pick), 9),
+    pb.reset(),
+    A = new_array(3),
+    A :: 0..1,
+    A[1] #< A[2],
+    A[1] + A[2] + A[3] #= 1,
+    solve(A),
+    ck("A[1] < A[2], sum = 1", [A[1], A[2], A[3]], [0, 1, 0]),
+    pb.reset(),
+    B = new_array(4),
+    B :: 0..1,
+    B[1] + B[2] #< B[3] + B[4],
+    B[1] + B[2] + B[3] + B[4] #= 3,
+    solve(B),
+    ck("sum < sum, total 3", B[1] + B[2], 1).
 
 % the flattener's OPB text: constant factors, subtraction, merged
 % coefficient order (indices ascending) -- byte-exact
