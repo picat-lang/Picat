@@ -25,6 +25,14 @@ module satext.
 solve(Spec, Clauses, Status, Model) =>
     bp.c_satext_solve(Spec, Clauses, Status, Model).
 
+% low-level: run a single external spec on a raw file (e.g. an OPB
+% instance for a pseudo-Boolean solver): the formula is already on
+% disk and its path is part of the argv; Nvar bounds the model's
+% variable range (the caller owns the numbering).  Status = sat/unsat/
+% unknown, Model = a list of 0/1 per variable (nil for unsat/unknown).
+run_file(Spec, Nvar, Status, Model) =>
+    bp.c_satext_run_file(Spec, Nvar, Status, Model).
+
 cnf_info(Clauses, Nvar, Ncl, Nlits) =>
     bp.c_satext_cnf_info(Clauses, Nvar, Ncl, Nlits).
 

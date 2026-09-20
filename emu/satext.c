@@ -510,7 +510,7 @@ static void cnf_fin(cnf_t *c)
  * protocol registry
  * ---------------------------------------------------------------- */
 
-enum { PROTO_NONE = -1, PROTO_DIMACS = 0, PROTO_IPASIR = 1 };
+enum { PROTO_NONE = -1, PROTO_DIMACS = 0, PROTO_IPASIR = 1, PROTO_OPB = 2 };
 
 static int proto_by_name(const char *base)
 {
@@ -668,6 +668,19 @@ static void parse_out_line(char *line, uint64_t nvar, int proto,
             long v;
             while (*q == ' ') q++;
             if (*q == 0) break;
+            if (proto == PROTO_OPB) {
+                /* OPB model tokens: -x1, x2; vars absent are false */
+                int neg = 0;
+                if (*q == '-') { neg = 1; q++; }
+                else if (*q == '+') q++;
+                if (*q == 'x' || *q == 'X') q++;
+                v = strtol(q, &end, 10);
+                if (end == q) break;
+                q = end;
+                if (v >= 1 && (uint64_t)v <= nvar)
+                    m[v - 1] = neg ? 0 : 1;
+                continue;
+            }
             v = strtol(q, &end, 10);
             if (end == q) break;
             q = end;
@@ -1276,7 +1289,7 @@ static char *write_cnf_file(const cnf_t *c)
          1 = shim   (binary CNF in memfd over SCM_RIGHTS to satshim)
    Returns the solver exit status, or -1 on spawn failure. */
 static int run_solver(spec_t *s, const cnf_t *c, int proto, int mode,
-                      solve_out_t *o)
+                      uint64_t nvar, solve_out_t *o)
 {
     int sv[2] = { -1, -1 };
     int outp[2] = { -1, -1 };
@@ -1297,7 +1310,12 @@ static int run_solver(spec_t *s, const cnf_t *c, int proto, int mode,
     if (open_max <= 0) open_max = 1024;
     if (open_max > 65536) open_max = 65536;
 
-    if (mode == 1) {
+    if (mode == 2) {
+        /* raw file: the formula is already on disk and its path is
+           part of the argv (e.g. an OPB instance for a pseudo-Boolean
+           solver); no CNF mirror, no stdin, no transfer at all. */
+        if (pipe(outp) != 0) goto done;
+    } else if (mode == 1) {
         if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0) goto done;
         if (pipe(outp) != 0) goto done;
         memfd = memfd_create("satext-cnf", 0);
@@ -1333,7 +1351,13 @@ static int run_solver(spec_t *s, const cnf_t *c, int proto, int mode,
         child_dies_with_parent();
         int i;
         int ndev = -1;
-        if (mode == 1) {
+        if (mode == 2) {
+            ndev = open("/dev/null", O_RDONLY);
+            if (ndev < 0) _exit(125);
+            dup2(ndev, 0);
+            close(ndev);
+            if (dup2(outp[1], 1) < 0) _exit(125);
+        } else if (mode == 1) {
             if (sv[1] != SATEXT_SHIM_FD) {
                 if (dup2(sv[1], SATEXT_SHIM_FD) < 0) _exit(125);
                 close(sv[1]);
@@ -1363,7 +1387,16 @@ static int run_solver(spec_t *s, const cnf_t *c, int proto, int mode,
             char **av;
             int a, na;
             const char *sh;
-            if (mode == 1) {
+            if (mode == 2) {
+                /* the argv is literal: the formula path is part of it */
+                na = s->argc;
+                av = (char **)malloc(sizeof(char *) * (size_t)(na + 1));
+                if (av == NULL) _exit(125);
+                for (a = 0; a < s->argc; a++)
+                    av[a] = s->argv[a];
+                av[na] = NULL;
+                execvp(av[0], av);
+            } else if (mode == 1) {
                 /* [shim, bin, <ipasir>, <fd>, solver, args...] */
                 na = s->argc + 4;
                 av = (char **)malloc(sizeof(char *) * (size_t)(na + 1));
@@ -1422,6 +1455,8 @@ static int run_solver(spec_t *s, const cnf_t *c, int proto, int mode,
         if (sr < 0) {
             /* shim cannot start properly; let the wait below report */
         }
+    } else if (mode == 2) {
+        close(outp[1]);
     } else {
         sb_t text;
         int ok;
@@ -1439,7 +1474,7 @@ static int run_solver(spec_t *s, const cnf_t *c, int proto, int mode,
         stdinp[1] = -1;
     }
 
-    drain_output(outp[0], (uint64_t)c->maxvar, proto, o);
+    drain_output(outp[0], nvar, proto, o);
     outp[0] = -1;
     if (waitpid(pid, &st, 0) < 0) { rc = -1; goto done; }
     if (WIFEXITED(st)) {
@@ -1720,7 +1755,8 @@ static int run_single(spec_t *sp, int proto)
         rc = satext_builtin_run(&o);
     } else {
         int mode = pick_mode(sp, &g_cnf, proto);
-        rc = run_solver(sp, &g_cnf, proto, mode, &o);
+        rc = run_solver(sp, &g_cnf, proto, mode,
+                        (uint64_t)g_cnf.maxvar, &o);
     }
     if (rc == -1) return -1;
     ext_res_status = o.status;
@@ -1763,7 +1799,8 @@ static pid_t prt_fork_runner(spec_list_t *sl, int i, const int *rfd)
 
             memset(&o, 0, sizeof(o));
             rc = run_solver(sp, &g_cnf, sl->proto[i],
-                            pick_mode(sp, &g_cnf, sl->proto[i]), &o);
+                            pick_mode(sp, &g_cnf, sl->proto[i]),
+                            (uint64_t)g_cnf.maxvar, &o);
             /* rc is the solver's exit status (10 = sat, 20 = unsat by
                SAT convention); only -1 (fork/exec failure) is fatal,
                the status is authoritative from the parsed output */
@@ -2112,7 +2149,7 @@ int c_satext_solve()
         return unify(statusr, ADDTAG(BP_NEW_SYM("unknown", 0), ATM)) &&
                unify(modelr, nil_sym);
     }
-    if (run_solver(&spec1, &c, proto, mode, &o) == -1) {
+    if (run_solver(&spec1, &c, proto, mode, (uint64_t)c.maxvar, &o) == -1) {
         spec_free(&spec1);
         cnf_fin(&c);
         if (o.model) free(o.model);
@@ -2138,6 +2175,48 @@ int c_satext_solve()
         if (o.model) free(o.model);
         return unify(statusr, status) && unify(modelr, model);
     }
+}
+
+/* low-level: run a single external spec on a raw file (e.g. an OPB
+   instance for a pseudo-Boolean solver): the formula is already on
+   disk and its path is part of the argv.  No CNF mirror, no stdin,
+   no portfolio (one spec).  Nvar bounds the model's variable range
+   (the caller owns the numbering). */
+int c_satext_run_file()
+{
+    BPLONG specarg = ARG(1, 4), nvararg = ARG(2, 4);
+    BPLONG statusr = ARG(3, 4), modelr = ARG(4, 4);
+    spec_t spec1;
+    solve_out_t o;
+    BPLONG n, status, model;
+
+    if (!parse_spec(specarg, &spec1)) return BP_FALSE;
+    DEREF(nvararg);
+    if (!ISINT(nvararg) || INTVAL(nvararg) < 0) {
+        spec_free(&spec1);
+        bp_exception = illegal_arguments;
+        return BP_ERROR;
+    }
+    n = INTVAL(nvararg);
+    memset(&o, 0, sizeof(o));
+    if (run_solver(&spec1, NULL, PROTO_OPB, 2, (uint64_t)n, &o) == -1) {
+        spec_free(&spec1);
+        if (o.model) free(o.model);
+        return BP_ERROR;
+    }
+    if (ensure_heap_room(2L * n + 32, &modelr, 4, 4) != 0) {
+        spec_free(&spec1);
+        if (o.model) free(o.model);
+        return BP_ERROR;
+    }
+    status = (o.status == 1) ? ADDTAG(BP_NEW_SYM("sat", 0), ATM)
+           : (o.status == 2) ? ADDTAG(BP_NEW_SYM("unsat", 0), ATM)
+           : ADDTAG(BP_NEW_SYM("unknown", 0), ATM);
+    model = (o.have_model && o.model != NULL)
+        ? bools_to_list(o.model, n) : nil_sym;
+    spec_free(&spec1);
+    if (o.model) free(o.model);
+    return unify(statusr, status) && unify(modelr, model);
 }
 
 int c_satext_cnf_info()
@@ -2190,6 +2269,7 @@ void Cboot_satext(void)
 {
     signal(SIGPIPE, SIG_IGN);
     insert_cpred("c_satext_solve", 4, c_satext_solve);
+    insert_cpred("c_satext_run_file", 4, c_satext_run_file);
     insert_cpred("c_satext_cnf_info", 4, c_satext_cnf_info);
     insert_cpred("c_satext_write_dimacs", 2, c_satext_write_dimacs);
     insert_cpred("c_satext_set_solver", 1, c_satext_set_solver);

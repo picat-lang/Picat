@@ -1,189 +1,119 @@
-/****************************************************************************
-   pb.pi (in Picat), by Neng-Fa Zhou, March 28, 2016
+% pb: pseudo-Boolean constraints over 0/1 variables, native OPB
+% backend.  The constraint store is a per-problem term (no global
+% state, nothing leaks across problems); the OPB text is emitted
+% directly from it, so a pseudo-Boolean solver (roundingsat) sees the
+% linear structure natively -- the pigeon-hole class, where
+% clausal encodings are exponential for CDCL solvers, falls in
+% milliseconds.
+%
+% The store:
+%   B = pb.new(NVars)              boolean vars numbered 1..NVars
+%   B1 = pb.card(B, Rel, K, Idx)   cardinality: all-1 coefficients
+%                                  over the indices; Rel in '<=' '>=' '='
+%   B1 = pb.lin(B, Rel, K, Terms)  linear: Terms = [[C, I], ...]
+%                                  (coefficient C on var I)
+% The solve:
+%   Model = pb.solve(B)            throws $pb_unsat on unsat/unknown
+%   S = pb.solve_res(B)            S = [sat, Model] | unsat | unknown;
+%                                  Model = a list of 0/1 per variable
+%                                  (the caller binds X = Model[I])
+% The solver: env PBSOL (default "roundingsat", PATH-resolved), run
+% with --print-sol=1 through satext's raw-file runner (one spec, no
+% portfolio: the first-wins race hands the same formula to every
+% racer, and CNF racers would need a clausal re-encoding).
+%
+% Use with:  PICATPATH=<picat>/lib2  picat yourfile.pi
 
-   This program interprets PB instances of the format used in the PB competition.
+module pb.
 
-   A constraint has the form:
+import satext, os, datetime.
 
-    [Coe term]+ (>= | = ) Coe ;
+%%%%%%%%%%%%%%%%%%%%%%%%%%%% the store %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-   and an objective function has the form:
+new(NVars) = {NVars, []}.
 
-    min: [Coe term]+ ;
+card({N, Cs}, Rel, K, Idx) = {N, [$c_card(Rel, K, Idx) | Cs]}.
 
-   where 'term' is one or more literals of the form (var | ~var)+.
+lin({N, Cs}, Rel, K, Terms) = {N, [$c_lin(Rel, K, Terms) | Cs]}.
 
-   A line that begins with '*' is a comment.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%% the solve %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-   This program can be loaded into the Picat system and run by a query 
-   
-   Picat> cl("pb")
-   Picat> main("nqueens_8")
+solve(B) = Model =>
+    S = solve_res(B),
+    ( S = [sat, Model] -> true ; throw($pb_unsat) ).
 
-   Alternatively, this program can be run as a standalone command:
+solve_res({N, Cs}) = S =>
+    Path = opb_path(),
+    call_cleanup(go_res(N, Cs, Path, S), rm_path(Path)).
 
-       picat pb nqueens_8
+rm_path(Path) => os.rm(Path.to_atom()).
 
-   You need to ensure that the path to the Picat executable is set properly 
-   and the file "pb.pi" and "nqueens_8.opb" are in the working directory.
-   Otherwise, the full paths to the executable and the files must be given.
-*********************************************************************************/
-import sat.
+go_res(N, Cs, Path, S) =>
+    write_opb(N, Cs, Path),
+    ( os.env_exists("PBSOL") -> Sol = os.getenv("PBSOL") ; Sol = "roundingsat" ),
+    Spec = [Sol, "--print-sol=1", Path],
+    satext.run_file(Spec, N, St, M),
+    ( St = sat -> S = [sat, M]
+    ; St = unsat -> S = unsat
+    ; S = unknown ).
 
-main(InFile),string(InFile) =>
-    pb(InFile).
-main([InFile]),string(InFile) =>
-    pb(InFile).
-main(Args) =>
-    println($invalid_args(Args)).           
+%%%%%%%%%%%%%%%%%%%%%%%% the OPB text writer %%%%%%%%%%%%%%%%%%%%%%%%%
 
-pb(InFile) ?=>
-    (append(MainFileStr,".opb",InFile) -> 
-        OPBFile = InFile
-    ; 
-        MainFileStr = InFile,
-        OPBFile = InFile++".opb"
-    ),        
-    InStream = open(OPBFile,read),
-    read_pb_cl_tokens(InStream,Tokens),
-    printf("solving %s\n",InFile),
-    VarsMap = new_map(),
-    catch(parse(InStream,Tokens,VarsMap,Obj),Exception,(println(Exception),close(InStream),halt)),
-    close(InStream),
-    List = map_to_list(VarsMap),
-    (var(Obj) ->
-        solve(List)
-    ;
-        ObjVar #= Obj,
-        solve($[min(ObjVar), $report(printf("o %w\n",ObjVar))],List),
-        println("s OPTIMUM FOUND")
-    ),
-    print('v '),
-    output_sol(List,10).
-pb(_InFile) =>
-    println("s UNSATISFIABLE").
+% a fresh temp path.  The directory: the first candidate that exists
+% AND is writable at runtime -- /dev/shm (tmpfs), then /tmp, then the
+% local ./scratch (created when missing).  The name: a timestamp + a
+% random salt + a per-process counter, bump on a collision.  The
+% counter lives in the anonymous global map (pb runs no forks, so the
+% named-map limitations never apply).
+opb_path() = Path =>
+    Dir = tmp_dir(),
+    $time(H, M, S) = datetime.current_time(),
+    T = (H * 60 + M) * 60 + S,
+    Map = get_global_map(),
+    ( has_key(Map, pbseq) -> N0 = get(Map, pbseq) ; N0 = 0 ),
+    N := N0 + 1,
+    put(Map, pbseq, N),
+    Base = Dir ++ "/pb_" ++ T.to_string ++ "_" ++ random2().to_string
+           ++ "_" ++ N.to_string,
+    ( os.exists((Base ++ ".opb").to_atom()) -> Path = Base ++ "b.opb" ; Path = Base ++ ".opb" ).
 
-%%
-parse(_,end_of_file,_VarsMap,_Obj) => true.
-parse(InStream,[min,':'|Tokens],VarsMap,Obj) => 
-    parse_exp(Tokens,[],VarsMap,Exp),
-    Obj = Exp,
-    read_pb_cl_tokens(InStream,NextTokens),
-    parse(InStream,NextTokens,VarsMap,Obj).
-parse(InStream,Tokens,VarsMap,Obj) => 
-    parse_constr(Tokens,VarsMap),
-    read_pb_cl_tokens(InStream,NextTokens),
-    parse(InStream,NextTokens,VarsMap,Obj).
-
-parse_exp([+,Coe|Tokens],TokensR,VarsMap,Exp) =>
-    Exp = $Coe*Term+ExpR,
-    parse_term(Tokens,Tokens1,VarsMap,Term),
-    parse_exp(Tokens1,TokensR,VarsMap,ExpR).
-parse_exp([Coe|Tokens],TokensR,VarsMap,Exp),integer(Coe) =>
-    Exp = $Coe*Term+ExpR,
-    parse_term(Tokens,Tokens1,VarsMap,Term),
-    parse_exp(Tokens1,TokensR,VarsMap,ExpR).
-parse_exp([-,Coe|Tokens],TokensR,VarsMap,Exp) =>
-    Exp = $-Coe*Term+ExpR,
-    parse_term(Tokens,Tokens1,VarsMap,Term),
-    parse_exp(Tokens1,TokensR,VarsMap,ExpR).
-parse_exp(Tokens,TokensR,_VarsMap,Exp) =>
-    TokensR = Tokens,
-    Exp = 0.
-
-parse_term(['~',Var|Tokens],TokensR,VarsMap,Term) =>
-    IntVar = VarsMap.get(Var,[]),
-    (IntVar==[] ->
-        PicatVar :: 0..1,
-        VarsMap.put(Var,PicatVar)
-    ;
-        PicatVar = IntVar
-    ),
-    (not_followed_by_var(Tokens) ->
-        Term = $(1-PicatVar), TokensR = Tokens
-    ;
-        Term = $(1-PicatVar)*TermR,
-        parse_term(Tokens,TokensR,VarsMap,TermR)
-    ).
-parse_term([Var|Tokens],TokensR,VarsMap,Term) =>
-    IntVar = VarsMap.get(Var,[]),
-    (IntVar==[] ->
-        PicatVar :: 0..1,
-        VarsMap.put(Var,PicatVar)
-    ;
-        PicatVar = IntVar
-    ),
-    (not_followed_by_var(Tokens) ->
-        Term = PicatVar, TokensR = Tokens
-    ;
-        Term = $PicatVar*TermR,
-        parse_term(Tokens,TokensR,VarsMap,TermR)
+% the first candidate directory that exists and is writable
+tmp_dir() = Dir =>
+    ( dir_ok("/dev/shm") -> Dir = "/dev/shm"
+    ; dir_ok("/tmp")     -> Dir = "/tmp"
+    ;   ( os.exists("./scratch") -> true ; os.mkdir("./scratch") ),
+        Dir = "./scratch"
     ).
 
-not_followed_by_var(['='|_]) => true.
-not_followed_by_var(['>='|_]) => true.
-not_followed_by_var([]) => true.
-not_followed_by_var(['+'|_]) => true.
-not_followed_by_var(['-'|_]) => true.
+dir_ok(D) =>
+    ( os.exists(D.to_atom()) -> os.writable(D.to_atom()) ; false ).
 
-% parse_constr(Tokens,VarsMap) ?=> println($parse(Tokens)),nl,fail.
+% the constraints are stored reversed (cons order): write posted order
+write_opb(N, Cs, Path) =>
+    Lines = [opb_line(C) : C in Cs.reverse()],
+    S = open(Path.to_atom(), write),
+    println(S, "* #variable= " ++ N.to_string
+               ++ " #constraint= " ++ Lines.length.to_string),
+    foreach (L in Lines) println(S, L) end,
+    close(S).
 
-parse_constr(Tokens,VarsMap) =>
-    parse_exp(Tokens,Tokens1,VarsMap,Exp),
-    Tokens1 = [Op|Tokens2],
-    parse_int(Tokens2,_,C),
-    (Op == '=' ->
-        println(Exp #= C),
-        Exp #= C
-    ;
-        println(Exp #>= C),
-        Exp #>= C
-    ).
+% roundingsat's parser wants the terms BEFORE the relation:
+%   +1 x1 +1 x2 >= 1 ;
+opb_line(c_card(Rel, K, Idx)) = L =>
+    Ts = [ term_str(1, I) : I in Idx ],
+    L = join_terms(Ts) ++ " " ++ Rel.to_string() ++ " " ++ K.to_string ++ " ;".
 
-parse_int(['+',I|Tokens],TokensR,C) => C = I, TokensR = Tokens.
-parse_int(['-',I|Tokens],TokensR,C) => C = -I, TokensR = Tokens.
-parse_int([I|Tokens],TokensR,C) => C = I, TokensR = Tokens.
+opb_line(c_lin(Rel, K, Terms)) = L =>
+    Ts = [ term_str(C, I) : [C, I] in Terms ],
+    L = join_terms(Ts) ++ " " ++ Rel.to_string() ++ " " ++ K.to_string ++ " ;".
 
-/* tokenizer */
-read_pb_cl_tokens(InStream,Tokens) =>
-    skip_comment(InStream),
-    read_picat_token(InStream,Type,Token), % first token
-    read_pb_cl_tokens(InStream,Type,Token,Tokens).
+% a signed coefficient term: "+2 x1" / "-1 x2"
+term_str(C, I) = S, C < 0 =>
+    S = C.to_string() ++ " x" ++ I.to_string().
+term_str(C, I) = S, C >= 0 =>
+    S = "+" ++ C.to_string() ++ " x" ++ I.to_string().
 
-skip_comment(InStream) =>
-    Ch = peek_char(InStream),
-    skip_comment(InStream,Ch).
-
-skip_comment(InStream,'*') =>
-    _ = read_line(InStream),
-    skip_comment(InStream).
-skip_comment(InStream,Ch), w_space(Ch) =>
-    _ = read_char(InStream),
-    NextCh = peek_char(InStream),
-    skip_comment(InStream,NextCh).
-skip_comment(_InStream,_) => true.
-
-index (+)
-w_space(' ').
-w_space('\n').
-w_space('\t').
-w_space('\r').
-
-read_pb_cl_tokens(_InStream,end_of_file,_,Tokens) => Tokens=end_of_file.     % end-of-file
-read_pb_cl_tokens(_InStream,punctuation,';',Tokens) => 
-    Tokens = [].
-read_pb_cl_tokens(InStream,_Type,Token,Tokens) =>                   
-    Tokens=[Token|Tokens1],
-    read_picat_token(InStream,Type,PicatToken),
-    read_pb_cl_tokens(InStream,Type,PicatToken,Tokens1).
-
-%%%
-output_sol([],_NumItems) => true.
-output_sol(List,0) => 
-    nl,
-    print('v '),
-    output_sol(List,10).
-output_sol([V=Val|List],NumItems) =>
-    if (Val == 0) then  print('~') end,
-    print(V), print(' '),
-    output_sol(List,NumItems-1).
+join_terms([T]) = T => true.
+join_terms([T | Ts]) = S =>
+    join_terms(Ts) = Rest,
+    S = T ++ " " ++ Rest.
