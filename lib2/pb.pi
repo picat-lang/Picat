@@ -26,9 +26,16 @@
 % posts never propagate back):
 %   X = new_array(5), X :: 0..1    THE DECLARATION: a plain var is
 %                                  indexed on first sight (bound to a
-%                                  pbv(I) term), single vars, lists
-%                                  and arrays accepted; the 0/1
-%                                  domain itself is implicit
+%                                  var term), single vars, lists
+%                                  and arrays accepted
+%   X :: 1..3                      a domain LIST (the .. materializes
+%                                  to one): one-hot encoded (one OPB
+%                                  var per value plus the
+%                                  exactly-one), the linear form
+%                                  stays native; non-contiguous
+%                                  value sets ([1, 5, 9]) come for
+%                                  free; sets and [] rejected
+%                                  ($pb_dom)
 %   pb.reset()                     start a fresh problem
 %   NewVars = pb.add_vars(K)       extends the store, existing
 %                                  constraints and indices stay valid
@@ -94,32 +101,64 @@ add_vars(K) = NewVars =>
     NewVars = [V : I in 1..K, J = N + I, V = $pbv(J)].
 
 % the familiar domain syntax: a DECLARATION.  A plain (unbound) var
-% is indexed on first sight -- bound to a pbv(I) term with the next
-% free index, so the flattener stays pure and stale vars stay loud;
-% a pbv term is range-checked; lists and arrays are walked.  The 0/1
-% domain itself is implicit, any other domain is rejected.
+% is indexed on first sight -- bound to a var term with the next free
+% index, so the flattener stays pure and stale vars stay loud; a var
+% term is range-checked; lists and arrays are walked.  A domain is a
+% LIST of integers (the .. construct materializes to one): [0, 1]
+% binds a pbv(I) term; any other nonempty integer list binds a
+% pbd(I, Vals) term, encoded one-hot (one OPB var per value plus the
+% exactly-one), so the linear form stays native -- non-contiguous
+% value sets come for free.  Sets and empty lists are rejected.
 '::'(Vars, Domain) =>
-    ( Domain = 0..1 -> true ; throw($pb_dom) ),
-    ( list(Vars) -> foreach (V in Vars) declare(V) end
-    ; array(Vars) -> foreach (V in Vars) declare(V) end
-    ; declare(Vars) ).
+    ( list(Vars) -> foreach (V in Vars) declare(V, Domain) end
+    ; array(Vars) -> foreach (V in Vars) declare(V, Domain) end
+    ; declare(Vars, Domain) ).
 
-declare(V) =>
+declare(V, Domain) =>
+    ( Domain = [0, 1] -> declare_bool(V)
+    ; Domain = [_ | _], all_integers(Domain) -> declare_range(V, Domain)
+    ; throw($pb_dom) ).
+
+declare_bool(V) =>
     ( var(V) ->
         store_or_fresh(N, Cs),
         I = N + 1,
         V = $pbv(I),
         put(get_global_map(), pbstore, {I, Cs})
-    ; V = $pbv(_) -> var_ok(V)
+    ; var_term(V) -> var_ok(V)
     ; throw($pb_var) ).
+
+declare_range(V, Vals) =>
+    ( var(V) ->
+        store_or_fresh(N, Cs),
+        I = N + 1,
+        V = $pbd(I, Vals),
+        Idx = [[1, I + J] : J in 0..Vals.length - 1],
+        put(get_global_map(), pbstore,
+            {I + Vals.length - 1, [$c_lin('=', 1, Idx) | Cs]})
+    ; var_term(V) -> var_ok(V)
+    ; throw($pb_var) ).
+
+var_term(pbv(_)) => true.
+var_term(pbd(_, _)) => true.
+var_term(_) => fail.
 
 var_ok(pbv(I)) =>
     Map = get_global_map(),
     ( has_key(Map, pbstore) -> {N, _} = get(Map, pbstore),
         ( I >= 1, I =< N -> true ; throw($pb_var) )
     ; throw($pb_no_store) ).
+var_ok(pbd(I, Vals)) =>
+    Map = get_global_map(),
+    ( has_key(Map, pbstore) -> {N, _} = get(Map, pbstore),
+        ( I >= 1, I + Vals.length - 1 =< N -> true ; throw($pb_var) )
+    ; throw($pb_no_store) ).
 var_ok(_) =>
     throw($pb_var).
+
+all_integers([]) => true.
+all_integers([X | Xs]), integer(X) => all_integers(Xs).
+all_integers(_) => fail.
 
 '#=<'(L, R) => post_lin('<=', L, R).
 '#<='(L, R) => post_lin('<=', L, R).
@@ -168,6 +207,10 @@ store_or_fresh(N, Cs) =>
 to_sum(T) = (Terms, C), number(T) =>
     Terms = [], C = T.
 to_sum(pbv(I)) = ([[1, I]], 0) => true.
+% a multi-valued var: the value is the weighted sum over the one-hot
+% indicators (value = coefficient); Vals is the declared value list
+to_sum(pbd(I, Vals)) = (Terms, 0) =>
+    Terms = [[Vals[J + 1], I + J] : J in 0..Vals.length - 1].
 % an undeclared var (declare it with ::) -- not $pb_nonlinear, the
 % cause is the missing index
 to_sum(T) = (_, _), var(T) =>
@@ -254,22 +297,25 @@ solve_res() = S =>
     call_cleanup(go_res(N, Cs, Path, S), rm_path(Path)).
 
 % the uniform solve: a goal over an ARRAY of declared vars.  Each
-% element is overwritten with its 0/1 value (mutable slots), the same
-% reading pattern as the built-in cp and sat solve: the program body
-% is identical under import pb, import cp and import sat.  It fails
-% on unsat, exactly like the built-ins.  Lists are immutable in
-% Picat, so an array is required.
+% element is overwritten with its value (mutable slots) -- a 0/1 var
+% gets the raw model bit, a multi-valued var the decoded integer --
+% the same reading pattern as the built-in cp and sat solve: the
+% program body is identical under import pb, import cp and import
+% sat.  It fails on unsat, exactly like the built-ins.  Lists are
+% immutable in Picat, so an array is required.
 solve(Vars), array(Vars) =>
     S = solve_res(),
     S = [sat, M],
     foreach (I in 1..Vars.length)
-        J = index_of_term(Vars[I]),
-        Vars[I] := M[J]
+        decode_slot(Vars[I], M, V),
+        Vars[I] := V
     end.
 solve(Vars), list(Vars) =>
     throw($pb_array_only).
 
-index_of_term(pbv(J)) = J => true.
+decode_slot(pbv(J), M, V) => V = M[J].
+decode_slot(pbd(I, Vals), M, V) =>
+    V = sum([Vals[J + 1] * M[I + J] : J in 0..Vals.length - 1]).
 
 rm_path(Path) => os.rm(Path.to_atom()).
 

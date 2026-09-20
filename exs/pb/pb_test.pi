@@ -29,6 +29,8 @@ main() =>
     ops_array(),
     ops_idioms(),
     ops_text(),
+    mv_domain(),
+    mv_text(),
     printf("ALL PB TESTS PASSED%n").
 
 ck(Name, Got, Want) =>
@@ -263,6 +265,65 @@ ops_idioms() =>
     B[1] + B[2] + B[3] + B[4] #= 3,
     solve(B),
     ck("sum < sum, total 3", B[1] + B[2], 1).
+
+%%%%%%%%%%%%%%%%%%%% multi-valued domains (one-hot) %%%%%%%%%%%%%%%%%%%
+
+% X :: 1..3 with sum constraints; the decoded slots must satisfy the
+% same constraints; a singleton and a negative domain work naturally,
+% set and unbounded domains are rejected
+mv_domain() =>
+    printf("multi-valued domains (one-hot):%n"),
+    pb.reset(),
+    A = new_array(3),
+    A :: 1..3,
+    A[1] #< A[2],
+    A[1] + 2 * A[2] + 3 * A[3] #= 14,
+    solve(A),
+    ( A[1] =< A[2] -> true ; throw($pbtest_mv_lt) ),
+    ( A[1] + 2 * A[2] + 3 * A[3] = 14 -> true ; throw($pbtest_mv_eq) ),
+    ( A[1] >= 1, A[1] =< 3, A[2] >= 1, A[2] =< 3, A[3] >= 1, A[3] =< 3
+      -> true ; throw($pbtest_mv_dom) ),
+    ck("1..3 with sums, decoded", true, true),
+    pb.reset(),
+    S1 = new_array(1),
+    S1 :: 2..2,
+    solve(S1),
+    ck("singleton 2..2", S1[1], 2),
+    pb.reset(),
+    S2 = new_array(1),
+    S2 :: -2..0,
+    S2[1] #= -2,
+    solve(S2),
+    ck("negative domain -2..0", S2[1], -2),
+    pb.reset(),
+    Z = new_array(1),
+    Z :: [1, 5, 9],
+    Z[1] #>= 5,
+    solve(Z),
+    ( Z[1] = 5 ; Z[1] = 9 -> true ; throw($pbtest_mv_set) ),
+    ck("non-contiguous values [1,5,9]", true, true).
+
+% the one-hot encoding's OPB text: the exactly-one line and the
+% weighted value expansion -- byte-exact
+mv_text() =>
+    printf("multi-valued opb text exact:%n"),
+    pb.reset(),
+    X = new_array(1),
+    X :: 1..3,
+    X[1] #>= 2,
+    Text = pb.to_opb(),
+    mv_expected(Expected),
+    ( Text = Expected -> ck("exact one-hot opb text", true, true)
+    ; printf("  got:  %s%n", to_string(Text)),
+      printf("  want: %s%n", to_string(Expected)),
+      throw($pbtest_text_mismatch) ).
+
+mv_expected(Expected) =>
+    % the store is in cons order (reversed at write): the exactly-one
+    % was appended at the declaration, the value expansion after it
+    Expected = "* #variable= 3 #constraint= 2\n" ++
+               "+1 x1 +1 x2 +1 x3 = 1 ;\n" ++
+               "+1 x1 +2 x2 +3 x3 >= 2 ;\n".
 
 % the flattener's OPB text: constant factors, subtraction, merged
 % coefficient order (indices ascending) -- byte-exact

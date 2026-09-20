@@ -30,7 +30,8 @@ different models, both satisfying the constraints.
 
 | call | meaning |
 |---|---|
-| `X :: 0..1` | the DECLARATION: a plain var is indexed on first sight (bound to a `pbv(I)` term); single vars, lists and arrays accepted; the 0/1 domain itself is implicit, any other domain throws `$pb_dom` |
+| `X :: 0..1` | the DECLARATION: a plain var is indexed on first sight (bound to a `pbv(I)` term); single vars, lists and arrays accepted |
+| `X :: 1..3` | a domain LIST (the `..` materializes to one): encoded one-hot (one OPB var per value plus the exactly-one), the linear form stays native; non-contiguous value sets (`X :: [1, 5, 9]`) come for free; sets and `[]` rejected (`$pb_dom`) |
 | `L #>= R` / `L #=< R` / `L #= R` | sum constraints over a linear term: `+ -`, `*` with a constant factor, `sum(ListOrArray)` over linear terms (the knapsack idiom) |
 | `L #< R` / `L #> R` | strict relations over sums, variables on both sides (exact via integrality: `L < R` ⇔ `L - R <= -1`) |
 | `L #\= R`, `#<=>`, `#=>` | rejected: no OPB encoding for reification (`$pb_no_reif`) |
@@ -66,7 +67,8 @@ propagate back.
 | `cnf.pi` | a CNF formula `(a \/ b) /\ (-a \/ c) /\ (-b \/ -c)` in its native 0/1 linear form: a negated literal `1 - x` contributes `-x` and shifts the bound |
 | `knapsack.pi` | the standard knapsack-style idiom: `sum([Nums[I] * V[I] : I in 1..6]) #= 9` -- a sum over a comprehension of products |
 | `strict.pi` | strict relations with variables on both sides (`A[1] #< A[2]`, `B[1]+B[2] #< B[3]+B[4]`) -- the integrality shift applied to the whole sum |
-| `pb_test.pi` | the battery: 23 checks over both APIs (the pigeon-hole UNSAT headline, models verified against their constraints, store hygiene, the byte-exact OPB text, the rejection tags) |
+| `mv.pi` | multi-valued domains: `A :: 1..3` with `A[1] #< A[2]` and a weighted sum -- one-hot encoded in pb, native domains in cp/sat |
+| `pb_test.pi` | the battery: 30 checks over both APIs (the pigeon-hole UNSAT headline, models verified against their constraints, store hygiene, the byte-exact OPB text, the rejection tags, the one-hot encoding) |
 
 ## Running
 

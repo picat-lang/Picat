@@ -1,0 +1,17 @@
+% Multi-valued domains: X :: 1..3 with sum constraints.  pb encodes
+% each var one-hot (one OPB var per value plus the exactly-one), so
+% the linear form stays native; cp and sat handle the domains natively.
+% The program is solver-agnostic: swap `import pb` for `import cp`
+% or `import sat` and it runs unchanged.
+%
+% With pb:  PICATPATH=<picat>/lib2 PBSOL=<solver> emu/picat mv.pi
+
+import pb.
+
+main =>
+    A = new_array(3),
+    A :: 1..3,
+    A[1] #< A[2],
+    A[1] + 2 * A[2] + 3 * A[3] #= 14,
+    solve(A),
+    printf("a=%w b=%w c=%w%n", A[1], A[2], A[3]).
