@@ -1,0 +1,23 @@
+% Three pigeons, three holes: every pigeon sits in exactly one hole
+% and no hole holds two pigeons (a permutation).  Solver-agnostic:
+% swap `import pb` for `import cp` or `import sat` and it runs
+% unchanged.
+%
+% With pb:  PICATPATH=<picat>/lib2 PBSOL=<solver> emu/picat pigeons.pi
+
+import pb.
+
+main =>
+    V = new_array(9),
+    V :: 0..1,
+    foreach (P in 1..3)
+        V[(P - 1) * 3 + 1] + V[(P - 1) * 3 + 2] + V[(P - 1) * 3 + 3] #= 1
+    end,
+    foreach (H in 1..3)
+        V[H] + V[3 + H] + V[6 + H] #<= 1
+    end,
+    solve(V),
+    foreach (P in 1..3)
+        printf("pigeon %d -> hole %d%n", P,
+               [H : H in 1..3, V[(P - 1) * 3 + H] = 1].first)
+    end.

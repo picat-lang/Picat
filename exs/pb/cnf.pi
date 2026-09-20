@@ -1,0 +1,21 @@
+% A small CNF formula in its native 0/1 linear form:
+%     (a \/ b) /\ (-a \/ c) /\ (-b \/ -c)
+% A negated literal (1 - x) contributes -x and shifts the bound:
+%     a  \/ b    <=>  a + b >= 1
+%    -a  \/ c    <=>  c - a >= 0
+%    -b  \/ -c   <=>  -b - c >= -1
+% Solver-agnostic: swap `import pb` for `import cp` or `import sat`
+% and it runs unchanged.
+%
+% With pb:  PICATPATH=<picat>/lib2 PBSOL=<solver> emu/picat cnf.pi
+
+import pb.
+
+main =>
+    V = new_array(3),
+    V :: 0..1,
+    V[1] + V[2] #>= 1,
+    V[3] - V[1] #>= 0,
+    -V[2] - V[3] #>= -1,
+    solve(V),
+    printf("a=%w b=%w c=%w%n", V[1], V[2], V[3]).

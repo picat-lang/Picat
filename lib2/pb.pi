@@ -13,10 +13,36 @@
 %   B1 = pb.lin(B, Rel, K, Terms)  linear: Terms = [[C, I], ...]
 %                                  (coefficient C on var I)
 % The solve:
-%   Model = pb.solve(B)            throws $pb_unsat on unsat/unknown
+%   Model = pb.solve_store(B)      the functional API on an explicit
+%                                  store term, throws $pb_unsat on
+%                                  unsat/unknown
 %   S = pb.solve_res(B)            S = [sat, Model] | unsat | unknown;
 %                                  Model = a list of 0/1 per variable
 %                                  (the caller binds X = Model[I])
+% The # syntax (main-process only; the store lives in a global slot
+% and accumulates -- solve/0 is a query, only reset() starts a new
+% problem; a missing store is a fresh one, so after import pb. the
+% store behaves as if cleared; a forked child inherits a clone, its
+% posts never propagate back):
+%   X = new_array(5), X :: 0..1    THE DECLARATION: a plain var is
+%                                  indexed on first sight (bound to a
+%                                  pbv(I) term), single vars, lists
+%                                  and arrays accepted; the 0/1
+%                                  domain itself is implicit
+%   pb.reset()                     start a fresh problem
+%   NewVars = pb.add_vars(K)       extends the store, existing
+%                                  constraints and indices stay valid
+%   X1 + X3 #>= 1                  sum constraints: #=<' '#>=' '#='
+%                                  '#<' '#>' (strict RHS a constant),
+%                                  with + - * (constant factor);
+%                                  #\= and reification rejected
+%   Model = pb.solve()             solves the registered store
+%   solve(V)                       the UNIFORM solve: a goal over an
+%                                  array of declared vars, elements
+%                                  overwritten with their values --
+%                                  the same call the program makes
+%                                  under import cp and import sat
+%   String = pb.to_opb()           the current store's OPB text
 % The solver: env PBSOL (default "roundingsat", PATH-resolved), run
 % with --print-sol=1 through satext's raw-file runner (one spec, no
 % portfolio: the first-wins race hands the same formula to every
@@ -36,15 +62,201 @@ card({N, Cs}, Rel, K, Idx) = {N, [$c_card(Rel, K, Idx) | Cs]}.
 
 lin({N, Cs}, Rel, K, Terms) = {N, [$c_lin(Rel, K, Terms) | Cs]}.
 
+%%%%%%%%%%%%%%%%%%%%%% the operator layer (# syntax) %%%%%%%%%%%%%%%%%%
+
+% The # operators post into a store held in the anonymous global map
+% (key pbstore).  A missing store is a fresh one: after import pb.
+% the store behaves as if cleared, so the first :: declaration starts
+% at index 1.  Vars are pbv(I) terms: compound terms survive
+% UNEVALUATED in arithmetic ('+'(pbv(1),pbv(3)) reaches the operator),
+% so the flattener sees the linear structure; plain integer vars would
+% collapse to a single number before the operator runs.  The layer is
+% main-process only: a forked child inherits a clone of the slot and
+% its posts never propagate back.  reset() starts a fresh problem.
+
+% start a fresh problem: drop the current store (the only reset point;
+% constraints and declarations accumulate until it).  A missing store
+% behaves as a fresh one, so after import pb. the store is fresh.
+reset() =>
+    Map = get_global_map(),
+    put(Map, pbstore, {0, []}).
+
+% extend the current store with K more vars: the existing constraints
+% and var indices stay valid, only the new var terms are returned
+add_vars(K) = NewVars =>
+    Map = get_global_map(),
+    ( has_key(Map, pbstore) -> {N, Cs} = get(Map, pbstore)
+    ; throw($pb_no_store) ),
+    N2 = N + K,
+    put(Map, pbstore, {N2, Cs}),
+    NewVars = [V : I in 1..K, J = N + I, V = $pbv(J)].
+
+% the familiar domain syntax: a DECLARATION.  A plain (unbound) var
+% is indexed on first sight -- bound to a pbv(I) term with the next
+% free index, so the flattener stays pure and stale vars stay loud;
+% a pbv term is range-checked; lists and arrays are walked.  The 0/1
+% domain itself is implicit, any other domain is rejected.
+'::'(Vars, Domain) =>
+    ( Domain = 0..1 -> true ; throw($pb_dom) ),
+    ( list(Vars) -> foreach (V in Vars) declare(V) end
+    ; array(Vars) -> foreach (V in Vars) declare(V) end
+    ; declare(Vars) ).
+
+declare(V) =>
+    ( var(V) ->
+        store_or_fresh(N, Cs),
+        I = N + 1,
+        V = $pbv(I),
+        put(get_global_map(), pbstore, {I, Cs})
+    ; V = $pbv(_) -> var_ok(V)
+    ; throw($pb_var) ).
+
+var_ok(pbv(I)) =>
+    Map = get_global_map(),
+    ( has_key(Map, pbstore) -> {N, _} = get(Map, pbstore),
+        ( I >= 1, I =< N -> true ; throw($pb_var) )
+    ; throw($pb_no_store) ).
+var_ok(_) =>
+    throw($pb_var).
+
+'#=<'(L, R) => post_lin('<=', L, R).
+'#<='(L, R) => post_lin('<=', L, R).
+'#>='(L, R) => post_lin('>=', L, R).
+'#='(L, R)  => post_lin('=', L, R).
+% strict relations, the RHS a pure constant (integrality makes the
+% shift exact):  sum < K  <=>  sum <= K-1;   sum > K  <=>  sum >= K+1
+'#<'(L, R) =>
+    (TR, _) = to_sum(R),
+    ( TR == [] -> true ; throw($pb_strict_rhs) ),
+    post_lin('<=', L, R - 1).
+'#>'(L, R) =>
+    (TR, _) = to_sum(R),
+    ( TR == [] -> true ; throw($pb_strict_rhs) ),
+    post_lin('>=', L, R + 1).
+% reification needs a boolean layer the OPB text has no room for
+'#!='(_, _)  => throw($pb_no_reif).
+'#\\='(_, _)  => throw($pb_no_reif).
+'#<=>'(_, _) => throw($pb_no_reif).
+'#=>'(_, _)  => throw($pb_no_reif).
+
+% L Rel R  =>  SumL - SumR Rel CR - CL, one linear constraint.  Every
+% var index is checked against the store, so a stale var term (one
+% from a previous problem, or beyond the current count) fails loudly
+% instead of poisoning the formula.  A missing store is fresh.
+post_lin(Rel, L, R) =>
+    Map = get_global_map(),
+    store_or_fresh(N, Cs),
+    (TL, CL) = to_sum(L),
+    (TR, CR) = to_sum(R),
+    Terms = merge_terms(TL ++ [[-C, I] : [C, I] in TR]),
+    ( Terms == [] -> throw($pb_const_constr)
+    ;   foreach ([_, I] in Terms)
+            ( I >= 1, I =< N -> true ; throw($pb_var) )
+        end,
+        K = CR - CL,
+        put(Map, pbstore, {N, [$c_lin(Rel, K, Terms) | Cs]})
+    ).
+
+% the current store, or a fresh one when pb was never used
+store_or_fresh(N, Cs) =>
+    Map = get_global_map(),
+    ( has_key(Map, pbstore) -> {N, Cs} = get(Map, pbstore)
+    ;   N = 0, Cs = [],
+        put(Map, pbstore, {0, []}) ).
+
+% flatten an arithmetic term into (terms, const)
+to_sum(T) = (Terms, C), number(T) =>
+    Terms = [], C = T.
+to_sum(pbv(I)) = ([[1, I]], 0) => true.
+% an undeclared var (declare it with ::) -- not $pb_nonlinear, the
+% cause is the missing index
+to_sum(T) = (_, _), var(T) =>
+    throw($pb_var).
+to_sum(T) = (Terms, C), T =.. ['+', A, B] =>
+    (TL, CL) = to_sum(A),
+    (TR, CR) = to_sum(B),
+    Terms = merge_terms(TL ++ TR),
+    C = CL + CR.
+to_sum(T) = (Terms, C), T =.. ['-', A, B] =>
+    (TL, CL) = to_sum(A),
+    (TR, CR) = to_sum(B),
+    Terms = merge_terms(TL ++ [[-C1, I] : [C1, I] in TR]),
+    C = CL - CR.
+to_sum(T) = (Terms, C), T =.. ['-', A] =>
+    (TL, CL) = to_sum(A),
+    Terms = merge_terms([[-C1, I] : [C1, I] in TL]),
+    C = -CL.
+to_sum(T) = (Terms, C), T =.. ['*', A, B], number(B) =>
+    (TL, CL) = to_sum(A),
+    Terms = merge_terms([[B * C1, I] : [C1, I] in TL]),
+    C = B * CL.
+to_sum(T) = (Terms, C), T =.. ['*', A, B], number(A) =>
+    (TR, CR) = to_sum(B),
+    Terms = merge_terms([[A * C1, I] : [C1, I] in TR]),
+    C = A * CR.
+to_sum(_) = (_, _) =>
+    throw($pb_nonlinear).
+
+% merge coefficient terms per variable, drop zero coefficients,
+% indices ascending (the OPB text order)
+merge_terms(Ts) = Terms =>
+    Map = new_map(),
+    foreach ([C, I] in Ts)
+        ( has_key(Map, I) -> C0 = get(Map, I), put(Map, I, C0 + C)
+        ; put(Map, I, C) )
+    end,
+    Terms = [[get(Map, I), I] : I in keys(Map).sort(), get(Map, I) != 0].
+
+% the OPB text of the current operator-layer store
+to_opb() = String =>
+    store_or_fresh(N, Cs),
+    Lines = [opb_line(C) : C in Cs.reverse()],
+    String = "* #variable= " ++ N.to_string
+             ++ " #constraint= " ++ Lines.length.to_string ++ "\n"
+             ++ join_lines(Lines).
+
+join_lines([]) = "" => true.
+join_lines([L | Ls]) = S => S = L ++ "\n" ++ join_lines(Ls).
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%% the solve %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-solve(B) = Model =>
+solve_store(B) = Model =>
     S = solve_res(B),
     ( S = [sat, Model] -> true ; throw($pb_unsat) ).
 
 solve_res({N, Cs}) = S =>
     Path = opb_path(),
     call_cleanup(go_res(N, Cs, Path, S), rm_path(Path)).
+
+% no-arg solves over the operator-layer store.  Solve is a QUERY:
+% the slot is the current problem, it accumulates until the next
+% reset() starts a fresh one (post more and re-solve to refine).
+solve() = Model =>
+    S = solve_res(),
+    ( S = [sat, Model] -> true ; throw($pb_unsat) ).
+
+solve_res() = S =>
+    store_or_fresh(N, Cs),
+    Path = opb_path(),
+    call_cleanup(go_res(N, Cs, Path, S), rm_path(Path)).
+
+% the uniform solve: a goal over an ARRAY of declared vars.  Each
+% element is overwritten with its 0/1 value (mutable slots), the same
+% reading pattern as the built-in cp and sat solve: the program body
+% is identical under import pb, import cp and import sat.  It fails
+% on unsat, exactly like the built-ins.  Lists are immutable in
+% Picat, so an array is required.
+solve(Vars), array(Vars) =>
+    S = solve_res(),
+    S = [sat, M],
+    foreach (I in 1..Vars.length)
+        J = index_of_term(Vars[I]),
+        Vars[I] := M[J]
+    end.
+solve(Vars), list(Vars) =>
+    throw($pb_array_only).
+
+index_of_term(pbv(J)) = J => true.
 
 rm_path(Path) => os.rm(Path.to_atom()).
 

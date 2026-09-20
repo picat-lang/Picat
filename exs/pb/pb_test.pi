@@ -21,6 +21,13 @@ main() =>
     solve_throws_on_unsat(),
     store_hygiene(),
     opb_text_exact(),
+    ops_syntax(),
+    ops_hygiene(),
+    ops_reject(),
+    ops_incremental(),
+    ops_domain(),
+    ops_array(),
+    ops_text(),
     printf("ALL PB TESTS PASSED%n").
 
 ck(Name, Got, Want) =>
@@ -85,7 +92,7 @@ solve_throws_on_unsat() =>
     B = pb.card(pb.card(pb.card(pb.new(2), '<=', 0, [1]),
                         '<=', 0, [2]),
                  '>=', 1, [1, 2]),
-    catch(once((pb.solve(B) = _, true)), E, true),
+    catch(once((pb.solve_store(B) = _, true)), E, true),
     ck("throws $pb_unsat", E, $pb_unsat).
 
 %%%%%%%%%%%%%%%%%%%% store hygiene (two problems, no leak) %%%%%%%%%%%%
@@ -122,3 +129,129 @@ expected(Expected) =>
     Expected = "* #variable= 3 #constraint= 2\n" ++
                "+1 x1 +1 x3 >= 1 ;\n" ++
                "+2 x1 -1 x2 #= 4 ;\n".
+
+%%%%%%%%%%%%%%%%%%%% the # operator syntax %%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% V1+V3 >= 1 and V2 <= 1 through the # operators; the model must
+% satisfy the same constraints the functional API posts
+ops_syntax() =>
+    printf("operator syntax (#):%n"),
+    pb.reset(),
+    V = new_array(3),
+    V :: 0..1,
+    V[1] + V[3] #>= 1,
+    V[2] #<= 1,
+    M = pb.solve(),
+    ck("model is boolean", [bool(M[1]), bool(M[2]), bool(M[3])],
+       [true, true, true]),
+    ( M[1] + M[3] >= 1 -> true ; throw($pbtest_ops_c1) ),
+    ( M[2] =< 1 -> true ; throw($pbtest_ops_c2) ),
+    ck("V1+V3 >= 1, V2 <= 1 satisfied", true, true).
+
+% unsat then sat through the operator layer: clear() starts a fresh
+% problem, so the second declaration starts clean and nothing may leak
+ops_hygiene() =>
+    printf("ops hygiene (back-to-back):%n"),
+    pb.reset(),
+    A = new_array(2),
+    A :: 0..1,
+    A[1] #>= 1,
+    A[1] #<= 0,
+    catch(once((pb.solve() = _, true)), E, true),
+    ck("problem 1 unsat", E, $pb_unsat),
+    pb.reset(),
+    B = new_array(2),
+    B :: 0..1,
+    B[1] + B[2] #>= 1,
+    M = pb.solve(),
+    ck("problem 2 sat, fresh store", bool(M[1]), true).
+
+% the flattener rejects non-linear terms; reification has no OPB
+% encoding and is rejected with a clear tag
+ops_reject() =>
+    printf("ops reject (nonlinear, reification):%n"),
+    pb.reset(),
+    C = new_array(2),
+    C :: 0..1,
+    catch(once((C[1] * C[2] #>= 1, true)), E, true),
+    ck("var*var throws $pb_nonlinear", E, $pb_nonlinear),
+    D = new_array(2),
+    D :: 0..1,
+    catch(once((D[1] #\= D[2], true)), E2, true),
+    ck("#\\= throws $pb_no_reif", E2, $pb_no_reif).
+
+% post, solve, add_vars, post more, solve: the second solve must see
+% ALL constraints (solve is a query; only clear() starts a fresh
+% problem).  Discriminating: without accumulation the second solve
+% would see only V3 >= 1 and answer [0,0,1].
+ops_incremental() =>
+    printf("ops incremental (add_vars, re-solve):%n"),
+    pb.reset(),
+    V = new_array(2),
+    V :: 0..1,
+    V[1] + V[2] #>= 2,
+    M1 = pb.solve(),
+    ck("first solve", [M1[1], M1[2]], [1, 1]),
+    [V3] = pb.add_vars(1),
+    V3 #>= 1,
+    M2 = pb.solve(),
+    ck("second solve sees all", [M2[1], M2[2], M2[3]], [1, 1, 1]).
+
+% the :: syntax: single var or a list, a declaration (plain vars are
+% indexed on first sight); the 0/1 domain itself is implicit, any
+% other domain is rejected
+ops_domain() =>
+    printf("ops domain (::):%n"),
+    pb.reset(),
+    D4 = new_array(4),
+    D4 :: 0..1,
+    D4[1] + D4[2] + D4[3] + D4[4] #>= 2,
+    D4[1] #<= 0,
+    D4[2] #<= 0,
+    M = pb.solve(),
+    ck("[A,B,C,D]::0..1 forces C=D=1", [M[3], M[4]], [1, 1]),
+    [W] = pb.add_vars(1),
+    W :: 0..1,
+    catch(once((W :: 1..5, true)), E, true),
+    ck("domain 1..5 throws $pb_dom", E, $pb_dom).
+
+% the array idiom: new_array + :: declares and indexes the vars on
+% first sight (bound to pbv terms), no explicit constructor needed; a constraint
+% over an undeclared var fails loudly with $pb_var
+ops_array() =>
+    printf("ops array (new_array + ::):%n"),
+    pb.reset(),
+    X = new_array(5),
+    X :: 0..1,
+    X[1] + X[2] #>= 1,
+    X[5] #>= 1,
+    M = pb.solve(),
+    ck("array vars are boolean", [bool(M[1]), bool(M[2]), bool(M[5])],
+       [true, true, true]),
+    ( M[1] + M[2] >= 1 -> true ; throw($pbtest_arr_c1) ),
+    ( M[5] = 1 -> true ; throw($pbtest_arr_c2) ),
+    ck("array model satisfies", true, true),
+    Y = new_array(2),
+    catch(once((Y[1] + Y[2] #>= 1, true)), E, true),
+    ck("undeclared var throws $pb_var", E, $pb_var).
+
+% the flattener's OPB text: constant factors, subtraction, merged
+% coefficient order (indices ascending) -- byte-exact
+ops_text() =>
+    printf("ops opb text exact:%n"),
+    pb.reset(),
+    V = new_array(3),
+    V :: 0..1,
+    V[1] + V[3] #>= 1,
+    2 * V[2] - V[1] #= 1,
+    Text = pb.to_opb(),
+    ops_expected(Expected),
+    ( Text = Expected -> ck("exact ops opb text", true, true)
+    ; printf("  got:  %s%n", to_string(Text)),
+      printf("  want: %s%n", to_string(Expected)),
+      throw($pbtest_text_mismatch) ).
+
+ops_expected(Expected) =>
+    Expected = "* #variable= 3 #constraint= 2\n" ++
+               "+1 x1 +1 x3 >= 1 ;\n" ++
+               "-1 x1 +2 x2 = 1 ;\n".
