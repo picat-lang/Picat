@@ -1,0 +1,30 @@
+% php: the pigeon-hole principle, H holes and P pigeons; P > H is
+% UNSAT (no way to place every pigeon), P <= H is SAT.  Sized by the
+% command line:
+%   picat php.pi <holes> <pigeons>
+% The same program body runs unchanged under import pb, import cp and
+% import sat; only the import line decides the solver.  pb sends the
+% cardinality form to an external pseudo-Boolean solver (env PBSOL);
+% cp and sat are built in.  No timing here -- see php_bench.pi.
+%
+% With pb:   PBSOL=<solver> PICATPATH=<picat>/lib2 emu/picat php.pi 8 9
+% With cp:   emu/picat php.pi 8 9            (after the import swap)
+
+import pb, os.
+
+main([HolesS, PigeonsS]) =>
+    H = HolesS.to_int,
+    P = PigeonsS.to_int,
+    V = new_array(P * H),
+    V :: 0..1,
+    foreach (I in 1..P)
+        sum([V[(I - 1) * H + J] : J in 1..H]) #>= 1
+    end,
+    foreach (J in 1..H)
+        sum([V[(I - 1) * H + J] : I in 1..P]) #<= 1
+    end,
+    ( solve(V) ->
+        printf("SAT: a placement exists (%d pigeons, %d holes)%n", P, H)
+    ;
+        printf("UNSAT: %d pigeons cannot fit into %d holes%n", P, H)
+    ).
