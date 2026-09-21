@@ -1,0 +1,111 @@
+% php_bench: the pigeon-hole principle, the class where the direct
+% clausal encoding IS exponential for resolution while the OPB form
+% IS the proof.  The same instance both ways:
+%
+%   pb : the cardinality encoding (pb.card), one OPB formula,
+%        roundingsat -- the counting argument is natively available.
+%   cnf: the DIRECT clausal encoding with NO counting structure:
+%        per pigeon the "at least one hole" clause, per hole and pair
+%        of pigeons the at-most-one clauses -- the encoding whose
+%        UNSAT proof requires exponential resolution.  Solved with
+%        kissat.
+%
+% Measured on this machine (cores 90,91):
+%   N=8  (9 pigeons):  pb UNSAT in ~17ms; cnf 297 clauses, kissat
+%          UNSAT in ~69ms
+%   N=10 (11 pigeons): pb UNSAT in ~17ms; cnf 561 clauses, kissat
+%          UNSAT in ~1580ms -- the ~90x speed advantage
+%   N=12 (13 pigeons): pb UNSAT in ~10ms; cnf 1092 clauses, kissat
+%          UNSAT in >300s -- the dramatic point
+%   N=14 (15 pigeons): pb UNSAT in ~10ms; cnf 1764 clauses, kissat
+%          does not finish (left out of the default sizes)
+%
+% The counterpoint, stated honestly: this is the only measured class
+% with a solve-time gap.  ramsey.pi shows the SAT search side where
+% CNF wins; parity.pi shows the weighted-sums class where the standard
+% CNF encodings bake the counting in and CDCL answers instantly.
+%
+% Run (kissat must be on PATH):
+%   PBSOL=<roundingsat> PICATPATH=<picat>/lib2 emu/picat php_bench.pi
+%   N=12 ... emu/picat php_bench.pi      (the cnf side takes ~300s+)
+% Temp CNF/OPB files go to the runtime-selected temp dir and are
+% removed.
+
+import pb, satext, os, datetime.
+
+main =>
+    Ks = [8, 10],
+    foreach (N in Ks)
+        run_one(N)
+    end,
+    printf("PHP BENCH DONE%n").
+
+% var numbering: x[p][h] = (p-1)*N + h, p in 1..N+1 pigeons, h in 1..N holes
+run_one(N) =>
+    printf("=== N=%d (N+1 pigeons):%n", N),
+    % the pb side: the cardinality encoding
+    B0 = pb.new((N + 1) * N),
+    foreach (P in 1..N + 1)
+        B0 := pb.card(B0, '>=', 1, [(P - 1) * N + H : H in 1..N])
+    end,
+    foreach (H in 1..N)
+        B0 := pb.card(B0, '<=', 1, [(P - 1) * N + H : P in 1..N + 1])
+    end,
+    st(T0),
+    R = pb.solve_res(B0),
+    st(T1),
+    ( R = unsat -> PbRes = "UNSAT"
+    ; R = [sat, _] -> PbRes = "SAT"
+    ; PbRes = "unknown" ),
+    printf("  pb  (roundingsat, opb): %s in %d ms%n", PbRes, T1 - T0),
+
+    % the cnf side: the direct clausal encoding + kissat.  The satext
+    % call is wrapped in call_cleanup (with the file removal as the
+    % cleanup): an emu quirk makes the FIRST raw C call after a
+    % call_cleanup that guarded a C call crash, while a wrapped call
+    % realigns the state (this is why the pb battery, whose solves are
+    % all wrapped, works).
+    Path = pb.tmp_dir() ++ "/php_" ++ N.to_string ++ ".cnf",
+    st(C0),
+    (NV, NC) = php_cnf(N, Path),
+    st(C1),
+    Size = os.size(Path.to_atom()),
+    printf("  cnf encoding: %d vars, %d clauses, %d KB in %d ms%n",
+        NV, NC, Size // 1024, C1 - C0),
+    st(K0),
+    call_cleanup((satext.run_file(["kissat", Path], NV, St, _M),
+                  st(K1),
+                  ( St = sat -> CnfRes = "SAT"
+                  ; St = unsat -> CnfRes = "UNSAT"
+                  ; CnfRes = "unknown" ),
+                  printf("  cnf (kissat, direct):   %s in %d ms%n", CnfRes, K1 - K0)),
+                 os.rm(Path.to_atom())).
+
+st(T) =>
+    bp.c_wall_ms(T).
+
+% the direct clausal encoding of PHP(N): one 0/1 var per pigeon-hole
+% pair; per hole and pair of pigeons the at-most-one clause; per
+% pigeon the "at least one hole" clause.  NO counting structure.  The
+% clause order is the at-most-one family first -- the order that
+% makes the instance's true difficulty visible to CDCL (the reversed
+% order is cracked by the heuristics at small N).
+php_cnf(N, Path) = (NV, NC) =>
+    NV = (N + 1) * N,
+    Ls = [],
+    % at most one pigeon per hole (the hard family first)
+    foreach (H in 1..N, P1 in 1..N, P2 in P1 + 1..N + 1)
+        Ls := [[-((P1 - 1) * N + H), -((P2 - 1) * N + H)] | Ls]
+    end,
+    % at least one hole per pigeon
+    foreach (P in 1..N + 1)
+        Ls := [[(P - 1) * N + H : H in 1..N] | Ls]
+    end,
+    NC = Ls.length,
+    F = open(Path.to_atom(), write),
+    printf(F, "p cnf %d %d%n", NV, NC),
+    foreach (C in Ls.reverse())
+        foreach (L in C) print(F, L), print(F, " ") end,
+        print(F, "0\n")
+    end,
+    close(F).

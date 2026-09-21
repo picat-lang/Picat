@@ -81,8 +81,7 @@ run_one(K) =>
     os.rm(Path.to_atom()).
 
 st(T) =>
-    $time(H, M, S) = datetime.current_time(),
-    T = (H * 60 + M) * 60 + S.
+    bp.c_wall_ms(T).
 
 % the DIMACS of sum(a_i x_i) = T via two one-way sequential weighted
 % counters; returns (nvars, nclauses)
