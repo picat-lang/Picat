@@ -1,0 +1,146 @@
+% parity: the modular subset-sum UNSAT benchmark.  The constraint:
+% sum(a_i * x_i) = T with all a_i EVEN and T ODD -- UNSAT by pure
+% integer rounding (the LHS is always even).  The LP relaxation is
+% feasible (x_i ~ 1/2), so the pseudo-Boolean solver must derive the
+% MIR/Gomory cut; this tests the CUTS, not the LP.
+%
+%   pb : one OPB line, roundingsat via the pb module.
+%   cnf: the same constraint encoded with the standard one-way
+%        sequential weighted counters (<= T over the x_i, <= S-T over
+%        the negated items, S = sum(a_i)); solved with kissat.
+%
+% Measured on this machine (cores 90,91):
+%   k=20   pb UNSAT in 0ms; cnf 16.5k vars, 48k clauses,  683 KB,
+%          kissat UNSAT in 0ms
+%   k=50   pb UNSAT in 0ms; cnf 138k vars, 410k clauses,  6.6 MB,
+%          kissat UNSAT in 0ms
+%   k=100  pb UNSAT in 0ms; cnf 471k vars, 1.4M clauses,  24 MB,
+%          kissat UNSAT in 0ms
+%
+% The two findings, stated honestly:
+%   1. NO solve-time gap.  roundingsat derives the parity in one MIR
+%      cut, but the standard CNF encodings (sequential weighted
+%      counters, GTE) BAKE the counting into auxiliary structure, so
+%      CDCL answers instantly by propagation.  The exponential-
+%      resolution results for parity apply to auxiliary-free
+%      encodings, which do not exist in polynomial size for weighted
+%      sums -- this class does not separate modern CDCL at solve time.
+%   2. The ENCODING-SIZE gap is real and quadratic: the flag count
+%      scales as O(k*T), so saying "the sum of 100 even numbers can't
+%      be odd" costs CNF 471k variables and 1.4M clauses (24 MB)
+%      before solving starts, while the pb form is one line (~1 KB).
+%
+% The pb sweet spot remains the direct-encoding counting class
+% (pigeonhole, see ramsey.pi's header and the php measurements).
+%
+% Run (kissat must be on PATH for the cnf side):
+%   PBSOL=<roundingsat> PICATPATH=<picat>/lib2 emu/picat parity.pi
+% Temp CNF files go to the runtime-selected temp dir (pb.tmp_dir/0)
+% and are removed after each run.
+
+import pb, satext, os, datetime.
+
+main =>
+    Ks = [20, 50, 100],
+    foreach (K in Ks)
+        run_one(K)
+    end,
+    printf("PARITY BENCH DONE%n").
+
+run_one(K) =>
+    As = [2 * (1 + random2() mod 50) : _ in 1..K],
+    S = sum(As),
+    T = (S // 2) + cond((S // 2) mod 2 == 0, 1, 0),
+    printf("=== k=%d, weights even in [2,100], T=%d (odd), S=%d%n", K, T, S),
+
+    % the pb side: ONE linear constraint
+    B = pb.lin(pb.new(K), '=', T, [[As[I], I] : I in 1..K]),
+    st(T0),
+    R = pb.solve_res(B),
+    st(T1),
+    ( R = unsat -> PbRes = "UNSAT"
+    ; R = [sat, _] -> PbRes = "SAT"
+    ; PbRes = "unknown" ),
+    printf("  pb  (roundingsat, opb): %s in %d ms%n", PbRes, T1 - T0),
+
+    % the cnf side: the SWC encoding + kissat
+    Path = pb.tmp_dir() ++ "/parity_" ++ K.to_string ++ ".cnf",
+    st(C0),
+    (NV, NC) = swc_cnf(As, T, Path),
+    st(C1),
+    Size = os.size(Path.to_atom()),
+    printf("  cnf encoding: %d vars, %d clauses, %d KB in %d ms%n",
+        NV, NC, Size // 1024, C1 - C0),
+    st(K0),
+    satext.run_file(["kissat", Path], NV, St, _M),
+    st(K1),
+    ( St = sat -> CnfRes = "SAT"
+    ; St = unsat -> CnfRes = "UNSAT"
+    ; CnfRes = "unknown" ),
+    printf("  cnf (kissat, swc):      %s in %d ms%n", CnfRes, K1 - K0),
+    os.rm(Path.to_atom()).
+
+st(T) =>
+    $time(H, M, S) = datetime.current_time(),
+    T = (H * 60 + M) * 60 + S.
+
+% the DIMACS of sum(a_i x_i) = T via two one-way sequential weighted
+% counters; returns (nvars, nclauses)
+swc_cnf(As, T, Path) = (NV, NC) =>
+    K = As.length,
+    S = sum(As),
+    % counter 1: sum(a_i x_i) <= T over the x_i
+    (NV1, Ls1) = one_counter(As, 0, T, 0, []),
+    % counter 2: sum(a_i (1-x_i)) <= S-T over the negated items
+    (NV2, Ls2) = one_counter(As, 1, S - T, NV1, Ls1),
+    NV = NV2,
+    NC = Ls2.length,
+    F = open(Path.to_atom(), write),
+    printf(F, "p cnf %d %d%n", NV, NC),
+    foreach (C in Ls2)
+        foreach (L in C) print(F, L), print(F, " ") end,
+        print(F, "0\n")
+    end,
+    close(F).
+
+% one one-way SWC for sum(a_i y_i) <= B, y_i = x_i (Lit=0) or -x_i
+% (Lit=1); flags f[j][s] = "the partial sum after j items is >= s",
+% s in 1..B+1, capped at B+1.  Returns (next_var, clauses).
+one_counter(As, Lit, B, V0, Ls0) = (NV, Ls) =>
+    K = As.length,
+    Cap = B + 1,
+    % Picat arrays are 1-based: the flag for the step J (0-based)
+    % lives at F[J+1, S]
+    F = new_array(K + 2, Cap + 2),
+    V := V0,
+    foreach (J in 0..K, S in 1..Cap)
+        V := V + 1,
+        F[J + 1, S] := V
+    end,
+    NV = V,
+    Ls := Ls0,
+    % f[0][s] is false for all s >= 1
+    foreach (S in 1..Cap)
+        Ls := [[-F[1, S]] | Ls]
+    end,
+    foreach (J in 1..K)
+        L = cond(Lit == 0, J, -J),
+        % the item alone reaches min(a_j, Cap)
+        Am = min(As[J], Cap),
+        Ls := [[-L, F[J + 1, Am]] | Ls],
+        % the carry: f[j-1][s] -> f[j][s]
+        foreach (S in 1..Cap)
+            Ls := [[-F[J, S], F[J + 1, S]] | Ls]
+        end,
+        % the item on top of the carry
+        foreach (S in 1..Cap)
+            S2 = min(S + As[J], Cap),
+            Ls := [[-L, -F[J, S], F[J + 1, S2]] | Ls]
+        end,
+        % the monotonicity of the flags
+        foreach (S in 2..Cap)
+            Ls := [[-F[J + 1, S], F[J + 1, S - 1]] | Ls]
+        end
+    end,
+    % the bound: the partial sum after all K items is <= B
+    Ls := [[-F[K + 1, Cap]] | Ls].
