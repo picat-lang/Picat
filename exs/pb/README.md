@@ -6,6 +6,33 @@ external pseudo-Boolean solver (roundingsat, env `PBSOL`) sees the
 linear structure -- the pigeon-hole class, where clausal encodings are
 exponential for CDCL solvers, falls in milliseconds.
 
+## Introduction and requirements
+
+**roundingsat** is the external solver the pb module talks to.  It is
+an open-source pseudo-Boolean solver built on **cutting planes**
+(Gomory/MIR cuts and cardinality resolution), developed by the MIAO
+research group; the official repository is
+`gitlab.com/MIAOresearch/software/roundingsat` (build with CMake, a
+C++17 compiler).  It reads the OPB format natively -- which is exactly
+the form the pb module emits -- and its cutting-plane engine is what
+makes the counting-argument UNSAT class (the pigeon-hole principle)
+fall in milliseconds where clausal encodings are exponential for CDCL
+solvers.  Measured on the instances in this directory: PHP(10) UNSAT
+in ~17ms on the OPB form vs ~1580ms for kissat on the clausal encoding,
+and at N=12 the CNF path takes >300s where the OPB form stays ~10ms.
+
+Requirements per example:
+
+| example | needs |
+|---|---|
+| the solver-agnostic ones (`subset_sum`, `pigeons`, `cnf`, `knapsack`, `strict`, `mv`) | nothing beyond Picat (built-in cp/sat) |
+| the pb path of any of them | `PBSOL=<path>/roundingsat PICATPATH=<picat>/lib2` |
+| `ramsey.pi`, the benchmarks (`php_bench.pi`, `parity.pi`) | roundingsat via `PBSOL` AND `kissat` on `PATH` for the CNF comparison side |
+| `pb_test.pi` | roundingsat via `PBSOL` |
+
+`PBSOL` defaults to `"roundingsat"` PATH-resolved; the satext runner
+resolves it like an executable name.
+
 ## The solver-agnostic program
 
 The same program body runs unchanged under `import pb`, `import cp`
