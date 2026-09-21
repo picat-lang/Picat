@@ -68,6 +68,7 @@ propagate back.
 | `knapsack.pi` | the standard knapsack-style idiom: `sum([Nums[I] * V[I] : I in 1..6]) #= 9` -- a sum over a comprehension of products |
 | `strict.pi` | strict relations with variables on both sides (`A[1] #< A[2]`, `B[1]+B[2] #< B[3]+B[4]`) -- the integrality shift applied to the whole sum |
 | `mv.pi` | multi-valued domains: `A :: 1..3` with `A[1] #< A[2]` and a weighted sum -- one-hot encoded in pb, native domains in cp/sat |
+| `ramsey.pi` | (K,K)-Ramsey graphs sized by env (`K=4 N=15 ...`): 0/1 per edge, cardinality constraints per K-subset, degree-order symmetry breaking -- SAT/UNSAT branches with independent verification; under pb a fail is UNSAT |
 | `pb_test.pi` | the battery: 30 checks over both APIs (the pigeon-hole UNSAT headline, models verified against their constraints, store hygiene, the byte-exact OPB text, the rejection tags, the one-hot encoding) |
 
 ## Running

@@ -2,7 +2,9 @@
 % the environment, for testing the SAT and UNSAT paths of the external
 % solver(s) on instances that are much harder than pigeonhole -- the
 % decidable sweet spot (K<=4, N<=17) still takes 100s of ms and the
-% N=18 frontier never terminates because R(4,4) is an open problem.
+% N=18 frontier never terminates in practice: R(4,4) = 18 is a proven
+% classical result (McKay and Radziszowski 1995), so the N=18
+% instance is UNSAT, but its proof is far beyond these solvers.
 %
 % Background: R(K,K) is the least m such that every graph on m
 % vertices contains a K-clique (K mutually adjacent vertices) or an
@@ -39,11 +41,13 @@
 %                      sequence [8 x 17]). The strongest instance
 %                      still decidable here (136 edge vars,
 %                      2 x C(17,4) = 4760 subset constraints).
-%   K=4 N>=18 R(4,4) is a famous OPEN problem (classical bounds
-%                      18 <= R(4,4) <= 25): these instances may
-%                      never be answered (verified: N=18 made no
-%                      progress in 25 s) -- the "watch the solvers
-%                      at work" frontier; SATEXT_PRT_BUDGET_MS stops
+%   K=4 N=18  R(4,4) = 18 is a proven classical result (McKay and
+%                      Radziszowski 1995), so this instance is UNSAT,
+%                      but its proof is far beyond these solvers:
+%                      verified no progress in 25 s -- the "watch the
+%                      solvers at work" frontier.  R(5,5) is the
+%                      famous open problem (43 <= R(5,5) <= 48).
+%                      SATEXT_PRT_BUDGET_MS stops
 %                      a portfolio race after the given wall time,
 %                      and the solve then fails with status 0 (the
 %                      built-in is never re-run as a fallback).
