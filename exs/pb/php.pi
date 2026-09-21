@@ -1,6 +1,14 @@
 % php: the pigeon-hole principle, H holes and P pigeons; P > H is
-% UNSAT (no way to place every pigeon), P <= H is SAT.  Sized by the
-% command line:
+% UNSAT (no way to place every pigeon), P <= H is SAT.  P variables,
+% one per pigeon, each with the domain 1..H -- the pigeon's hole.
+% The all-different requirement is expressed, without loss of
+% generality, as the strict chain V[1] #< V[2] #< ...: an assignment
+% with distinct holes exists iff a sorted one does, and a sorted one
+% needs P distinct values out of H.  The constraint loop sits inside
+% the if-condition: on cp the constraints propagate eagerly at posting
+% time, so on the UNSAT side the posting itself fails and takes the
+% UNSAT branch (on pb and sat the solve fails instead).
+% Sized by the command line:
 %   picat php.pi <holes> <pigeons>
 % The same program body runs unchanged under import pb, import cp and
 % import sat; only the import line decides the solver.  pb sends the
@@ -15,15 +23,12 @@ import pb, os.
 main([HolesS, PigeonsS]) =>
     H = HolesS.to_int,
     P = PigeonsS.to_int,
-    V = new_array(P * H),
-    V :: 0..1,
-    foreach (I in 1..P)
-        sum([V[(I - 1) * H + J] : J in 1..H]) #>= 1
-    end,
-    foreach (J in 1..H)
-        sum([V[(I - 1) * H + J] : I in 1..P]) #<= 1
-    end,
-    ( solve(V) ->
+    V = new_array(P),
+    V :: 1..H,
+    ( (foreach (I in 1..P - 1)
+           V[I] #< V[I + 1]
+       end,
+       solve(V)) ->
         printf("SAT: a placement exists (%d pigeons, %d holes)%n", P, H)
     ;
         printf("UNSAT: %d pigeons cannot fit into %d holes%n", P, H)
