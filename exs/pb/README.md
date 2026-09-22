@@ -98,7 +98,8 @@ propagate back.
 | `ramsey.pi` | (K,K)-Ramsey graphs sized by env (`K=4 N=15 ...`): 0/1 per edge, cardinality constraints per K-subset, degree-order symmetry breaking -- SAT/UNSAT branches with independent verification; under pb a fail is UNSAT |
 | `parity.pi` | the modular subset-sum UNSAT benchmark: all weights even, the target odd -- UNSAT by pure rounding; pb answers in one MIR cut, but the honest result is that the standard CNF encodings make it propagation-easy too -- the separation is the quadratic encoding blow-up (24 MB of CNF vs one OPB line at k=100) |
 | `php_bench.pi` | the pigeon-hole head-to-head: the pb cardinality encoding vs the direct clausal encoding solved with kissat -- the measured ~90x speed advantage (N=10: pb 17ms vs 1580ms), and at N=12 the CNF path takes >300s where pb stays ~10ms |
-| `php.pi` | the simple pigeon-hole test, sized by the command line (`picat php.pi <holes> <pigeons>`), no timing -- the solver-agnostic body with the SAT/UNSAT branches |
+| `php.pi` | the simple pigeon-hole test, sized by the command line (`picat php.pi <holes> <pigeons>`), no timing -- the solver-agnostic body with the SAT/UNSAT branches, P hole variables with the domain 1..H and the all-different as the strict chain |
+| `php_matrix.pi` | the same test in the boolean-matrix formulation (one 0/1 var per pigeon-hole pair, the row/column cardinality constraints) -- the index-arithmetic formulation where the pb speed advantage is measured |
 | `pb_test.pi` | the battery: 30 checks over both APIs (the pigeon-hole UNSAT headline, models verified against their constraints, store hygiene, the byte-exact OPB text, the rejection tags, the one-hot encoding) |
 
 ## Running
