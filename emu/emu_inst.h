@@ -593,7 +593,9 @@ call_sub_after_ar_cps:
         op1 = ((*GET_EP(sym_ptr))());
         AR = (BPLONG_PTR)((BPULONG)stack_up_addr-(BPULONG)old_arreg_offset);
         RESTORE_TOP;
-        if (AR != arreg) {  /* c code created frames */
+        if (AR < arreg) {  /* GC relocated the frames upward: the saved AR is stale */
+            AR = arreg;
+        } else if (AR != arreg) {  /* c code created frames */
             while (B < AR) {
                 B = (BPLONG_PTR)AR_B(B);
                 HB = (BPLONG_PTR)AR_H(B);
