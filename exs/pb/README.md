@@ -33,6 +33,24 @@ Requirements per example:
 `PBSOL` defaults to `"roundingsat"` PATH-resolved; the satext runner
 resolves it like an executable name.
 
+## Where pb has an advantage (the honest record)
+
+The speed advantage is specific to the counting/cardinality class --
+where the pseudo-Boolean form shows a solver the counting structure
+natively and a clausal encoding of the same program is exponential for
+CDCL solvers:
+
+| example | pb advantage? |
+|---|---|
+| `php_matrix.pi` / `php_bench.pi` | YES, measured: the counting/cardinality class -- PHP(10) UNSAT in ~17ms on the OPB form vs ~1580ms for kissat on the clausal encoding; at N=12 the CNF path takes >300s where the OPB form stays ~10ms |
+| `parity.pi` | no solve-time gap (both instant -- the standard CNF encodings bake the counting in), but a STRUCTURAL advantage: one OPB line vs 24 MB of CNF at k=100 (the quadratic encoding blow-up) |
+| `ramsey.pi` | no -- pb LOSES on the SAT-search side (K=4, N=15: pb ~1.7s vs ~73ms for kissat on the CNF; K=4, N=17: ~11.5s vs ~204ms) |
+| `php.pi` | no -- the strict-chain (sorted) formulation makes it easy for everyone; cp's eager propagation answers instantly |
+| the small demos (`subset_sum`, `pigeons`, `cnf`, `knapsack`, `strict`, `mv`) | correctness demos, never benchmarked -- `pigeons.pi` is the same counting class as `php_matrix.pi` in principle |
+
+So: the solve-time advantage is specific to the cardinality/counting
+class; the only other pb win is encoding compactness, not speed.
+
 ## The solver-agnostic program
 
 The same program body runs unchanged under `import pb`, `import cp`
