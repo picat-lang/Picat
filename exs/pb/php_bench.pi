@@ -20,7 +20,7 @@
 %   N=14 (15 pigeons): pb UNSAT in ~10ms; cnf 1764 clauses, kissat
 %          does not finish (left out of the default sizes)
 %
-% The counterpoint, stated honestly: this is the only measured class
+% The counterpoint: this is the only measured class
 % with a solve-time gap.  ramsey.pi shows the SAT search side where
 % CNF wins; parity.pi shows the weighted-sums class where the standard
 % CNF encodings bake the counting in and CDCL answers instantly.

@@ -33,7 +33,7 @@ Requirements per example:
 `PBSOL` defaults to `"roundingsat"` PATH-resolved; the satext runner
 resolves it like an executable name.
 
-## Where pb has an advantage (the honest record)
+## Where pb has an advantage
 
 The speed advantage is specific to the counting/cardinality class --
 where the pseudo-Boolean form shows a solver the counting structure
@@ -114,7 +114,7 @@ propagate back.
 | `strict.pi` | strict relations with variables on both sides (`A[1] #< A[2]`, `B[1]+B[2] #< B[3]+B[4]`) -- the integrality shift applied to the whole sum |
 | `mv.pi` | multi-valued domains: `A :: 1..3` with `A[1] #< A[2]` and a weighted sum -- one-hot encoded in pb, native domains in cp/sat |
 | `ramsey.pi` | (K,K)-Ramsey graphs sized by env (`K=4 N=15 ...`): 0/1 per edge, cardinality constraints per K-subset, degree-order symmetry breaking -- SAT/UNSAT branches with independent verification; under pb a fail is UNSAT |
-| `parity.pi` | the modular subset-sum UNSAT benchmark: all weights even, the target odd -- UNSAT by pure rounding; pb answers in one MIR cut, but the honest result is that the standard CNF encodings make it propagation-easy too -- the separation is the quadratic encoding blow-up (24 MB of CNF vs one OPB line at k=100) |
+| `parity.pi` | the modular subset-sum UNSAT benchmark: all weights even, the target odd -- UNSAT by pure rounding; pb answers in one MIR cut, but the standard CNF encodings make it propagation-easy too -- the separation is the quadratic encoding blow-up (24 MB of CNF vs one OPB line at k=100) |
 | `php_bench.pi` | the pigeon-hole head-to-head: the pb cardinality encoding vs the direct clausal encoding solved with kissat -- the measured ~90x speed advantage (N=10: pb 17ms vs 1580ms), and at N=12 the CNF path takes >300s where pb stays ~10ms |
 | `php.pi` | the simple pigeon-hole test, sized by the command line (`picat php.pi <holes> <pigeons>`), no timing -- the solver-agnostic body with the SAT/UNSAT branches, P hole variables with the domain 1..H and the all-different as the strict chain |
 | `php_matrix.pi` | the same test in the boolean-matrix formulation (one 0/1 var per pigeon-hole pair, the row/column cardinality constraints) -- the index-arithmetic formulation where the pb speed advantage is measured |

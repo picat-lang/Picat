@@ -17,7 +17,7 @@
 %   k=100  pb UNSAT in 0ms; cnf 471k vars, 1.4M clauses,  24 MB,
 %          kissat UNSAT in 0ms
 %
-% The two findings, stated honestly:
+% The two findings:
 %   1. NO solve-time gap.  roundingsat derives the parity in one MIR
 %      cut, but the standard CNF encodings (sequential weighted
 %      counters, GTE) BAKE the counting into auxiliary structure, so
