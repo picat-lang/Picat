@@ -1,4 +1,4 @@
-OBJ = dis.o init.o init_sym.o loader.o inst_inf.o main.o toam.o unify.o \
+OBJ = fdn.o fdn_solver.o dis.o init.o init_sym.o loader.o inst_inf.o main.o toam.o unify.o \
 	file.o domain.o cfd.o float1.o arith.o token.o global.o \
 	builtins.o mic.o numbervars.o cpreds.o univ.o assert_bp.o findall.o clause.o \
     delay.o clpfd.o clpfd_libs.o event.o toamprofile.o \
@@ -412,4 +412,8 @@ fann_train_data.o : fann/src/fann_train_data.c
 	$(CCC) $(CFLAGS) -Ifann/src/include fann/src/fann_train_data.c
 fann_interface.o : fann/fann_interface.cpp
 	$(CPPC) $(CFLAGS) -Ifann/src/include fann/fann_interface.cpp
+fdn.o : fdn.c fdn.h term.h basic.h bapi.h frame.h event.h
+	$(CCC) $(CFLAGS) fdn.c
+fdn_solver.o : fdn_solver.cpp fdn.h
+	$(CPPC) $(CFLAGS) $(FDN_ARCH) -std=c++17 -pthread fdn_solver.cpp
 

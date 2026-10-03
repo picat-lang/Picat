@@ -1033,7 +1033,9 @@ int c_reset_solver_store()
     return BP_TRUE;
 }
 
+extern void fdn_boot(void);
 void Cboot() {
+    fdn_boot();
     insert_cpred("c_format_set_dest", 1, c_format_set_dest);
     insert_cpred("c_format_get_line_pos", 1, c_format_get_line_pos);
     insert_cpred("c_format_retrieve_codes", 2, c_format_retrieve_codes);

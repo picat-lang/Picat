@@ -37,6 +37,7 @@ int bprolog_main(int argc, char *argv[])
                    PICAT_BUILD_COMMIT);
         }
 #endif
+        { extern void fdn_init(void); fdn_init(); }
         bp_call_term(ADDTAG(insert_sym("$bp_first_call", 14, 0), ATM));
         // toam(inst_begin,arreg,local_top);
         return (0);

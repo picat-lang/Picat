@@ -1,0 +1,19 @@
+% Labeling hook of picat-fdn. fdn_init() (fdn.c) loads this module at
+% start-up and points the library predicate labeling/2 (which cp's
+% solve/1,2 call) at fdn_labeling/2; the original stays callable as
+% '$fdn_orig_labeling'/2. If the network on Vars is fully supported, the
+% native solver enumerates the solutions (same order as Picat's own search),
+% else Picat's labeling runs unchanged.
+module fdn_hook.
+
+fdn_labeling(Opts, Vars) =>
+    (bp.c_fdn_start(Opts, Vars, H) ->
+        fdn_sols(H, Vars)
+    ;
+        bp.'$fdn_orig_labeling'(Opts, Vars)
+    ).
+
+fdn_sols(H, Vars) => bp.c_fdn_next(H, Vals), fdn_alt(H, Vars, Vals).
+
+fdn_alt(_H, Vars, Vals) ?=> Vars = Vals.
+fdn_alt(H, Vars, _Vals) => fdn_sols(H, Vars).
