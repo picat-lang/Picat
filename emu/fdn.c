@@ -9,23 +9,40 @@
      It fails, and Picat labels as usual, when anything is outside the
      supported vocabulary: an unknown suspended propagator, an attribute
      other than the neq one, a labeling option other than ff / ffc /
-     leftmost / up, or a value range wider than 65536.
+     leftmost / up, or a value range wider than 4096.
    - c_fdn_next(H, Vals): next solution in Picat's order, or fails.
 
-   Supported propagators (live frames, by their delay symbol):
-     '$combined_neq'/2 + attribute _$attr_neq = combined_propagators(Vs, VCs)
-                                        X #!= Y, X #!= Y + C (incl. abs)
-     outof/3                            all_different
-     '$alldistinct_outof'/4             all_distinct (FC + Hall check)
-     '$alldistinct_primal_dual_var_eq'/4, ..._neq/4,
-     '$alldistinct_dual_primal_var_eq'/3, ..._neq/3
-                                        all_distinct on permutations
-     '$linear_constr_eq_INT_aux'/2n+2, '$linear_constr_ge_aux'/2n+2,
-     '$linear_constr_eq_ARC_aux'/2n+2   linear (in)equalities
-     v_in_cv_dom/3, v_in_vc_dom/3 (+ '$v_in_cv_int'/3, '$v_in_vc_int'/3)
-                                        X #= C - Y, X #= Y + C (arc consistent)
-       args: (Type, C, A1..An, X1..Xn) meaning C + sum Ai*Xi = 0 / >= 0
-       (emu/clpfd_libs.c nary_interval_consistent_eq/ge)
+    Supported propagators (live frames, by their delay symbol):
+      '$combined_neq'/2 + attribute _$attr_neq = combined_propagators(Vs, VCs)
+                                         X #!= Y, X #!= Y + C (incl. abs)
+      outof/3                            all_different
+      '$alldistinct_outof'/4             all_distinct (FC + Hall check)
+      '$alldistinct_primal_dual_var_eq'/4, ..._neq/4,
+      '$alldistinct_dual_primal_var_eq'/3, ..._neq/3
+                                         all_distinct on permutations
+      '$linear_constr_eq_INT_aux'/2n+2, '$linear_constr_ge_aux'/2n+2,
+      '$linear_constr_eq_ARC_aux'/2n+2   linear (in)equalities
+      v_in_cv_dom/3, v_in_vc_dom/3 (+ '$v_in_cv_int'/3, '$v_in_vc_int'/3)
+                                         X #= C - Y, X #= Y + C (arc consistent)
+      '$fd_abs_diff_eq'/3                abs(X-Y) #= C (domain + bounds)
+      clpfd_multiply_fast/3, clpfd_multiply_slow/3
+                                         X*Y #= Z (rule replay)
+      '$fd_idiv_check_int'/3, '$fd_idiv_check_arc'/3,
+      '$fd_floored_div_slow'/3           X div Y #= Z (Y fixed, X >= 0)
+      '$fd_mod_check_fast'/3, '$fd_mod_check_slow'/3
+                                         X mod Y #= Z (Y fixed)
+      '$constr_min'/n, '$constr_max'/n   R #= min([X..]) / max([X..])
+      reify_veqc_constr/3, reify_vneqc_constr/3,
+      reify_eq_constr_fast/3, reify_neq_constr_fast/3,
+      reify_ge_constr/3                  B <=> X #= Y / X #!= Y / X #>= Y
+      clp_interp_b_entail_veqc_fast/3, ..._vneqc_fast/3,
+      ..._veqv_fast/3, ..._vneqv_fast/3  B => X #= Y / X #!= Y
+      '$element_delay'/3, '$element_ins_I'/3
+                                         element(I, Tuple, V): I fixed
+      '$element_ins_V'/4                 element: V fixed (range) + FC
+      e$$cp$$watch_lex_lt/4, ..._le/4    lex chains
+        args: (Type, C, A1..An, X1..Xn) meaning C + sum Ai*Xi = 0 / >= 0
+        (emu/clpfd_libs.c nary_interval_consistent_eq/ge)
 */
 #include <stdio.h>
 #include <stdlib.h>
@@ -150,7 +167,11 @@ static int unsupported(const char *fmt, ...) {
 }
 
 /* ---------------------------------------------------------------- extraction */
-enum { F_NEQ, F_OUTOF, F_ADOUT, F_PD, F_DP, F_MAPCV, F_MAPVC, F_IGN, F_LIN_EQ, F_LIN_GE, F_LIN_ARC };
+enum { F_NEQ, F_OUTOF, F_ADOUT, F_PD, F_DP, F_MAPCV, F_MAPVC, F_IGN, F_LIN_EQ, F_LIN_GE, F_LIN_ARC,
+       F_ABS, F_MUL, F_DIV, F_MOD, F_MIN, F_MAX,
+       F_VEQC, F_VNEQC, F_REIF_EQ, F_REIF_NEQ, F_REIF_GE,
+       F_ENT_VEQC, F_ENT_VNEQC, F_ENT_VEQV, F_ENT_VNEQV,
+       F_ELDELAY, F_ELFAST, F_ELFC, F_LEX_LT, F_LEX_LE };
 typedef struct {
     vmap ids; pvec dvs;           /* FD variables, in discovery order */
     vmap fseen; pvec frames; ivec fkind;
@@ -158,6 +179,9 @@ typedef struct {
 } ext;
 
 static SYM_REC_PTR S_neq, S_outof, S_adout, S_pdeq, S_pdneq, S_dpeq, S_dpneq, S_cvdom, S_vcdom, S_cvint, S_vcint;
+static SYM_REC_PTR S_abs, S_mul, S_div, S_mod;
+static SYM_REC_PTR S_veqc, S_vneqc, S_req, S_rneq, S_rge, S_entc1, S_entc2, S_entv1, S_entv2;
+static SYM_REC_PTR S_eldelay, S_eli, S_elv, S_eliv, S_elvi;
 static void init_syms(void) {
     if (S_neq) return;
     S_neq = BP_NEW_SYM("$combined_neq", 2); S_outof = BP_NEW_SYM("outof", 3);
@@ -166,6 +190,18 @@ static void init_syms(void) {
     S_dpeq = BP_NEW_SYM("$alldistinct_dual_primal_var_eq", 3); S_dpneq = BP_NEW_SYM("$alldistinct_dual_primal_var_neq", 3);
     S_cvdom = BP_NEW_SYM("v_in_cv_dom", 3); S_vcdom = BP_NEW_SYM("v_in_vc_dom", 3);
     S_cvint = BP_NEW_SYM("$v_in_cv_int", 3); S_vcint = BP_NEW_SYM("$v_in_vc_int", 3);
+    S_abs = BP_NEW_SYM("$fd_abs_diff_eq", 3);
+    S_mul = BP_NEW_SYM("clpfd_multiply_fast", 3);
+    S_div = BP_NEW_SYM("$fd_idiv_check_int", 3);
+    S_mod = BP_NEW_SYM("$fd_mod_check_fast", 3);
+    S_veqc = BP_NEW_SYM("reify_veqc_constr", 3); S_vneqc = BP_NEW_SYM("reify_vneqc_constr", 3);
+    S_req = BP_NEW_SYM("reify_eq_constr_fast", 3); S_rneq = BP_NEW_SYM("reify_neq_constr_fast", 3);
+    S_rge = BP_NEW_SYM("reify_ge_constr", 3);
+    S_entc1 = BP_NEW_SYM("clp_interp_b_entail_veqc_fast", 3); S_entc2 = BP_NEW_SYM("clp_interp_b_entail_vneqc_fast", 3);
+    S_entv1 = BP_NEW_SYM("clp_interp_b_entail_veqv_fast", 3); S_entv2 = BP_NEW_SYM("clp_interp_b_entail_vneqv_fast", 3);
+    S_eldelay = BP_NEW_SYM("$element_delay", 3); S_eli = BP_NEW_SYM("$element_ins_I", 3);
+    S_elv = BP_NEW_SYM("$element_ins_V", 4);
+    S_eliv = BP_NEW_SYM("$element_I_to_V", 4); S_elvi = BP_NEW_SYM("$element_V_to_I", 3);
 }
 static int frame_kind(SYM_REC_PTR s) {
     if (s == S_neq) return F_NEQ;
@@ -176,11 +212,38 @@ static int frame_kind(SYM_REC_PTR s) {
     if (s == S_cvdom) return F_MAPCV;
     if (s == S_vcdom) return F_MAPVC;
     if (s == S_cvint || s == S_vcint) return F_IGN;   /* bounds part, subsumed by the value map */
+    if (s == S_abs) return F_ABS;
+    if (s == S_mul) return F_MUL;
+    if (s == S_div) return F_DIV;
+    if (s == S_mod) return F_MOD;
+    if (s == S_veqc) return F_VEQC;
+    if (s == S_vneqc) return F_VNEQC;
+    if (s == S_req) return F_REIF_EQ;
+    if (s == S_rneq) return F_REIF_NEQ;
+    if (s == S_rge) return F_REIF_GE;
+    if (s == S_entc1) return F_ENT_VEQC;
+    if (s == S_entc2) return F_ENT_VNEQC;
+    if (s == S_entv1) return F_ENT_VEQV;
+    if (s == S_entv2) return F_ENT_VNEQV;
+    if (s == S_eldelay || s == S_eli) return F_ELDELAY;
+    if (s == S_elv) return F_ELFAST;
+    if (s == S_eliv || s == S_elvi) return F_ELFC;
     const char *n = GET_NAME(s); int len = GET_LENGTH(s), ar = GET_ARITY(s);
     if (ar >= 4 && ar % 2 == 0) {
         if (len == 25 && !strncmp(n, "$linear_constr_eq_INT_aux", 25)) return F_LIN_EQ;
         if (len == 21 && !strncmp(n, "$linear_constr_ge_aux", 21)) return F_LIN_GE;
         if (len == 25 && !strncmp(n, "$linear_constr_eq_ARC_aux", 25)) return F_LIN_ARC;
+    }
+    if (ar >= 3) {
+        if (len >= 15 && !strncmp(n, "clpfd_multiply_", 15)) return F_MUL;
+        if (len >= 15 && (!strncmp(n, "$fd_idiv_check_", 15) || !strncmp(n, "$fd_floored_div", 15))) return F_DIV;
+        if (len >= 14 && !strncmp(n, "$fd_mod_check_", 14)) return F_MOD;
+        if (len == 11 && !strncmp(n, "$constr_min", 11)) return F_MIN;
+        if (len == 11 && !strncmp(n, "$constr_max", 11)) return F_MAX;
+    }
+    if (ar == 4) {
+        if (len >= 13 && strstr(n, "watch_lex_lt")) return F_LEX_LT;
+        if (len >= 13 && strstr(n, "watch_lex_le")) return F_LEX_LE;
     }
     return -1;
 }
@@ -256,7 +319,7 @@ static int ext_collect(ext *e) {
         if (at) ext_term(e, at);
         if (!ext_cs(e, DV_ins_cs(dv)) || !ext_cs(e, DV_minmax_cs(dv)) || !ext_cs(e, DV_dom_cs(dv)) || !ext_cs(e, DV_outer_dom_cs(dv)))
             return 0;
-        if (e->ghi - e->glo > 65535) return unsupported("value range %ld..%ld", e->glo, e->ghi);
+        if (e->ghi - e->glo > 4095) return unsupported("value range %ld..%ld", e->glo, e->ghi);
     }
     return 1;
 }
@@ -294,6 +357,31 @@ static int b_tuple(bld *b, BPLONG t) {
 }
 static int b_int(BPLONG t, long *v) { BPLONG_PTR top; DEREF(t); if (!ISINT(t)) return 0; *v = INTVAL(t); return 1; }
 
+static int el_sup(BPLONG t, long *k, long *lo, long *hi, int *nsup, int cap) {  /* collect =(K, elm(_,_,Mn,Mx)): value K -> I in [Mn,Mx] */
+    BPLONG_PTR top;
+    for (;;) {
+        DEREF(t);
+        if (ISLIST(t)) { t = FOLLOW((BPLONG_PTR)UNTAGGED_ADDR(t)); continue; }
+        if (ISSTRUCT(t)) {
+            BPLONG_PTR p = (BPLONG_PTR)UNTAGGED_ADDR(t); SYM_REC_PTR s = (SYM_REC_PTR)FOLLOW(p);
+            int ar = GET_ARITY(s);
+            if (ar == 2 && GET_LENGTH(s) == 1 && GET_NAME(s)[0] == '=') {
+                BPLONG elm = FOLLOW(p + 2); DEREF(elm);
+                if (ISSTRUCT(elm) && GET_ARITY((SYM_REC_PTR)FOLLOW((BPLONG_PTR)UNTAGGED_ADDR(elm))) == 4) {
+                    BPLONG_PTR ep = (BPLONG_PTR)UNTAGGED_ADDR(elm);
+                    BPLONG mn = FOLLOW(ep + 3), mx = FOLLOW(ep + 4); DEREF(mn); DEREF(mx);
+                    if (ISINT(mn) && ISINT(mx) && *nsup < cap) { k[*nsup] = INTVAL(FOLLOW(p + 1)); lo[*nsup] = INTVAL(mn); hi[*nsup] = INTVAL(mx); (*nsup)++; }
+                }
+                t = FOLLOW(p + 1);
+                continue;
+            }
+            for (int i = 1; i <= ar; i++) if (!el_sup(FOLLOW(p + i), k, lo, hi, nsup, cap)) return 0;
+            return 1;
+        }
+        return 1;
+    }
+}
+
 static int build(ext *e, fdn_net *net) {
     bld b = {e, net}; vm_init(&b.consts); int ok = 1;
     ivec L = {0};
@@ -321,6 +409,17 @@ static int build(ext *e, fdn_net *net) {
         BPLONG x0 = frame_arg(f, 1); BPLONG_PTR top; DEREF(x0);
         int ox = IS_SUSP_VAR(x0) ? vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(x0)) : -1;
         long iv, off;
+        if (getenv("FDN_DUMP")) {
+            int ar = frame_arity(f);
+            fprintf(stderr, "frame %d kind=%d ar=%d:", k, kind, ar);
+            for (int ai = 1; ai <= ar; ai++) {
+                BPLONG a = frame_arg(f, ai); DEREF(a);
+                if (IS_SUSP_VAR(a)) fprintf(stderr, " v%d", vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(a)));
+                else if (ISINT(a)) fprintf(stderr, " %d", (int)INTVAL(a));
+                else fprintf(stderr, " t%p", (void *)a);
+            }
+            fprintf(stderr, "\n");
+        }
         switch (kind) {
         case F_NEQ: case F_IGN: break;
         case F_MAPCV: case F_MAPVC: {             /* v_in_cv_dom(X,C,Y): X = C-Y; v_in_vc_dom(X,Y,C): X = Y+C */
@@ -344,6 +443,193 @@ static int build(ext *e, fdn_net *net) {
             fdn_chan(net, ox, t, (int)off, (int)iv);
             break;
         }
+        case F_ABS: {                             /* abs(X-Y) #= N */
+            long nn;
+            BPLONG y = frame_arg(f, 2); DEREF(y);
+            int oy = IS_SUSP_VAR(y) ? vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(y)) : -1;
+            if (ox < 0 || oy < 0 || !b_int(frame_arg(f, 3), &nn)) { ok = unsupported("abs frame"); break; }
+            fdn_abs(net, ox, oy, (int)nn);
+            break;
+        }
+        case F_MUL: {                             /* X*Y #= Z */
+            BPLONG y = frame_arg(f, 2), z = frame_arg(f, 3); DEREF(y); DEREF(z);
+            int oy = IS_SUSP_VAR(y) ? vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(y)) : -1;
+            int oz = IS_SUSP_VAR(z) ? vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(z)) : -1;
+            if (ox < 0 || oy < 0 || oz < 0) { ok = unsupported("multiply frame"); break; }
+            fdn_mul(net, ox, oy, oz);
+            break;
+        }
+        case F_DIV: case F_MOD: {                 /* X div Y #= Z / X mod Y #= Z, Y fixed */
+            BPLONG y = frame_arg(f, 2), z = frame_arg(f, 3); DEREF(y); DEREF(z);
+            long yy;
+            int oz = IS_SUSP_VAR(z) ? vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(z)) : -1;
+            if (ox < 0 || oz < 0 || !b_int(y, &yy) || yy == 0) { ok = unsupported("div frame"); break; }
+            if (kind == F_DIV) fdn_div(net, ox, (int)yy, oz); else fdn_mod(net, ox, (int)yy, oz);
+            break;
+        }
+        case F_MIN: case F_MAX: {                 /* R #= min([X..]) / max([X..]) */
+            int n = frame_arity(f);
+            int *ids = malloc((n - 1) * sizeof(int)); long *vals = malloc((n - 1) * sizeof(long));
+            int m2 = 0;
+            for (int i = 2; i <= n; i++) {
+                BPLONG x = frame_arg(f, i); DEREF(x);
+                int id = IS_SUSP_VAR(x) ? vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(x)) : -1;
+                long v = 0;
+                if (id < 0 && !b_int(x, &v)) { ok = unsupported("min/max frame"); break; }
+                ids[m2] = id; vals[m2] = v; m2++;
+            }
+            if (ok && ox >= 0) fdn_mm(net, kind == F_MIN, ox, m2, ids, vals);
+            else if (ok) ok = unsupported("min/max result");
+            free(ids); free(vals);
+            break;
+        }
+        case F_VEQC: case F_VNEQC: {              /* B <=> X #= C / B <=> X #!= C */
+            BPLONG b = frame_arg(f, 1); DEREF(b);
+            int ob = IS_SUSP_VAR(b) ? vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(b)) : -1;
+            long cv; BPLONG x = frame_arg(f, 2); DEREF(x);
+            int oxx = IS_SUSP_VAR(x) ? vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(x)) : -1;
+            if (ob < 0 || oxx < 0 || !b_int(frame_arg(f, 3), &cv)) { ok = unsupported("reify frame"); break; }
+            fdn_reif(net, kind == F_VEQC ? 0 : 1, ob, oxx, (int)cv);
+            break;
+        }
+        case F_REIF_EQ: case F_REIF_NEQ: case F_REIF_GE: {   /* B <=> X #= Y / #!= / #>= */
+            BPLONG b = frame_arg(f, 1), x = frame_arg(f, 2), y = frame_arg(f, 3);
+            DEREF(b); DEREF(x); DEREF(y);
+            int ob = IS_SUSP_VAR(b) ? vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(b)) : -1;
+            int oxx = IS_SUSP_VAR(x) ? vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(x)) : -1;
+            int oy = IS_SUSP_VAR(y) ? vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(y)) : -1;
+            if (kind == F_REIF_GE) {
+                if (ob < 0 || oxx < 0 || oy < 0) { ok = unsupported("reify ge frame"); break; }
+                fdn_reif(net, 4, ob, oxx, oy);
+                break;
+            }
+            if (ob < 0 || oxx < 0) { ok = unsupported("reify frame"); break; }
+            if (oy >= 0) fdn_reif(net, kind == F_REIF_EQ ? 2 : 3, ob, oxx, oy);
+            else {
+                long cv;
+                if (!b_int(y, &cv)) { ok = unsupported("reify frame"); break; }
+                fdn_reif(net, kind == F_REIF_EQ ? 0 : 1, ob, oxx, (int)cv);
+            }
+            break;
+        }
+        case F_ENT_VEQC: case F_ENT_VNEQC: {      /* B => X #= C / B => X #!= C */
+            BPLONG b = frame_arg(f, 1), x = frame_arg(f, 2); DEREF(b); DEREF(x);
+            int ob = IS_SUSP_VAR(b) ? vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(b)) : -1;
+            int oxx = IS_SUSP_VAR(x) ? vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(x)) : -1;
+            long cv;
+            if (ob < 0 || oxx < 0 || !b_int(frame_arg(f, 3), &cv)) { ok = unsupported("entail frame"); break; }
+            fdn_entail(net, kind == F_ENT_VEQC ? 0 : 1, ob, oxx, (int)cv);
+            break;
+        }
+        case F_ENT_VEQV: case F_ENT_VNEQV: {      /* B => X #= Y / B => X #!= Y */
+            BPLONG b = frame_arg(f, 1), x = frame_arg(f, 2), y = frame_arg(f, 3);
+            DEREF(b); DEREF(x); DEREF(y);
+            int ob = IS_SUSP_VAR(b) ? vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(b)) : -1;
+            int oxx = IS_SUSP_VAR(x) ? vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(x)) : -1;
+            int oy = IS_SUSP_VAR(y) ? vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(y)) : -1;
+            if (ob < 0 || oxx < 0 || oy < 0) { ok = unsupported("entail frame"); break; }
+            fdn_entail(net, kind == F_ENT_VEQV ? 2 : 3, ob, oxx, oy);
+            break;
+        }
+        case F_ELDELAY: {                         /* element(I, Tuple, V): I fixed -> V = Tuple[I] */
+            BPLONG tup = frame_arg(f, 3);
+            if (getenv("FDN_DUMP")) {
+                BPLONG_PTR p = (BPLONG_PTR)UNTAGGED_ADDR(tup); int n = GET_ARITY((SYM_REC_PTR)FOLLOW(p));
+                BPLONG iv = frame_arg(f, 1), vv2 = frame_arg(f, 2); DEREF(iv); DEREF(vv2);
+                fprintf(stderr, "eldraw: I=");
+                if (IS_SUSP_VAR(iv)) fprintf(stderr, "v%d", vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(iv))); else fprintf(stderr, "?");
+                fprintf(stderr, " V=");
+                if (IS_SUSP_VAR(vv2)) fprintf(stderr, "v%d", vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(vv2))); else fprintf(stderr, "?");
+                fprintf(stderr, " ar=%d tup:", n);
+                for (int i = 0; i < n; i++) { long vv; if (b_int(FOLLOW(p + 1 + i), &vv)) fprintf(stderr, " %ld", vv); else fprintf(stderr, " ?"); }
+                fprintf(stderr, "\n");
+            }
+            int t = b_tuple(&b, tup);
+            if (ox < 0 || t < 0) { ok = unsupported("element frame"); break; }
+            BPLONG v = frame_arg(f, 2); DEREF(v);
+            int ov = IS_SUSP_VAR(v) ? vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(v)) : -1;
+            if (ov < 0) { ok = unsupported("element frame"); break; }
+            fdn_eldelay(net, ox, ov, t);
+            break;
+        }
+        case F_ELFAST: {                          /* element: V fixed -> I in range; FC on removals */
+            BPLONG v = frame_arg(f, 2); DEREF(v);
+            int ov = IS_SUSP_VAR(v) ? vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(v)) : -1;
+            if (ox < 0 || ov < 0) { ok = unsupported("element frame"); break; }
+            /* the shared tuple: from the element_delay / ins_I frame on the same index AND the same value variable
+               (several elements can share the index variable; matching only the index would pair the wrong tuple) */
+            int tf = -1;
+            for (int k = 0; k < e->frames.n && tf < 0; k++) {
+                if (e->fkind.a[k] != F_ELDELAY) continue;
+                BPLONG i2 = frame_arg(e->frames.a[k], 1); DEREF(i2);
+                if (!IS_SUSP_VAR(i2) || (BPLONG_PTR)UNTAGGED_TOPON_ADDR(i2) != e->dvs.a[ox]) continue;
+                BPLONG u2 = frame_arg(e->frames.a[k], 2); DEREF(u2);
+                if (u2 == v) tf = k;
+            }
+            if (tf < 0) { ok = unsupported("element tuple"); break; }
+            /* the range table built from the tuple itself (the ground truth): value w -> I in
+               [min,max] over the positions where tuple = w. The stock's hashtable walk (el_sup)
+               is unreliable: it misses entries when the values land in different buckets. */
+            BPLONG tup = frame_arg(e->frames.a[tf], 3); DEREF(tup);
+            if (!ISSTRUCT(tup)) { ok = unsupported("element tuple"); break; }
+            BPLONG_PTR tp = (BPLONG_PTR)UNTAGGED_ADDR(tup); int nt = GET_ARITY((SYM_REC_PTR)FOLLOW(tp));
+            if (nt > 1024) { ok = unsupported("element tuple too long"); break; }
+            long kk[1024], lo[1024], hi[1024]; int nsup = 0;
+            for (int q = 0; q < nt; q++) {
+                long tv; BPLONG te = FOLLOW(tp + 1 + q); DEREF(te);
+                if (!b_int(te, &tv)) { ok = unsupported("element tuple value"); break; }
+                int fnd = -1;
+                for (int k = 0; k < nsup && fnd < 0; k++) if (kk[k] == tv) fnd = k;
+                if (fnd < 0) { kk[nsup] = tv; lo[nsup] = q + 1; hi[nsup] = q + 1; nsup++; }
+                else { if (q + 1 < lo[fnd]) lo[fnd] = q + 1; if (q + 1 > hi[fnd]) hi[fnd] = q + 1; }
+            }
+            if (!ok) break;
+            const int tr_ = getenv("FDN_TRACE") != NULL;
+            if (tr_) { fprintf(stderr, "elfast: nsup=%d:", nsup); for (int k = 0; k < nsup; k++) fprintf(stderr, " val%ld:[%ld,%ld]", kk[k], lo[k], hi[k]); fprintf(stderr, "\n"); }
+            if (nsup == 0) { ok = unsupported("element tuple empty"); break; }
+            int t = b_tuple(&b, tup);
+            if (t < 0) { ok = unsupported("element tuple"); break; }
+            fdn_elfast(net, ox, ov, t, nsup, kk, lo, hi);
+            break;
+        }
+        case F_ELFC: {                            /* element FC on removals (I_to_V / V_to_I) */
+            int four = frame_arity(f) == 4;
+            BPLONG a1 = frame_arg(f, 1), a2 = frame_arg(f, 2); DEREF(a1); DEREF(a2);
+            int oi = four ? (IS_SUSP_VAR(a1) ? vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(a1)) : -1)
+                          : (IS_SUSP_VAR(a2) ? vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(a2)) : -1);
+            int ov = four ? (IS_SUSP_VAR(a2) ? vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(a2)) : -1)
+                          : (IS_SUSP_VAR(a1) ? vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(a1)) : -1);
+            if (oi < 0 || ov < 0) { ok = unsupported("element frame"); break; }
+            BPLONG vt = four ? a2 : a1;           /* the value variable term */
+            int t = -1;
+            for (int k = 0; k < e->frames.n && t < 0; k++) {
+                if (e->fkind.a[k] != F_ELDELAY) continue;
+                BPLONG i2 = frame_arg(e->frames.a[k], 1); DEREF(i2);
+                if (!IS_SUSP_VAR(i2) || (BPLONG_PTR)UNTAGGED_TOPON_ADDR(i2) != e->dvs.a[oi]) continue;
+                BPLONG u2 = frame_arg(e->frames.a[k], 2); DEREF(u2);
+                if (u2 == vt) t = b_tuple(&b, frame_arg(e->frames.a[k], 3));
+            }
+            if (t < 0) { ok = unsupported("element tuple"); break; }
+            fdn_elfc(net, oi, ov, t);
+            break;
+        }
+        case F_LEX_LT: case F_LEX_LE: {           /* lex chain */
+            ivec Xs = {0}, Ys = {0};
+            if (!b_list(&b, frame_arg(f, 3), &Xs) || !b_list(&b, frame_arg(f, 4), &Ys) || Xs.n != Ys.n) {
+                free(Xs.a); free(Ys.a); ok = unsupported("lex frame"); break;
+            }
+            int np = 1 + Xs.n;
+            int *pr = malloc(2 * np * sizeof(int));
+            BPLONG x0 = frame_arg(f, 1), y0 = frame_arg(f, 2); DEREF(x0); DEREF(y0);
+            pr[0] = IS_SUSP_VAR(x0) ? vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(x0)) : -1;
+            pr[1] = IS_SUSP_VAR(y0) ? vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(y0)) : -1;
+            for (int i = 0; i < Xs.n; i++) { pr[2 + 2 * i] = Xs.a[i]; pr[3 + 2 * i] = Ys.a[i]; }
+            free(Xs.a); free(Ys.a);
+            for (int i = 0; i < 2 * np; i++) if (pr[i] < 0) { ok = unsupported("lex frame"); break; }
+            if (ok) fdn_lex(net, kind == F_LEX_LE, np, pr);
+            free(pr);
+            break;
+        }
         default: {                                /* linear */
             int n = (frame_arity(f) - 2) / 2; long c;
             if (!b_int(frame_arg(f, 2), &c)) { ok = unsupported("linear constant"); break; }
@@ -356,7 +642,14 @@ static int build(ext *e, fdn_net *net) {
                 int id = vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(x));
                 a[m] = ai; xs[m] = id; m++;
             }
-            if (ok) fdn_linear(net, kind == F_LIN_GE ? 1 : kind == F_LIN_ARC ? 2 : 0, c, m, a, xs);
+            if (ok) {                              /* unify repeated variables (same dv) into one term */
+                for (int i = 0; i < m; i++) for (int j = i + 1; j < m; j++) {
+                    if (xs[i] == xs[j]) { a[i] += a[j]; xs[j] = -1; }
+                }
+                int m2 = 0;
+                for (int i = 0; i < m; i++) if (xs[i] >= 0) { a[m2] = a[i]; xs[m2] = xs[i]; m2++; }
+                if (m2 > 0) fdn_linear(net, kind == F_LIN_GE ? 1 : kind == F_LIN_ARC ? 2 : 0, c, m2, a, xs);
+            }
             free(a); free(xs);
         }
         }
@@ -369,21 +662,36 @@ static int build(ext *e, fdn_net *net) {
 typedef struct { fdn_run *r; int n; BPLONG *fixed; int *vals; } handle;
 static handle **HT; static int HTn;
 
-static int parse_opts(BPLONG opts, int *heur, int *ffc) {
+static int parse_opts(BPLONG opts, int *heur, int *sort, int *val) {
     BPLONG_PTR top; DEREF(opts);
-    *heur = 0; *ffc = 0;
+    *heur = 0; *sort = 0; *val = 0;
+    int ff = 0, deg = 0, mn = 0, mx = 0;
     while (ISLIST(opts)) {
         BPLONG_PTR p = (BPLONG_PTR)UNTAGGED_ADDR(opts); BPLONG o = FOLLOW(p); DEREF(o);
         const char *s = ISATOM(o) ? GET_NAME(GET_ATM_SYM_REC(o)) : NULL;
         if (!s) return unsupported("labeling option (non-atom)");
         int len = GET_LENGTH(GET_ATM_SYM_REC(o));
-        if (len == 2 && !strncmp(s, "ff", 2)) { *heur = 1; *ffc = 0; }
-        else if (len == 3 && !strncmp(s, "ffc", 3)) { *heur = 1; *ffc = 1; }
-        else if (len == 8 && !strncmp(s, "leftmost", 8)) { *heur = 0; *ffc = 0; }
+        if (len == 2 && !strncmp(s, "ff", 2)) ff = 1;
+        else if (len == 3 && !strncmp(s, "ffc", 3)) { ff = 1; deg = 1; }
+        else if (len == 3 && !strncmp(s, "ffd", 3)) { ff = 1; deg = 1; }
+        else if (len == 6 && !strncmp(s, "degree", 6)) deg = 1;
+        else if (len == 6 && !strncmp(s, "constr", 6)) deg = 1;
+        else if (len == 8 && !strncmp(s, "leftmost", 8)) ;
+        else if (len == 3 && !strncmp(s, "min", 3)) mn = 1;
+        else if (len == 3 && !strncmp(s, "max", 3)) mx = 1;
         else if (len == 2 && !strncmp(s, "up", 2)) ;
+        else if (len == 4 && !strncmp(s, "down", 4)) *val = 1;
+        else if (len == 6 && !strncmp(s, "updown", 6)) return unsupported("labeling option updown");
+        else if (len == 5 && !strncmp(s, "split", 5)) *val = 3;
+        else if (len == 13 && !strncmp(s, "reverse_split", 13)) *val = 4;
+        else if (len == 8 && !strncmp(s, "backward", 8)) *sort = 2;
         else return unsupported("labeling option %.*s", len, s);
         opts = FOLLOW(p + 1); DEREF(opts);
     }
+    if (mn) *heur = ff ? 4 : 2;
+    else if (mx) *heur = ff ? 5 : 3;
+    else if (ff) *heur = 1;
+    if (deg) *sort = 1;
     return opts == nil_sym ? 1 : unsupported("labeling options not a list");
 }
 
@@ -396,10 +704,10 @@ static int degree(BPLONG_PTR dv) {                /* b_CONSTRAINTS_NUMBER_cf */
 
 int c_fdn_start(void) {
     BPLONG Opts = ARG(1, 3), Vars = ARG(2, 3), H = ARG(3, 3);
-    BPLONG_PTR top; int heur, ffc;
+    BPLONG_PTR top; int heur, sortk, val;
     if (verbose < 0) verbose = getenv("FDN_VERBOSE") != NULL;
     init_syms(); why[0] = 0;
-    if (!parse_opts(Opts, &heur, &ffc)) goto fallback;
+    if (!parse_opts(Opts, &heur, &sortk, &val)) goto fallback;
     ext e; memset(&e, 0, sizeof e); vm_init(&e.ids); vm_init(&e.fseen); e.glo = LONG_MAX; e.ghi = LONG_MIN;
     /* label list: FD variables and integers */
     int n = 0; BPLONG t = Vars; DEREF(t);
@@ -413,6 +721,7 @@ int c_fdn_start(void) {
     int nlab = e.dvs.n;
     if (nlab == 0) { unsupported("nothing to label"); goto free_e; }
     if (!ext_collect(&e)) goto free_e;
+    if (e.frames.n > 5000 || e.dvs.n > 5000) { unsupported("network too large"); goto free_e; }
     fdn_net *net = fdn_net_new((int)e.glo, (int)e.ghi);
     {
         int *vals = malloc((e.ghi - e.glo + 1) * sizeof(int));
@@ -434,7 +743,7 @@ int c_fdn_start(void) {
             if (IS_SUSP_VAR(x)) { int id = vm_get(&e.ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(x)); if (!seen[id]) { seen[id] = 1; lab[m++] = id; } }
             t = FOLLOW(p + 1); DEREF(t);
         }
-        if (ffc) {   /* sort('>=') on (Count, Var): count descending, then variable address descending */
+        if (sortk == 1) {   /* ffc / ffd / degree / constr: sort('>=') on (Count, Var) */
             for (int i = 0; i < m; i++) deg[i] = degree(e.dvs.a[lab[i]]);
             for (int i = 1; i < m; i++) {
                 int li = lab[i], di = deg[i], j = i - 1;
@@ -443,8 +752,10 @@ int c_fdn_start(void) {
                 }
                 lab[j + 1] = li; deg[j + 1] = di;
             }
+        } else if (sortk == 2) {   /* backward: reverse */
+            for (int i = 0; i < m / 2; i++) { int t = lab[i]; lab[i] = lab[m - 1 - i]; lab[m - 1 - i] = t; }
         }
-        fdn_label(net, heur, m, lab);
+        fdn_label(net, heur, val, m, lab);
         free(lab); free(deg); free(seen);
     }
     {

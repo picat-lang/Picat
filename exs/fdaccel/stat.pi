@@ -1,0 +1,4 @@
+module stat.
+report(Name) =>
+    statistics(runtime,[T,_]), statistics(backtracks,B),
+    printf("STAT %w runtime_ms=%w backtracks=%w%n",Name,T,B).

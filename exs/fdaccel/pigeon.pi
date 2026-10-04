@@ -1,0 +1,5 @@
+import cp, util, stat.
+main([A]) => M=to_int(A), N=M+1, P=new_array(N,M), P :: 0..1,
+   foreach(Row in P) sum(Row.to_list()) #= 1 end,
+   foreach(Col in transpose(P).array_matrix_to_list_matrix()) sum(Col) #=< 1 end,
+   (solve([ff],P) -> println(sat) ; println(unsat)), report($pigeon(N,M)).
