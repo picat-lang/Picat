@@ -1,4 +1,4 @@
-% Labeling hook of picat-fdn. fdn_init() (fdn.c) loads this module at
+% Labeling and count_all hooks of picat-fdn. fdn_init() (fdn.c) loads this module at
 % start-up and points the library predicate labeling/2 (which cp's
 % solve/1,2 call) at fdn_labeling/2; the original stays callable as
 % '$fdn_orig_labeling'/2. If the network on Vars is fully supported, the
@@ -8,12 +8,48 @@ module fdn_hook.
 
 fdn_labeling(Opts, Vars) =>
     (bp.c_fdn_start(Opts, Vars, H) ->
-        fdn_sols(H, Vars)
+        (bp.c_fdn_alone(Vars) ->
+            fdn_sols(H, Vars)
+        ;
+            fdn_sols(H, Vars), fdn_rest(Opts)
+        )
     ;
         bp.'$fdn_orig_labeling'(Opts, Vars)
     ).
+
+% After each solution of Vars, Picat's labeling labels the constrained
+% variables left in the whole store once, with the same strategy
+% (labeling/2 and generic_labeling/3 in cpeval/decompiled/fd_labeling.pi).
+% fdn_labeling skips this when no live suspension refers to a variable
+% outside Vars (c_fdn_alone): then that step finds nothing to label.
+fdn_rest([]) =>
+    bp.retrieve_frozen_dvars(F), once(bp.labeling(F)).
+fdn_rest(Opts) =>
+    once((bp.labeling_var_strategy(Opts, VS), bp.labeling_val_strategy(Opts, US))),
+    bp.retrieve_frozen_dvars(F), once(bp.generic_labeling_list_aux(F, VS, US)).
 
 fdn_sols(H, Vars) => bp.c_fdn_next(H, Vals), fdn_alt(H, Vars, Vals).
 
 fdn_alt(_H, Vars, Vals) ?=> Vars = Vals.
 fdn_alt(H, Vars, _Vals) => fdn_sols(H, Vars).
+
+% count_all/2 is pointed at fdn_count_all/2 the same way (original:
+% '$fdn_orig_count_all'/2). The compiler passes cp's solve as the term
+% 'e$$cp$$solve'(..); for such a goal on a supported network, the solutions
+% are counted natively, without binding anything, provided no other
+% constrained variable is left for Picat's labeling to label (see fdn_rest,
+% c_fdn_alone). The Vars conversion is
+% the one of cp's solve/1,2. Every other goal runs the original code.
+fdn_count_all(G, C) =>
+    (nonvar(G), fdn_cp_solve(G, Opts, Vars),
+     (bp.dvar_or_int_list(Vars) -> VList = Vars ; VList = vars(Vars)),
+     bp.c_fdn_alone(VList),
+     bp.c_fdn_count(Opts, VList, C0)
+    ->
+        bp.global_set('_$count_all', C0), C = C0
+    ;
+        bp.'$fdn_orig_count_all'(G, C)
+    ).
+
+fdn_cp_solve('e$$cp$$solve'(Vs), Opts, Vars) => Opts = [], Vars = Vs.
+fdn_cp_solve('e$$cp$$solve'(Os, Vs), Opts, Vars) => Opts = Os, Vars = Vs.

@@ -43,7 +43,12 @@ typedef uint64_t W;
 
 struct Edge { int t, d; };
 struct ChanR { int tuple, off, a; };
-struct Lin { int op; long c; vector<long> a; vector<int> xs; long maxrange = 0; };   // op 0: = 0, 1: >= 0, 2: = 0 with AC at <= 2 unbound
+// op 0: = 0, 1: >= 0, 2: = 0 with AC at <= 2 unbound. c/a/xs: constants
+// folded into c (bounds bookkeeping, ac2); c0/ta/tx/tk: the terms in the
+// frame's order with constants in place (tx < 0: constant tk), which is the
+// order of Picat's single propagation pass (chain_eq / chain_ge)
+struct Lin { int op; long c; vector<long> a; vector<int> xs; long maxrange = 0;
+             long c0; vector<long> ta, tk; vector<int> tx; };
 struct Map { int t, s, k; };   // value w removed from owner -> remove s*w+k from t
 struct Abs { int x, y, n; };   // |X-Y| = n
 struct Mul { int x, y, z; };   // X*Y = Z
@@ -64,7 +69,7 @@ struct fdn_net {
     vector<vector<int>> tuples;
     map<vector<int>, int> tupkey;
     vector<vector<ChanR>> vchan;
-    vector<vector<Map>> vmap;
+    vector<vector<Map>> vmap, vbmap;   // vbmap: bounds of the owner -> bounds of t
     vector<char> chx;
     vector<Lin> lins;
     vector<vector<int>> vlin;
@@ -113,7 +118,7 @@ extern "C" {
 fdn_net *fdn_net_new(int glo, int ghi) { auto n = new fdn_net; n->glo = glo; n->ghi = ghi; return n; }
 int fdn_var(fdn_net *n, int k, const int *v) {
     n->vals.emplace_back(v, v + k); n->adj.emplace_back(); n->vhall.emplace_back();
-    n->vchan.emplace_back(); n->vlin.emplace_back(); n->vmap.emplace_back();
+    n->vchan.emplace_back(); n->vlin.emplace_back(); n->vmap.emplace_back(); n->vbmap.emplace_back();
     n->vabs.emplace_back(); n->vmul.emplace_back(); n->vdiv.emplace_back(); n->vmod.emplace_back(); n->veldc.emplace_back(); n->velfv.emplace_back(); n->ventc.emplace_back();
     n->vmm.emplace_back(); n->vreif.emplace_back(); n->vent.emplace_back(); n->veld.emplace_back();
     n->velf.emplace_back(); n->vlex.emplace_back();
@@ -133,10 +138,15 @@ int fdn_tuple(fdn_net *n, int k, const int *xs) {
 }
 void fdn_chan(fdn_net *n, int x, int t, int off, int a) { n->vchan[x].push_back({t, off, a}); }
 void fdn_map(fdn_net *n, int x, int t, int s, int k) { n->vmap[x].push_back({t, s, k}); }
-void fdn_linear(fdn_net *n, int op, long c, int k, const long *a, const int *xs) {
-    Lin l{op, c, vector<long>(a, a + k), vector<int>(xs, xs + k)};
+void fdn_bmap(fdn_net *n, int y, int t, int s, int k) { n->vbmap[y].push_back({t, s, k}); }
+void fdn_linear(fdn_net *n, int op, long c, int k, const long *a, const int *xs, const long *kv) {
+    Lin l; l.op = op; l.c = l.c0 = c;
+    for (int i = 0; i < k; i++) {
+        l.ta.push_back(a[i]); l.tx.push_back(xs[i]); l.tk.push_back(xs[i] < 0 ? kv[i] : 0);
+        if (xs[i] < 0) l.c += a[i] * kv[i]; else { l.a.push_back(a[i]); l.xs.push_back(xs[i]); }
+    }
     int id = n->lins.size(); n->lins.push_back(l);
-    vector<int> m(xs, xs + k); sort(m.begin(), m.end()); m.erase(unique(m.begin(), m.end()), m.end());
+    vector<int> m(l.xs); sort(m.begin(), m.end()); m.erase(unique(m.begin(), m.end()), m.end());
     for (int x : m) n->vlin[x].push_back(id);
 }
 void fdn_abs(fdn_net *n, int x, int y, int nn) {
@@ -205,7 +215,7 @@ void fdn_net_free(fdn_net *n) { delete n; }
 }
 
 // ------------------------------------------------------------------ search
-enum { E_BOUND, E_CHG, E_CHX, E_LIN, E_REIF };
+enum { E_BOUND, E_CHG, E_CHX, E_LIN, E_BMAP, E_REIF };
 struct Ev { int k, x, v; };
 struct TE { size_t w; W old; int x, sz, mn, mx; };
 enum { R_SOL, R_DONE, R_PAUSE };
@@ -216,11 +226,13 @@ struct Search {
     vector<W> D; vector<int> SZ, MN, MX;
     vector<TE> TR; vector<uint64_t> STAMP; uint64_t EPOCH = 1;
     vector<Ev> EV; vector<char> PEND, PENDL, PENDR;
+    int SEED = -1;                          // the linear constraint being run (see setword)
     vector<long> SMIN, SMAX; vector<int> NUNB;   // per linear constraint, incremental
     struct CP { int x, v, lim, ls, kind, d, ph, lo, hi; size_t tm, dom; };
     int ls = 0;                             // label list: all entries before ls are bound
     vector<CP> st; vector<W> DS;            // DS: domain snapshots of the CP variables
     long bt = 0, nodes = 0;
+    bool counting = false; long nsol = 0;  // count mode: solutions are counted, not returned
     int state = 0;                          // 0 select, 1 backtrack, 2 done
     vector<pair<int,int>> prefix;
 
@@ -268,11 +280,20 @@ struct Search {
             for (W r = rem; r; r &= r - 1) EV.push_back({E_REIF, x, GLO + k * 64 + __builtin_ctzll(r)});
         if (!N.vreif[x].empty() && !PENDR[x]) { PENDR[x] = 1; EV.push_back({E_REIF, x, -1}); }
         if (N.chg[x] && !PEND[x]) { PEND[x] = 1; EV.push_back({E_CHG, x, 0}); }
-        /* queue the linear propagators only when the sum's bounds moved or x became
-           singleton (the arc trigger): with unchanged bounds and unchanged NUNB the
-           propagation recomputes the same bounds and cannot prune */
-        if (MN[x] != omn || MX[x] != omx || (osz > 1 && SZ[x] == 1))
-            for (int s : N.vlin[x]) if (!PENDL[s]) { PENDL[s] = 1; EV.push_back({E_LIN, s, 0}); }
+        // Picat wakes a linear constraint on ins and bound (min/max) events of
+        // its variables, but not on its own min/max changes (the trigger
+        // carries the running frame as seed: INSERT_TRIGGER_minmax_checkseed);
+        // its own bindings do wake it (ASSIGN_DVAR, ins). An ARC constraint
+        // with <= 2 unbound variables is '$binary_constr_eq', arc consistent,
+        // woken by any change. Picat runs the constraint once per event, so
+        // a constraint already pending is queued again (its pass is not
+        // idempotent)
+        bool bnd = SZ[x] == 1 || MN[x] != omn || MX[x] != omx;
+        if (bnd && !N.vbmap[x].empty()) EV.push_back({E_BMAP, x, 0});
+        for (int s : N.vlin[x]) {
+            bool ac = N.lins[s].op == 2 && NUNB[s] <= 2;
+            if (ac || (bnd && (s != SEED || SZ[x] == 1))) { PENDL[s] = 1; EV.push_back({E_LIN, s, 0}); }
+        }
         if (SZ[x] == 1) EV.push_back({E_BOUND, x, 0});
         return true;
     }
@@ -338,26 +359,102 @@ struct Search {
         }
         return true;
     }
+    // narrow x to [lo, hi] as Picat's CALL_DOMAIN_REGION (fails if empty)
+    bool region(int x, long lo, long hi) {
+        if (lo > hi) return false;
+        if (lo <= MN[x] && hi >= MX[x]) return true;
+        return restrict_bounds(x, max<long>(lo, MN[x]), min<long>(hi, MX[x]));
+    }
+    // bounds of term i (a * x, or a * constant); bound variables count as constants
+    void tbounds(const Lin &c, size_t i, long &lo, long &hi) {
+        int x = c.tx[i]; long a = c.ta[i];
+        if (x < 0 || SZ[x] == 1) { lo = hi = a * (x < 0 ? c.tk[i] : MN[x]); return; }
+        if (a > 0) { lo = a * MN[x]; hi = a * MX[x]; } else { lo = a * MX[x]; hi = a * MN[x]; }
+    }
+    // narrow the partial sum [l1, u1] to [first, last]; 0: fail, 1: stop the
+    // pass (no narrowing), 2: continue (the tail of REDUCE_DOMAIN_* in clpfd.h)
+    static int narrow(long &l1, long &u1, long first, long last) {
+        if (first <= l1) { if (last >= u1) return 1; u1 = last; }
+        else { l1 = first; if (last < u1) u1 = last; }
+        return u1 < l1 ? 0 : 2;
+    }
+    // Picat's nary_interval_consistent_eq (clpfd_libs.c): partial sums
+    // T0 = c, T(i+1) = T(i) + a_i x_i; reduce the last term from T(n-1), then
+    // the others from the last down, each from T(i) and the narrowed T(i+1),
+    // narrowing T(i) in turn; stop as soon as a partial sum cannot narrow
+    bool chain_eq(const Lin &c) {
+        size_t n = c.tx.size();
+        static thread_local vector<long> tl, tu; tl.resize(n + 1); tu.resize(n + 1);
+        tl[0] = tu[0] = c.c0;
+        for (size_t i = 0; i + 1 < n; i++) { long lo, hi; tbounds(c, i, lo, hi); tl[i + 1] = tl[i] + lo; tu[i + 1] = tu[i] + hi; }
+        for (size_t j = n; j-- > 0;) {
+            int x = c.tx[j]; long a = c.ta[j], A = labs(a); bool var = x >= 0 && SZ[x] > 1;
+            long xv = var ? 0 : A * (x < 0 ? c.tk[j] : MN[x]);
+            long first, last, &l1 = tl[j], &u1 = tu[j];
+            if (j == n - 1) {                       // T(n-1) + a x = 0
+                if (a > 0) {
+                    first = -u1; last = -l1;
+                    if (var) { if (!region(x, cdiv(first, A), fdiv(last, A))) return false; first = -(A * MX[x]); last = -(A * MN[x]); }
+                    else { if (xv < first || xv > last) return false; first = last = -xv; }
+                } else {
+                    first = l1; last = u1;
+                    if (var) { if (!region(x, cdiv(first, A), fdiv(last, A))) return false; first = A * MN[x]; last = A * MX[x]; }
+                    else { if (xv < first || xv > last) return false; first = last = xv; }
+                }
+            } else {                                // T(j+1) = T(j) + a x
+                long l2 = tl[j + 1], u2 = tu[j + 1];
+                if (a > 0) {
+                    first = l2 - u1; last = u2 - l1;
+                    if (var) { if (!region(x, cdiv(first, A), fdiv(last, A))) return false; first = l2 - A * MX[x]; last = u2 - A * MN[x]; }
+                    else { if (xv < first || xv > last) return false; first = l2 - xv; last = u2 - xv; }
+                } else {
+                    first = l1 - u2; last = u1 - l2;
+                    if (var) { if (!region(x, cdiv(first, A), fdiv(last, A))) return false; first = l2 + A * MN[x]; last = u2 + A * MX[x]; }
+                    else { if (xv < first || xv > last) return false; first = xv + l2; last = xv + u2; }
+                }
+            }
+            int r = narrow(l1, u1, first, last);
+            if (r != 2) return r == 1;
+        }
+        return true;
+    }
+    // Picat's nary_interval_consistent_ge: T(n) >= 0, lower bounds only
+    bool chain_ge(const Lin &c) {
+        size_t n = c.tx.size();
+        static thread_local vector<long> tl, tu; tl.resize(n + 1); tu.resize(n + 1);
+        tl[0] = tu[0] = c.c0;
+        for (size_t i = 0; i < n; i++) { long lo, hi; tbounds(c, i, lo, hi); tl[i + 1] = tl[i] + lo; tu[i + 1] = tu[i] + hi; }
+        if (tl[n] >= 0) return true;                // entailed (Picat kills the frame)
+        if (tu[n] < 0) return false;
+        tl[n] = 0;
+        for (size_t j = n; j-- > 0;) {
+            int x = c.tx[j]; long a = c.ta[j], A = labs(a); bool var = x >= 0 && SZ[x] > 1;
+            long xv = var ? 0 : A * (x < 0 ? c.tk[j] : MN[x]);
+            long l2 = tl[j + 1], first;
+            if (a > 0) {                            // T(j+1) = T(j) + a x >= l2
+                first = l2 - tu[j];
+                if (var) { long f0 = cdiv(first, A); if (f0 > MN[x] && !region(x, f0, MX[x])) return false; first = l2 - A * MX[x]; }
+                else { if (xv < first) return false; first = l2 - xv; }
+            } else {                                // T(j+1) = T(j) - A x >= l2
+                long last = tu[j] - l2;
+                if (var) { long l0 = fdiv(last, A); if (l0 < MX[x] && !region(x, MN[x], l0)) return false; first = l2 + A * MN[x]; }
+                else { if (xv > last) return false; first = xv + l2; }
+            }
+            if (first < tl[j]) return true;
+            tl[j] = first;
+        }
+        return true;
+    }
     bool linear(int s) {
         const Lin &c = N.lins[s];
         if (c.op == 2 && NUNB[s] <= 2) return ac2(c);
         long smin = SMIN[s], smax = SMAX[s];
-        if ((c.op != 1 && smin > 0) || smax < 0) return false;
-        if ((c.op == 1 ? smax : min(smax, -smin)) >= c.maxrange) return true;   // nothing can be pruned
-        for (size_t i = 0; i < c.xs.size(); i++) {
-            int y = c.xs[i]; long a = c.a[i];
-            if (SZ[y] == 1) continue;
-            long lo_i = a > 0 ? a * MN[y] : a * MX[y], hi_i = a > 0 ? a * MX[y] : a * MN[y];
-            long tlo = -(smax - hi_i), thi = c.op != 1 ? -(smin - lo_i) : LONG_MAX / 4;
-            long xlo, xhi;
-            if (a > 0) { xlo = cdiv(tlo, a); xhi = c.op != 1 ? fdiv(thi, a) : LONG_MAX / 4; }
-            else { xlo = c.op != 1 ? cdiv(thi, a) : LONG_MIN / 4; xhi = fdiv(tlo, a); }
-            if (xlo > MN[y] || xhi < MX[y]) {
-                if (!restrict_bounds(y, max<long>(xlo, MN[y]), min<long>(xhi, MX[y]))) return false;
-                smin = SMIN[s]; smax = SMAX[s];   // maintained by setword
-            }
-        }
-        return true;
+        if (c.op == 1 ? smin >= 0 || smax >= c.maxrange                    // entailed / nothing can be pruned
+                      : smin <= 0 && smax >= 0 && min(smax, -smin) >= c.maxrange) return true;
+        SEED = s;
+        bool ok = c.op == 1 ? chain_ge(c) : chain_eq(c);
+        SEED = -1;
+        return ok;
     }
     // ------- new propagators (rule replays of Picat's action rules) -------
     bool abs_prop(int s) {                 // |X-Y| = n: ins rule (bounds) on a bound event
@@ -709,6 +806,11 @@ struct Search {
             } else if (e.k == E_LIN) {
                 PENDL[x] = 0;
                 if (!linear(x)) return false;
+            } else if (e.k == E_BMAP) {         // X = Y+C / C-Y, bounds part ('$v_in_*_int')
+                for (const Map &mp : N.vbmap[x]) {
+                    long lo = mp.s > 0 ? MN[x] + mp.k : mp.k - MX[x], hi = mp.s > 0 ? MX[x] + mp.k : mp.k - MN[x];
+                    if (!region(mp.t, lo, hi)) return false;
+                }
             } else if (e.k == E_CHG) {
                 PEND[x] = 0;
                 if (SZ[x] > 1) for (int g : N.vhall[x]) if (!hall(g, x)) return false;
@@ -822,7 +924,7 @@ struct Search {
             if (state == 2) return R_DONE;
             if (state == 0) {
                 int x = select_var();
-                if (x < 0) { state = 1; return R_SOL; }
+                if (x < 0) { state = 1; if (counting) { nsol++; continue; } return R_SOL; }
                 if (N.val == 0) {
                     push_cp(x, MN[x], INT_MAX); EPOCH++; nodes++;
                     if (!try_assign(x, MN[x])) state = 1;
@@ -902,7 +1004,7 @@ struct Search {
     // the state rolled back to that choice point (no prefix replay)
     Search *clone_at(int i, vector<pair<int,int>> &pre, int &ra) {
         CP &c = st[i];
-        Search *s = new Search(N, false);
+        Search *s = new Search(N, false); s->counting = counting;
         s->D = D; s->SZ = SZ; s->MN = MN; s->MX = MX; s->SMIN = SMIN; s->SMAX = SMAX; s->NUNB = NUNB;
         for (size_t k = TR.size(); k > c.tm; k--) s->undo(TR[k - 1]);
         pre = prefix;
@@ -937,6 +1039,7 @@ struct fdn_run {
     long live = 0, ntasks = 0;
     set<Task *, KeyLess> pending;           // runnable: not owned, not done
     bool in_next = false, stop = false; int active_owners = 0; long buffered = 0, nodes = 0, donations = 0;
+    bool count = false; long csol = 0, cbt = 0;   // count mode (fdn_count): totals of finished tasks
     chrono::steady_clock::time_point last;
     string stats;
 };
@@ -974,7 +1077,7 @@ static void start_pool() {            // with G held
 // Called without G; t->owned is set by the caller.
 static int run_task(fdn_run *r, Task *t, bool consumer) {
     if (!t->s) {
-        t->s.reset(new Search(*r->N));
+        t->s.reset(new Search(*r->N)); t->s->counting = r->count;
         if (!t->s->init(t->prefix, t->root, t->rx, t->ra, t->rb, t->credit)) {
             // cannot happen for a donated task; the root task fails here if
             // the start state is inconsistent
@@ -1023,7 +1126,9 @@ static int run_task(fdn_run *r, Task *t, bool consumer) {
             continue;
         }
         if (res == R_DONE) {
-            t->done = true; t->bt_total = s.bt; t->s.reset();
+            t->done = true; t->bt_total = s.bt;
+            if (r->count) { r->csol += s.nsol; r->cbt += s.bt; }
+            t->s.reset();
             vector<pair<int,int>>().swap(t->prefix); vector<int>().swap(t->key);
             CV_CONS.notify_all();
         }
@@ -1035,6 +1140,7 @@ static void claim(fdn_run *r, Task *t) { t->owned = true; r->active_owners++; r-
 static void release(fdn_run *r, Task *t) {
     t->owned = false; r->active_owners--;
     if (!t->done) r->pending.insert(t);
+    else if (r->count) { delete t; r->live--; }   // count mode: tasks are not linked
     CV_CONS.notify_all();
 }
 static void worker_main() {
@@ -1057,7 +1163,7 @@ static void worker_main() {
 }
 
 extern "C" {
-fdn_run *fdn_start(fdn_net *n) {
+static fdn_run *start(fdn_net *n, bool count) {
     if (getenv("FDN_DUMP")) {
         fprintf(stderr, "net: nv=%d glo=%d ghi=%d muls=%zu lins=%zu\n", n->nv, n->glo, n->ghi, n->muls.size(), n->lins.size());
         for (size_t i = 0; i < n->muls.size(); i++) fprintf(stderr, "  mul %zu: %d*%d=%d\n", i, n->muls[i].x, n->muls[i].y, n->muls[i].z);
@@ -1068,12 +1174,15 @@ fdn_run *fdn_start(fdn_net *n) {
         }
     }
     n->finalize();
-    fdn_run *r = new fdn_run; r->N = n;
-    r->head = new Task; r->pending.insert(r->head); r->live = r->ntasks = 1;
+    fdn_run *r = new fdn_run; r->N = n; r->count = count;   // set before pool threads can see the run
+    Task *t = new Task; r->pending.insert(t); r->live = r->ntasks = 1;
+    r->head = count ? nullptr : t;   // count mode: tasks are not linked, freed when done
     r->last = chrono::steady_clock::now();
     lock_guard<mutex> lk(G); RUNS.push_back(r);
     return r;
 }
+fdn_run *fdn_start(fdn_net *n) { return start(n, false); }
+fdn_run *fdn_start_count(fdn_net *n) { return start(n, true); }
 int fdn_nlabel(fdn_run *r) { return r->N->label.size(); }
 const int *fdn_label_ids(fdn_run *r) { return r->N->label.data(); }
 int fdn_next(fdn_run *r, int *vals, long *bt) {
@@ -1108,6 +1217,26 @@ const char *fdn_stats(fdn_run *r) {
     lock_guard<mutex> lk(G);
     char b[200]; snprintf(b, sizeof b, "nodes=%ld tasks=%ld donations=%ld threads=%d", r->nodes, r->ntasks, r->donations, POOL_UP ? POOL_N + 1 : 1);
     r->stats = b; return r->stats.c_str();
+}
+// count mode: the consumer works like a pool thread, on any pending task
+// (leftmost first), until no task is left. No order and no solution buffers.
+long fdn_count(fdn_run *r, long *bt) {   // r from fdn_start_count
+    unique_lock<mutex> lk(G);
+    r->in_next = true;
+    for (;;) {
+        if (!r->pending.empty()) {
+            Task *t = *r->pending.begin();
+            claim(r, t);
+            lk.unlock(); run_task(r, t, true); lk.lock();
+            release(r, t);
+            continue;
+        }
+        if (r->live == 0) break;
+        CV_CONS.wait(lk);
+    }
+    r->in_next = false; r->last = chrono::steady_clock::now();
+    *bt = r->cbt;
+    return r->csol;
 }
 void fdn_free(fdn_run *r) {
     unique_lock<mutex> lk(G);

@@ -17,9 +17,12 @@ void fdn_hall(fdn_net *, int n, const int *xs);           /* all_distinct Hall g
 int  fdn_tuple(fdn_net *, int n, const int *xs);          /* channel tuple, returns id */
 void fdn_chan(fdn_net *, int x, int tuple, int off, int a);
 void fdn_map(fdn_net *, int x, int t, int s, int k);       /* w removed from x -> t != s*w+k */
+void fdn_bmap(fdn_net *, int y, int t, int s, int k);      /* bounds of y -> bounds of t (X = Y+C, C-Y) */
 /* c + sum a_i x_i  (op 0: = 0, op 1: >= 0, op 2: = 0 with arc consistency
-   once at most 2 variables are unbound, as '$linear_constr_eq_ARC_aux') */
-void fdn_linear(fdn_net *, int op, long c, int n, const long *a, const int *xs);
+   once at most 2 variables are unbound, as '$linear_constr_eq_ARC_aux');
+   constants in place: xs[i] < 0 means the constant kv[i] (Picat's single
+   propagation pass walks the terms in this order) */
+void fdn_linear(fdn_net *, int op, long c, int n, const long *a, const int *xs, const long *kv);
 /* abs(X-Y) = n; X*Y = Z; X div y = Z / X mod y = Z (y a fixed divisor);
    R = min/max of (ids, vals) where id < 0 means the constant vals[i] */
 void fdn_abs(fdn_net *, int x, int y, int n);
@@ -49,6 +52,10 @@ void fdn_net_free(fdn_net *);
 
 /* search; the run takes ownership of the net */
 fdn_run *fdn_start(fdn_net *);
+/* count mode (count_all): solutions are counted natively; *bt receives the
+   exact backtrack total, the return value is the solution count */
+fdn_run *fdn_start_count(fdn_net *);
+long fdn_count(fdn_run *, long *bt);
 /* next solution: values of the label variables, in label order.
    Returns 1 (solution), 0 (no more). *bt receives Picat-equivalent
    backtracks since the previous call. */

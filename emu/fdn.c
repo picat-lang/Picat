@@ -167,7 +167,7 @@ static int unsupported(const char *fmt, ...) {
 }
 
 /* ---------------------------------------------------------------- extraction */
-enum { F_NEQ, F_OUTOF, F_ADOUT, F_PD, F_DP, F_MAPCV, F_MAPVC, F_IGN, F_LIN_EQ, F_LIN_GE, F_LIN_ARC,
+enum { F_NEQ, F_OUTOF, F_ADOUT, F_PD, F_DP, F_MAPCV, F_MAPVC, F_IGN, F_BCV, F_BVC, F_LIN_EQ, F_LIN_GE, F_LIN_ARC,
        F_ABS, F_MUL, F_DIV, F_MOD, F_MIN, F_MAX,
        F_VEQC, F_VNEQC, F_REIF_EQ, F_REIF_NEQ, F_REIF_GE,
        F_ENT_VEQC, F_ENT_VNEQC, F_ENT_VEQV, F_ENT_VNEQV,
@@ -211,7 +211,8 @@ static int frame_kind(SYM_REC_PTR s) {
     if (s == S_dpeq || s == S_dpneq) return F_DP;
     if (s == S_cvdom) return F_MAPCV;
     if (s == S_vcdom) return F_MAPVC;
-    if (s == S_cvint || s == S_vcint) return F_IGN;   /* bounds part, subsumed by the value map */
+    if (s == S_cvint) return F_BCV;   /* bounds part of X = C-Y: not subsumed by the value map */
+    if (s == S_vcint) return F_BVC;   /* once a unification left the domains inconsistent */
     if (s == S_abs) return F_ABS;
     if (s == S_mul) return F_MUL;
     if (s == S_div) return F_DIV;
@@ -385,25 +386,6 @@ static int el_sup(BPLONG t, long *k, long *lo, long *hi, int *nsup, int cap) {  
 static int build(ext *e, fdn_net *net) {
     bld b = {e, net}; vm_init(&b.consts); int ok = 1;
     ivec L = {0};
-    for (int q = 0; q < e->dvs.n && ok; q++) {    /* neq attributes */
-        BPLONG at = neq_attr(e->dvs.a[q], &ok), top0;
-        BPLONG_PTR top;
-        if (!at) continue;
-        BPLONG_PTR p = (BPLONG_PTR)UNTAGGED_ADDR(at);
-        L.n = 0; ok = b_list(&b, FOLLOW(p + 1), &L);
-        for (int i = 0; ok && i < L.n; i++) fdn_edge(net, q, L.a[i], 0);
-        BPLONG vcs = FOLLOW(p + 2); DEREF(vcs);   /* [(Y,C)]: Y != X - C */
-        while (ok && ISLIST(vcs)) {
-            BPLONG_PTR c = (BPLONG_PTR)UNTAGGED_ADDR(vcs);
-            BPLONG pr = FOLLOW(c); DEREF(pr);
-            BPLONG_PTR pp = (BPLONG_PTR)UNTAGGED_ADDR(pr);
-            BPLONG y = FOLLOW(pp + 1); long cc; DEREF(y);
-            if (!b_int(FOLLOW(pp + 2), &cc)) { ok = unsupported("neq offset"); break; }
-            if (IS_SUSP_VAR(y)) fdn_edge(net, q, vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(y)), (int)-cc);
-            vcs = FOLLOW(c + 1); DEREF(vcs);
-        }
-        (void)top0;
-    }
     for (int k = 0; k < e->frames.n && ok; k++) {
         BPLONG_PTR f = e->frames.a[k]; int kind = e->fkind.a[k];
         BPLONG x0 = frame_arg(f, 1); BPLONG_PTR top; DEREF(x0);
@@ -421,7 +403,37 @@ static int build(ext *e, fdn_net *net) {
             fprintf(stderr, "\n");
         }
         switch (kind) {
-        case F_NEQ: case F_IGN: break;
+        case F_IGN: break;
+        case F_BCV: case F_BVC: {                 /* '$v_in_cv_int'(X,C,Y): X = C-Y; '$v_in_vc_int'(X,Y,C): X = Y+C,
+                                                      on bound/ins events of Y (emu_inst.h lab_v_in_cv_int) */
+            BPLONG y = frame_arg(f, kind == F_BCV ? 3 : 2); long cc; DEREF(y);
+            int tx = b_id(&b, frame_arg(f, 1));
+            if (tx < 0 || !IS_SUSP_VAR(y) || !b_int(frame_arg(f, kind == F_BCV ? 2 : 3), &cc)) { ok = unsupported("binary eq bounds frame"); break; }
+            fdn_bmap(net, vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(y)), tx, kind == F_BCV ? -1 : 1, (int)cc);
+            break;
+        }
+        case F_NEQ: {   /* '$combined_neq'(X, combined_propagators(Ys, [(Y,C)])): X != Y, Y != X - C.
+                           Taken from the frame, which is what Picat runs: after a
+                           unification of two FD variables, the surviving variable
+                           can carry the frame without the _$attr_neq attribute, or
+                           two such frames */
+            BPLONG cp = frame_arg(f, 2); DEREF(cp);
+            if (ox < 0 || !ISSTRUCT(cp)) { ok = unsupported("neq frame"); break; }
+            BPLONG_PTR p = (BPLONG_PTR)UNTAGGED_ADDR(cp);
+            L.n = 0; ok = b_list(&b, FOLLOW(p + 1), &L);
+            for (int i = 0; ok && i < L.n; i++) fdn_edge(net, ox, L.a[i], 0);
+            BPLONG vcs = FOLLOW(p + 2); DEREF(vcs);
+            while (ok && ISLIST(vcs)) {
+                BPLONG_PTR c = (BPLONG_PTR)UNTAGGED_ADDR(vcs);
+                BPLONG pr = FOLLOW(c); DEREF(pr);
+                BPLONG_PTR pp = (BPLONG_PTR)UNTAGGED_ADDR(pr);
+                BPLONG y = FOLLOW(pp + 1); long cc; DEREF(y);
+                if (!b_int(FOLLOW(pp + 2), &cc)) { ok = unsupported("neq offset"); break; }
+                if (IS_SUSP_VAR(y)) fdn_edge(net, ox, vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(y)), (int)-cc);
+                vcs = FOLLOW(c + 1); DEREF(vcs);
+            }
+            break;
+        }
         case F_MAPCV: case F_MAPVC: {             /* v_in_cv_dom(X,C,Y): X = C-Y; v_in_vc_dom(X,Y,C): X = Y+C */
             BPLONG y = frame_arg(f, kind == F_MAPCV ? 3 : 2); long cc; DEREF(y);
             if (ox < 0 || !IS_SUSP_VAR(y) || !b_int(frame_arg(f, kind == F_MAPCV ? 2 : 3), &cc)) { ok = unsupported("binary eq frame"); break; }
@@ -432,6 +444,9 @@ static int build(ext *e, fdn_net *net) {
             if (ox < 0) { ok = unsupported("outof on integer"); break; }
             L.n = 0;
             ok = b_list(&b, frame_arg(f, kind == F_OUTOF ? 2 : 3), &L) && b_list(&b, frame_arg(f, kind == F_OUTOF ? 3 : 4), &L);
+            for (int i = 0; ok && i < L.n; i++)      /* after X = Y between two of its variables */
+                for (int j = 0; ok && j <= i; j++)
+                    if (L.a[i] == (j < i ? L.a[j] : ox)) ok = unsupported("variable repeated in all_different/all_distinct");
             for (int i = 0; ok && i < L.n; i++) fdn_edge(net, ox, L.a[i], 0);
             if (ok && kind == F_ADOUT) { iv_push(&L, ox); fdn_hall(net, L.n, L.a); }
             break;
@@ -633,24 +648,20 @@ static int build(ext *e, fdn_net *net) {
         default: {                                /* linear */
             int n = (frame_arity(f) - 2) / 2; long c;
             if (!b_int(frame_arg(f, 2), &c)) { ok = unsupported("linear constant"); break; }
-            long *a = malloc(n * sizeof(long)); int *xs = malloc(n * sizeof(int)); int m = 0;
-            for (int i = 0; ok && i < n; i++) {
+            long *a = malloc(n * sizeof(long)), *kv = malloc(n * sizeof(long)); int *xs = malloc(n * sizeof(int)); int m = 0;
+            for (int i = 0; ok && i < n; i++) {   /* terms in frame order, constants in place (Picat's pass order) */
                 long ai, xv; BPLONG x = frame_arg(f, 3 + n + i); DEREF(x);
                 if (!b_int(frame_arg(f, 3 + i), &ai)) { ok = unsupported("linear coefficient"); break; }
-                if (b_int(x, &xv)) { c += ai * xv; continue; }
+                if (b_int(x, &xv)) { a[m] = ai; xs[m] = -1; kv[m] = xv; m++; continue; }
                 if (!IS_SUSP_VAR(x)) { ok = unsupported("linear term"); break; }
                 int id = vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(x));
+                for (int j = 0; j < m; j++)   /* after X = Y between two of its variables; Picat
+                                                 treats the occurrences separately */
+                    if (xs[j] == id) { ok = unsupported("variable repeated in a linear constraint"); break; }
                 a[m] = ai; xs[m] = id; m++;
             }
-            if (ok) {                              /* unify repeated variables (same dv) into one term */
-                for (int i = 0; i < m; i++) for (int j = i + 1; j < m; j++) {
-                    if (xs[i] == xs[j]) { a[i] += a[j]; xs[j] = -1; }
-                }
-                int m2 = 0;
-                for (int i = 0; i < m; i++) if (xs[i] >= 0) { a[m2] = a[i]; xs[m2] = xs[i]; m2++; }
-                if (m2 > 0) fdn_linear(net, kind == F_LIN_GE ? 1 : kind == F_LIN_ARC ? 2 : 0, c, m2, a, xs);
-            }
-            free(a); free(xs);
+            if (ok) fdn_linear(net, kind == F_LIN_GE ? 1 : kind == F_LIN_ARC ? 2 : 0, c, m, a, xs, kv);
+            free(a); free(xs); free(kv);
         }
         }
     }
@@ -817,6 +828,123 @@ int c_fdn_next(void) {
     return unify(Vals, lst);
 }
 
+/* c_fdn_alone(Vars): no live suspension frame refers to an FD variable
+   outside the list Vars. Stock labeling, after each solution of Vars, labels
+   the constrained variables left in the whole store once
+   (retrieve_frozen_dvars: the variables of all live suspended goals,
+   fd_labeling.pi); if this succeeds, that step has nothing to do. Walks the
+   frame chain as c_frozen_f (emu/delay.c) does, without building the goals,
+   and stops at the first outside variable. */
+static int alone_term(vmap *m, BPLONG t, int depth) {
+    BPLONG_PTR top;
+    for (;;) {
+        DEREF(t);
+        if (IS_SUSP_VAR(t)) return vm_get(m, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(t)) >= 0;
+        if (depth > 10000) return 0;                 /* give up: treat as not alone */
+        if (ISLIST(t)) { BPLONG_PTR p = (BPLONG_PTR)UNTAGGED_ADDR(t); if (!alone_term(m, FOLLOW(p), depth + 1)) return 0; t = FOLLOW(p + 1); depth++; continue; }
+        if (ISSTRUCT(t)) {
+            BPLONG_PTR p = (BPLONG_PTR)UNTAGGED_ADDR(t); int n = GET_ARITY((SYM_REC_PTR)FOLLOW(p));
+            for (int i = 1; i < n; i++) if (!alone_term(m, FOLLOW(p + i), depth + 1)) return 0;
+            t = FOLLOW(p + n); depth++; continue;
+        }
+        return 1;
+    }
+}
+int c_fdn_alone(void) {
+    BPLONG Vars = ARG(1, 1); BPLONG_PTR top;
+    if (verbose < 0) verbose = getenv("FDN_VERBOSE") != NULL;
+    vmap m; vm_init(&m); int ok = 1;
+    BPLONG t = Vars; DEREF(t);
+    while (ISLIST(t)) {
+        BPLONG_PTR p = (BPLONG_PTR)UNTAGGED_ADDR(t); BPLONG x = FOLLOW(p); DEREF(x);
+        if (IS_SUSP_VAR(x)) { BPLONG_PTR dv = (BPLONG_PTR)UNTAGGED_TOPON_ADDR(x); if (vm_get(&m, dv) < 0) vm_put(&m, dv, 0); }
+        t = FOLLOW(p + 1); DEREF(t);
+    }
+    for (BPLONG_PTR f = sfreg; ok && AR_PREV(f) != (BPLONG)f; f = (BPLONG_PTR)AR_PREV(f)) {
+        if (FRAME_IS_DEAD(f)) continue;
+        for (int i = 1, n = frame_arity(f); ok && i <= n; i++) ok = alone_term(&m, frame_arg(f, i), 0);
+    }
+    vm_free(&m);
+    if (!ok && verbose) fprintf(stderr, "fdn: other constrained variables in the store: labeled by Picat after each solution\n");
+    return ok ? BP_TRUE : BP_FALSE;
+}
+
+/* c_fdn_count(Opts, Vars, Count): the number of solutions of labeling Vars
+   with Opts, counted natively (count_all(solve(..)) in fdn_hook.pi); adds
+   Picat's backtracks for the whole search. Fails, before any search, when
+   the network is unsupported. */
+int c_fdn_count(void) {
+    BPLONG Opts = ARG(1, 3), Vars = ARG(2, 3), C = ARG(3, 3);
+    BPLONG_PTR top; int heur, sortk, val;
+    if (verbose < 0) verbose = getenv("FDN_VERBOSE") != NULL;
+    init_syms(); why[0] = 0;
+    if (!parse_opts(Opts, &heur, &sortk, &val)) goto fallback;
+    ext e; memset(&e, 0, sizeof e); vm_init(&e.ids); vm_init(&e.fseen); e.glo = LONG_MAX; e.ghi = LONG_MIN;
+    /* label list: FD variables and integers */
+    int n = 0; BPLONG t = Vars; DEREF(t);
+    while (ISLIST(t)) {
+        BPLONG_PTR p = (BPLONG_PTR)UNTAGGED_ADDR(t); BPLONG x = FOLLOW(p); DEREF(x);
+        if (IS_SUSP_VAR(x)) ext_var(&e, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(x));
+        else if (!ISINT(x)) { unsupported("non-FD term in the label list"); goto free_e; }
+        n++; t = FOLLOW(p + 1); DEREF(t);
+    }
+    if (t != nil_sym) { unsupported("label list"); goto free_e; }
+    if (e.dvs.n == 0) { unsupported("nothing to label"); goto free_e; }
+    if (!ext_collect(&e)) goto free_e;
+    if (e.frames.n > 5000 || e.dvs.n > 5000) { unsupported("network too large"); goto free_e; }
+    fdn_net *net = fdn_net_new((int)e.glo, (int)e.ghi);
+    {
+        int *vals = malloc((e.ghi - e.glo + 1) * sizeof(int));
+        for (int q = 0; q < e.dvs.n; q++) {
+            BPLONG_PTR dv = e.dvs.a[q]; int k = 0;
+            for (BPLONG v = DV_first(dv); v <= DV_last(dv); v++) if (dm_true(dv, v)) vals[k++] = (int)v;
+            fdn_var(net, k, vals);
+        }
+        free(vals);
+    }
+    if (!build(&e, net)) { fdn_net_free(net); goto free_e; }
+    /* label order: the label list (first occurrence of each variable) */
+    {
+        int nlab = e.dvs.n;
+        int *lab = malloc(n * sizeof(int)), *deg = malloc(n * sizeof(int)), m = 0;
+        char *seen = calloc(nlab, 1);
+        t = Vars; DEREF(t);
+        while (ISLIST(t)) {
+            BPLONG_PTR p = (BPLONG_PTR)UNTAGGED_ADDR(t); BPLONG x = FOLLOW(p); DEREF(x);
+            if (IS_SUSP_VAR(x)) { int id = vm_get(&e.ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(x)); if (!seen[id]) { seen[id] = 1; lab[m++] = id; } }
+            t = FOLLOW(p + 1); DEREF(t);
+        }
+        if (sortk == 1) {   /* ffc / ffd / degree / constr: sort('>=') on (Count, Var) */
+            for (int i = 0; i < m; i++) deg[i] = degree(e.dvs.a[lab[i]]);
+            for (int i = 1; i < m; i++) {
+                int li = lab[i], di = deg[i], j = i - 1;
+                while (j >= 0 && (deg[j] < di || (deg[j] == di && e.dvs.a[lab[j]] < e.dvs.a[li]))) {
+                    lab[j + 1] = lab[j]; deg[j + 1] = deg[j]; j--;
+                }
+                lab[j + 1] = li; deg[j + 1] = di;
+            }
+        } else if (sortk == 2) {   /* backward: reverse */
+            for (int i = 0; i < m / 2; i++) { int t2 = lab[i]; lab[i] = lab[m - 1 - i]; lab[m - 1 - i] = t2; }
+        }
+        fdn_label(net, heur, val, m, lab);
+        free(lab); free(deg); free(seen);
+    }
+    if (verbose) fprintf(stderr, "fdn: native count_all (%d vars, %d frames, values %ld..%ld)\n",
+                         e.dvs.n, e.frames.n, e.glo, e.ghi);
+    vm_free(&e.ids); vm_free(&e.fseen); free(e.dvs.a); free(e.frames.a); free(e.fkind.a);
+    fdn_run *r = fdn_start_count(net);
+    long bt, cnt = fdn_count(r, &bt);
+    n_backtracks += bt;
+    if (verbose) fprintf(stderr, "fdn: count done (count=%ld, %s)\n", cnt, fdn_stats(r));
+    fdn_free(r);
+    return unify(C, MAKEINT(cnt));
+free_e:
+    vm_free(&e.ids); vm_free(&e.fseen); free(e.dvs.a); free(e.frames.a); free(e.fkind.a);
+fallback:
+    if (verbose) fprintf(stderr, "fdn: fallback to Picat count_all: %s\n", why);
+    return BP_FALSE;
+}
+
 static void fdn_dump_syms(const char *sub) {
     for (long b = 0; b < BUCKET_CHAIN; b++)
         for (SYM_REC_PTR s = sym_hash_table[b]; s; s = GET_NEXT(s))
@@ -827,6 +955,8 @@ void fdn_boot(void) {
     insert_cpred("c_fdn_probe", 1, c_fdn_probe);
     insert_cpred("c_fdn_start", 3, c_fdn_start);
     insert_cpred("c_fdn_next", 2, c_fdn_next);
+    insert_cpred("c_fdn_count", 3, c_fdn_count);
+    insert_cpred("c_fdn_alone", 1, c_fdn_alone);
 }
 
 void fdn_init(void) {
@@ -854,4 +984,12 @@ void fdn_init(void) {
     }
     GET_ETYPE(orig) = GET_ETYPE(lab); GET_EP(orig) = GET_EP(lab);
     GET_EP(lab) = GET_EP(hook);
+    if (!((e = getenv("FDN_COUNT")) && !strcmp(e, "0"))) {   /* point count_all/2 at fdn_count_all/2 */
+        SYM_REC_PTR ca = insert_sym("count_all", 9, 2), corig = insert_sym("$fdn_orig_count_all", 19, 2),
+            chook = insert_sym("e$$fdn_hook$$fdn_count_all", 26, 2);
+        if (GET_ETYPE(chook) == T_PRED && GET_ETYPE(ca) == T_PRED) {
+            GET_ETYPE(corig) = GET_ETYPE(ca); GET_EP(corig) = GET_EP(ca);
+            GET_EP(ca) = GET_EP(chook);
+        }
+    }
 }
