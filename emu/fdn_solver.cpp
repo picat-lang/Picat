@@ -268,7 +268,11 @@ struct Search {
             for (W r = rem; r; r &= r - 1) EV.push_back({E_REIF, x, GLO + k * 64 + __builtin_ctzll(r)});
         if (!N.vreif[x].empty() && !PENDR[x]) { PENDR[x] = 1; EV.push_back({E_REIF, x, -1}); }
         if (N.chg[x] && !PEND[x]) { PEND[x] = 1; EV.push_back({E_CHG, x, 0}); }
-        for (int s : N.vlin[x]) if (!PENDL[s]) { PENDL[s] = 1; EV.push_back({E_LIN, s, 0}); }
+        /* queue the linear propagators only when the sum's bounds moved or x became
+           singleton (the arc trigger): with unchanged bounds and unchanged NUNB the
+           propagation recomputes the same bounds and cannot prune */
+        if (MN[x] != omn || MX[x] != omx || (osz > 1 && SZ[x] == 1))
+            for (int s : N.vlin[x]) if (!PENDL[s]) { PENDL[s] = 1; EV.push_back({E_LIN, s, 0}); }
         if (SZ[x] == 1) EV.push_back({E_BOUND, x, 0});
         return true;
     }
@@ -614,7 +618,7 @@ struct Search {
         const vector<int> &t = N.tuples[c.t];
         long k = MN[c.i] - 1;
         static const bool tr2_ = getenv("FDN_TRACE") != NULL;
-        if (tr2_) { fprintf(stderr, "  eld s=%d i=v%d(v=%ld) v=v%d tuple=%zu tsize=%zu k=%ld t[k]=%d tup:", s, c.i, MN[c.i], c.v, c.t, t.size(), k, k >= 0 && k < (long)t.size() ? t[k] : -99); for (size_t q = 0; q < t.size(); q++) fprintf(stderr, " v%d:[%ld,%ld]", t[q], (long)MN[t[q]], (long)MX[t[q]]); fprintf(stderr, "\n"); }
+        if (tr2_) { fprintf(stderr, "  eld s=%d i=v%d(v=%ld) v=v%d tuple=%d tsize=%zu k=%ld t[k]=%d tup:", s, c.i, (long)MN[c.i], c.v, (int)c.t, t.size(), k, k >= 0 && k < (long)t.size() ? t[k] : -99); for (size_t q = 0; q < t.size(); q++) fprintf(stderr, " v%d:[%ld,%ld]", t[q], (long)MN[t[q]], (long)MX[t[q]]); fprintf(stderr, "\n"); }
         if (k < 0 || k >= (long)t.size()) return false;
         return same_link(c.v, t[k]);
     }
