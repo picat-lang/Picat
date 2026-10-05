@@ -1,0 +1,16 @@
+% Weighted N-queens, branch and bound: minimise sum(I * Q[I]) (or, with a
+% third argument "max", maximise it) under the given labeling options.
+% Usage: picat qopt.pi N [ff|ffc|leftmost|down|updown|split] [min|max]
+import cp.
+
+main([NS]) => go(NS, "ff", "min").
+main([NS, S]) => go(NS, S, "min").
+main([NS, S, D]) => go(NS, S, D).
+
+go(NS, S, D) =>
+    N = to_int(NS), Qs = new_list(N), Qs :: 1..N,
+    foreach (I in 1..N-1, J in I+1..N) Qs[I] #!= Qs[J], abs(Qs[I]-Qs[J]) #!= J-I end,
+    Obj #= sum([I * Qs[I] : I in 1..N]),
+    Ob = cond(D == "max", $max(Obj), $min(Obj)),
+    solve([Ob, to_atom(S), $report(printf("obj %w%n", Obj))], Qs),
+    println(Qs), statistics(backtracks, B), println(backtracks = B).

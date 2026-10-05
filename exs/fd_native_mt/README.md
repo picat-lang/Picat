@@ -80,7 +80,7 @@ exactly Picat 3.9#12's (a round's search is Picat's own labeling order), so
 the whole loop is transparent.  The options compose with the labeling
 strategies (`ff`, `ffc`, `updown`, `split`, ...) which are also native.
 
-Weighted N-queens (`picat qopt.pi N ff`, `scratch/cpeval/bench/qopt.pi`,
+Weighted N-queens (`picat qopt.pi N ff`; the `qopt.pi` here,
 minimise `sum(I*Q[I])`, `FDN_THREADS=64`, median of 3 whole-program runs,
 output byte-identical incl. `backtracks`):
 
