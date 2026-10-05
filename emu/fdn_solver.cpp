@@ -44,6 +44,7 @@
 #include <set>
 #include <memory>
 #include <mutex>
+#include <numeric>
 #include <string>
 #include <thread>
 #include <vector>
@@ -391,6 +392,9 @@ struct alignas(128) Search {
     }
     static long fdiv(long a, long b) { long q = a / b; if ((a % b != 0) && ((a < 0) != (b < 0))) q--; return q; }
     static long cdiv(long a, long b) { return -fdiv(-a, b); }
+    bool contiguous(int x) {               // every value in [MN, MX] present: SZ is the maintained popcount, so it equals the range length iff there are no holes
+        return SZ[x] == MX[x] - MN[x] + 1;
+    }
     bool ac2(const Lin &c) {               // arc consistency, <= 2 unbound variables
         long K = c.c; int u[2], m = 0;
         for (size_t i = 0; i < c.xs.size(); i++) {
@@ -402,6 +406,17 @@ struct alignas(128) Search {
             return v >= GLO && v <= GHI && assign(c.xs[u[0]], (int)v); }
         for (int d = 0; d < 2; d++) {
             int x = c.xs[u[d]], y = c.xs[u[1 - d]]; long a = c.a[u[d]], b = c.a[u[1 - d]];
+            // fast path: when |b| divides |a| and K, the congruence
+            // a*vx = -K (mod b) is vacuous (vy is an integer for every vx),
+            // so with y's domain contiguous the supported values of x are
+            // exactly its values in the vy-derived range -- one bound
+            // intersect instead of a value-by-value scan; same fixpoint
+            long g = std::gcd(labs(a), labs(b));
+            if (a != 0 && b != 0 && labs(b) == g && (-K) % g == 0 && contiguous(y)) {
+                long n1 = -K - b * MX[y], n2 = -K - b * MN[y], L = std::min(n1, n2), U = std::max(n1, n2);
+                if (!restrict_bounds(x, a > 0 ? cdiv(L, a) : cdiv(U, a), a > 0 ? fdiv(U, a) : fdiv(L, a))) return false;
+                continue;
+            }
             for (int vx = MN[x], hi = MX[x]; vx <= hi; vx++) {
                 if (!has(x, vx)) continue;
                 long t = -(K + a * vx);
