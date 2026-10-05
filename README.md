@@ -318,7 +318,7 @@ kakuro solved 1000 times **33x** (single-threaded — posting cost),
 pigeon 13/12 **>28x** (Picat 3.9#12 does not finish in 300 s).
 
 Details, supported propagators, benchmark suite and reference numbers:
-`exs/fd_native_mt/README.md`.
+[exs/fd_native_mt/README.md](exs/fd_native_mt/README.md).
 
 
 __Current version 3.9#12.__
