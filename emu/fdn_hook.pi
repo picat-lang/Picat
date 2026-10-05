@@ -6,16 +6,83 @@
 % else Picat's labeling runs unchanged.
 module fdn_hook.
 
-fdn_labeling(Opts, Vars) =>
-    (bp.c_fdn_start(Opts, Vars, H) ->
-        (bp.c_fdn_alone(Vars) ->
+% labeling/2 (fd_labeling.pi): with no options, labeling(Vars) (leftmost, up)
+% then the rest step; with options, the variable/value strategies and the
+% reordering of labeling_var_strategy/2, labeling_val_strategy/2 and
+% labeling_reorder_vars/3, then generic_labeling/3, wrapped in minof/maxof
+% when an objective is given. fdn_plan/7 computes the same with Picat's own
+% predicates, or fails for options the native solver does not run.
+fdn_labeling([], Vars) =>
+    (bp.c_fdn_alone(Vars) -> Path = false ; Path = true),
+    (bp.c_fdn_start(leftmost, up, Vars, Path, H) ->
+        (Path == false ->
             fdn_sols(H, Vars)
         ;
-            fdn_sols(H, Vars), fdn_rest(Opts)
+            fdn_solsp(H, Vars), fdn_rest([])
+        )
+    ;
+        bp.'$fdn_orig_labeling'([], Vars)
+    ).
+fdn_labeling(Opts, Vars) =>
+    (fdn_plan(Opts, Vars, VS, US, Vs, Obj, Report) ->
+        (Obj == '$none' ->
+            (bp.c_fdn_alone(Vs) -> Path = false ; Path = true),
+            (bp.c_fdn_start(VS, US, Vs, Path, H) ->
+                (Path == false ->
+                    fdn_sols(H, Vs)
+                ;
+                    fdn_solsp(H, Vs), fdn_rest(VS, US)
+                )
+            ;
+                bp.'$fdn_orig_labeling'(Opts, Vars)
+            )
+        ;
+            fdn_bb(VS, US, Vs, Obj, Report)
         )
     ;
         bp.'$fdn_orig_labeling'(Opts, Vars)
     ).
+
+% Options the native solver runs: all of them known to
+% '$check_labeling_option'/1 (so stock prints no warning), none of rand,
+% rand_var, rand_val, label(_), time_out(..); limit(N) only next to an
+% objective (where labeling/2 ignores it). VS, US, Vs: as labeling/2
+% computes them. Obj: the objective as minof/3 gets it (maxof negates), or
+% '$none'; Report: the report goal or true.
+fdn_plan(Opts, Vars, VS, US, Vs, Obj, Report) =>
+    fdn_opts_ok(Opts),
+    fdn_objective(Opts, Obj),
+    (Obj == '$none' -> not (member(L, Opts), nonvar(L), L = $limit(_)) ; true),
+    once(bp.labeling_var_strategy(Opts, VS)),
+    membchk(VS, [leftmost, ff, min, max, ff_min, ff_max]),
+    once(bp.labeling_val_strategy(Opts, US)),
+    membchk(US, [up, down, updown, split, reverse_split]),
+    once(bp.labeling_reorder_vars(Opts, Vars, Vs)),
+    (member(R, Opts), nonvar(R), R = $report(G) -> Report = G ; Report = true).
+
+fdn_opts_ok([]) => true.
+fdn_opts_ok([O | Os]) => nonvar(O), fdn_opt_ok(O), fdn_opts_ok(Os).
+fdn_opt_ok(O), atom(O) =>
+    membchk(O, [leftmost, forward, backward, inout, ff, ffc, ffd, degree, constr,
+                min, max, up, down, updown, split, reverse_split]).
+fdn_opt_ok(min(_)) => true.
+fdn_opt_ok(max(_)) => true.
+fdn_opt_ok(minimize(_)) => true.
+fdn_opt_ok(maximize(_)) => true.
+fdn_opt_ok(report(_)) => true.
+fdn_opt_ok(limit(N)) => integer(N).
+fdn_opt_ok(_) => fail.
+
+% the precedence of labeling/2: minimize, min, maximize, max (first match
+% of each); maxof(G, O, R) calls minof(G, -(O), R)
+fdn_objective(Opts, Obj) =>
+    (fdn_obj_opt(Opts, minimize, O1) -> Obj = O1
+    ; fdn_obj_opt(Opts, min, O2) -> Obj = O2
+    ; fdn_obj_opt(Opts, maximize, O3) -> Obj = $(-O3)
+    ; fdn_obj_opt(Opts, max, O4) -> Obj = $(-O4)
+    ; Obj = '$none'
+    ).
+fdn_obj_opt(Opts, F, O) => once((member(T, Opts), T =.. [F, O1])), O = O1.
 
 % After each solution of Vars, Picat's labeling labels the constrained
 % variables left in the whole store once, with the same strategy
@@ -24,8 +91,7 @@ fdn_labeling(Opts, Vars) =>
 % outside Vars (c_fdn_alone): then that step finds nothing to label.
 fdn_rest([]) =>
     bp.retrieve_frozen_dvars(F), once(bp.labeling(F)).
-fdn_rest(Opts) =>
-    once((bp.labeling_var_strategy(Opts, VS), bp.labeling_val_strategy(Opts, US))),
+fdn_rest(VS, US) =>
     bp.retrieve_frozen_dvars(F), once(bp.generic_labeling_list_aux(F, VS, US)).
 
 fdn_sols(H, Vars) => bp.c_fdn_next(H, Vals), fdn_alt(H, Vars, Vals).
@@ -33,23 +99,101 @@ fdn_sols(H, Vars) => bp.c_fdn_next(H, Vals), fdn_alt(H, Vars, Vals).
 fdn_alt(_H, Vars, Vals) ?=> Vars = Vals.
 fdn_alt(H, Vars, _Vals) => fdn_sols(H, Vars).
 
+% When Picat's rest step follows (other constrained variables in the store),
+% the solution is replayed decision by decision, one call each, as
+% Picat's labeling makes them (indomain: X = V; indomain_split:
+% domain_region). Picat's propagators then run after every decision, as in
+% stock, and leave the same frames alive or dead (killed when entailed).
+% That decides which variables the rest step finds. A single Vars = Vals
+% unification runs them only once, after all bindings. Without a rest step
+% the difference is invisible, and fdn_sols does the cheaper unification.
+fdn_solsp(H, Vars) => bp.c_fdn_nextp(H, Vars, Vals, Path), fdn_altp(H, Vars, Vals, Path).
+
+fdn_altp(_H, Vars, Vals, Path) ?=> fdn_replay(Path), Vars = Vals.
+fdn_altp(H, Vars, _Vals, _Path) => fdn_solsp(H, Vars).
+
+fdn_replay([]) => true.
+fdn_replay([D | Ds]) => fdn_dec(D), fdn_replay(Ds).
+
+fdn_dec(eq(X, V)) => X = V.
+fdn_dec(rg(X, L, U)) => bp.domain_region(X, L, U).
+
+% Branch and bound: Picat's minof/3 (cpeval/bb/BB.md,
+% cpeval/decompiled/fd_optimize.pi) with the round's labeling run natively.
+% The set-up is minof's own code. Each round's call(Goal) is
+% generic_labeling(Vs, VS, US): the native search of the round, then
+% Picat's rest step, as in fdn_labeling. If the objective is not an FD
+% expression, or the network is not supported, minof itself or its loop
+% (minof_repeat) runs, from the same state.
+fdn_bb(VS, US, Vs, Obj, Report) =>
+    Goal = $generic_labeling(Vs, VS, US),
+    bp.vars_set(Obj, OV),
+    (bp.dvar_or_int_list(OV) ->
+        bp.vars_set(Goal, GV),
+        bp.'$inc_minof_num'(K),
+        bp.fd_new_domain(V),
+        bp.'#='(V, Obj),
+        bp.fd_min_max(V, _, Max),
+        bp.c_MAXINT_f(MaxInt),
+        (Max == MaxInt -> B0 = Max ; B0 = Max + 1),
+        bp.global_set('_$current_best_bound', K, B0),
+        bp.global_set('_$current_best_sol', K, []),
+        (bp.c_fdn_alone([V | Vs]) -> Alone = true ; Alone = false),
+        (Alone == true -> Path = false ; Path = true),
+        (bp.c_fdn_bb(VS, US, Vs, V, Path, H) ->
+            fdn_bb_repeat(H, $bb(K, GV, V, Report, Vs, VS, US, Alone))
+        ;
+            bp.minof_repeat(K, Goal, GV, V, Report)
+        )
+    ;
+        bp.minof(Goal, Obj, Report)
+    ).
+
+% minof_repeat/5 and minof_aux/5, with the round's call(Goal) run natively.
+% The rest step can be skipped when no constrained variable is outside Vs
+% and V (same store at every round start) and V is bound.
+fdn_bb_repeat(H, B), not not fdn_bb_round(H, B) =>
+    fdn_bb_repeat(H, B).
+fdn_bb_repeat(H, bb(K, GV, V, _, _, _, _, _)) =>
+    bp.c_fdn_close(H),
+    bp.'$dec_minof_num',
+    bp.global_get('_$current_best_sol', K, S), GV = S,
+    bp.global_get('_$current_best_bound', K, Best), V = Best.
+
+fdn_bb_round(H, bb(K, GV, V, Report, Vs, VS, US, Alone)) =>
+    bp.global_get('_$current_best_bound', K, B),
+    bp.'#=<'(V, $(B - 1)),
+    bp.c_fdn_round(H, B - 1, R),
+    (Alone == true -> fdn_sols(R, Vs) ; fdn_solsp(R, Vs)),
+    (Alone == true, nonvar(V) -> true ; fdn_rest(VS, US)),
+    (var(V) -> bp.indomain(V) ; true),
+    bp.call(Report),
+    bp.global_set('_$current_best_bound', K, V),
+    bp.global_set('_$current_best_sol', K, GV).
+
 % count_all/2 is pointed at fdn_count_all/2 the same way (original:
 % '$fdn_orig_count_all'/2). The compiler passes cp's solve as the term
 % 'e$$cp$$solve'(..); for such a goal on a supported network, the solutions
 % are counted natively, without binding anything, provided no other
 % constrained variable is left for Picat's labeling to label (see fdn_rest,
-% c_fdn_alone). The Vars conversion is
-% the one of cp's solve/1,2. Every other goal runs the original code.
+% c_fdn_alone). The Vars conversion is the one of cp's solve/1,2; options go
+% through fdn_plan like labeling's (an objective: the original code). Every
+% other goal runs the original code.
 fdn_count_all(G, C) =>
     (nonvar(G), fdn_cp_solve(G, Opts, Vars),
      (bp.dvar_or_int_list(Vars) -> VList = Vars ; VList = vars(Vars)),
-     bp.c_fdn_alone(VList),
-     bp.c_fdn_count(Opts, VList, C0)
+     fdn_count_plan(Opts, VList, VS, US, Vs),
+     bp.c_fdn_alone(Vs),
+     bp.c_fdn_count(VS, US, Vs, C0)
     ->
         bp.global_set('_$count_all', C0), C = C0
     ;
         bp.'$fdn_orig_count_all'(G, C)
     ).
+
+fdn_count_plan([], VList, VS, US, Vs) => VS = leftmost, US = up, Vs = VList.
+fdn_count_plan(Opts, VList, VS, US, Vs) =>
+    fdn_plan(Opts, VList, VS, US, Vs, Obj, _), Obj == '$none'.
 
 fdn_cp_solve('e$$cp$$solve'(Vs), Opts, Vars) => Opts = [], Vars = Vs.
 fdn_cp_solve('e$$cp$$solve'(Os, Vs), Opts, Vars) => Opts = Os, Vars = Vs.

@@ -44,14 +44,18 @@ void fdn_elfc(fdn_net *, int i, int v, int tuple);
 /* lexicographic chain of np pairs (x0,y0,x1,y1,...): watch bounds on the
    first np-1 pairs, arc consistency on the last (le: <=, else <) */
 void fdn_lex(fdn_net *, int le, int np, const int *pr);
-/* heur 0 leftmost, 1 ff, 2 min, 3 max, 4 ff_min, 5 ff_max;
-   val 0 up, 1 down, 2 updown, 3 split, 4 reverse_split;
-   xs in labeling order (pre-sorted by caller) */
-void fdn_label(fdn_net *, int heur, int val, int n, const int *xs);
+/* labeling strategies (labeling_var_strategy/2, labeling_val_strategy/2 in
+   cpeval/decompiled/fd_labeling.pi) */
+enum { VS_LEFTMOST, VS_FF, VS_MIN, VS_MAX, VS_FF_MIN, VS_FF_MAX };
+enum { US_UP, US_DOWN, US_UPDOWN, US_SPLIT, US_REVERSE_SPLIT };
+/* xs: label order (any reordering already done by the caller) */
+void fdn_label(fdn_net *, int varsel, int valsel, int n, const int *xs);
+const int *fdn_net_label(fdn_net *, int *n);   /* the label order set by fdn_label */
 void fdn_net_free(fdn_net *);
 
-/* search; the run takes ownership of the net */
-fdn_run *fdn_start(fdn_net *);
+/* search; the run takes ownership of the net. path: every solution carries
+   its decision path (fdn_last_path) */
+fdn_run *fdn_start(fdn_net *, int path);
 /* the effective thread count (explicit FDN_THREADS, else min(cores,64)) */
 int  fdn_nthreads(void);
 /* count mode (count_all): solutions are counted natively; *bt receives the
@@ -62,6 +66,15 @@ long fdn_count(fdn_run *, long *bt);
    Returns 1 (solution), 0 (no more). *bt receives Picat-equivalent
    backtracks since the previous call. */
 int  fdn_next(fdn_run *, int *vals, long *bt);
+/* one branch-and-bound round (Picat's minof_aux): a run like fdn_start, read
+   with fdn_next, whose search starts with variable obj narrowed to <= ub
+   (obj < 0: no bound). The run does not own the net, which serves the next
+   round; free it with fdn_net_free after the last run is freed. */
+fdn_run *fdn_start_round(fdn_net *, int obj, long ub, int path);
+/* the decisions from the root to the solution fdn_next returned last (runs
+   started with path set): n triples (variable id, lo, hi), lo == hi meaning
+   "x = lo", else "domain_region(x, lo, hi)" (split) */
+const int *fdn_last_path(fdn_run *, int *n);
 int  fdn_nlabel(fdn_run *);
 const int *fdn_label_ids(fdn_run *);   /* variable ids in solver label order */
 void fdn_free(fdn_run *);

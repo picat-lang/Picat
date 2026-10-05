@@ -3,14 +3,28 @@
    - fdn_init(): at start-up, loads fdn_hook.pi and points labeling/2 (called
      by cp's solve/1,2) at fdn_hook's fdn_labeling/2; the original code stays
      reachable as '$fdn_orig_labeling'/2.
-   - c_fdn_start(Opts, Vars, H): extracts the constraint network reachable
-     from Vars out of the live constraint store (FD variables, their
+   - c_fdn_start(VS, US, Vars, Path, H): extracts the constraint network
+     reachable from Vars out of the live constraint store (FD variables, their
      suspension lists and the neq attribute) and starts the native search.
-     It fails, and Picat labels as usual, when anything is outside the
-     supported vocabulary: an unknown suspended propagator, an attribute
-     other than the neq one, a labeling option other than ff / ffc /
-     leftmost / up, or a value range wider than 4096.
-   - c_fdn_next(H, Vals): next solution in Picat's order, or fails.
+     VS / US are the variable and value strategies as Picat's
+     labeling_var_strategy/2 and labeling_val_strategy/2 return them, and
+     Vars is already reordered by labeling_reorder_vars/3 (fdn_hook.pi does
+     both). It fails, and Picat labels as usual, when anything is outside
+     the supported vocabulary: an unknown suspended propagator, an attribute
+     other than the neq one, a strategy other than leftmost / ff / min /
+     max / ff_min / ff_max and up / down / updown / split / reverse_split,
+     or a value range wider than 65536.
+   - c_fdn_next(H, Vals): next solution in Picat's order, or fails;
+     c_fdn_nextp(H, Vars, Vals, Path) also returns its decision path (runs
+     started with Path = true), replayed by fdn_hook.pi before Picat's rest
+     step.
+   - count_all/2 is repointed the same way at fdn_hook's fdn_count_all/2
+     (original: '$fdn_orig_count_all'/2); for a bare cp solve goal,
+     c_fdn_count(VS, US, Vars, Count) counts the solutions natively.
+   - branch and bound (solve with min/max, fdn_hook.pi fdn_bb):
+     c_fdn_bb(VS, US, Vars, Obj, Path, H) extracts the network once;
+     c_fdn_round(H, Ub, R) starts one round, the search with Obj <= Ub,
+     whose solutions c_fdn_next(R, Vals) returns; c_fdn_close(H).
 
     Supported propagators (live frames, by their delay symbol):
       '$combined_neq'/2 + attribute _$attr_neq = combined_propagators(Vs, VCs)
@@ -58,7 +72,6 @@
 extern PAR_TLS BPLONG_PTR stack_up_addr;
 extern BPLONG n_backtracks;
 extern int dm_true(BPLONG_PTR dv_ptr, BPLONG elm);
-extern int count_cs_list(BPLONG list);
 
 /* ---------------------------------------------------------------- var map */
 typedef struct { BPLONG_PTR *keys; int *vals; int cap, n; } vmap;
@@ -320,7 +333,7 @@ static int ext_collect(ext *e) {
         if (at) ext_term(e, at);
         if (!ext_cs(e, DV_ins_cs(dv)) || !ext_cs(e, DV_minmax_cs(dv)) || !ext_cs(e, DV_dom_cs(dv)) || !ext_cs(e, DV_outer_dom_cs(dv)))
             return 0;
-        if (e->ghi - e->glo > 4095) return unsupported("value range %ld..%ld", e->glo, e->ghi);
+        if (e->ghi - e->glo > 65535) return unsupported("value range %ld..%ld", e->glo, e->ghi);
     }
     return 1;
 }
@@ -357,31 +370,6 @@ static int b_tuple(bld *b, BPLONG t) {
     int id = fdn_tuple(b->net, n, xs); free(xs); return id;
 }
 static int b_int(BPLONG t, long *v) { BPLONG_PTR top; DEREF(t); if (!ISINT(t)) return 0; *v = INTVAL(t); return 1; }
-
-static int el_sup(BPLONG t, long *k, long *lo, long *hi, int *nsup, int cap) {  /* collect =(K, elm(_,_,Mn,Mx)): value K -> I in [Mn,Mx] */
-    BPLONG_PTR top;
-    for (;;) {
-        DEREF(t);
-        if (ISLIST(t)) { t = FOLLOW((BPLONG_PTR)UNTAGGED_ADDR(t)); continue; }
-        if (ISSTRUCT(t)) {
-            BPLONG_PTR p = (BPLONG_PTR)UNTAGGED_ADDR(t); SYM_REC_PTR s = (SYM_REC_PTR)FOLLOW(p);
-            int ar = GET_ARITY(s);
-            if (ar == 2 && GET_LENGTH(s) == 1 && GET_NAME(s)[0] == '=') {
-                BPLONG elm = FOLLOW(p + 2); DEREF(elm);
-                if (ISSTRUCT(elm) && GET_ARITY((SYM_REC_PTR)FOLLOW((BPLONG_PTR)UNTAGGED_ADDR(elm))) == 4) {
-                    BPLONG_PTR ep = (BPLONG_PTR)UNTAGGED_ADDR(elm);
-                    BPLONG mn = FOLLOW(ep + 3), mx = FOLLOW(ep + 4); DEREF(mn); DEREF(mx);
-                    if (ISINT(mn) && ISINT(mx) && *nsup < cap) { k[*nsup] = INTVAL(FOLLOW(p + 1)); lo[*nsup] = INTVAL(mn); hi[*nsup] = INTVAL(mx); (*nsup)++; }
-                }
-                t = FOLLOW(p + 1);
-                continue;
-            }
-            for (int i = 1; i <= ar; i++) if (!el_sup(FOLLOW(p + i), k, lo, hi, nsup, cap)) return 0;
-            return 1;
-        }
-        return 1;
-    }
-}
 
 static int build(ext *e, fdn_net *net) {
     bld b = {e, net}; vm_init(&b.consts); int ok = 1;
@@ -583,8 +571,7 @@ static int build(ext *e, fdn_net *net) {
             }
             if (tf < 0) { ok = unsupported("element tuple"); break; }
             /* the range table built from the tuple itself (the ground truth): value w -> I in
-               [min,max] over the positions where tuple = w. The stock's hashtable walk (el_sup)
-               is unreliable: it misses entries when the values land in different buckets. */
+               [min,max] over the positions where tuple = w. The stock's hashtable walk is unreliable: it misses entries when the values land in different buckets. */
             BPLONG tup = frame_arg(e->frames.a[tf], 3); DEREF(tup);
             if (!ISSTRUCT(tup)) { ok = unsupported("element tuple"); break; }
             BPLONG_PTR tp = (BPLONG_PTR)UNTAGGED_ADDR(tup); int nt = GET_ARITY((SYM_REC_PTR)FOLLOW(tp));
@@ -670,144 +657,175 @@ static int build(ext *e, fdn_net *net) {
 }
 
 /* ---------------------------------------------------------------- handles */
-typedef struct { fdn_run *r; int n; BPLONG *fixed; int *vals; } handle;
+/* a search (r), or a branch and bound (net, obj: objective variable id or
+   -1; round: the current round's search handle, whose parent it is) */
+/* path: solutions carry their decision path (c_fdn_nextp); lidx: variable id ->
+   label index, lpos: label index -> first position in Vars (both for paths) */
+typedef struct handle { fdn_run *r; fdn_net *net; int n; BPLONG *fixed; int *vals; int obj;
+                        struct handle *parent, *round; int slot; int path, nid, nl; int *lidx, *lpos; } handle;
 static handle **HT; static int HTn;
 
-static int parse_opts(BPLONG opts, int *heur, int *sort, int *val) {
-    BPLONG_PTR top; DEREF(opts);
-    *heur = 0; *sort = 0; *val = 0;
-    int ff = 0, deg = 0, mn = 0, mx = 0;
-    while (ISLIST(opts)) {
-        BPLONG_PTR p = (BPLONG_PTR)UNTAGGED_ADDR(opts); BPLONG o = FOLLOW(p); DEREF(o);
-        const char *s = ISATOM(o) ? GET_NAME(GET_ATM_SYM_REC(o)) : NULL;
-        if (!s) return unsupported("labeling option (non-atom)");
-        int len = GET_LENGTH(GET_ATM_SYM_REC(o));
-        if (len == 2 && !strncmp(s, "ff", 2)) ff = 1;
-        else if (len == 3 && !strncmp(s, "ffc", 3)) { ff = 1; deg = 1; }
-        else if (len == 3 && !strncmp(s, "ffd", 3)) { ff = 1; deg = 1; }
-        else if (len == 6 && !strncmp(s, "degree", 6)) deg = 1;
-        else if (len == 6 && !strncmp(s, "constr", 6)) deg = 1;
-        else if (len == 8 && !strncmp(s, "leftmost", 8)) ;
-        else if (len == 3 && !strncmp(s, "min", 3)) mn = 1;
-        else if (len == 3 && !strncmp(s, "max", 3)) mx = 1;
-        else if (len == 2 && !strncmp(s, "up", 2)) ;
-        else if (len == 4 && !strncmp(s, "down", 4)) *val = 1;
-        else if (len == 6 && !strncmp(s, "updown", 6)) *val = 2;
-        else if (len == 5 && !strncmp(s, "split", 5)) *val = 3;
-        else if (len == 13 && !strncmp(s, "reverse_split", 13)) *val = 4;
-        else if (len == 8 && !strncmp(s, "backward", 8)) *sort = 2;
-        else return unsupported("labeling option %.*s", len, s);
-        opts = FOLLOW(p + 1); DEREF(opts);
-    }
-    if (mn) *heur = ff ? 4 : 2;
-    else if (mx) *heur = ff ? 5 : 3;
-    else if (ff) *heur = 1;
-    if (deg) *sort = 1;
-    return opts == nil_sym ? 1 : unsupported("labeling options not a list");
+static int atom_is(BPLONG t, const char *a) {
+    BPLONG_PTR top; DEREF(t);
+    if (!ISATOM(t)) return 0;
+    SYM_REC_PTR s = GET_ATM_SYM_REC(t); int len = GET_LENGTH(s);
+    return len == (int)strlen(a) && !strncmp(GET_NAME(s), a, len);
+}
+/* VS, US: the strategy atoms computed by labeling_var_strategy/2 and
+   labeling_val_strategy/2 (fdn_hook.pi) */
+static int parse_strat(BPLONG VS, BPLONG US, int *vs, int *us) {
+    static const char *vn[] = {"leftmost", "ff", "min", "max", "ff_min", "ff_max"};
+    static const char *un[] = {"up", "down", "updown", "split", "reverse_split"};
+    *vs = *us = -1;
+    for (int i = 0; i < 6; i++) if (atom_is(VS, vn[i])) *vs = i;
+    for (int i = 0; i < 5; i++) if (atom_is(US, un[i])) *us = i;
+    if (*vs < 0) return unsupported("variable strategy");
+    if (*us < 0) return unsupported("value strategy");
+    return 1;
 }
 
-static int degree(BPLONG_PTR dv) {                /* b_CONSTRAINTS_NUMBER_cf */
-    int ok, n = count_cs_list(DV_ins_cs(dv));
-    BPLONG at = neq_attr(dv, &ok);
-    if (at) { BPLONG_PTR p = (BPLONG_PTR)UNTAGGED_ADDR(at); n += count_cs_list(FOLLOW(p + 1)) + count_cs_list(FOLLOW(p + 2)); }
-    return n;
+static void ext_free(ext *e) {
+    vm_free(&e->ids); vm_free(&e->fseen); free(e->dvs.a); free(e->frames.a); free(e->fkind.a);
 }
-
-int c_fdn_start(void) {
-    BPLONG Opts = ARG(1, 3), Vars = ARG(2, 3), H = ARG(3, 3);
-    BPLONG_PTR top; int heur, sortk, val;
+static ext *ext_new(ext *e) {
+    memset(e, 0, sizeof *e); vm_init(&e->ids); vm_init(&e->fseen); e->glo = LONG_MAX; e->ghi = LONG_MIN;
+    return e;
+}
+/* the network for labeling Vars with strategies VS / US, or NULL with the
+   reason in why; *nout = length of Vars */
+static fdn_net *extract(BPLONG VS, BPLONG US, BPLONG Vars, ext *e, int *nout) {
+    BPLONG_PTR top; int vs, us;
     if (verbose < 0) verbose = getenv("FDN_VERBOSE") != NULL;
     init_syms(); why[0] = 0;
-    if (!parse_opts(Opts, &heur, &sortk, &val)) goto fallback;
-    ext e; memset(&e, 0, sizeof e); vm_init(&e.ids); vm_init(&e.fseen); e.glo = LONG_MAX; e.ghi = LONG_MIN;
+    if (!parse_strat(VS, US, &vs, &us)) return NULL;
     /* label list: FD variables and integers */
     int n = 0; BPLONG t = Vars; DEREF(t);
     while (ISLIST(t)) {
         BPLONG_PTR p = (BPLONG_PTR)UNTAGGED_ADDR(t); BPLONG x = FOLLOW(p); DEREF(x);
-        if (IS_SUSP_VAR(x)) ext_var(&e, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(x));
-        else if (!ISINT(x)) { unsupported("non-FD term in the label list"); goto free_e; }
+        if (IS_SUSP_VAR(x)) ext_var(e, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(x));
+        else if (!ISINT(x)) { unsupported("non-FD term in the label list"); return NULL; }
         n++; t = FOLLOW(p + 1); DEREF(t);
     }
-    if (t != nil_sym) { unsupported("label list"); goto free_e; }
-    int nlab = e.dvs.n;
-    if (nlab == 0) { unsupported("nothing to label"); goto free_e; }
-    if (!ext_collect(&e)) goto free_e;
-    if (e.frames.n > 5000 || e.dvs.n > 5000) { unsupported("network too large"); goto free_e; }
-    fdn_net *net = fdn_net_new((int)e.glo, (int)e.ghi);
+    if (t != nil_sym) { unsupported("label list"); return NULL; }
+    int nlab = e->dvs.n;
+    if (nlab == 0) { unsupported("nothing to label"); return NULL; }
+    /* indomain_split with min+max < 0 and odd: Mid = (min+max)/2 rounds up to
+       max, the lower "half" is the whole domain and Picat splits forever */
+    if (us == US_SPLIT || us == US_REVERSE_SPLIT)
+        for (int q = 0; q < nlab; q++) if (DV_first(e->dvs.a[q]) < 0) { unsupported("split on negative values"); return NULL; }
+    if (!ext_collect(e)) return NULL;
+    if (e->frames.n > 5000 || e->dvs.n > 5000) { unsupported("network too large"); return NULL; }
+    fdn_net *net = fdn_net_new((int)e->glo, (int)e->ghi);
     {
-        int *vals = malloc((e.ghi - e.glo + 1) * sizeof(int));
-        for (int q = 0; q < e.dvs.n; q++) {
-            BPLONG_PTR dv = e.dvs.a[q]; int k = 0;
+        int *vals = malloc((e->ghi - e->glo + 1) * sizeof(int));
+        for (int q = 0; q < e->dvs.n; q++) {
+            BPLONG_PTR dv = e->dvs.a[q]; int k = 0;
             for (BPLONG v = DV_first(dv); v <= DV_last(dv); v++) if (dm_true(dv, v)) vals[k++] = (int)v;
             fdn_var(net, k, vals);
         }
         free(vals);
     }
-    if (!build(&e, net)) { fdn_net_free(net); goto free_e; }
-    /* label order: the label list (first occurrence of each variable) */
+    if (!build(e, net)) { fdn_net_free(net); return NULL; }
+    /* label order: the label list (first occurrence of each variable; the
+       selection rules pick the first of equal candidates, so duplicates
+       never matter). Reorderings (ffc, constr, degree, ffd, backward,
+       inout) were done by Picat's own labeling_reorder_vars/3 */
     {
-        int *lab = malloc(n * sizeof(int)), *deg = malloc(n * sizeof(int)), m = 0;
+        int *lab = malloc(n * sizeof(int)), m = 0;
         char *seen = calloc(nlab, 1);
         t = Vars; DEREF(t);
         while (ISLIST(t)) {
             BPLONG_PTR p = (BPLONG_PTR)UNTAGGED_ADDR(t); BPLONG x = FOLLOW(p); DEREF(x);
-            if (IS_SUSP_VAR(x)) { int id = vm_get(&e.ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(x)); if (!seen[id]) { seen[id] = 1; lab[m++] = id; } }
+            if (IS_SUSP_VAR(x)) { int id = vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(x)); if (!seen[id]) { seen[id] = 1; lab[m++] = id; } }
             t = FOLLOW(p + 1); DEREF(t);
         }
-        if (sortk == 1) {   /* ffc / ffd / degree / constr: sort('>=') on (Count, Var) */
-            for (int i = 0; i < m; i++) deg[i] = degree(e.dvs.a[lab[i]]);
-            for (int i = 1; i < m; i++) {
-                int li = lab[i], di = deg[i], j = i - 1;
-                while (j >= 0 && (deg[j] < di || (deg[j] == di && e.dvs.a[lab[j]] < e.dvs.a[li]))) {
-                    lab[j + 1] = lab[j]; deg[j + 1] = deg[j]; j--;
-                }
-                lab[j + 1] = li; deg[j + 1] = di;
-            }
-        } else if (sortk == 2) {   /* backward: reverse */
-            for (int i = 0; i < m / 2; i++) { int t = lab[i]; lab[i] = lab[m - 1 - i]; lab[m - 1 - i] = t; }
-        }
-        fdn_label(net, heur, val, m, lab);
-        free(lab); free(deg); free(seen);
+        fdn_label(net, vs, us, m, lab);
+        free(lab); free(seen);
     }
-    {
-        handle *h = calloc(1, sizeof *h);
-        h->n = n; h->fixed = malloc(n * sizeof(BPLONG)); h->vals = malloc(n * sizeof(int));
-        t = Vars; DEREF(t); int i = 0;
-        while (ISLIST(t)) {                       /* positions: label index or fixed integer */
-            BPLONG_PTR p = (BPLONG_PTR)UNTAGGED_ADDR(t); BPLONG x = FOLLOW(p); DEREF(x);
-            if (IS_SUSP_VAR(x)) { h->fixed[i] = 0; h->vals[i] = vm_get(&e.ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(x)); }
-            else { h->fixed[i] = x; h->vals[i] = -1; }
-            i++;
-            t = FOLLOW(p + 1); DEREF(t);
-        }
-        /* map variable id -> position in the solver's label order */
-        h->r = fdn_start(net); int nl = fdn_nlabel(h->r);
-        int *pos = malloc(e.dvs.n * sizeof(int));
-        const int *ids = fdn_label_ids(h->r);
-        for (int j = 0; j < nl; j++) pos[ids[j]] = j;
-        for (int j = 0; j < n; j++) if (h->vals[j] >= 0) h->vals[j] = pos[h->vals[j]];
-        free(pos);
-        int slot = 0; while (slot < HTn && HT[slot]) slot++;
-        if (slot == HTn) { HT = realloc(HT, (HTn + 16) * sizeof *HT); memset(HT + HTn, 0, 16 * sizeof *HT); HTn += 16; }
-        HT[slot] = h;
-        if (verbose) fprintf(stderr, "fdn: native search (%d vars, %d frames, %d label, values %ld..%ld)\n",
-                             e.dvs.n, e.frames.n, nl, e.glo, e.ghi);
-        if (verbose) fprintf(stderr, "fdn: threads=%d\n", fdn_nthreads());
-        vm_free(&e.ids); vm_free(&e.fseen); free(e.dvs.a); free(e.frames.a); free(e.fkind.a);
-        return unify(H, MAKEINT(slot));
+    *nout = n;
+    return net;
+}
+
+/* handle positions: Vars entry -> index in the label order, or a fixed
+   integer */
+static handle *new_handle(BPLONG Vars, int n, ext *e, fdn_net *net) {
+    BPLONG_PTR top;
+    handle *h = calloc(1, sizeof *h);
+    h->n = n; h->fixed = malloc(n * sizeof(BPLONG)); h->vals = malloc(n * sizeof(int)); h->obj = -1;
+    BPLONG t = Vars; DEREF(t); int i = 0;
+    while (ISLIST(t)) {
+        BPLONG_PTR p = (BPLONG_PTR)UNTAGGED_ADDR(t); BPLONG x = FOLLOW(p); DEREF(x);
+        if (IS_SUSP_VAR(x)) { h->fixed[i] = 0; h->vals[i] = vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(x)); }
+        else { h->fixed[i] = x; h->vals[i] = -1; }
+        i++;
+        t = FOLLOW(p + 1); DEREF(t);
     }
-free_e:
-    vm_free(&e.ids); vm_free(&e.fseen); free(e.dvs.a); free(e.frames.a); free(e.fkind.a);
-fallback:
-    if (verbose) fprintf(stderr, "fdn: fallback to Picat labeling: %s\n", why);
-    return BP_FALSE;
+    int nl; const int *ids = fdn_net_label(net, &nl);
+    int *pos = malloc(e->dvs.n * sizeof(int));
+    for (int q = 0; q < e->dvs.n; q++) pos[q] = -1;
+    for (int j = 0; j < nl; j++) pos[ids[j]] = j;
+    for (int j = 0; j < n; j++) if (h->vals[j] >= 0) h->vals[j] = pos[h->vals[j]];
+    h->lidx = pos; h->nid = e->dvs.n; h->nl = nl;
+    h->lpos = malloc((nl ? nl : 1) * sizeof(int));
+    for (int j = 0; j < nl; j++) h->lpos[j] = -1;
+    for (int j = n - 1; j >= 0; j--) if (h->vals[j] >= 0) h->lpos[h->vals[j]] = j;
+    return h;
+}
+static int put_handle(handle *h) {
+    int slot = 0; while (slot < HTn && HT[slot]) slot++;
+    if (slot == HTn) { HT = realloc(HT, (HTn + 16) * sizeof *HT); memset(HT + HTn, 0, 16 * sizeof *HT); HTn += 16; }
+    HT[slot] = h; h->slot = slot; return slot;
+}
+static handle *get_handle(BPLONG H) {
+    BPLONG_PTR top; DEREF(H);
+    if (!ISINT(H)) return NULL;
+    int slot = INTVAL(H);
+    return slot < 0 || slot >= HTn ? NULL : HT[slot];
+}
+static void free_handle(handle *h) {
+    if (h->r) fdn_free(h->r);
+    if (h->parent) h->parent->round = NULL;
+    HT[h->slot] = NULL; free(h->fixed); free(h->vals); free(h->lidx); free(h->lpos); free(h);
+}
+/* the solution list for the handle's positions (values in label order) */
+static BPLONG sol_list(handle *h, const int *buf) {
+    LOCAL_OVERFLOW_CHECK_WITH_MARGIN("fdn", 2 * h->n + 64);
+    BPLONG lst = nil_sym;
+    for (int i = h->n - 1; i >= 0; i--) {
+        BPLONG v = h->vals[i] >= 0 ? MAKEINT(buf[h->vals[i]]) : h->fixed[i];
+        FOLLOW(heap_top) = v; FOLLOW(heap_top + 1) = lst;
+        lst = ADDTAG(heap_top, LST); heap_top += 2;
+    }
+    return lst;
+}
+
+/* Path: true = solutions carry their decision path, read with c_fdn_nextp
+   (fdn_hook.pi, when Picat's rest step runs after each solution) */
+static int is_true(BPLONG t) { return atom_is(t, "true"); }
+int c_fdn_start(void) {
+    BPLONG VS = ARG(1, 5), US = ARG(2, 5), Vars = ARG(3, 5), Path = ARG(4, 5), H = ARG(5, 5);
+    ext e; int n;
+    fdn_net *net = extract(VS, US, Vars, ext_new(&e), &n);
+    if (!net) {
+        ext_free(&e);
+        if (verbose) fprintf(stderr, "fdn: fallback to Picat labeling: %s\n", why);
+        return BP_FALSE;
+    }
+    handle *h = new_handle(Vars, n, &e, net);
+    h->path = is_true(Path);
+    h->r = fdn_start(net, h->path); int nl = fdn_nlabel(h->r);
+    int slot = put_handle(h);
+    if (verbose) fprintf(stderr, "fdn: native search (%d vars, %d frames, %d label, values %ld..%ld)\n",
+                         e.dvs.n, e.frames.n, nl, e.glo, e.ghi);
+    if (verbose) fprintf(stderr, "fdn: threads=%d\n", fdn_nthreads());
+    ext_free(&e);
+    return unify(H, MAKEINT(slot));
 }
 
 int c_fdn_next(void) {
-    BPLONG H = ARG(1, 2), Vals = ARG(2, 2), top0; BPLONG_PTR top;
-    DEREF(H); int slot = INTVAL(H); (void)top0;
-    if (slot < 0 || slot >= HTn || !HT[slot]) return BP_FALSE;
-    handle *h = HT[slot];
+    BPLONG H = ARG(1, 2), Vals = ARG(2, 2);
+    handle *h = get_handle(H);
+    if (!h || !h->r) return BP_FALSE;
     static int *buf; static int bufn;
     int nl = fdn_nlabel(h->r);
     if (nl > bufn) { bufn = nl; buf = realloc(buf, bufn * sizeof(int)); }
@@ -816,17 +834,114 @@ int c_fdn_next(void) {
     n_backtracks += bt;
     if (!got) {
         if (verbose) fprintf(stderr, "fdn: search done (%s)\n", fdn_stats(h->r));
-        fdn_free(h->r); free(h->fixed); free(h->vals); free(h); HT[slot] = NULL;
+        free_handle(h);
         return BP_FALSE;
     }
-    LOCAL_OVERFLOW_CHECK_WITH_MARGIN("fdn", 2 * h->n + 64);
+    return unify(Vals, sol_list(h, buf));
+}
+
+/* c_fdn_nextp(H, Vars, Vals, Path): c_fdn_next, plus the solution's decision
+   path in search order: eq(X, V) = X was assigned V, rg(X, L, U) = X was
+   narrowed to L..U (split), X taken from Vars. Replaying it one call per
+   decision (fdn_hook.pi fdn_replay) reproduces Picat's propagation events
+   decision by decision. A single Vars = Vals unification runs the
+   propagators once, after all bindings, which can leave other frames dead
+   or alive than Picat's labeling does, and that changes what the rest step
+   labels. */
+int c_fdn_nextp(void) {
+    BPLONG H = ARG(1, 4), Vars = ARG(2, 4), Vals = ARG(3, 4), Path = ARG(4, 4); BPLONG_PTR top;
+    handle *h = get_handle(H);
+    if (!h || !h->r) return BP_FALSE;
+    static int *buf; static int bufn; static BPLONG *vt; static int vtn;
+    int nl = fdn_nlabel(h->r);
+    if (nl > bufn) { bufn = nl; buf = realloc(buf, bufn * sizeof(int)); }
+    long bt;
+    int got = fdn_next(h->r, buf, &bt);
+    n_backtracks += bt;
+    if (!got) {
+        if (verbose) fprintf(stderr, "fdn: search done (%s)\n", fdn_stats(h->r));
+        free_handle(h);
+        return BP_FALSE;
+    }
+    int k; const int *d = fdn_last_path(h->r, &k);
+    LOCAL_OVERFLOW_CHECK_WITH_MARGIN("fdn", 6 * k + 2 * h->n + 64);
+    Vars = ARG(2, 4); Vals = ARG(3, 4); Path = ARG(4, 4);   /* after a possible collection */
+    if (h->n > vtn) { vtn = h->n; vt = realloc(vt, vtn * sizeof(BPLONG)); }
+    BPLONG t = Vars; DEREF(t); int i = 0;
+    while (ISLIST(t) && i < h->n) { BPLONG_PTR p = (BPLONG_PTR)UNTAGGED_ADDR(t); vt[i++] = FOLLOW(p); t = FOLLOW(p + 1); DEREF(t); }
+    if (i != h->n) return BP_FALSE;
     BPLONG lst = nil_sym;
-    for (int i = h->n - 1; i >= 0; i--) {
-        BPLONG v = h->vals[i] >= 0 ? MAKEINT(buf[h->vals[i]]) : h->fixed[i];
-        FOLLOW(heap_top) = v; FOLLOW(heap_top + 1) = lst;
+    static SYM_REC_PTR S_eq, S_rg;
+    if (!S_eq) { S_eq = BP_NEW_SYM("eq", 2); S_rg = BP_NEW_SYM("rg", 3); }
+    for (int j = k - 1; j >= 0; j--) {
+        int id = d[3 * j], lo = d[3 * j + 1], hi = d[3 * j + 2];
+        int li = id >= 0 && id < h->nid ? h->lidx[id] : -1, pos = li >= 0 ? h->lpos[li] : -1;
+        if (pos < 0) return BP_FALSE;                   /* cannot happen: decisions are on label variables */
+        BPLONG_PTR f = heap_top;
+        if (lo == hi) { FOLLOW(f) = (BPLONG)S_eq; FOLLOW(f + 1) = vt[pos]; FOLLOW(f + 2) = MAKEINT(lo); heap_top += 3; }
+        else { FOLLOW(f) = (BPLONG)S_rg; FOLLOW(f + 1) = vt[pos]; FOLLOW(f + 2) = MAKEINT(lo); FOLLOW(f + 3) = MAKEINT(hi); heap_top += 4; }
+        FOLLOW(heap_top) = ADDTAG(f, STR); FOLLOW(heap_top + 1) = lst;
         lst = ADDTAG(heap_top, LST); heap_top += 2;
     }
-    return unify(Vals, lst);
+    BPLONG vl = nil_sym;                             /* as sol_list, within the same overflow check */
+    for (int j = h->n - 1; j >= 0; j--) {
+        FOLLOW(heap_top) = h->vals[j] >= 0 ? MAKEINT(buf[h->vals[j]]) : h->fixed[j]; FOLLOW(heap_top + 1) = vl;
+        vl = ADDTAG(heap_top, LST); heap_top += 2;
+    }
+    return unify(Path, lst) && unify(Vals, vl);
+}
+
+/* c_fdn_bb(VS, US, Vars, Obj, Path, H): the network for a branch and bound with
+   objective variable Obj (an FD variable, reached through the constraints
+   on Vars or not, or an integer); no search yet. */
+int c_fdn_bb(void) {
+    BPLONG VS = ARG(1, 6), US = ARG(2, 6), Vars = ARG(3, 6), Obj = ARG(4, 6), Path = ARG(5, 6), H = ARG(6, 6);
+    BPLONG_PTR top; ext e; int n;
+    fdn_net *net = extract(VS, US, Vars, ext_new(&e), &n);
+    if (!net) {
+        ext_free(&e);
+        if (verbose) fprintf(stderr, "fdn: fallback to Picat branch and bound: %s\n", why);
+        return BP_FALSE;
+    }
+    handle *h = new_handle(Vars, n, &e, net);
+    h->net = net; h->path = is_true(Path); DEREF(Obj);
+    if (IS_SUSP_VAR(Obj)) h->obj = vm_get(&e.ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(Obj));
+    if (verbose) fprintf(stderr, "fdn: native branch and bound (%d vars, %d frames, values %ld..%ld)\n",
+                         e.dvs.n, e.frames.n, e.glo, e.ghi);
+    ext_free(&e);
+    return unify(H, MAKEINT(put_handle(h)));
+}
+/* c_fdn_round(H, Ub, R): a new round of branch and bound H: the search with
+   the objective variable narrowed to <= Ub, read with c_fdn_next(R, Vals).
+   Picat leaves a round after its first accepted solution, so the previous
+   round's search, if still open, is freed here (and by c_fdn_close). */
+int c_fdn_round(void) {
+    BPLONG H = ARG(1, 3), Ub = ARG(2, 3), R = ARG(3, 3); BPLONG_PTR top;
+    handle *h = get_handle(H);
+    if (!h || !h->net) return BP_FALSE;
+    if (h->round) free_handle(h->round);
+    DEREF(Ub);
+    long ub = ISINT(Ub) ? INTVAL(Ub) : LONG_MAX / 4;   /* a big integer: no bound */
+    handle *g = calloc(1, sizeof *g);
+    g->n = h->n; g->obj = -1;
+    g->fixed = malloc(h->n * sizeof(BPLONG)); memcpy(g->fixed, h->fixed, h->n * sizeof(BPLONG));
+    g->vals = malloc(h->n * sizeof(int)); memcpy(g->vals, h->vals, h->n * sizeof(int));
+    g->nid = h->nid; g->nl = h->nl; g->path = h->path;
+    g->lidx = malloc(h->nid * sizeof(int)); memcpy(g->lidx, h->lidx, h->nid * sizeof(int));
+    g->lpos = malloc((h->nl ? h->nl : 1) * sizeof(int)); memcpy(g->lpos, h->lpos, (h->nl ? h->nl : 1) * sizeof(int));
+    g->r = fdn_start_round(h->net, h->obj, ub, h->path);
+    g->parent = h; h->round = g;
+    if (verbose) fprintf(stderr, "fdn: round (ub=%ld)\n", ub);
+    return unify(R, MAKEINT(put_handle(g)));
+}
+int c_fdn_close(void) {
+    BPLONG H = ARG(1, 1);
+    handle *h = get_handle(H);
+    if (h && h->net) {
+        if (h->round) free_handle(h->round);
+        fdn_net_free(h->net); free_handle(h);
+    }
+    return BP_TRUE;
 }
 
 /* c_fdn_alone(Vars): no live suspension frame refers to an FD variable
@@ -870,81 +985,29 @@ int c_fdn_alone(void) {
     return ok ? BP_TRUE : BP_FALSE;
 }
 
-/* c_fdn_count(Opts, Vars, Count): the number of solutions of labeling Vars
-   with Opts, counted natively (count_all(solve(..)) in fdn_hook.pi); adds
-   Picat's backtracks for the whole search. Fails, before any search, when
-   the network is unsupported. */
+/* c_fdn_count(VS, US, Vars, Count): the number of solutions of labeling
+   Vars with strategies VS / US, counted natively (count_all(solve(..)) in
+   fdn_hook.pi); adds Picat's backtracks for the whole search. Fails, before
+   any search, when the network is unsupported. */
 int c_fdn_count(void) {
-    BPLONG Opts = ARG(1, 3), Vars = ARG(2, 3), C = ARG(3, 3);
-    BPLONG_PTR top; int heur, sortk, val;
-    if (verbose < 0) verbose = getenv("FDN_VERBOSE") != NULL;
-    init_syms(); why[0] = 0;
-    if (!parse_opts(Opts, &heur, &sortk, &val)) goto fallback;
-    ext e; memset(&e, 0, sizeof e); vm_init(&e.ids); vm_init(&e.fseen); e.glo = LONG_MAX; e.ghi = LONG_MIN;
-    /* label list: FD variables and integers */
-    int n = 0; BPLONG t = Vars; DEREF(t);
-    while (ISLIST(t)) {
-        BPLONG_PTR p = (BPLONG_PTR)UNTAGGED_ADDR(t); BPLONG x = FOLLOW(p); DEREF(x);
-        if (IS_SUSP_VAR(x)) ext_var(&e, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(x));
-        else if (!ISINT(x)) { unsupported("non-FD term in the label list"); goto free_e; }
-        n++; t = FOLLOW(p + 1); DEREF(t);
-    }
-    if (t != nil_sym) { unsupported("label list"); goto free_e; }
-    if (e.dvs.n == 0) { unsupported("nothing to label"); goto free_e; }
-    if (!ext_collect(&e)) goto free_e;
-    if (e.frames.n > 5000 || e.dvs.n > 5000) { unsupported("network too large"); goto free_e; }
-    fdn_net *net = fdn_net_new((int)e.glo, (int)e.ghi);
-    {
-        int *vals = malloc((e.ghi - e.glo + 1) * sizeof(int));
-        for (int q = 0; q < e.dvs.n; q++) {
-            BPLONG_PTR dv = e.dvs.a[q]; int k = 0;
-            for (BPLONG v = DV_first(dv); v <= DV_last(dv); v++) if (dm_true(dv, v)) vals[k++] = (int)v;
-            fdn_var(net, k, vals);
-        }
-        free(vals);
-    }
-    if (!build(&e, net)) { fdn_net_free(net); goto free_e; }
-    /* label order: the label list (first occurrence of each variable) */
-    {
-        int nlab = e.dvs.n;
-        int *lab = malloc(n * sizeof(int)), *deg = malloc(n * sizeof(int)), m = 0;
-        char *seen = calloc(nlab, 1);
-        t = Vars; DEREF(t);
-        while (ISLIST(t)) {
-            BPLONG_PTR p = (BPLONG_PTR)UNTAGGED_ADDR(t); BPLONG x = FOLLOW(p); DEREF(x);
-            if (IS_SUSP_VAR(x)) { int id = vm_get(&e.ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(x)); if (!seen[id]) { seen[id] = 1; lab[m++] = id; } }
-            t = FOLLOW(p + 1); DEREF(t);
-        }
-        if (sortk == 1) {   /* ffc / ffd / degree / constr: sort('>=') on (Count, Var) */
-            for (int i = 0; i < m; i++) deg[i] = degree(e.dvs.a[lab[i]]);
-            for (int i = 1; i < m; i++) {
-                int li = lab[i], di = deg[i], j = i - 1;
-                while (j >= 0 && (deg[j] < di || (deg[j] == di && e.dvs.a[lab[j]] < e.dvs.a[li]))) {
-                    lab[j + 1] = lab[j]; deg[j + 1] = deg[j]; j--;
-                }
-                lab[j + 1] = li; deg[j + 1] = di;
-            }
-        } else if (sortk == 2) {   /* backward: reverse */
-            for (int i = 0; i < m / 2; i++) { int t2 = lab[i]; lab[i] = lab[m - 1 - i]; lab[m - 1 - i] = t2; }
-        }
-        fdn_label(net, heur, val, m, lab);
-        free(lab); free(deg); free(seen);
+    BPLONG VS = ARG(1, 4), US = ARG(2, 4), Vars = ARG(3, 4), C = ARG(4, 4);
+    ext e; int n;
+    fdn_net *net = extract(VS, US, Vars, ext_new(&e), &n);
+    if (!net) {
+        ext_free(&e);
+        if (verbose) fprintf(stderr, "fdn: fallback to Picat count_all: %s\n", why);
+        return BP_FALSE;
     }
     if (verbose) fprintf(stderr, "fdn: native count_all (%d vars, %d frames, values %ld..%ld)\n",
                          e.dvs.n, e.frames.n, e.glo, e.ghi);
     if (verbose) fprintf(stderr, "fdn: threads=%d\n", fdn_nthreads());
-    vm_free(&e.ids); vm_free(&e.fseen); free(e.dvs.a); free(e.frames.a); free(e.fkind.a);
+    ext_free(&e);
     fdn_run *r = fdn_start_count(net);
     long bt, cnt = fdn_count(r, &bt);
     n_backtracks += bt;
     if (verbose) fprintf(stderr, "fdn: count done (count=%ld, %s)\n", cnt, fdn_stats(r));
     fdn_free(r);
     return unify(C, MAKEINT(cnt));
-free_e:
-    vm_free(&e.ids); vm_free(&e.fseen); free(e.dvs.a); free(e.frames.a); free(e.fkind.a);
-fallback:
-    if (verbose) fprintf(stderr, "fdn: fallback to Picat count_all: %s\n", why);
-    return BP_FALSE;
 }
 
 static void fdn_dump_syms(const char *sub) {
@@ -955,10 +1018,26 @@ static void fdn_dump_syms(const char *sub) {
 
 void fdn_boot(void) {
     insert_cpred("c_fdn_probe", 1, c_fdn_probe);
-    insert_cpred("c_fdn_start", 3, c_fdn_start);
+    insert_cpred("c_fdn_start", 5, c_fdn_start);
+    insert_cpred("c_fdn_nextp", 4, c_fdn_nextp);
     insert_cpred("c_fdn_next", 2, c_fdn_next);
-    insert_cpred("c_fdn_count", 3, c_fdn_count);
+    insert_cpred("c_fdn_count", 4, c_fdn_count);
+    insert_cpred("c_fdn_bb", 6, c_fdn_bb);
+    insert_cpred("c_fdn_round", 3, c_fdn_round);
+    insert_cpred("c_fdn_close", 1, c_fdn_close);
     insert_cpred("c_fdn_alone", 1, c_fdn_alone);
+}
+
+/* point name/2 at hook/2; the original code stays reachable as orig/2 */
+static void repoint(const char *name, const char *orig, const char *hook) {
+    SYM_REC_PTR p = insert_sym((char *)name, strlen(name), 2), o = insert_sym((char *)orig, strlen(orig), 2),
+        h = insert_sym((char *)hook, strlen(hook), 2);
+    if (GET_ETYPE(h) != T_PRED || GET_ETYPE(p) != T_PRED) {
+        fprintf(stderr, "fdn: %s hook not installed (%s etype %d, hook etype %d)\n", name, name, GET_ETYPE(p), GET_ETYPE(h));
+        return;
+    }
+    GET_ETYPE(o) = GET_ETYPE(p); GET_EP(o) = GET_EP(p);
+    GET_EP(p) = GET_EP(h);
 }
 
 void fdn_init(void) {
@@ -977,21 +1056,8 @@ void fdn_init(void) {
     FOLLOW(h + 1) = ADDTAG(insert_sym(path, strlen(path), 0), ATM);
     heap_top += 2;
     bp_call_term(ADDTAG(h, STR));
-    SYM_REC_PTR lab = insert_sym("labeling", 8, 2), orig = insert_sym("$fdn_orig_labeling", 18, 2),
-        hook = insert_sym("e$$fdn_hook$$fdn_labeling", 25, 2);
     if (getenv("FDN_DEBUG")) fdn_dump_syms("fdn_");
-    if (GET_ETYPE(hook) != T_PRED || GET_ETYPE(lab) != T_PRED) {
-        fprintf(stderr, "fdn: hook not installed (labeling etype %d, hook etype %d)\n", GET_ETYPE(lab), GET_ETYPE(hook));
-        return;
-    }
-    GET_ETYPE(orig) = GET_ETYPE(lab); GET_EP(orig) = GET_EP(lab);
-    GET_EP(lab) = GET_EP(hook);
-    if (!((e = getenv("FDN_COUNT")) && !strcmp(e, "0"))) {   /* point count_all/2 at fdn_count_all/2 */
-        SYM_REC_PTR ca = insert_sym("count_all", 9, 2), corig = insert_sym("$fdn_orig_count_all", 19, 2),
-            chook = insert_sym("e$$fdn_hook$$fdn_count_all", 26, 2);
-        if (GET_ETYPE(chook) == T_PRED && GET_ETYPE(ca) == T_PRED) {
-            GET_ETYPE(corig) = GET_ETYPE(ca); GET_EP(corig) = GET_EP(ca);
-            GET_EP(ca) = GET_EP(chook);
-        }
-    }
+    repoint("labeling", "$fdn_orig_labeling", "e$$fdn_hook$$fdn_labeling");
+    if (!((e = getenv("FDN_COUNT")) && !strcmp(e, "0")))
+        repoint("count_all", "$fdn_orig_count_all", "e$$fdn_hook$$fdn_count_all");
 }

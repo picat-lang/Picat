@@ -4,14 +4,23 @@
 // cpeval/fdsim/fdsim.cpp (see its header): forward checking edges, anchored
 // Hall checks, primal/dual channel rules, bounds-consistent linear
 // constraints; singleton = bound; LIFO event processing. The search is
-// Picat's labeling (leftmost / ff, ascending values, no x != v on retry), so
-// solutions come out in exactly the order Picat would produce them, and the
-// `backtracks` count is Picat's.
+// Picat's generic labeling (variable selection leftmost / ff / min / max /
+// ff_min / ff_max, value order up / down / updown / split / reverse_split,
+// no x != v on retry; see select_var, first_alt, advance), so solutions come
+// out in exactly the order Picat would produce them, and the `backtracks`
+// count is Picat's.
+//
+// Optimisation (fdn_start_round): one branch-and-bound round of Picat's
+// minof/3 (cpeval/bb/BB.md): the ordered search from the root state with
+// the objective variable's upper bound narrowed first; Picat takes the
+// first solution it accepts. The loop over rounds runs in Picat
+// (fdn_hook.pi) and reuses the network.
 //
 // Parallelism without changing that order: the search space is a list of
-// tasks in DFS order. A task is a decision prefix plus, optionally, a value
-// range (a, b] for the next variable. A thread running a task can donate the
-// untried values of its shallowest open choice point as a new task, inserted
+// tasks in DFS order. A task is the whole search, or a state copy at a
+// choice point plus the choice point's untried alternatives. A thread running
+// a task can donate the untried alternatives of its shallowest open choice
+// point as a new task, inserted
 // right after its own task, which keeps the list in DFS order. Every task
 // buffers its solutions, and the consumer (the Picat thread, in fdn_next)
 // reads the tasks in list order. The consumer runs the head task itself, so
@@ -61,7 +70,9 @@ struct ElF { int i, v, t; char rng; vector<int> rlo, rhi; };   // rng: value->ra
 struct Lex { int le; vector<pair<int,int>> pr; };   // lexicographic chain, le: last pair <=  else <
 
 struct fdn_net {
-    int glo, ghi, nw = 0, nv = 0, heur = 0, val = 0;
+    int glo, ghi, nw = 0, nv = 0;
+    int varsel = 0, valsel = 0;        // VS_* / US_* (fdn.h)
+    bool fin = false;
     vector<vector<int>> vals;
     vector<vector<Edge>> adj;
     vector<vector<int>> halls, vhall;
@@ -90,6 +101,8 @@ struct fdn_net {
     vector<int> label;
     vector<W> D0; vector<int> SZ0, MN0, MX0; vector<char> chg;
     void finalize() {
+        if (fin) return;           // a branch-and-bound network serves several runs
+        fin = true;
         nv = vals.size(); nw = (ghi - glo + 64) / 64; vlinA.clear();
         D0.assign((size_t)nv * nw, 0); SZ0.resize(nv); MN0.resize(nv); MX0.resize(nv); chg.assign(nv, 0); chx.assign(nv, 0);
         for (auto &l : lins) for (size_t i = 0; i < l.xs.size(); i++) {
@@ -210,7 +223,8 @@ void fdn_lex(fdn_net *n, int le, int np, const int *pr) {
     int id = n->lexs.size(); n->lexs.push_back(l);
     for (int i = 0; i < np - 1; i++) { n->vlex[l.pr[i].first].push_back(id); n->vlex[l.pr[i].second].push_back(id); }
 }
-void fdn_label(fdn_net *n, int h, int v, int k, const int *xs) { n->heur = h; n->val = v; n->label.assign(xs, xs + k); }
+void fdn_label(fdn_net *n, int vs, int us, int k, const int *xs) { n->varsel = vs; n->valsel = us; n->label.assign(xs, xs + k); }
+const int *fdn_net_label(fdn_net *n, int *k) { *k = n->label.size(); return n->label.data(); }
 void fdn_net_free(fdn_net *n) { delete n; }
 }
 
@@ -220,23 +234,53 @@ struct Ev { int k, x, v; };
 struct TE { size_t w; W old; int x, sz, mn, mx; };
 enum { R_SOL, R_DONE, R_PAUSE };
 
+// Allocator for the per-search arrays: 128-byte aligned, sizes rounded up to
+// 128 bytes, so no array written at every node by one thread shares a
+// cache line with another thread's data (a donor allocates the arrays of
+// the searches it gives away, see clone_at)
+template <class T> struct A128 {
+    typedef T value_type;
+    A128() = default;
+    template <class U> A128(const A128<U> &) {}
+    T *allocate(size_t n) { return (T *)::operator new((n * sizeof(T) + 127) & ~(size_t)127, std::align_val_t(128)); }
+    void deallocate(T *p, size_t) { ::operator delete(p, std::align_val_t(128)); }
+    bool operator==(const A128 &) const { return true; }
+    bool operator!=(const A128 &) const { return false; }
+};
+template <class T> using AV = vector<T, A128<T>>;
+
+// environment, read once at load (never in the search loops)
+static const bool TRACE = getenv("FDN_TRACE") != nullptr;   // FDN_TRACE=1: print decisions
+
 struct Task;
-struct Search {
+// alignas: a Search is written at every node (vector ends, counters) by the
+// thread running it, but allocated by the donor thread, whose next heap
+// objects would otherwise share its first or last cache line (false
+// sharing; 128 = two lines, as adjacent-line prefetch pairs them)
+struct alignas(128) Search {
     const fdn_net &N; const int NW, GLO, GHI;
-    vector<W> D; vector<int> SZ, MN, MX;
-    vector<TE> TR; vector<uint64_t> STAMP; uint64_t EPOCH = 1;
-    vector<Ev> EV; vector<char> PEND, PENDL, PENDR;
+    AV<W> D; AV<int> SZ, MN, MX;
+    AV<TE> TR; AV<uint64_t> STAMP; uint64_t EPOCH = 1;
+    AV<Ev> EV; AV<char> PEND, PENDL, PENDR;
     int SEED = -1;                          // the linear constraint being run (see setword)
-    vector<long> SMIN, SMAX; vector<int> NUNB;   // per linear constraint, incremental
-    struct CP { int x, v, lim, ls, kind, d, ph, lo, hi; size_t tm, dom; };
+    AV<long> SMIN, SMAX; AV<int> NUNB;     // per linear constraint, incremental
+    // a choice point: variable x and its value-order iterator (first_alt,
+    // advance) over the snapshot of x's domain taken when x was selected
+    // (DS[dom..]; smin/smax = its bounds). Picat's retries see exactly that
+    // domain, because everything done since is undone. idx = number of the
+    // alternative being tried (task keys); cut = no further alternatives
+    // (the rest was donated)
+    struct CP { int x, a, b, smin, smax, idx, ls; short k; bool cut; size_t tm, dom; };
     int ls = 0;                             // label list: all entries before ls are bound
-    vector<CP> st; vector<W> DS;            // DS: domain snapshots of the CP variables
+    AV<CP> st; AV<W> DS;                  // DS: domain snapshots of the CP variables
     long bt = 0, nodes = 0;
     bool counting = false; long nsol = 0;  // count mode: solutions are counted, not returned
     int state = 0;                          // 0 select, 1 backtrack, 2 done
-    vector<pair<int,int>> prefix;
+    vector<int> pkey;                       // alternative numbers on the path to this task's root
+    vector<int> pdec;                       // the decisions on that path, 3 ints each (decision())
 
-    Search(const fdn_net &n, bool init_sums = true) : N(n), NW(n.nw), GLO(n.glo), GHI(n.ghi), D(n.D0), SZ(n.SZ0), MN(n.MN0), MX(n.MX0),
+    Search(const fdn_net &n, bool init_sums = true) : N(n), NW(n.nw), GLO(n.glo), GHI(n.ghi),
+        D(n.D0.begin(), n.D0.end()), SZ(n.SZ0.begin(), n.SZ0.end()), MN(n.MN0.begin(), n.MN0.end()), MX(n.MX0.begin(), n.MX0.end()),
         STAMP(n.D0.size(), 0), PEND(n.nv, 0), PENDL(n.lins.size(), 0), PENDR(n.nv, 0),
         SMIN(n.lins.size()), SMAX(n.lins.size()), NUNB(n.lins.size(), 0) {
         if (!init_sums) return;
@@ -258,12 +302,20 @@ struct Search {
     }
 
     W *dom(int x) { return &D[(size_t)x * NW]; }
-    void mm(int x) {
+    // The words of x's bitset outside its current [MN, MX] are zero: domain
+    // operations only visit the words from kmin(x) to kmax(x) (the value
+    // range is global, and one wide variable, e.g. an objective, would
+    // otherwise make every variable's operations that wide). Skipped words
+    // would be no-ops, so the events and their order are unchanged.
+    int kmin(int x) { return NW == 1 ? 0 : (MN[x] - GLO) >> 6; }
+    int kmax(int x) { return NW == 1 ? 0 : (MX[x] - GLO) >> 6; }
+    void mm(int x) {                        // called before MN/MX change; domains only shrink
         W *d = dom(x); int k;
-        for (k = 0; !d[k]; k++) ;
-        MN[x] = GLO + k * 64 + __builtin_ctzll(d[k]);
-        for (k = NW - 1; !d[k]; k--) ;
+        for (k = kmin(x); !d[k]; k++) ;
+        int mn = GLO + k * 64 + __builtin_ctzll(d[k]);
+        for (k = kmax(x); !d[k]; k--) ;
         MX[x] = GLO + k * 64 + 63 - __builtin_clzll(d[k]);
+        MN[x] = mn;
     }
     bool setword(int x, int k, W nw) {
         size_t w = (size_t)x * NW + k; W old = D[w], rem = old & ~nw;
@@ -305,12 +357,12 @@ struct Search {
     bool assign(int x, int v) {
         if (!has(x, v)) return false;
         int b = v - GLO;
-        for (int k = 0; k < NW; k++) if (!setword(x, k, k == (b >> 6) ? 1ULL << (b & 63) : 0)) return false;
+        for (int k = kmin(x), k1 = kmax(x); k <= k1; k++) if (!setword(x, k, k == (b >> 6) ? 1ULL << (b & 63) : 0)) return false;
         return true;
     }
     bool restrict_bounds(int x, long lo, long hi) {
         if (lo > MX[x] || hi < MN[x]) return false;
-        for (int k = 0; k < NW; k++) {
+        for (int k = kmin(x), k1 = kmax(x); k <= k1; k++) {
             W m = ~0ULL; long a = lo - GLO - k * 64L, b = hi - GLO - k * 64L;
             if (a > 63 || b < 0) m = 0;
             else { if (a > 0) m &= ~0ULL << a; if (b < 63) m &= ~0ULL >> (63 - b); }
@@ -325,7 +377,7 @@ struct Search {
         for (size_t i = 0; i < xs.size(); i++) {
             int y = xs[i]; if (y == x || SZ[y] == 1) continue;
             W *dy = dom(y); bool s = true;
-            for (int k = 0; k < NW; k++) if (dy[k] & ~dx[k]) { s = false; break; }
+            for (int k = kmin(y), k1 = kmax(y); k <= k1; k++) if (dy[k] & ~dx[k]) { s = false; break; }
             if (s) { sub[i] = 1; count++; }
         }
         if (count > size) return false;
@@ -333,7 +385,7 @@ struct Search {
         static thread_local vector<W> mask; mask.assign(dx, dx + NW);
         for (size_t i = 0; i < xs.size(); i++) {
             int y = xs[i]; if (y == x || sub[i] || SZ[y] == 1) continue;
-            for (int k = 0; k < NW; k++) if (!setword(y, k, dom(y)[k] & ~mask[k])) return false;
+            for (int k = kmin(y), k1 = kmax(y); k <= k1; k++) if (!setword(y, k, dom(y)[k] & ~mask[k])) return false;
         }
         return true;
     }
@@ -484,8 +536,8 @@ struct Search {
     bool mul_prop(int s) {
         const Mul &c = N.muls[s];
         int x = c.x, y = c.y, z = c.z;
-        static const bool tr_ = getenv("FDN_TRACE") != NULL;
-        if (tr_) fprintf(stderr, "  mul s=%d x=(%d,%ld,%ld,%d) y=(%d,%ld,%ld,%d) z=(%d,%ld,%ld,%d)\n", s, x, (long)MN[x], (long)MX[x], SZ[x], y, (long)MN[y], (long)MX[y], SZ[y], z, (long)MN[z], (long)MX[z], SZ[z]);
+        
+        if (TRACE) fprintf(stderr, "  mul s=%d x=(%d,%ld,%ld,%d) y=(%d,%ld,%ld,%d) z=(%d,%ld,%ld,%d)\n", s, x, (long)MN[x], (long)MX[x], SZ[x], y, (long)MN[y], (long)MX[y], SZ[y], z, (long)MN[z], (long)MX[z], SZ[z]);
         if (SZ[x] == 1 && SZ[y] == 1) {
             long p = (long)MN[x] * MN[y];
             return SZ[z] == 1 ? MN[z] == p : assign(z, (int)p);
@@ -625,7 +677,7 @@ struct Search {
     }
     bool same_link(int x, int y) {         // X = Y: intersect and keep in step (AC on equality)
         if (x == y) return true;
-        for (int k = 0; k < NW; k++) {
+        for (int k = min(kmin(x), kmin(y)), k1 = max(kmax(x), kmax(y)); k <= k1; k++) {
             W m = dom(x)[k] & dom(y)[k];
             if (m != dom(x)[k] && !setword(x, k, m)) return false;
             if (m != dom(y)[k] && !setword(y, k, m)) return false;
@@ -667,13 +719,13 @@ struct Search {
             return true;
         case 2:                                // B <=> X = Y
             { W *dx = dom(x), *dy = dom(y); bool disj = true;
-              for (int k = 0; k < NW && disj; k++) if (dx[k] & dy[k]) disj = false;
+              for (int k = min(kmin(x), kmin(y)), k1 = max(kmax(x), kmax(y)); k <= k1 && disj; k++) if (dx[k] & dy[k]) disj = false;
               if (disj) return assign(b, 0);
               if (SZ[x] == 1 && SZ[y] == 1) return assign(b, MN[x] == MN[y] ? 1 : 0);
               return true; }
         case 3:                                // B <=> X != Y
             { W *dx = dom(x), *dy = dom(y); bool disj = true;
-              for (int k = 0; k < NW && disj; k++) if (dx[k] & dy[k]) disj = false;
+              for (int k = min(kmin(x), kmin(y)), k1 = max(kmax(x), kmax(y)); k <= k1 && disj; k++) if (dx[k] & dy[k]) disj = false;
               if (disj) return assign(b, 1);
               if (SZ[x] == 1 && SZ[y] == 1) return assign(b, MN[x] != MN[y] ? 1 : 0);
               return true; }
@@ -702,7 +754,7 @@ struct Search {
         case 0: if (!has(x, y)) return assign(b, 0); return true;
         case 1: if (SZ[x] == 1 && MN[x] == y) return assign(b, 0); return true;
         case 2: { W *dx = dom(x), *dy = dom(y); bool disj = true;
-                  for (int k = 0; k < NW && disj; k++) if (dx[k] & dy[k]) disj = false;
+                  for (int k = min(kmin(x), kmin(y)), k1 = max(kmax(x), kmax(y)); k <= k1 && disj; k++) if (dx[k] & dy[k]) disj = false;
                   if (disj) return assign(b, 0);
                   return true; }
         default: if (SZ[x] == 1 && SZ[y] == 1 && MN[x] == MN[y]) return assign(b, 0);
@@ -714,8 +766,8 @@ struct Search {
         if (SZ[c.i] != 1) return true;     // I not bound: the stock's var(A1) ins rule waits
         const vector<int> &t = N.tuples[c.t];
         long k = MN[c.i] - 1;
-        static const bool tr2_ = getenv("FDN_TRACE") != NULL;
-        if (tr2_) { fprintf(stderr, "  eld s=%d i=v%d(v=%ld) v=v%d tuple=%d tsize=%zu k=%ld t[k]=%d tup:", s, c.i, (long)MN[c.i], c.v, (int)c.t, t.size(), k, k >= 0 && k < (long)t.size() ? t[k] : -99); for (size_t q = 0; q < t.size(); q++) fprintf(stderr, " v%d:[%ld,%ld]", t[q], (long)MN[t[q]], (long)MX[t[q]]); fprintf(stderr, "\n"); }
+        
+        if (TRACE) { fprintf(stderr, "  eld s=%d i=v%d(v=%ld) v=v%d tuple=%d tsize=%zu k=%ld t[k]=%d tup:", s, c.i, (long)MN[c.i], c.v, (int)c.t, t.size(), k, k >= 0 && k < (long)t.size() ? t[k] : -99); for (size_t q = 0; q < t.size(); q++) fprintf(stderr, " v%d:[%ld,%ld]", t[q], (long)MN[t[q]], (long)MX[t[q]]); fprintf(stderr, "\n"); }
         if (k < 0 || k >= (long)t.size()) return false;
         return same_link(c.v, t[k]);
     }
@@ -731,16 +783,16 @@ struct Search {
         const ElF &f = N.elves[s];
         if (!f.rng || SZ[f.v] != 1) return true;
         long w = MN[f.v] - GLO;
-        static const bool tr = getenv("FDN_TRACE") != NULL;
-        if (tr) fprintf(stderr, "  elf_ins s=%d i=%d v=%d mnv=%d glo=%d w=%ld rlo=%d rhi=%d mni=%d mxi=%d\n", s, f.i, f.v, MN[f.v], GLO, w, w >= 0 && w < (long)f.rlo.size() ? f.rlo[w] : -99, w >= 0 && w < (long)f.rhi.size() ? f.rhi[w] : -99, MN[f.i], MX[f.i]);
+        
+        if (TRACE) fprintf(stderr, "  elf_ins s=%d i=%d v=%d mnv=%d glo=%d w=%ld rlo=%d rhi=%d mni=%d mxi=%d\n", s, f.i, f.v, MN[f.v], GLO, w, w >= 0 && w < (long)f.rlo.size() ? f.rlo[w] : -99, w >= 0 && w < (long)f.rhi.size() ? f.rhi[w] : -99, MN[f.i], MX[f.i]);
         if (w < 0 || w >= (long)f.rlo.size() || f.rhi[w] < f.rlo[w]) return false;
         return restrict_bounds(f.i, f.rlo[w], f.rhi[w]);
     }
     bool elf_fc(int s, int own, int ev) {  // FC on a value removed from own
         const ElF &f = N.elves[s];
         const vector<int> &t = N.tuples[f.t];
-        static const bool tr3_ = getenv("FDN_TRACE") != NULL;
-        if (tr3_) { fprintf(stderr, "  elffc s=%d own=v%d ev=%d f.i=v%d[%ld,%ld] f.v=v%d[%ld,%ld] tsize=%zu tup:", s, own, ev, f.i, (long)MN[f.i], (long)MX[f.i], f.v, (long)MN[f.v], (long)MX[f.v], t.size()); for (size_t q = 0; q < t.size(); q++) fprintf(stderr, " v%d:[%ld,%ld]", t[q], (long)MN[t[q]], (long)MX[t[q]]); fprintf(stderr, "\n"); }
+        
+        if (TRACE) { fprintf(stderr, "  elffc s=%d own=v%d ev=%d f.i=v%d[%ld,%ld] f.v=v%d[%ld,%ld] tsize=%zu tup:", s, own, ev, f.i, (long)MN[f.i], (long)MX[f.i], f.v, (long)MN[f.v], (long)MX[f.v], t.size()); for (size_t q = 0; q < t.size(); q++) fprintf(stderr, " v%d:[%ld,%ld]", t[q], (long)MN[t[q]], (long)MX[t[q]]); fprintf(stderr, "\n"); }
         if (own == f.v) {                                 // value removed -> indices without support out of I
             for (long k = MN[f.i]; k <= MX[f.i]; k++) {
                 if (!has(f.i, (int)k)) continue;
@@ -785,7 +837,6 @@ struct Search {
         while (!EV.empty()) {
             Ev e = EV.back(); EV.pop_back();
             int x = e.x;
-            static const bool dbg = getenv("FDN_TRACE") != NULL;
             if (e.k == E_BOUND) {
                 int v = MN[x];
                 for (const Edge &ed : N.adj[x]) if (!remove_val(ed.t, v + ed.d)) return false;
@@ -793,16 +844,16 @@ struct Search {
                     const vector<int> &t = N.tuples[r.tuple]; int i = v - r.off;
                     if (i >= 1 && i <= (int)t.size() && !assign(t[i - 1], r.a)) return false;
                 }
-                for (int s : N.vabs[x]) { if (dbg) fprintf(stderr, "abs_prop %d\n", s); if (!abs_prop(s)) { if (dbg) fprintf(stderr, "abs_prop %d FAIL\n", s); return false; } }
-                for (int s : N.vmul[x]) { if (dbg) fprintf(stderr, "mul_prop %d\n", s); if (!mul_prop(s)) { if (dbg) fprintf(stderr, "mul_prop %d FAIL\n", s); return false; } }
-                for (int s : N.vdiv[x]) { if (dbg) fprintf(stderr, "div_prop %d\n", s); if (!div_prop(s)) { if (dbg) fprintf(stderr, "div_prop %d FAIL\n", s); return false; } }
-                for (int s : N.vmod[x]) { if (dbg) fprintf(stderr, "mod_prop %d\n", s); if (!mod_prop(s)) { if (dbg) fprintf(stderr, "mod_prop %d FAIL\n", s); return false; } }
-                for (int s : N.vmm[x]) { if (dbg) fprintf(stderr, "mm_prop %d\n", s); if (!mm_prop(s)) { if (dbg) fprintf(stderr, "mm_prop %d FAIL\n", s); return false; } }
-                for (int s : N.veld[x]) { if (dbg) fprintf(stderr, "eld_prop %d\n", s); if (!eld_prop(s)) { if (dbg) fprintf(stderr, "eld_prop %d FAIL\n", s); return false; } }
-                for (int s : N.velf[x]) { if (dbg) fprintf(stderr, "elf_ins %d\n", s); if (!elf_ins(s)) { if (dbg) fprintf(stderr, "elf_ins %d FAIL\n", s); return false; } }
-                for (int s : N.vlex[x]) { if (dbg) fprintf(stderr, "lex_prop %d\n", s); if (!lex_prop(s, x)) { if (dbg) fprintf(stderr, "lex_prop %d FAIL\n", s); return false; } }
-                for (int s : N.vent[x]) { if (dbg) fprintf(stderr, "ent_prop %d\n", s); if (!ent_prop(s)) { if (dbg) fprintf(stderr, "ent_prop %d FAIL\n", s); return false; } }
-                for (int s : N.vreif[x]) { if (dbg) fprintf(stderr, "reif_bound %d\n", s); if (!reif_bound(s)) { if (dbg) fprintf(stderr, "reif_bound %d FAIL\n", s); return false; } }
+                for (int s : N.vabs[x]) { if (TRACE) fprintf(stderr, "abs_prop %d\n", s); if (!abs_prop(s)) { if (TRACE) fprintf(stderr, "abs_prop %d FAIL\n", s); return false; } }
+                for (int s : N.vmul[x]) { if (TRACE) fprintf(stderr, "mul_prop %d\n", s); if (!mul_prop(s)) { if (TRACE) fprintf(stderr, "mul_prop %d FAIL\n", s); return false; } }
+                for (int s : N.vdiv[x]) { if (TRACE) fprintf(stderr, "div_prop %d\n", s); if (!div_prop(s)) { if (TRACE) fprintf(stderr, "div_prop %d FAIL\n", s); return false; } }
+                for (int s : N.vmod[x]) { if (TRACE) fprintf(stderr, "mod_prop %d\n", s); if (!mod_prop(s)) { if (TRACE) fprintf(stderr, "mod_prop %d FAIL\n", s); return false; } }
+                for (int s : N.vmm[x]) { if (TRACE) fprintf(stderr, "mm_prop %d\n", s); if (!mm_prop(s)) { if (TRACE) fprintf(stderr, "mm_prop %d FAIL\n", s); return false; } }
+                for (int s : N.veld[x]) { if (TRACE) fprintf(stderr, "eld_prop %d\n", s); if (!eld_prop(s)) { if (TRACE) fprintf(stderr, "eld_prop %d FAIL\n", s); return false; } }
+                for (int s : N.velf[x]) { if (TRACE) fprintf(stderr, "elf_ins %d\n", s); if (!elf_ins(s)) { if (TRACE) fprintf(stderr, "elf_ins %d FAIL\n", s); return false; } }
+                for (int s : N.vlex[x]) { if (TRACE) fprintf(stderr, "lex_prop %d\n", s); if (!lex_prop(s, x)) { if (TRACE) fprintf(stderr, "lex_prop %d FAIL\n", s); return false; } }
+                for (int s : N.vent[x]) { if (TRACE) fprintf(stderr, "ent_prop %d\n", s); if (!ent_prop(s)) { if (TRACE) fprintf(stderr, "ent_prop %d FAIL\n", s); return false; } }
+                for (int s : N.vreif[x]) { if (TRACE) fprintf(stderr, "reif_bound %d\n", s); if (!reif_bound(s)) { if (TRACE) fprintf(stderr, "reif_bound %d FAIL\n", s); return false; } }
             } else if (e.k == E_LIN) {
                 PENDL[x] = 0;
                 if (!linear(x)) return false;
@@ -821,12 +872,12 @@ struct Search {
                     for (int s : N.veldc[x]) if (!eld_same(s)) return false;
                     for (int s : N.vmod[x]) if (!mod_prop(s)) return false;
                 } else {                           // per-removed-value event
-                    static const bool dbg2 = getenv("FDN_TRACE") != NULL;
-                    if (dbg2) fprintf(stderr, "reif_val v%d ev=%d\n", x, e.v);
-                    for (int s : N.vabs[x]) { if (dbg2) fprintf(stderr, "abs_dom %d\n", s); if (!abs_dom(s, x, e.v)) { if (dbg2) fprintf(stderr, "abs_dom %d FAIL\n", s); return false; } }
-                    for (int s : N.velf[x]) { if (dbg2) fprintf(stderr, "elf_fc %d\n", s); if (!elf_fc(s, x, e.v)) { if (dbg2) fprintf(stderr, "elf_fc %d FAIL\n", s); return false; } }
-                    for (int s : N.velfv[x]) { if (dbg2) fprintf(stderr, "elf_fcv %d\n", s); if (!elf_fc(s, x, e.v)) { if (dbg2) fprintf(stderr, "elf_fcv %d FAIL\n", s); return false; } }
-                    for (int s : N.ventc[x]) { if (dbg2) fprintf(stderr, "entc %d\n", s); if (!ent_prop(s)) { if (dbg2) fprintf(stderr, "entc %d FAIL\n", s); return false; } }
+                    // (TRACE)
+                    if (TRACE) fprintf(stderr, "reif_val v%d ev=%d\n", x, e.v);
+                    for (int s : N.vabs[x]) { if (TRACE) fprintf(stderr, "abs_dom %d\n", s); if (!abs_dom(s, x, e.v)) { if (TRACE) fprintf(stderr, "abs_dom %d FAIL\n", s); return false; } }
+                    for (int s : N.velf[x]) { if (TRACE) fprintf(stderr, "elf_fc %d\n", s); if (!elf_fc(s, x, e.v)) { if (TRACE) fprintf(stderr, "elf_fc %d FAIL\n", s); return false; } }
+                    for (int s : N.velfv[x]) { if (TRACE) fprintf(stderr, "elf_fcv %d\n", s); if (!elf_fc(s, x, e.v)) { if (TRACE) fprintf(stderr, "elf_fcv %d FAIL\n", s); return false; } }
+                    for (int s : N.ventc[x]) { if (TRACE) fprintf(stderr, "entc %d\n", s); if (!ent_prop(s)) { if (TRACE) fprintf(stderr, "entc %d FAIL\n", s); return false; } }
                 }
             } else {
                 for (const Map &mp : N.vmap[x]) if (!remove_val(mp.t, mp.s * e.v + mp.k)) return false;
@@ -838,31 +889,56 @@ struct Search {
         }
         return true;
     }
+    void trace(int x, int v, bool ok) {        // FDN_TRACE=1: domains after each decision (debugging)
+        fprintf(stderr, "d%zu x%d=%d %s", st.size(), x, v, ok ? "ok" : "fail");   // split: -mid (low half), mid+1 (high half)
+        if (ok) for (int y = 0; y < (int)N.label.size(); y++) {   // label variables by id (= label list order)
+            fprintf(stderr, " [");
+            for (int u = MN[y], c = 0; u <= MX[y]; u++) if (has(y, u)) fprintf(stderr, c++ ? ",%d" : "%d", u);
+            fprintf(stderr, "]");
+        }
+        fprintf(stderr, "\n");
+    }
     bool try_assign(int x, int v) {
-        static const bool tr = getenv("FDN_TRACE") != NULL;
-        if (tr) fprintf(stderr, "assign v%d=%d\n", x, v);
-        if (assign(x, v) && propagate1()) return true;
-        if (tr) fprintf(stderr, "  FAIL\n");
+        bool ok = assign(x, v) && propagate1();
+        if (TRACE) trace(x, v, ok);
+        if (ok) return true;
         for (auto &e : EV) { if (e.k == E_CHG) PEND[e.x] = 0; else if (e.k == E_LIN) PENDL[e.x] = 0; else if (e.k == E_REIF && e.v < 0) PENDR[e.x] = 0; }
         EV.clear(); return false;
     }
-    int select_var() {
-        int best = -1, n = N.label.size();
-        while (ls < n && SZ[N.label[ls]] == 1) ls++;
-        if (N.heur == 0) { for (int i = ls; i < n; i++) { int x = N.label[i]; if (SZ[x] > 1) return x; } return -1; }
-        long bs = LONG_MAX;                       // strict improvement only: the first-seen wins ties
-        for (int i = ls; i < n; i++) {
-            int x = N.label[i];
-            if (SZ[x] == 1) continue;
-            switch (N.heur) {
-            case 1: if (SZ[x] < bs) { bs = SZ[x]; best = x; if (bs == 2) return best; } break;          // ff
-            case 2: if (MN[x] < bs || (MN[x] == bs && best >= 0 && SZ[x] < SZ[best])) { bs = MN[x]; best = x; } break;   // min
-            case 3: if (MX[x] < bs || (MX[x] == bs && best >= 0 && SZ[x] < SZ[best])) { bs = MX[x]; best = x; } break;   // max
-            case 4: if (SZ[x] < bs || (SZ[x] == bs && MN[x] < MN[best])) { bs = SZ[x]; best = x; } break;                // ff_min
-            default: if (SZ[x] < bs || (SZ[x] == bs && MX[x] < MX[best])) { bs = SZ[x]; best = x; }                      // ff_max
-            }
-        }
+    // generic_select_var/4 (fd_labeling.pi) on the unbound entries of the
+    // label list: leftmost; ff = b_select_ff (smallest size, first, stop at
+    // size 2); min = b_SELECT_MIN_cf (smallest min, ties: smaller size);
+    // max = b_SELECT_MAX_cf (largest max, ties: smaller size); ff_min /
+    // ff_max = b_SELECT_FF_MIN/MAX_cf (smallest size, ties: smaller min /
+    // larger max), all first-wins (emu/clpfd.c).
+    // indomain_split/indomain_reverse_split keep splitting the variable
+    // until it is bound, so a still-unbound decision variable continues.
+    template <class Better> int scan(int i, int n, Better better) {   // first best unbound entry
+        const int *lab = N.label.data(); int best = -1;
+        for (; i < n; i++) { int x = lab[i]; if (SZ[x] > 1 && (best < 0 || better(x, best))) best = x; }
         return best;
+    }
+    int select_var() {
+        if (N.valsel >= US_SPLIT && !st.empty() && SZ[st.back().x] > 1) return st.back().x;
+        int n = N.label.size();
+        while (ls < n && SZ[N.label[ls]] == 1) ls++;
+        if (ls == n) return -1;
+        switch (N.varsel) {
+        case VS_LEFTMOST: return N.label[ls];
+        case VS_FF: {
+            int best = -1, bs = INT_MAX; const int *lab = N.label.data();
+            for (int i = ls; i < n; i++) {
+                int x = lab[i];
+                if (SZ[x] == 1) continue;
+                if (SZ[x] < bs) { bs = SZ[x]; best = x; if (bs == 2) break; }
+            }
+            return best;
+        }
+        case VS_MIN: return scan(ls, n, [&](int x, int b) { return MN[x] < MN[b] || (MN[x] == MN[b] && SZ[x] < SZ[b]); });
+        case VS_MAX: return scan(ls, n, [&](int x, int b) { return MX[x] > MX[b] || (MX[x] == MX[b] && SZ[x] < SZ[b]); });
+        case VS_FF_MIN: return scan(ls, n, [&](int x, int b) { return SZ[x] < SZ[b] || (SZ[x] == SZ[b] && MN[x] < MN[b]); });
+        default: return scan(ls, n, [&](int x, int b) { return SZ[x] < SZ[b] || (SZ[x] == SZ[b] && MX[x] > MX[b]); });
+        }
     }
     int next_in(const W *d, int v, int lim) {   // smallest value > v in snapshot d, <= lim
         for (int u = v + 1; u <= GHI && u <= lim; u++) {
@@ -873,49 +949,110 @@ struct Search {
         }
         return INT_MIN;
     }
-    int prev_in(const W *d, int v, int lim) {   // largest value < v in snapshot d, >= lim
-        for (int u = v - 1; u >= GLO && u >= lim; u--) {
-            int b = u - GLO, k = b >> 6;
-            if (b < 0) break;
-            W w = u == GLO ? d[k] & 1 : d[k] & ((1ULL << ((b & 63) + 1)) - 1);
-            if (w) { int t = 63 - __builtin_clzll(w); return GLO + k * 64 + t; }
+    int prev_in(const W *d, int v) {           // largest value < v in snapshot d
+        for (int u = v - 1; u >= GLO; u--) {
+            int b = u - GLO, k = b >> 6, o = b & 63;
+            W w = o == 63 ? d[k] : d[k] & ((2ULL << o) - 1);
+            if (w) return GLO + k * 64 + 63 - __builtin_clzll(w);
             u = GLO + k * 64;
         }
         return INT_MIN;
     }
-    void push_cp(int x, int v, int lim) {
-        static const bool tr4_ = getenv("FDN_TRACE") != NULL;
-        if (tr4_) fprintf(stderr, "push_cp v%d lim=%d\n", x, lim);
+    // Value orders, as Picat's indomain predicates run them (fd_labeling.pi,
+    // byte code in cpeval/picat_bc.pil), with the backtracks they count:
+    // domain_next_inst counts one when a next value exists (else it fails
+    // without counting); b_DM_PREV0_ccf counts one on every call, also when
+    // there is no previous value (emu/emu_inst.h, emu/domain.c).
+    //   up      indomain_dvar: min, then fd_next
+    //   down    indomain_dvar_backward: max, then b_DM_PREV0
+    //   updown  indomain_updown: start at Mid = (min+max)/2 (C division);
+    //           if Mid = min: D = min, U = fd_next(min) (1 counted), else
+    //           D = b_DM_PREV0(Mid), U = fd_next(D) (2 counted); then
+    //           indomain_dvar_forward_backward(U, D) (K_FB: try U) and
+    //           indomain_dvar_backward_forward (K_BF: try D) alternate; when
+    //           one side runs out, the other continues as up / down
+    //   split   indomain_split: domain_region(min..Mid), then (Mid+1..max),
+    //           no backtracks counted; the variable is split again until
+    //           bound (select_var); reverse_split: upper half first
+    enum { K_UP, K_DOWN, K_FB, K_BF, K_SPLIT0, K_SPLIT1 };
+    // new choice point on x; the snapshot is already taken; returns the
+    // backtracks counted before its first alternative
+    long push_cp(int x) {
         size_t off = DS.size(); W *d = dom(x); DS.insert(DS.end(), d, d + NW);
-        st.push_back({x, v, lim, ls, 0, 0, 0, 0, 0, TR.size(), off});
+        CP c; c.x = x; c.ls = ls; c.tm = TR.size(); c.dom = off;
+        long inc = first_alt(c); st.push_back(c); return inc;
     }
-    void push_cp_val(int x) {               // the choice point per the value strategy
-        size_t off = DS.size(); W *d = dom(x); DS.insert(DS.end(), d, d + NW);
-        int v = MN[x], lim = INT_MAX, kind = N.val, ph = 0;
-        if (N.val == 1) { v = MX[x]; lim = GLO; }
-        else if (N.val == 2) {
-            long mid = fldiv((long)MN[x] + MX[x], 2);
-            if (mid <= MN[x]) { v = next_in(d, MN[x], INT_MAX); lim = MN[x]; bt += 1; }        // stock counts 1 per narrow visit
-            else { int p = prev_in(d, (int)mid, GLO); v = next_in(d, p, INT_MAX); lim = p; bt += 2; }   // Q first (Picat), then P; stock: 2 per visit
-        } else if (N.val >= 3) { v = 0; lim = 0; }
-        st.push_back({x, v, lim, ls, kind, 0, ph, MN[x], MX[x], TR.size(), off});
+    // set up c for variable c.x (snapshot at DS[c.dom]); returns the
+    // backtracks counted before the first alternative
+    long first_alt(CP &c) {
+        const W *d = &DS[c.dom]; int mn = MN[c.x], mx = MX[c.x];
+        c.smin = mn; c.smax = mx; c.idx = 0; c.cut = false;
+        switch (N.valsel) {
+        case US_UP: c.k = K_UP; c.a = mn; return 0;
+        case US_DOWN: c.k = K_DOWN; c.a = mx; return 0;
+        case US_UPDOWN: {
+            long mid = ((long)mn + mx) / 2;
+            c.k = K_FB;
+            if (mid == mn) { c.b = mn; c.a = next_in(d, mn, INT_MAX); return 1; }
+            c.b = prev_in(d, (int)mid); c.a = next_in(d, c.b, INT_MAX); return 2;
+        }
+        default: c.k = K_SPLIT0; c.a = (int)(((long)mn + mx) / 2); return 0;
+        }
     }
-    bool try_restrict(int x, long lo, long hi) {
-        if (restrict_bounds(x, lo, hi) && propagate1()) return true;
+    // move c to its next alternative; false when there is none. inc gets
+    // the backtracks Picat counts on the way, also when there is none
+    bool advance(CP &c, long &inc) {
+        if (c.cut) return false;
+        const W *d = &DS[c.dom];
+        if (c.k == K_UP) {                  // the common case first
+            if (c.a >= c.smax) return false;
+            inc++; c.a = next_in(d, c.a, INT_MAX); c.idx++; return true;
+        }
+        switch (c.k) {
+        case K_UP: if (c.a >= c.smax) return false; inc++; c.a = next_in(d, c.a, INT_MAX); break;
+        case K_DOWN: inc++; if (c.a <= c.smin) return false; c.a = prev_in(d, c.a); break;
+        case K_FB: if (c.a < c.smax) { inc++; c.a = next_in(d, c.a, INT_MAX); c.k = K_BF; }
+                   else { c.k = K_DOWN; c.a = c.b; }               // indomain_dvar_backward(D)
+                   break;
+        case K_BF: inc++; if (c.b > c.smin) { c.b = prev_in(d, c.b); c.k = K_FB; }
+                   else c.k = K_UP;                                 // indomain_dvar(U)
+                   break;
+        case K_SPLIT0: c.k = K_SPLIT1; break;
+        default: return false;
+        }
+        c.idx++; return true;
+    }
+    bool has_next(const CP &c) { CP t = c; long inc = 0; return advance(t, inc); }
+    int cp_value(const CP &c) { return c.k == K_BF ? c.b : c.a; }
+    // the current alternative of c as a decision: (x, v, v) = "x = v",
+    // (x, lo, hi) with lo < hi = "domain_region(x, lo, hi)" (split)
+    void decision(const CP &c, vector<int> &out) {
+        if (c.k < K_SPLIT0) { int v = cp_value(c); out.insert(out.end(), {c.x, v, v}); return; }
+        bool low = (c.k == K_SPLIT0) == (N.valsel == US_SPLIT);
+        if (low) out.insert(out.end(), {c.x, c.smin, c.a}); else out.insert(out.end(), {c.x, c.a + 1, c.smax});
+    }
+    // the decisions from the root to the current node (fdn_last_path)
+    void path(vector<int> &out) { out = pdec; for (const CP &c : st) decision(c, out); }
+    // try the current alternative of c (with propagation)
+    bool try_alt(const CP &c) {
+        if (c.k < K_SPLIT0) return try_assign(c.x, cp_value(c));
+        bool low = (c.k == K_SPLIT0) == (N.valsel == US_SPLIT);
+        bool ok = (low ? region(c.x, c.smin, c.a) : region(c.x, (long)c.a + 1, c.smax)) && propagate1();
+        if (TRACE) trace(c.x, low ? -c.a : c.a + 1, ok);
+        if (ok) return true;
         for (auto &e : EV) { if (e.k == E_CHG) PEND[e.x] = 0; else if (e.k == E_LIN) PENDL[e.x] = 0; else if (e.k == E_REIF && e.v < 0) PENDR[e.x] = 0; }
         EV.clear(); return false;
     }
-    // set up the task: replay the prefix, then the root choice (x, (a, b])
-    bool init(const vector<pair<int,int>> &pre, bool root, int rx, int ra, int rb, long credit) {
-        prefix = pre; bt = credit;
-        for (auto &d : pre) if (!try_assign(d.first, d.second)) return false;
-        TR.clear();
-        if (root) {
-            int v = next_in(dom(rx), ra, rb);
-            if (v == INT_MIN) return false;
-            push_cp(rx, v, rb); EPOCH++; nodes++;
-            if (!try_assign(rx, v)) state = 1;
+    // set up the root task: the objective bound (branch-and-bound round,
+    // obj < 0: none), as Picat's V #=< Best-1 narrows V before the round's
+    // labeling
+    bool init(long credit, int obj, long ub) {
+        bt = credit;
+        if (obj >= 0) {
+            bool ok = region(obj, LONG_MIN / 4, ub) && propagate1();
+            if (!ok) { for (auto &e : EV) { if (e.k == E_CHG) PEND[e.x] = 0; else if (e.k == E_LIN) PENDL[e.x] = 0; else if (e.k == E_REIF && e.v < 0) PENDR[e.x] = 0; } EV.clear(); return false; }
         }
+        TR.clear();
         return true;
     }
     template <class Poll> int run(Poll &&poll) {
@@ -925,19 +1062,8 @@ struct Search {
             if (state == 0) {
                 int x = select_var();
                 if (x < 0) { state = 1; if (counting) { nsol++; continue; } return R_SOL; }
-                if (N.val == 0) {
-                    push_cp(x, MN[x], INT_MAX); EPOCH++; nodes++;
-                    if (!try_assign(x, MN[x])) state = 1;
-                } else if (N.val >= 3) {           // split: branch on the two halves
-                    push_cp_val(x); EPOCH++; nodes++;
-                    CP &c = st.back();
-                    long mid = fldiv((long)c.lo + c.hi, 2);
-                    bool ok = c.kind == 3 ? try_restrict(x, c.lo, mid) : try_restrict(x, mid + 1, c.hi);
-                    if (!ok) state = 1;
-                } else {
-                    push_cp_val(x); EPOCH++; nodes++;
-                    if (!try_assign(x, st.back().v)) state = 1;
-                }
+                bt += push_cp(x); EPOCH++; nodes++;
+                if (!try_alt(st.back())) state = 1;
                 continue;
             }
             // backtrack
@@ -948,70 +1074,42 @@ struct Search {
                     undo(TR.back()); TR.pop_back();
                 }
                 ls = c.ls;
-                int v;
-                if (c.kind >= 3) {                 // split: the second half, then done
-                    if (c.ph != 0) { DS.resize(c.dom); st.pop_back(); continue; }
-                    long mid = fldiv((long)c.lo + c.hi, 2);
-                    bool ok = c.kind == 3 ? try_restrict(c.x, mid + 1, c.hi) : try_restrict(c.x, c.lo, mid);
-                    c.ph = 1;
-                    if (ok) { state = 0; break; }
-                    continue;
-                }
-                if (c.kind == 2) {                 // updown zigzag
-                    switch (c.ph) {
-                    case 0: v = c.lim; c.ph = 2; break;                        // the first down try: P
-                    case 2: v = next_in(&DS[c.dom], c.v, INT_MAX);
-                            if (v == INT_MIN) { c.ph = 3; v = prev_in(&DS[c.dom], c.lim, GLO); if (v == INT_MIN) { DS.resize(c.dom); st.pop_back(); continue; } c.lim = v; }
-                            else { c.v = v; c.ph = 1; }
-                            break;
-                    case 1: v = prev_in(&DS[c.dom], c.lim, GLO);
-                            if (v == INT_MIN) { c.ph = 4; v = next_in(&DS[c.dom], c.v, INT_MAX); if (v == INT_MIN) { DS.resize(c.dom); st.pop_back(); continue; } c.v = v; }
-                            else { c.lim = v; c.ph = 2; }
-                            break;
-                    case 3: v = prev_in(&DS[c.dom], c.lim, GLO); if (v == INT_MIN) { DS.resize(c.dom); st.pop_back(); continue; } c.lim = v; break;
-                    default: v = next_in(&DS[c.dom], c.v, INT_MAX); if (v == INT_MIN) { DS.resize(c.dom); st.pop_back(); continue; } c.v = v; break;
-                    }
-                } else if (c.kind == 1) {
-                    v = prev_in(&DS[c.dom], c.v, c.lim);
-                    if (v == INT_MIN) { DS.resize(c.dom); st.pop_back(); continue; }
-                    c.v = v;
-                } else {
-                    v = next_in(&DS[c.dom], c.v, c.lim);
-                    if (v == INT_MIN) { DS.resize(c.dom); st.pop_back(); continue; }
-                    c.v = v;
-                }
-                if (c.kind != 2) bt++;                 // the updown visits are counted at the push (stock's quirk)
+                long inc = 0; bool more = advance(c, inc); bt += inc;
+                if (!more) { DS.resize(c.dom); st.pop_back(); continue; }
                 EPOCH++; nodes++;
-                if (try_assign(c.x, v)) { state = 0; break; }
+                if (try_alt(c)) { state = 0; break; }
             }
         }
     }
-    // donation level: the shallowest choice point with untried values. Only
-    // the shallowest keeps the donor's remaining work contiguous (all of it
-    // lies left of the donated range); donating a deeper level would leave
-    // the donor untried values at shallower levels, i.e. to the right of the
-    // donated range, and break the DFS order of the task list.
+    // donation level: the shallowest choice point with untried alternatives.
+    // Only the shallowest keeps the donor's remaining work contiguous (all of
+    // it lies left of the donated alternatives); donating a deeper level
+    // would leave the donor untried alternatives at shallower levels, i.e. to
+    // the right of the donated ones, and break the DFS order of the task list.
     int donation_level() {
-        if (N.val != 0) return -1;             // the untried values are not a contiguous range
         for (size_t i = 0; i < st.size(); i++)
-            if (next_in(&DS[st[i].dom], st[i].v, st[i].lim) != INT_MIN) return i;
+            if (has_next(st[i])) return i;
         return -1;
     }
-    // a new search for the untried values (v, lim] of choice point i, with
-    // the state rolled back to that choice point (no prefix replay)
-    Search *clone_at(int i, vector<pair<int,int>> &pre, int &ra) {
+    // a new search for the untried alternatives of choice point i, with the
+    // state rolled back to that choice point (no prefix replay). It starts
+    // with the backtracks Picat counts on the retry into them (advance); the
+    // donor's choice point is cut, so the donor counts nothing more there.
+    Search *clone_at(int i, vector<int> &pre) {
         CP &c = st[i];
         Search *s = new Search(N, false); s->counting = counting;
         s->D = D; s->SZ = SZ; s->MN = MN; s->MX = MX; s->SMIN = SMIN; s->SMAX = SMAX; s->NUNB = NUNB;
         for (size_t k = TR.size(); k > c.tm; k--) s->undo(TR[k - 1]);
-        pre = prefix;
-        for (int j = 0; j < i; j++) pre.push_back({st[j].x, st[j].v});
-        s->prefix = pre; s->ls = c.ls; s->bt = 1;   // the retry into this range
-        ra = c.v;
-        int v = next_in(&DS[c.dom], c.v, c.lim);
-        s->push_cp(c.x, v, c.lim); s->EPOCH++; s->nodes++;
-        if (!s->try_assign(c.x, v)) s->state = 1;
-        c.lim = c.v;
+        pre = pkey;
+        for (int j = 0; j < i; j++) pre.push_back(st[j].idx);
+        s->pkey = pre; s->ls = c.ls;
+        s->pdec = pdec; for (int j = 0; j < i; j++) decision(st[j], s->pdec);
+        CP d = c; long inc = 0; advance(d, inc);
+        s->bt = inc;
+        d.tm = 0; d.dom = 0; s->DS.assign(DS.begin() + c.dom, DS.begin() + c.dom + NW);
+        s->st.push_back(d); s->EPOCH++; s->nodes++;
+        if (!s->try_alt(s->st.back())) s->state = 1;
+        c.cut = true;
         return s;
     }
     void undo(const TE &t) {
@@ -1023,10 +1121,9 @@ struct Search {
 };
 
 // ------------------------------------------------------------------ runs
-struct Sol { vector<int> v; long bt_at; };
+struct Sol { vector<int> v; long bt_at; vector<int> path; };
 struct Task {
-    vector<pair<int,int>> prefix; bool root = false; int rx = 0, ra = 0, rb = 0; long credit = 0;
-    vector<int> key;                        // value path: lexicographic order = DFS order
+    vector<int> key;                        // alternative numbers on the path: lexicographic order = DFS order
     unique_ptr<Search> s; deque<Sol> sols; bool done = false, owned = false; long bt_total = 0;
     Task *next = nullptr;
 };
@@ -1037,8 +1134,10 @@ struct fdn_run {
     set<Task *, KeyLess> pending;           // runnable: not owned, not done
     bool in_next = false, stop = false; int active_owners = 0; long buffered = 0, nodes = 0, donations = 0;
     bool count = false; long csol = 0, cbt = 0;   // count mode (fdn_count): totals of finished tasks
+    int obj = -1; long ub = 0; bool own = true;   // branch-and-bound round: bound on obj; own: free N with the run
     chrono::steady_clock::time_point last;
     string stats;
+    bool want_path = false; vector<int> last_path;   // solutions carry their decision path (fdn_last_path)
 };
 
 // never destroyed: detached pool threads may still wait on them at exit
@@ -1051,12 +1150,14 @@ static const long SPAWN_NODES = getenv("FDN_SPAWN") ? atol(getenv("FDN_SPAWN")) 
 // solution buffers (in label values): per task ahead of the consumer, and per run
 static const long TASK_BUF = 1L << 18, RUN_BUF = 1L << 26; static const int GRACE_MS = 50;
 
-static int nthreads() {
+static int nthreads_env() {
     const char *e = getenv("FDN_THREADS");
     if (e) { int n = atoi(e); return n < 1 ? 1 : n; }   // explicit: exactly as specified, no cap
     int hc = (int)thread::hardware_concurrency();       // automatic: capped at 64
     return hc < 1 ? 1 : (hc > 64 ? 64 : hc);            // (over-subscription on cgroup-limited boxes)
 }
+static const int NTHREADS = nthreads_env();   // read once at load, never in the search loops
+static int nthreads() { return NTHREADS; }
 static bool over_buf(fdn_run *r, Task *t) {   // should a task ahead of the consumer pause?
     long n = r->N->label.size();
     return t != r->head && ((long)t->sols.size() * n >= TASK_BUF || r->buffered * n >= RUN_BUF);
@@ -1076,7 +1177,7 @@ static void start_pool() {            // with G held
 static int run_task(fdn_run *r, Task *t, bool consumer) {
     if (!t->s) {
         t->s.reset(new Search(*r->N)); t->s->counting = r->count;
-        if (!t->s->init(t->prefix, t->root, t->rx, t->ra, t->rb, t->credit)) {
+        if (!t->s->init(0, r->obj, r->ub)) {
             // cannot happen for a donated task; the root task fails here if
             // the start state is inconsistent
             t->s->state = 2;
@@ -1101,10 +1202,8 @@ static int run_task(fdn_run *r, Task *t, bool consumer) {
         int lev = se.donation_level();
         if (lev < 0) return false;
         unique_ptr<Task> u(new Task);
-        u->s.reset(se.clone_at(lev, u->prefix, u->ra));
-        u->root = true;
-        for (auto &d : u->prefix) u->key.push_back(d.second);
-        u->key.push_back(u->ra + 1);
+        u->s.reset(se.clone_at(lev, u->key));
+        u->key.push_back(u->s->st[0].idx);
         unique_lock<mutex> lk(G);
         u->next = t->next; t->next = u.get();
         r->pending.insert(u.get()); u.release(); r->live++; r->ntasks++; r->donations++;
@@ -1117,6 +1216,7 @@ static int run_task(fdn_run *r, Task *t, bool consumer) {
         r->nodes += s.nodes - n0; n0 = s.nodes;
         if (res == R_SOL) {
             Sol so; s.solution(so.v); so.bt_at = s.bt;
+            if (r->want_path) s.path(so.path);
             t->sols.push_back(move(so)); r->buffered++;
             CV_CONS.notify_all();
             if (consumer) return res;
@@ -1127,7 +1227,7 @@ static int run_task(fdn_run *r, Task *t, bool consumer) {
             t->done = true; t->bt_total = s.bt;
             if (r->count) { r->csol += s.nsol; r->cbt += s.bt; }
             t->s.reset();
-            vector<pair<int,int>>().swap(t->prefix); vector<int>().swap(t->key);
+            vector<int>().swap(t->key);
             CV_CONS.notify_all();
         }
         return res;
@@ -1161,7 +1261,7 @@ static void worker_main() {
 }
 
 extern "C" {
-static fdn_run *start(fdn_net *n, bool count) {
+static fdn_run *start(fdn_net *n, bool count, int obj = -1, long ub = 0, bool own = true, bool path = false) {
     if (getenv("FDN_DUMP")) {
         fprintf(stderr, "net: nv=%d glo=%d ghi=%d muls=%zu lins=%zu\n", n->nv, n->glo, n->ghi, n->muls.size(), n->lins.size());
         for (size_t i = 0; i < n->muls.size(); i++) fprintf(stderr, "  mul %zu: %d*%d=%d\n", i, n->muls[i].x, n->muls[i].y, n->muls[i].z);
@@ -1172,16 +1272,18 @@ static fdn_run *start(fdn_net *n, bool count) {
         }
     }
     n->finalize();
-    fdn_run *r = new fdn_run; r->N = n; r->count = count;   // set before pool threads can see the run
+    fdn_run *r = new fdn_run; r->N = n; r->count = count;   // all set before pool threads can see the run
+    r->obj = obj; r->ub = ub; r->own = own; r->want_path = path;
     Task *t = new Task; r->pending.insert(t); r->live = r->ntasks = 1;
     r->head = count ? nullptr : t;   // count mode: tasks are not linked, freed when done
     r->last = chrono::steady_clock::now();
     lock_guard<mutex> lk(G); RUNS.push_back(r);
     return r;
 }
-fdn_run *fdn_start(fdn_net *n) { return start(n, false); }
+fdn_run *fdn_start(fdn_net *n, int path) { return start(n, false, -1, 0, true, path); }
 int fdn_nthreads(void) { return nthreads(); }
 fdn_run *fdn_start_count(fdn_net *n) { return start(n, true); }
+fdn_run *fdn_start_round(fdn_net *n, int obj, long ub, int path) { return start(n, false, obj, ub, false, path); }
 int fdn_nlabel(fdn_run *r) { return r->N->label.size(); }
 const int *fdn_label_ids(fdn_run *r) { return r->N->label.data(); }
 int fdn_next(fdn_run *r, int *vals, long *bt) {
@@ -1194,6 +1296,7 @@ int fdn_next(fdn_run *r, int *vals, long *bt) {
             Sol &so = t->sols.front();
             *bt += so.bt_at - r->head_bt; r->head_bt = so.bt_at;
             copy(so.v.begin(), so.v.end(), vals);
+            r->last_path.swap(so.path);
             t->sols.pop_front(); r->buffered--; res = 1; break;
         }
         if (t->done && !t->owned) {
@@ -1212,6 +1315,7 @@ int fdn_next(fdn_run *r, int *vals, long *bt) {
     r->in_next = false; r->last = chrono::steady_clock::now();
     return res;
 }
+const int *fdn_last_path(fdn_run *r, int *n) { *n = r->last_path.size() / 3; return r->last_path.data(); }
 const char *fdn_stats(fdn_run *r) {
     lock_guard<mutex> lk(G);
     char b[200]; snprintf(b, sizeof b, "nodes=%ld tasks=%ld donations=%ld threads=%d", r->nodes, r->ntasks, r->donations, POOL_UP ? POOL_N + 1 : 1);
@@ -1244,6 +1348,7 @@ void fdn_free(fdn_run *r) {
     RUNS.erase(find(RUNS.begin(), RUNS.end(), r));
     lk.unlock();
     for (Task *t = r->head; t;) { Task *n = t->next; delete t; t = n; }
-    delete r->N; delete r;
+    if (r->own) delete r->N;
+    delete r;
 }
 }
