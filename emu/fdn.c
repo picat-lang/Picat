@@ -692,7 +692,7 @@ static int parse_opts(BPLONG opts, int *heur, int *sort, int *val) {
         else if (len == 3 && !strncmp(s, "max", 3)) mx = 1;
         else if (len == 2 && !strncmp(s, "up", 2)) ;
         else if (len == 4 && !strncmp(s, "down", 4)) *val = 1;
-        else if (len == 6 && !strncmp(s, "updown", 6)) return unsupported("labeling option updown");
+        else if (len == 6 && !strncmp(s, "updown", 6)) *val = 2;
         else if (len == 5 && !strncmp(s, "split", 5)) *val = 3;
         else if (len == 13 && !strncmp(s, "reverse_split", 13)) *val = 4;
         else if (len == 8 && !strncmp(s, "backward", 8)) *sort = 2;

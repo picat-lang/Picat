@@ -895,8 +895,8 @@ struct Search {
         if (N.val == 1) { v = MX[x]; lim = GLO; }
         else if (N.val == 2) {
             long mid = fldiv((long)MN[x] + MX[x], 2);
-            if (mid <= MN[x]) { v = next_in(d, MN[x], INT_MAX); lim = MN[x]; }
-            else { v = (int)mid; lim = prev_in(d, (int)mid, GLO); }
+            if (mid <= MN[x]) { v = next_in(d, MN[x], INT_MAX); lim = MN[x]; bt += 1; }        // stock counts 1 per narrow visit
+            else { int p = prev_in(d, (int)mid, GLO); v = next_in(d, p, INT_MAX); lim = p; bt += 2; }   // Q first (Picat), then P; stock: 2 per visit
         } else if (N.val >= 3) { v = 0; lim = 0; }
         st.push_back({x, v, lim, ls, kind, 0, ph, MN[x], MX[x], TR.size(), off});
     }
@@ -961,15 +961,15 @@ struct Search {
                     switch (c.ph) {
                     case 0: v = c.lim; c.ph = 2; break;                        // the first down try: P
                     case 2: v = next_in(&DS[c.dom], c.v, INT_MAX);
-                            if (v == INT_MIN) { c.ph = 3; v = prev_in(&DS[c.dom], c.lim, GLO); if (v == INT_MIN) { DS.resize(c.dom); st.pop_back(); goto cpdone; } c.lim = v; }
+                            if (v == INT_MIN) { c.ph = 3; v = prev_in(&DS[c.dom], c.lim, GLO); if (v == INT_MIN) { DS.resize(c.dom); st.pop_back(); continue; } c.lim = v; }
                             else { c.v = v; c.ph = 1; }
                             break;
                     case 1: v = prev_in(&DS[c.dom], c.lim, GLO);
-                            if (v == INT_MIN) { c.ph = 4; v = next_in(&DS[c.dom], c.v, INT_MAX); if (v == INT_MIN) { DS.resize(c.dom); st.pop_back(); goto cpdone; } c.v = v; }
+                            if (v == INT_MIN) { c.ph = 4; v = next_in(&DS[c.dom], c.v, INT_MAX); if (v == INT_MIN) { DS.resize(c.dom); st.pop_back(); continue; } c.v = v; }
                             else { c.lim = v; c.ph = 2; }
                             break;
-                    case 3: v = prev_in(&DS[c.dom], c.lim, GLO); if (v == INT_MIN) { DS.resize(c.dom); st.pop_back(); goto cpdone; } c.lim = v; break;
-                    default: v = next_in(&DS[c.dom], c.v, INT_MAX); if (v == INT_MIN) { DS.resize(c.dom); st.pop_back(); goto cpdone; } c.v = v; break;
+                    case 3: v = prev_in(&DS[c.dom], c.lim, GLO); if (v == INT_MIN) { DS.resize(c.dom); st.pop_back(); continue; } c.lim = v; break;
+                    default: v = next_in(&DS[c.dom], c.v, INT_MAX); if (v == INT_MIN) { DS.resize(c.dom); st.pop_back(); continue; } c.v = v; break;
                     }
                 } else if (c.kind == 1) {
                     v = prev_in(&DS[c.dom], c.v, c.lim);
@@ -980,11 +980,8 @@ struct Search {
                     if (v == INT_MIN) { DS.resize(c.dom); st.pop_back(); continue; }
                     c.v = v;
                 }
-                bt++; EPOCH++; nodes++;
-                if (try_assign(c.x, v)) { state = 0; break; }
-                continue;
-            cpdone:
-                bt++; EPOCH++; nodes++;
+                if (c.kind != 2) bt++;                 // the updown visits are counted at the push (stock's quirk)
+                EPOCH++; nodes++;
                 if (try_assign(c.x, v)) { state = 0; break; }
             }
         }
