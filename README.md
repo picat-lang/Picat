@@ -297,6 +297,30 @@ the library-level replacement for the per-callsite `; C = 0`
 fallbacks in counting and branch-and-bound loops that also post
 `udf` constraints.
 
+## 6. Transparent native multicore FD solver — the `fdn` engine
+
+Compiled into the binary automatically; `fdn_hook.pi` ships next to the
+executable and is loaded at start-up.
+
+Every cp `solve/1,2` checks the live constraint network: if it is fully
+supported, the whole search runs natively on all cores and the solutions
+come back in exactly Picat 3.9#12's own order (including the exact
+`backtracks` count); anything else falls back to Picat's own labeling,
+unchanged.  A bare cp `solve` inside `count_all` is counted natively, in
+parallel.  Programs run unchanged.
+
+Environment variables: `FDN=0` hook off (exactly Picat 3.9#12),
+`FDN_COUNT=0` no native `count_all`, `FDN_THREADS=n` threads per search,
+`FDN_VERBOSE=1` per-solve report on stderr, `FDN_SPAWN=n` pool after n nodes.
+
+Top speedups (vs Picat 3.9#12): queens-15 with `count_all` **71x**,
+kakuro solved 1000 times **33x** (single-threaded — posting cost),
+pigeon 13/12 **>28x** (Picat 3.9#12 does not finish in 300 s).
+
+Details, supported propagators, benchmark suite and reference numbers:
+`exs/fd_native_mt/README.md`.
+
+
 __Current version 3.9#12.__
 
 Picat is a simple, and yet powerful, logic-based
@@ -370,29 +394,8 @@ of these modules, applications must set the environment
 variable PICATPATH to include the folder, in which the module
 resides, or start picat with the option "-path" set.
 
-## 6. Transparent native multicore FD solver — the `fdn` engine
-
-Compiled into the binary automatically; `fdn_hook.pi` ships next to the
-executable and is loaded at start-up.
-
-Every cp `solve/1,2` checks the live constraint network: if it is fully
-supported, the whole search runs natively on all cores and the solutions
-come back in exactly Picat 3.9#12's own order (including the exact
-`backtracks` count); anything else falls back to Picat's own labeling,
-unchanged.  A bare cp `solve` inside `count_all` is counted natively, in
-parallel.  Programs run unchanged.
-
-Environment variables: `FDN=0` hook off (exactly Picat 3.9#12),
-`FDN_COUNT=0` no native `count_all`, `FDN_THREADS=n` threads per search,
-`FDN_VERBOSE=1` per-solve report on stderr, `FDN_SPAWN=n` pool after n nodes.
-
-Top speedups (vs Picat 3.9#12): queens-15 with `count_all` **71x**,
-kakuro solved 1000 times **33x** (single-threaded — posting cost),
-pigeon 13/12 **>28x** (Picat 3.9#12 does not finish in 300 s).
-
-Details, supported propagators, benchmark suite and reference numbers:
-`exs/fd_native_mt/README.md`.
+ 
 
 Please contact:
 - picat@picat-lang.org
-- picat-lang@googlegroups.com 
+- picat-lang@googlegroups.com
