@@ -1056,8 +1056,9 @@ static const long TASK_BUF = 1L << 18, RUN_BUF = 1L << 26; static const int GRAC
 
 static int nthreads() {
     const char *e = getenv("FDN_THREADS");
-    int n = e ? atoi(e) : (int)thread::hardware_concurrency();
-    return n < 1 ? 1 : n;
+    if (e) { int n = atoi(e); return n < 1 ? 1 : n; }   // explicit: exactly as specified, no cap
+    int hc = (int)thread::hardware_concurrency();       // automatic: capped at 64
+    return hc < 1 ? 1 : (hc > 64 ? 64 : hc);            // (over-subscription on cgroup-limited boxes)
 }
 static bool over_buf(fdn_run *r, Task *t) {   // should a task ahead of the consumer pause?
     long n = r->N->label.size();
@@ -1182,6 +1183,7 @@ static fdn_run *start(fdn_net *n, bool count) {
     return r;
 }
 fdn_run *fdn_start(fdn_net *n) { return start(n, false); }
+int fdn_nthreads(void) { return nthreads(); }
 fdn_run *fdn_start_count(fdn_net *n) { return start(n, true); }
 int fdn_nlabel(fdn_run *r) { return r->N->label.size(); }
 const int *fdn_label_ids(fdn_run *r) { return r->N->label.data(); }

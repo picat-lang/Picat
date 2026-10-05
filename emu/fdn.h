@@ -52,6 +52,8 @@ void fdn_net_free(fdn_net *);
 
 /* search; the run takes ownership of the net */
 fdn_run *fdn_start(fdn_net *);
+/* the effective thread count (explicit FDN_THREADS, else min(cores,64)) */
+int  fdn_nthreads(void);
 /* count mode (count_all): solutions are counted natively; *bt receives the
    exact backtrack total, the return value is the solution count */
 fdn_run *fdn_start_count(fdn_net *);

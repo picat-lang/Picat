@@ -792,6 +792,7 @@ int c_fdn_start(void) {
         HT[slot] = h;
         if (verbose) fprintf(stderr, "fdn: native search (%d vars, %d frames, %d label, values %ld..%ld)\n",
                              e.dvs.n, e.frames.n, nl, e.glo, e.ghi);
+        if (verbose) fprintf(stderr, "fdn: threads=%d\n", fdn_nthreads());
         vm_free(&e.ids); vm_free(&e.fseen); free(e.dvs.a); free(e.frames.a); free(e.fkind.a);
         return unify(H, MAKEINT(slot));
     }
@@ -931,6 +932,7 @@ int c_fdn_count(void) {
     }
     if (verbose) fprintf(stderr, "fdn: native count_all (%d vars, %d frames, values %ld..%ld)\n",
                          e.dvs.n, e.frames.n, e.glo, e.ghi);
+    if (verbose) fprintf(stderr, "fdn: threads=%d\n", fdn_nthreads());
     vm_free(&e.ids); vm_free(&e.fseen); free(e.dvs.a); free(e.frames.a); free(e.fkind.a);
     fdn_run *r = fdn_start_count(net);
     long bt, cnt = fdn_count(r, &bt);
