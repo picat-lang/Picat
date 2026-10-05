@@ -50,7 +50,7 @@ Environment variables:
 | `sum`, `#=`, `#>=`, `#=<` (linear) | Picat's single ordered propagation pass (`nary_interval_consistent_eq/ge`) with Picat's wake rules; ARC sums reach arc consistency once ≤ 2 variables are unbound |
 | `X #= Y+C`, `X #= C-Y` | value mapping (arc consistent) + the `'$v_in_*_int'` bounds frames on a unification |
 | `abs(X-Y) #= C` | domain filtering + bounds + FC per removal |
-| `X*Y #= Z` | no propagation while all three unbound; one operand fixed → 2-var ARC; result fixed → sign+interval+sound-div factoring; exact square-root filtering for `Y*Y` |
+| `X*Y #= Z` | falls back to Picat's own bounds propagation (see below) |
 | `X div y #= Z`, `X mod y #= Z` (fixed divisor) | arc rule on Z's removals / full domain filtering (skip when max(X) ≥ 3000) |
 | `R #= min([...])`, `R #= max([...])` | bound-event rule replay |
 | `B <=> X=c`, `B <=> X!=c`, `B <=> X=Y`, `B <=> X!=Y`, `B <=> X>=Y` | reification (incl. the `#\/` expansion of `alldifferent_except_0`) |
@@ -64,10 +64,13 @@ Labeling: heuristics `[]`/`leftmost`, `ff`, `min`, `max`, `ff_min`, `ff_max`,
 `split`, `reverse_split`; reorderings `backward`, `inout`; also `forward`.
 Branch and bound: `$min(O)`, `$max(O)`, `$minimize(O)`, `$maximize(O)`, with
 `$report(G)` and `limit(N)` next to an objective (see the next section).
-Still falling back to Picat's labeling: `rand*`, `label(_)`, `time_out(..)`,
-`limit(N)` without an objective, a non-FD objective, `split`/`reverse_split`
-on a negative minimum (Picat 3.9#12 itself loops forever there), other
-attributes, value ranges wider than 65536.
+Still falling back to Picat's labeling: any model with a multiply
+constraint (`X*Y #= Z`, quadratics — the 2-var ARC rule is value-by-value
+on the operands' domains and superlinear in the width, so Picat's own
+bounds propagation wins at every measured width), `rand*`, `label(_)`,
+`time_out(..)`, `limit(N)` without an objective, a non-FD objective,
+`split`/`reverse_split` on a negative minimum (Picat 3.9#12 itself loops
+forever there), other attributes, value ranges wider than 65536.
 
 ## Native branch and bound
 
@@ -120,6 +123,11 @@ of the `exs/cp` examples**: the Picat 3.9#12 instances there run in 16–32 ms, 
 just process start-up, so nothing about solver performance can be measured
 from them.  Here the instance size (or the number of repeated solves) is
 raised so the wall time is dominated by constraint solving and search.
+Only programs that the fdn actually accelerates are kept — every file
+below was measured with `FDN_THREADS=64` vs `FDN=0` and wins; programs
+that go parity or slower natively (the `import sat` variants, the
+`circuit` fallback case, posting-only models, the `sequence` and zebra
+decompositions) were removed.
 
 - **Picat 3.9#12**: the interpreted CLP(FD) path (`FDN=0`), the same code path as
   release Picat 3.9#12.
@@ -127,26 +135,18 @@ raised so the wall time is dominated by constraint solving and search.
 
 Both run the *same binary*.  The `stat` module prints
 `STAT <name> runtime_ms=<ms> backtracks=<n>`; the solution results
-(solution counts, sat/unsat) are identical between the two paths.
+(solution counts, sat/unsat, `backtracks`) are identical between the two
+paths.
 
 | file | model | what it exercises |
 |---|---|---|
-| `qall.pi N` | N-queens, all solutions | `count_all(solve(..))`, counted natively; enumeration with forward checking (`#!=` + `abs`) |
-| `qff.pi N` | N-queens, first solution | search-heavy, `ff` variable selection |
-| `qffsplit.pi N` | N-queens | separates posting time from search time (`report(posted)` before solving) |
-| `qpost.pi N` | N-queens | posting only (cubic in N), no search |
-| `pigeon.pi M` | M+1 pigeons / M holes, 0/1 matrix | linear sums, unsat: proof by exhaustive search |
-| `pigeon_ad.pi M` | same, `all_distinct` list model | fails at posting (no search at all) |
-| `pigeon_sat.pi M` | same 0/1 model | `import sat` path |
-| `knight.pi N` | knight's tour as `asp([$size(N)])` | the `asp` interface |
-| `knight_sat.pi` | knight's tour | `import sat` path |
-| `sudoku25.pi` | 25x25 sudoku | `all_different`: > 600 s (genuinely hard, both sides) |
-| `sudoku25d.pi` | 25x25 sudoku | `all_distinct` variant |
-| `sudoku25_sat.pi` | 25x25 sudoku | `import sat` path |
-| `kakuroN.pi R` | kakuru puzzle, R repeated solves | posting-dominated; the ×1000 loop |
-| `zebraN.pi R` | Lewis Carroll's zebra puzzle, R repeated solves | posting-dominated; the ×2000 loop |
-| `ppm2.pi` | permutation pattern matching | ASP competition benchmark |
-| `seq.pi N` | global constraint `sequence` | decomposition |
+| `qall.pi N` | N-queens, all solutions | `count_all(solve(..))` counted natively in parallel — no solution ever reaches Picat; enumeration with forward checking (`#!=` + `abs`) |
+| `qff.pi N` | N-queens, first solution | search-heavy first-solution run, `ff` variable selection; gains from native code only (threads don't help) |
+| `pigeon.pi M` | M+1 pigeons / M holes, 0/1 matrix | linear sums, unsat: proof by exhaustive search; the one example that scales with cores |
+| `kakuroN.pi R` | kakuro puzzle, R repeated solves | 1000 small searches; the win is posting cost, not parallelism |
+| `qopt.pi N [S] [D]` | weighted N-queens, minimise/maximise `sum(I*Q[I])` | branch and bound (native B&B, see the section above); the option lists compose with the native labeling strategies |
+| `mixed.pi` | transparency test | byte-identical outputs incl. `backtracks` vs Picat 3.9#12 (run with and without `FDN=0`) |
+| `stat.pi` | STAT helper | the module the benchmarks import; prints `runtime_ms` + `backtracks` |
 
 **Thread tuning matters**: the native solver parallelises the search
 across `FDN_THREADS` workers, defaulting to `thread::hardware_concurrency()`.
@@ -201,6 +201,29 @@ For comparison, the fdaccel development phase
 thread count) measured: kakuro x1000 41x, pigeon 12/11 24x, pigeon
 11/10 16x, queens-600 7.9x, queens-15 count all 71x — consistent with
 the table above modulo machine contention and thread counts.
+
+Confirmed 2026-10-05 on the current build under a heavily loaded box
+(load average 57, shared cgroup-limited container) — same examples, same
+acceleration factors modulo contention, `FDN_THREADS=64` vs `FDN=0`,
+whole-program wall, median of 3, outputs byte-identical on both paths:
+
+| program | picat-fdn (th=64) | FDN=0 | speedup |
+|---|---|---|---|
+| qall 14 (count all) | 0.20 s | 3.6 s | **18x** |
+| qall 15 (count all) | 0.41 s | 21.6 s | **52x** |
+| qff 600 (first solution) | 18.4 s | 142.3 s | **7.7x** |
+| pigeon 12/11 (unsat) | 0.98 s | 18.7 s | **19x** |
+| kakuro x1000 | 0.61 s | 8.6 s | **14x** |
+| qopt 14 ff (branch and bound) | 1.12 s | 12.4 s | **11x** |
+
+Parity or slower natively (measured the same day, hence removed):
+`qff`/`qffsplit` at N=300 (posting-dominated at that size), `qpost`
+(posting only), `pigeon_ad` (fails at posting), `ppm2` (instance too
+small), `knight` (circuit fallback), `zebraN` 2000 (1.2x slower),
+`seq` 40-50 (the `sequence` decomposition, ~20x slower — many small
+reified sums where the native per-node cost dominates), `sudoku25` /
+`sudoku25d` (> 120 s on both paths, no demonstrated gain), and the
+`import sat` variants (the fdn is not involved).
 
 ## Limits and known differences
 

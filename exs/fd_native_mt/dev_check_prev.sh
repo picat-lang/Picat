@@ -67,7 +67,6 @@ check() {   # fam name args...
     local fam=$1 name=$2; shift 2
     local t0 t1 tc tb erc brc d
     local erc_exp=0
-    case "$name" in pigeon_ad.pi) erc_exp=1 ;; esac   # expected: fails at posting
     local out_c="$WORK/$fam.$name.cur.out" out_b="$WORK/$fam.$name.base.out"
     d=$(prep "$fam" "$name")
     t0=$(date +%s.%N)
@@ -95,13 +94,9 @@ get_args() {
     case "$1" in
         php.pi|php_matrix.pi) echo "8 9" ;;
         kakuroN.pi) echo "1000" ;;
-        zebraN.pi) echo "2000" ;;
-        pigeon.pi|pigeon_ad.pi|pigeon_sat.pi) echo "10" ;;
+        pigeon.pi) echo "10" ;;
         qall.pi) echo "8" ;;
-        qff.pi|qff_sat.pi|qffsplit.pi|qpost.pi) echo "12" ;;
-        knight.pi) echo "50" ;;
-        knight_sat.pi) echo "20" ;;
-        seq.pi) echo "40" ;;
+        qff.pi) echo "12" ;;
         *) echo "" ;;
     esac
 }

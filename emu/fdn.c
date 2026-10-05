@@ -455,11 +455,11 @@ static int build(ext *e, fdn_net *net) {
             break;
         }
         case F_MUL: {                             /* X*Y #= Z */
-            BPLONG y = frame_arg(f, 2), z = frame_arg(f, 3); DEREF(y); DEREF(z);
-            int oy = IS_SUSP_VAR(y) ? vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(y)) : -1;
-            int oz = IS_SUSP_VAR(z) ? vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(z)) : -1;
-            if (ox < 0 || oy < 0 || oz < 0) { ok = unsupported("multiply frame"); break; }
-            fdn_mul(net, ox, oy, oz);
+            /* the 2-var ARC rule is value-by-value on the operands' domains:
+               superlinear in the width (measured 0.55 s at width 3721 vs
+               0.02 s without the multiply), so every multiply falls back to
+               Picat's own bounds propagation */
+            ok = unsupported("multiply constraint");
             break;
         }
         case F_DIV: case F_MOD: {                 /* X div Y #= Z / X mod Y #= Z, Y fixed */
