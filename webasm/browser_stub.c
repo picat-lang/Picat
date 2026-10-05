@@ -94,6 +94,10 @@ void satext_record_result(int st)
     (void)st;
 }
 
+void satext_clear_last_status(void)
+{
+}
+
 void ext_cnf_reset(void)
 {
 }

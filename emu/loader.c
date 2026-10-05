@@ -10,6 +10,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 #include "basic.h"
 #include "inst.h"
 #include "term.h"
