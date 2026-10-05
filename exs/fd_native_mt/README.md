@@ -59,11 +59,50 @@ Environment variables:
 | `global_cardinality` (via gcc decomposition) | elements + reified equalities + linear sums |
 | lex chains (`e$$cp$$watch_lex_lt/le`) | watch bounds on the leading pairs, arc-consistent last pair |
 
-Labeling: heuristics `[]`/`leftmost`, `ff`, `min`, `max`, `ffd`, `degree`,
-`constr`, `ffc`; value strategies `up`, `down`, `split`, `reverse_split`.
-Still falling back to Picat's labeling: `updown`, the non-atom options
-(`minimize`/`maximize`/`$report`), `inout`, `forward`, `rand*`, other
-attributes, value ranges wider than 4096.
+Labeling: heuristics `[]`/`leftmost`, `ff`, `min`, `max`, `ff_min`, `ff_max`,
+`ffd`, `degree`, `constr`, `ffc`; value strategies `up`, `down`, `updown`,
+`split`, `reverse_split`; reorderings `backward`, `inout`; also `forward`.
+Branch and bound: `$min(O)`, `$max(O)`, `$minimize(O)`, `$maximize(O)`, with
+`$report(G)` and `limit(N)` next to an objective (see the next section).
+Still falling back to Picat's labeling: `rand*`, `label(_)`, `time_out(..)`,
+`limit(N)` without an objective, a non-FD objective, `split`/`reverse_split`
+on a negative minimum (Picat 3.9#12 itself loops forever there), other
+attributes, value ranges wider than 65536.
+
+## Native branch and bound
+
+`solve($[min(O)], Vars)` (and `$max(O)`, `$minimize(O)`, `$maximize(O)`, with
+`$report(G)` and `limit(N)` next to an objective) runs Picat's own `minof/3`
+loop: each round's first solution is searched natively on all cores, on the
+network extracted once, with the objective variable narrowed to ≤ Best−1 per
+round.  The report sequence, the solutions and `statistics(backtracks)` are
+exactly Picat 3.9#12's (a round's search is Picat's own labeling order), so
+the whole loop is transparent.  The options compose with the labeling
+strategies (`ff`, `ffc`, `updown`, `split`, ...) which are also native.
+
+Weighted N-queens (`picat qopt.pi N ff`, `scratch/cpeval/bench/qopt.pi`,
+minimise `sum(I*Q[I])`, `FDN_THREADS=64`, median of 3 whole-program runs,
+output byte-identical incl. `backtracks`):
+
+| program | Picat 3.9#12 | fdn | speedup |
+|---|---|---|---|
+| qopt 14 ff (31 rounds, 9.13M backtracks) | 11.04 s | 1.17 s | **9.5x** |
+| qopt 13 ff (23 rounds, 1.96M backtracks) | 2.28 s | 0.43 s | **5.3x** |
+| qopt 13 updown max | 0.63 s | 0.23 s | **2.7x** |
+| qopt 13 ffc max | 0.91 s | 0.46 s | **2.0x** |
+| qopt 12 split (0 backtracks) | 0.39 s | 0.23 s | **1.7x** |
+| qopt 12 ff / leftmost | 0.32 / 0.37 s | 0.25 / 0.28 s | **1.3x** |
+
+- **The gain is the parallel rounds, above all the last, exhaustive one** —
+  Picat re-runs the whole search per round; the fdn runs every round natively
+  in parallel on one network, with the objective bound narrowed per round.
+  qopt 14 at 1 thread is about stock's single-thread time (the work per node
+  is Picat's); the parallel rounds are the win.
+- **Every option list goes native now** — before this phase only `[]`, `ff`
+  and the counting options did; `$min(O)`/`updown`/`split`/`ffc` fell back to
+  stock code.
+- **The default thread count** (all 384 hardware threads) is slower than
+  64-128 on branch and bound; use `FDN_THREADS`.
 
 ## `mixed.pi`
 
@@ -165,8 +204,10 @@ the table above modulo machine contention and thread counts.
 
 ## Limits and known differences
 
-- Solutions are transferred to Picat one at a time by unification, which
-  runs Picat's own propagators. That keeps every non-label variable exactly
+- Solutions are transferred to Picat one decision at a time (a unification,
+  or a decision-by-decision replay when Picat's rest step follows — the same
+  calls Picat's own labeling makes, so Picat's propagators run after every
+  decision). That keeps every non-label variable exactly
   as Picat 3.9#12 leaves it, but it costs a few µs per solution.
 - First-solution searches gain from native code only (up to ~8× observed);
   threads help when the solution lies right of large failing subtrees.

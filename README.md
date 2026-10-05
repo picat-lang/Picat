@@ -315,7 +315,9 @@ Environment variables: `FDN=0` hook off (exactly Picat 3.9#12),
 
 Top speedups (vs Picat 3.9#12): queens-15 with `count_all` **71x**,
 kakuro solved 1000 times **33x** (single-threaded — posting cost),
-pigeon 13/12 **>28x** (Picat 3.9#12 does not finish in 300 s).
+pigeon 13/12 **>28x** (Picat 3.9#12 does not finish in 300 s),
+weighted 14-queens branch and bound **9.5x** (native B&B; the option lists
+`$min(O)`, `updown`, `split`, `ffc` all went native).
 
 Details, supported propagators, benchmark suite and reference numbers:
 [exs/fd_native_mt/README.md](exs/fd_native_mt/README.md).
