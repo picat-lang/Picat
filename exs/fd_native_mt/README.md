@@ -260,7 +260,11 @@ Environment variables (all optional; the ext mode is off unless
 | `FDN_EXTDUMP=1` | dump each request JSON to stderr before it is sent |
 
 `FDN_VERBOSE=1` reports each external solve on stderr (the solution count,
-the objective value), and the fallback reason when the ext mode gives up.
+the objective value).  A fallback to the native path always says why on
+stderr, no verbose flag needed: `fdn: external cp-sat fallback: <reason>` —
+the untranslated-model reason (`multiply constraint`, say), `the server did
+not respond`, `the search was cut (the solution cap or the time limit)`,
+`the server errored: <message>`, or `the search was not completed`.
 
 Correctness and speed:
 

@@ -1091,6 +1091,36 @@ static const char *jkey(const char *s, const char *key) {
     const char *p = strstr(s, pat);
     return p ? p + strlen(pat) : NULL;
 }
+
+/* the ext mode is explicitly requested (c_fdn_extsolve/c_fdn_extcount run
+   only with FDN_EXTSOLVER set): a fallback to the native path says why,
+   regardless of FDN_VERBOSE */
+static void ext_say(const char *what) {
+    fprintf(stderr, "fdn: external cp-sat fallback: %s\n", what);
+}
+
+/* the reason an ext run gave up: got = a usable response arrived, status_ok
+   = the server completed it; the statuses map to plain reasons, "error"
+   carries the server's own message in "err" */
+static void ext_reason(int got, long status_ok, char *buf, size_t n) {
+    if (!got) { snprintf(buf, n, "the server did not respond"); return; }
+    if (!status_ok) {
+        char st[16] = {0}, err[256] = {0};
+        const char *p = jkey(resp, "status");
+        const char *q = p ? strchr(p, '"') : NULL;
+        const char *r = q ? strchr(q + 1, '"') : NULL;
+        if (q && r && (size_t)(r - q) < sizeof st) { memcpy(st, q + 1, r - q - 1); st[r - q - 1] = 0; }
+        if (!strcmp(st, "limit")) { snprintf(buf, n, "the search was cut (the solution cap or the time limit)"); return; }
+        if (!strcmp(st, "feasible")) { snprintf(buf, n, "the search was not completed"); return; }
+        p = jkey(resp, "err");
+        q = p ? strchr(p, '"') : NULL;
+        r = q ? strchr(q + 1, '"') : NULL;
+        if (q && r && (size_t)(r - q) < sizeof err) { memcpy(err, q + 1, r - q - 1); err[r - q - 1] = 0; }
+        snprintf(buf, n, err[0] ? "the server errored: %s" : "the server errored", err);
+        return;
+    }
+    snprintf(buf, n, "a malformed response");
+}
 /* the response line: {"status":"ok","obj":N,"count":N,"sols":[[...],...]}.
    The parsed solutions go to xsols/xlen (C arrays, freed by the caller). */
 static int **xsols; static int *xlen; static int xns;
@@ -1205,15 +1235,19 @@ int c_fdn_extsolve(void) {
     if (verbose < 0) verbose = getenv("FDN_VERBOSE") != NULL;
     ext e; int n;
     fdn_net *net = extract(VS, US, L, ext_new(&e), &n);
-    if (!net) { ext_free(&e); return BP_FALSE; }
+    if (!net) { ext_say(why[0] ? why : "the model does not translate"); ext_free(&e); return BP_FALSE; }
     DEREF(Opt);
     int objid = -1;
     if (!atom_is(Opt, "$none")) {
-        if (!IS_SUSP_VAR(Opt)) { fdn_net_free(net); ext_free(&e); return BP_FALSE; }
+        if (!IS_SUSP_VAR(Opt)) {
+            fdn_net_free(net); ext_free(&e);
+            ext_say("the objective is not a variable");
+            return BP_FALSE;
+        }
         objid = vm_get(&e.ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(Opt));
         if (objid < 0) {
             fdn_net_free(net); ext_free(&e);
-            if (verbose) fprintf(stderr, "fdn: external cp-sat: the objective is not in the net\n");
+            ext_say("the objective is not in the net");
             return BP_FALSE;
         }
     }
@@ -1234,13 +1268,15 @@ int c_fdn_extsolve(void) {
     free(olab);
     fdn_net_free(net);
     if (!got || !status_ok || !parse_sols()) {
-        if (got && verbose) fprintf(stderr, "fdn: external cp-sat: %s\n", jkey(resp, "status") ? resp : "no response");
+        char msg[320];
+        ext_reason(got, status_ok, msg, sizeof msg);
+        ext_say(msg);
         xsols_free(); ext_free(&e);
         return BP_FALSE;
     }
     if (verbose) fprintf(stderr, "fdn: external cp-sat solve: %ld solutions, obj %ld\n", (long)xns, objv);
     BPLONG *fixed; int *vid;
-    if (!ext_positions(L, n, &e, &fixed, &vid)) { xsols_free(); ext_free(&e); return BP_FALSE; }
+    if (!ext_positions(L, n, &e, &fixed, &vid)) { xsols_free(); ext_free(&e); ext_say("an internal error binding the solutions"); return BP_FALSE; }
     int ok = 1;
     BPLONG outer = nil_sym;
     for (int s = xns - 1; ok && s >= 0; s--) {
@@ -1256,7 +1292,7 @@ int c_fdn_extsolve(void) {
         outer = ADDTAG(heap_top, LST); heap_top += 2;
     }
     free(fixed); free(vid); xsols_free(); ext_free(&e);
-    if (!ok) return BP_FALSE;
+    if (!ok) { ext_say("a solution does not cover every net variable"); return BP_FALSE; }
     return unify(Sols, outer) && unify(ObjVal, MAKEINT(objv));
 }
 
@@ -1268,14 +1304,16 @@ int c_fdn_extcount(void) {
     if (verbose < 0) verbose = getenv("FDN_VERBOSE") != NULL;
     ext e; int n;
     fdn_net *net = extract(VS, US, Vars, ext_new(&e), &n);
-    if (!net) { ext_free(&e); return BP_FALSE; }
+    if (!net) { ext_say(why[0] ? why : "the model does not translate"); ext_free(&e); return BP_FALSE; }
     const char *tm = getenv("FDN_EXTTIME");
     double tlim = tm ? atof(tm) : 0;
     long status_ok = 0, objv = 0, count = 0;
     int got = ext_run(net, -1, NULL, 0, "count", 0, tlim, &status_ok, &objv, &count);
     fdn_net_free(net); ext_free(&e);
     if (!got || !status_ok) {
-        if (got && verbose) fprintf(stderr, "fdn: external cp-sat count: %s\n", jkey(resp, "status") ? resp : "no response");
+        char msg[320];
+        ext_reason(got, status_ok, msg, sizeof msg);
+        ext_say(msg);
         return BP_FALSE;
     }
     if (verbose) fprintf(stderr, "fdn: external cp-sat count: %ld solutions\n", count);
