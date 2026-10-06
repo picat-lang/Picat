@@ -1,9 +1,7 @@
 # picat-fdn: transparent native multicore FD solver
 
 The fdn engine — `Picat-src/emu/fdn.c`, `fdn.h` and `fdn_solver.cpp` — is a
-native C++ search engine for CP models, yet another extension of the
-experimental branch's emulator (which is 3.9#13-based and extended itself,
-not release Picat 3.9#12).
+native C++ search engine for CP models.
 Programs run unchanged: `picat prog.pi args`. Every `solve/1,2` of the `cp`
 module checks the constraint network that is live at that moment:
 
