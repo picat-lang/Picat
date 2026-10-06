@@ -1,14 +1,17 @@
 # picat-fdn: transparent native multicore FD solver
 
-The engine in `Picat-src/emu/fdn.c`, `fdn.h` and `fdn_solver.cpp` is the
-unmodified Picat 3.9#12 emulator plus a native C++ search engine for CP models.
+The fdn engine — `Picat-src/emu/fdn.c`, `fdn.h` and `fdn_solver.cpp` — is a
+native C++ search engine for CP models, yet another extension of the
+experimental branch's emulator (which is 3.9#13-based and extended itself,
+not release Picat 3.9#12).
 Programs run unchanged: `picat prog.pi args`. Every `solve/1,2` of the `cp`
 module checks the constraint network that is live at that moment:
 
-- **Supported** (see below): the whole search runs natively on all cores.
+- **Supported** (see below): the whole search runs natively in parallel.
   The solutions come back to Picat one at a time, in exactly the order
   Picat's own labeling would produce them, and `statistics(backtracks)`
-  advances by exactly Picat's count.
+  advances by Picat's count (one known trigger-order exception, see
+  "Limits and known differences").
 - **Anything else:** Picat's own labeling runs, unchanged.
 
 A bare cp `solve` inside `count_all` is counted natively, in parallel,
@@ -21,7 +24,7 @@ without handing solutions to Picat; only the number goes back
 cd emu && make -f Makefile.linux64 -j8 picat FDN_ARCH=-mpopcnt
 cd .. && emu/picat exs/fd_native_mt/mixed.pi        # transparency test
 emu/picat exs/cp/queens.pi                          # any cp program
-FDN=0 emu/picat exs/cp/queens.pi                    # hook off: exactly Picat 3.9#12
+FDN=0 emu/picat exs/cp/queens.pi                    # hook off: the experimental build's own interpreted path
 sh exs/fd_native_mt/run_bench.sh                    # the benchmark suite
 ```
 
@@ -33,9 +36,9 @@ Environment variables:
 
 | variable | effect |
 |---|---|
-| `FDN=0` | do not install the hook (exactly Picat 3.9#12) |
+| `FDN=0` | do not install the hook (the experimental build's own interpreted CLP(FD) path) |
 | `FDN_COUNT=0` | do not repoint `count_all/2` (solutions through Picat again) |
-| `FDN_THREADS=n` | threads per search (default: all cores; see the tuning note below) |
+| `FDN_THREADS=n` | threads per search (default: `min(cores, 64)`; explicit values uncapped; see the tuning note below) |
 | `FDN_VERBOSE=1` | report each `solve` on stderr: native search (size) or the fallback reason |
 | `FDN_SPAWN=n` | start the thread pool after n nodes (default 20000; small searches stay on the calling thread) |
 
@@ -47,7 +50,7 @@ Environment variables:
 | `all_different` | forward checking |
 | `all_distinct` | FC + Hall check anchored at the changed variable |
 | `all_distinct` on a permutation | + primal/dual channelling |
-| `sum`, `#=`, `#>=`, `#=<` (linear) | Picat's single ordered propagation pass (`nary_interval_consistent_eq/ge`) with Picat's wake rules; ARC sums reach arc consistency once ≤ 2 variables are unbound |
+| `sum`, `#=`, `#>=`, `#=<` (linear) | Picat's single ordered propagation pass (`nary_interval_consistent_eq/ge`) with Picat's wake rules; ARC sums reach arc consistency once ≤ 2 variables are unbound — through an O(1) bound-intersect fast path when the congruence is vacuous (one coefficient divides the other and the constant) and the supporting domain is contiguous, exactly equivalent to the value-by-value pass otherwise |
 | `X #= Y+C`, `X #= C-Y` | value mapping (arc consistent) + the `'$v_in_*_int'` bounds frames on a unification |
 | `abs(X-Y) #= C` | domain filtering + bounds + FC per removal |
 | `X*Y #= Z` | falls back to Picat's own bounds propagation (see below) |
@@ -76,7 +79,7 @@ forever there), other attributes, value ranges wider than 65536.
 
 `solve($[min(O)], Vars)` (and `$max(O)`, `$minimize(O)`, `$maximize(O)`, with
 `$report(G)` and `limit(N)` next to an objective) runs Picat's own `minof/3`
-loop: each round's first solution is searched natively on all cores, on the
+loop: each round's first solution is searched natively in parallel, on the
 network extracted once, with the objective variable narrowed to ≤ Best−1 per
 round.  The report sequence, the solutions and `statistics(backtracks)` are
 exactly Picat 3.9#12's (a round's search is Picat's own labeling order), so
@@ -104,13 +107,16 @@ output byte-identical incl. `backtracks`):
 - **Every option list goes native now** — before this phase only `[]`, `ff`
   and the counting options did; `$min(O)`/`updown`/`split`/`ffc` fell back to
   stock code.
-- **The default thread count** (all 384 hardware threads) is slower than
-  64-128 on branch and bound; use `FDN_THREADS`.
+- **The default thread count** (capped at 64 on this box) is the tuned
+  value for branch and bound here; set `FDN_THREADS` explicitly on other
+  machines (uncapped).
 
 ## `mixed.pi`
 
 The transparency test: each block prints solutions / counts and the
-`backtracks` statistic, which must be identical to Picat 3.9#12. Run it with
+`backtracks` statistic, which must be identical with and without the fdn
+(and is, byte for byte; the fdn-off path is output-verified against
+release Picat 3.9#12 on the FD families). Run it with
 and without `FDN=0` and compare. It covers findall / count_all
 enumeration, ARC and general linear constraints, binary equalities, `ffc`,
 partially instantiated label lists, `element` with a constant index, and a
@@ -129,14 +135,16 @@ that go parity or slower natively (the `import sat` variants, the
 `circuit` fallback case, posting-only models, the `sequence` and zebra
 decompositions) were removed.
 
-- **Picat 3.9#12**: the interpreted CLP(FD) path (`FDN=0`), the same code path as
-  release Picat 3.9#12.
+- **FDN=0**: the experimental build's own interpreted CLP(FD) path (the hook off) —
+  output-verified against release Picat 3.9#12 on the FD families.
 - **picat-fdn**: the native multicore solver (the default).
 
-Both run the *same binary*.  The `stat` module prints
+These two run the *same binary*.  Where the reference tables below say
+"Picat 3.9#12", that column was measured against the stock release binary
+(`/home/jovyan/bin/picat312`).  The `stat` module prints
 `STAT <name> runtime_ms=<ms> backtracks=<n>`; the solution results
 (solution counts, sat/unsat, `backtracks`) are identical between the two
-paths.
+paths of the same binary.
 
 | file | model | what it exercises |
 |---|---|---|
@@ -149,11 +157,13 @@ paths.
 | `stat.pi` | STAT helper | the module the benchmarks import; prints `runtime_ms` + `backtracks` |
 
 **Thread tuning matters**: the native solver parallelises the search
-across `FDN_THREADS` workers, defaulting to `thread::hardware_concurrency()`.
+across `FDN_THREADS` workers, defaulting to `min(thread::hardware_concurrency(), 64)`
+(explicit `FDN_THREADS` values are uncapped).
 On a shared or cgroup-limited box the full count can OVER-subscribe and
-collapse the parallel gain (e.g. pigeon 11/10: 0.93 s with the default
-384 threads on this container vs 0.19–0.23 s at 32–64 threads vs 3.3 s
-single-threaded).  Set `FDN_THREADS=32..64` for benchmarking here:
+collapse the parallel gain (e.g. pigeon 11/10: 0.93 s when the thread
+count was uncapped at 384 on this container vs 0.19–0.23 s at 32–64
+threads vs 3.3 s single-threaded — which is why the default is capped
+at 64).  Set `FDN_THREADS=32..64` for benchmarking here:
 
 ```sh
 FDN_THREADS=32 ../../emu/picat pigeon.pi 10
@@ -163,8 +173,8 @@ FDN_THREADS=32 ../../emu/picat pigeon.pi 10
 
 Whole-program wall time; each column shows the measured time with the
 acceleration vs release Picat 3.9#12 underneath.  Measured 2026-10 on x86
-(AMD EPYC 9654, shared cgroup-limited container) with the current
-experimental build — complete runs, identical solution and backtrack
+(AMD EPYC 9654, shared cgroup-limited container) with the experimental
+build of that date — complete runs, identical solution and backtrack
 counts on both sides:
 
 | program | Picat 3.9#12 | FDN=0 | th=1 | th=4 | th=16 | th=64 |
@@ -216,17 +226,23 @@ whole-program wall, median of 3, outputs byte-identical on both paths:
 | kakuro x1000 | 0.61 s | 8.6 s | **14x** |
 | qopt 14 ff (branch and bound) | 1.12 s | 12.4 s | **11x** |
 
-Parity or slower natively (measured the same day, hence removed):
+Parity or slower natively (measured with the current build, hence removed):
 `qff`/`qffsplit` at N=300 (posting-dominated at that size), `qpost`
 (posting only), `pigeon_ad` (fails at posting), `ppm2` (instance too
 small), `knight` (circuit fallback), `zebraN` 2000 (1.2x slower),
-`seq` 40-50 (the `sequence` decomposition, ~20x slower — many small
-reified sums where the native per-node cost dominates), `sudoku25` /
+`seq` 40 (the `sequence` decomposition's many small overlapping ARC
+sums, 1.9x slower — the ac2 fast path cut it from ~20x, the remaining
+gap is the native per-node cost on that dense graph), `sudoku25` /
 `sudoku25d` (> 120 s on both paths, no demonstrated gain), and the
 `import sat` variants (the fdn is not involved).
 
 ## Limits and known differences
 
+- `statistics(backtracks)` advances by Picat's count on every model tested
+  except one known fuzz case (a linear + `all_different` model where a
+  propagation trigger fires in a different order and the total differs by
+  6 of ~940; the solutions are identical). The solution order and the
+  solution sets are identical everywhere tested.
 - Solutions are transferred to Picat one decision at a time (a unification,
   or a decision-by-decision replay when Picat's rest step follows — the same
   calls Picat's own labeling makes, so Picat's propagators run after every
