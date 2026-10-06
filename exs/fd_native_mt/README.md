@@ -23,7 +23,11 @@ cd emu && make -f Makefile.linux64 -j8 picat FDN_ARCH=-mpopcnt
 cd .. && emu/picat exs/fd_native_mt/mixed.pi        # transparency test
 emu/picat exs/cp/queens.pi                          # any cp program
 FDN=0 emu/picat exs/cp/queens.pi                    # hook off: the experimental build's own interpreted path
+FDN_EXTSOLVER=cp-sat emu/picat exs/fd_native_mt/ext_models.pi
+                                                    # the same models through the external CP-SAT server
 sh exs/fd_native_mt/run_bench.sh                    # the benchmark suite
+sh exs/fd_native_mt/ext_check.sh                    # the ext correctness checks
+sh exs/fd_native_mt/ext_bench.sh                    # the ext speed checks
 ```
 
 `FDN_ARCH=-mpopcnt` is for x86_64; omit it on other platforms. `fdn_hook.pi`
@@ -203,6 +207,84 @@ Reading the numbers:
   not benefit from more workers; the win is the native propagation.
 - **FDN=0 matches Picat 3.9#12 (0.9-1.0x)** — the transparency holds
   throughout.
+
+## External CP-SAT solver (`FDN_EXTSOLVER`)
+
+`FDN_EXTSOLVER=cp-sat` routes solves through an external
+[ortools CP-SAT](https://developers.google.com/optimization/cp/cp_solver)
+server instead of the native fdn: `emu/fdn_cpsat.py`, forked per Picat run
+over a socketpair (`emu/fdn.c`), receiving the extracted network as a JSON
+model.  The translated model covers the same constraint families as the
+native fdn (the same `extract` in `emu/fdn_solver.cpp`), so a model either
+translates for both or falls back for both.
+
+When the store holds no constrained variables outside the label list, the
+server answers directly.  Otherwise (`c_fdn_alone` fails — say a
+reification bool of an entailment, or the helper variables Picat's compiler
+splits sums of more than 20 terms into) the label list is extended with
+those variables, the server answers, and the helper values are bound with
+each solution — equivalent to Picat's own rest step, which labels the store's
+left-over constrained variables once after each solution.  The search falls
+back to the native path when the model does not translate, the server is
+unavailable or errors, the objective variable is outside the net, or a cap
+or time limit cut the search.
+
+The server requires `python3` with `ortools` (`pip install -r
+requirements.txt` from the repository root; measured with 9.15.6755;
+9.12-9.14 enforce single-threaded enumeration).  It blocks `pyarrow` before
+importing `ortools` — with `pandas` installed, pyarrow's bundled libprotobuf
+collides with ortools' and the import aborts.  Set `FDN_CPSAT=path` to use a
+different server program (it must speak the same JSON protocol over stdin;
+see `emu/fdn_cpsat.py`'s module docstring).
+
+Enumeration is two-phase: an INFEASIBLE verdict is sound at any worker
+width (and much faster there — pigeonhole proofs), but a solution set must
+be complete, and ortools' multithreaded enumeration can silently drop
+solutions while still reporting OPTIMAL (measured: an `element` model
+returned 4 of 6 solutions at 8 workers), so anything else is re-enumerated
+on a single worker.  Solutions are deduplicated on the original label
+list's projection: reification bools outside the label list can be free,
+and with several workers the same solution can also be found more than
+once.
+
+Environment variables (all optional; the ext mode is off unless
+`FDN_EXTSOLVER=cp-sat`):
+
+| variable | effect |
+|---|---|
+| `FDN_EXTSOLVER=cp-sat` | route solves through the external CP-SAT server |
+| `FDN_EXTTHREADS=n` | server worker threads (default: `min(cores, 64)`, as for `FDN_THREADS`) |
+| `FDN_EXTMAX=n` | give up the enumeration after n solutions and fall back (default 100000) |
+| `FDN_EXTTIME=s` | CP-SAT time limit in seconds; on expiry the search falls back |
+| `FDN_CPSAT=path` | the server program (default: `fdn_cpsat.py` next to the binary) |
+| `FDN_EXTDUMP=1` | dump each request JSON to stderr before it is sent |
+
+`FDN_VERBOSE=1` reports each external solve on stderr (the solution count,
+the objective value), and the fallback reason when the ext mode gives up.
+
+Correctness and speed:
+
+```sh
+sh exs/fd_native_mt/ext_check.sh                    # 5 checks with and without the server
+sh exs/fd_native_mt/ext_bench.sh                    # native fdn vs the server at 1 and 64 workers
+```
+
+Reference results (whole-program wall time, same machine, under load):
+
+| benchmark | native fdn, 64 threads | server, 1 worker | server, 64 workers |
+|---|---|---|---|
+| pigeon 11 (unsat proof) | 1086 ms | > 30 s | **318 ms** |
+| qopt 13 ff (optimization) | **459 ms** | 17083 ms | 4432 ms |
+| kakuroN 1000 (20 solves) | **609 ms** | 5494 ms | 11570 ms |
+| qall 14 (365596 solutions) | **208 ms** | > 30 s | > 30 s |
+| qff 600 (enumeration) | **18165 ms** | > 30 s | > 30 s |
+
+The server wins on hard unsat proofs only: INFEASIBLE is sound at any
+width and parallelizes (pigeonhole is exponentially hard for the
+single-threaded proof).  On models with solutions the completeness
+re-enumeration and the translation overhead dominate, and the native fdn
+is faster everywhere measured.  Treat the ext mode as an escape hatch for
+proof-style models, not a general speedup.
 
 ## Limits and known differences
 

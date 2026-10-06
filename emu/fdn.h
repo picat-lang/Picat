@@ -3,6 +3,7 @@
    solver (fdn_solver.cpp, knows nothing about Picat). */
 #ifndef FDN_H
 #define FDN_H
+#include <stddef.h>
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -44,6 +45,12 @@ void fdn_elfc(fdn_net *, int i, int v, int tuple);
 /* lexicographic chain of np pairs (x0,y0,x1,y1,...): watch bounds on the
    first np-1 pairs, arc consistency on the last (le: <=, else <) */
 void fdn_lex(fdn_net *, int le, int np, const int *pr);
+/* the net as a JSON model for the external CP-SAT server (fdn_cpsat.py,
+   FDN_EXTSOLVER=cp-sat); obj: the objective variable id or -1; lab/nlab: the
+   solution-dedup projection (the original label list's variable ids, or NULL
+   for the net's own label order). Returns a malloc'd string, *len = its
+   length. */
+const char *fdn_export_json(const fdn_net *, int obj, const int *lab, int nlab, size_t *len);
 /* labeling strategies (labeling_var_strategy/2, labeling_val_strategy/2 in
    cpeval/decompiled/fd_labeling.pi) */
 enum { VS_LEFTMOST, VS_FF, VS_MIN, VS_MAX, VS_FF_MIN, VS_FF_MAX };

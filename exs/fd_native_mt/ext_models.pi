@@ -1,0 +1,102 @@
+% picat-fdn external CP-SAT checks (FDN_EXTSOLVER=cp-sat): every model below
+% is solved with the native fdn and with the external CP-SAT server, and the
+% outputs must be identical.  The solutions are printed SORTED (the external
+% search's order is CP-SAT's own), the optimum as the objective value only,
+% counts as numbers; backtracks are not printed (under the external search
+% they are not Picat's).  Usage: emu/picat scratch/fdopt/ext_models.pi
+import cp, util.
+
+main =>
+    foreach (M in [q6, lin, maps, perm, dom, elem, reif, ent, absd, dvd, modd, mm, lex])
+        (t(M), fail ; true)
+    end,
+    foreach (O in [[ff], [ffc], [updown], [split], [down, ff], [ffc, updown]])
+        (t2(O), fail ; true)
+    end.
+
+t(M) =>
+    (model(M, Vs, Obj) ->
+        L = solve_all(Vs),
+        println(M = L.sort()),
+        model(M, Vs2, _),
+        (solve($[min(Obj)], Vs2) -> println($opt(M, Obj)) ; println($opt(M, none))),
+        model(M, Vs3, _),
+        C = count_all(solve(Vs3)),
+        println($cnt(M, C))
+    ;
+        println(M = none)
+    ).
+
+t2(O) =>
+    model(q6, Vs, _),
+    L = solve_all(O, Vs),
+    println(O = L.sort()).
+
+model(q6, Vs, Obj) =>
+    Vs = new_list(6), Vs :: 1..6,
+    foreach (I in 1..5, J in I+1..6) Vs[I] #!= Vs[J], abs(Vs[I]-Vs[J]) #!= J-I end,
+    Obj #= sum([I * Vs[I] : I in 1..6]).
+
+model(lin, Vs, Obj) =>
+    Vs = new_list(5), Vs :: 0..6, sum(Vs) #= 14, 2*Vs[1] - Vs[4] #>= 1, Vs[2] #!= Vs[3] + 1,
+    Obj #= Vs[1] + 2*Vs[2] - Vs[5].
+
+model(maps, Vs, Obj) =>
+    Vs = [Y, X, Z, W], Vs :: 0..9, X #= Y + 2, Z #= 8 - Y, Y + W #= 9, X #!= W,
+    Obj #= X + W.
+
+model(perm, Vs, Obj) =>
+    Vs = new_list(6), Vs :: 1..6, all_distinct(Vs), Vs[1] #< Vs[6], Vs[2] #!= 3,
+    Obj #= 3*Vs[1] - 2*Vs[3] + Vs[5].
+
+model(dom, Vs, Obj) =>
+    Vs = new_list(5), Vs :: [1, 3, 4, 7, 8, 10, 12], all_different(Vs), Vs[1] + Vs[5] #= 15,
+    Obj #= Vs[2] - Vs[3] + Vs[4].
+
+model(elem, Vs, Obj) =>
+    Vs = new_list(5), Vs :: 1..5,
+    element(Vs[1], [3, 1, 4, 1, 5], Vs[2]), Vs[3] #= Vs[1] + Vs[2], all_different(Vs),
+    Obj #= Vs[4] + Vs[5].
+
+model(reif, Vs, Obj) =>
+    Vs = new_list(4), Vs :: 1..6,
+    B1 :: 0..1, B2 :: 0..1, B3 :: 0..1,
+    B1 #<=> (Vs[1] #= 3),
+    B2 #<=> (Vs[1] #= Vs[2]),
+    B3 #<=> (Vs[3] #>= Vs[4]),
+    B1 + B2 + B3 #>= 2, sum(Vs) #= 14,
+    Obj #= Vs[1] + 2*Vs[2].
+
+model(ent, Vs, Obj) =>
+    Vs = new_list(4), Vs :: 1..6,
+    B :: 0..1, B #=> (Vs[1] #= 3),
+    C :: 0..1, C #<=> (B #= 0), C #=> (Vs[2] #= 4),
+    sum(Vs) #= 14, B + Vs[3] #>= 4,
+    Obj #= Vs[3] + Vs[4].
+
+model(absd, Vs, Obj) =>
+    Vs = new_list(4), Vs :: 0..5, abs(Vs[1] - Vs[2]) #= 3, abs(Vs[3] - Vs[4]) #!= 2, sum(Vs) #= 9,
+    Obj #= Vs[1].
+
+model(dvd, Vs, Obj) =>
+    Vs = new_list(3), Vs[1] :: -7..7, Vs[2] :: 1..3, Vs[3] :: -3..3,
+    Vs[1] div Vs[2] #= Vs[3], Vs[1] #>= -3,
+    Obj #= Vs[1] + Vs[3].
+
+model(modd, Vs, Obj) =>
+    Vs = new_list(3), Vs[1] :: -7..7, Vs[2] :: 1..3, Vs[3] :: -3..3,
+    Vs[1] mod Vs[2] #= Vs[3],
+    Obj #= Vs[1] + Vs[3].
+
+model(mm, Vs, Obj) =>
+    Vs = new_list(6), Vs :: 1..6,
+    Vs[5] #= min([Vs[1], Vs[2], 2]), Vs[6] #= max([Vs[3], Vs[4], 3]),
+    Vs[1] + Vs[2] + Vs[3] + Vs[4] #= 14, Vs[5] + Vs[6] #>= 7,
+    Obj #= Vs[1] + Vs[6].
+
+model(lex, Vs, Obj) =>
+    A = new_list(3), A :: 1..4, B = new_list(3), B :: 1..4,
+    lex_lt(A, B), A[1] + B[3] #= 5,
+    Vs = A ++ B,
+    Obj #= A[1] + B[1].
+

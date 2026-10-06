@@ -1,0 +1,3 @@
+# Python packages used by the Picat-src tooling (pip install -r requirements.txt).
+# Everything else the scripts import is the standard library.
+ortools>=9.15

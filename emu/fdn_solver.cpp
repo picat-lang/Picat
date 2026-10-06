@@ -227,6 +227,155 @@ void fdn_lex(fdn_net *n, int le, int np, const int *pr) {
 void fdn_label(fdn_net *n, int vs, int us, int k, const int *xs) { n->varsel = vs; n->valsel = us; n->label.assign(xs, xs + k); }
 const int *fdn_net_label(fdn_net *n, int *k) { *k = n->label.size(); return n->label.data(); }
 void fdn_net_free(fdn_net *n) { delete n; }
+
+// the net as a JSON model for the external CP-SAT server (fdn_cpsat.py,
+// FDN_EXTSOLVER=cp-sat). Every structure is translated by its semantics:
+// domains as [lo,hi] intervals; edges (x+d != t); halls (all different);
+// tuples + elements (element(I, tuple, V), the eld and elf forms deduped);
+// channels (element(X-off-1, tuple, a), a fixed); maps (t == s*owner + k,
+// the value and bounds forms deduped — both encode X = Y+C / X = C-Y);
+// linear constraints (op 0/2: = 0, 1: >= 0, constants already folded);
+// abs; div (floored: 0 <= x - y*z <= |y|-1, exact for both signs of y);
+// mod (the remainder of the division rounding toward 0, as CP-SAT's);
+// min/max; reifications (mode 0/1: y is a constant, 2/3/4: a variable);
+// entailments; lex chains. obj: the objective variable id or -1.
+const char *fdn_export_json(const fdn_net *N, int obj, const int *lab, int nlab, size_t *len) {
+    string s;
+    s += "{\"glo\":" + to_string(N->glo) + ",\"nvars\":" + to_string((long)N->vals.size());
+    s += ",\"domains\":[";
+    for (size_t x = 0; x < N->vals.size(); x++) {
+        if (x) s += ",";
+        s += "[";
+        const vector<int> &v = N->vals[x];
+        size_t i = 0;
+        bool f1 = true;
+        while (i < v.size()) {
+            long lo = v[i], hi = lo;
+            size_t j = i + 1;
+            while (j < v.size() && v[j] == hi + 1) { hi = v[j]; j++; }
+            if (!f1) s += ",";
+            f1 = false;
+            s += "[" + to_string(lo) + "," + to_string(hi) + "]";
+            i = j;
+        }
+        s += "]";
+    }
+    s += "]";
+    s += ",\"edges\":[";
+    { bool f1 = true;
+      for (size_t x = 0; x < N->adj.size(); x++)
+          for (const Edge &e : N->adj[x]) {
+              if (!f1) s += ","; f1 = false;
+              s += "[" + to_string((long)x) + "," + to_string(e.d) + "," + to_string(e.t) + "]";
+          } }
+    s += "]";
+    auto ivlist = [&s](const vector<vector<int>> &vs) {
+        s += "[";
+        for (size_t h = 0; h < vs.size(); h++) {
+            if (h) s += ",";
+            s += "[";
+            for (size_t i = 0; i < vs[h].size(); i++) { if (i) s += ","; s += to_string(vs[h][i]); }
+            s += "]";
+        }
+        s += "]";
+    };
+    s += ",\"halls\":"; ivlist(N->halls);
+    s += ",\"tuples\":"; ivlist(N->tuples);
+    s += ",\"elements\":[";
+    { set<pair<pair<int,int>,int>> seen; bool f1 = true;
+      auto one = [&](int i, int v, int t) {
+          if (!seen.insert({{i, v}, t}).second) return;
+          if (!f1) s += ","; f1 = false;
+          s += "[" + to_string(i) + "," + to_string(t) + "," + to_string(v) + "]";
+      };
+      for (const ElD &c : N->elds) one(c.i, c.v, c.t);
+      for (const ElF &f : N->elves) one(f.i, f.v, f.t); }
+    s += "]";
+    s += ",\"chans\":[";
+    { bool f1 = true;
+      for (size_t x = 0; x < N->vchan.size(); x++)
+          for (const ChanR &r : N->vchan[x]) {
+              if (!f1) s += ","; f1 = false;
+              s += "[" + to_string((long)x) + "," + to_string(r.off) + "," + to_string(r.a) + "," + to_string(r.tuple) + "]";
+          } }
+    s += "]";
+    s += ",\"maps\":[";
+    { set<pair<pair<int,int>,pair<int,int>>> seen; bool f1 = true;
+      auto one = [&](int o, int t, int ss, int k) {
+          if (!seen.insert({{o, t}, {ss, k}}).second) return;
+          if (!f1) s += ","; f1 = false;
+          s += "[" + to_string(o) + "," + to_string(ss) + "," + to_string(k) + "," + to_string(t) + "]";
+      };
+      for (size_t x = 0; x < N->vmap.size(); x++)
+          for (const Map &mp : N->vmap[x]) one((int)x, mp.t, mp.s, mp.k);
+      for (size_t x = 0; x < N->vbmap.size(); x++)
+          for (const Map &mp : N->vbmap[x]) one((int)x, mp.t, mp.s, mp.k); }
+    s += "]";
+    s += ",\"lins\":[";
+    for (size_t l = 0; l < N->lins.size(); l++) {
+        const Lin &li = N->lins[l];
+        if (l) s += ",";
+        s += "{\"op\":" + to_string(li.op) + ",\"c\":" + to_string(li.c) + ",\"terms\":[";
+        for (size_t i = 0; i < li.a.size(); i++) { if (i) s += ","; s += "[" + to_string(li.a[i]) + "," + to_string(li.xs[i]) + "]"; }
+        s += "]}";
+    }
+    s += "]";
+    s += ",\"abs\":[";
+    for (size_t a = 0; a < N->abss.size(); a++) {
+        const Abs &ab = N->abss[a];
+        if (a) s += ",";
+        s += "[" + to_string(ab.x) + "," + to_string(ab.y) + "," + to_string(ab.n) + "]";
+    }
+    s += "]";
+    auto xyz = [&s](const vector<Div> &vs, const char *key) {
+        s += ",\""; s += key; s += "\":[";
+        for (size_t d = 0; d < vs.size(); d++) {
+            if (d) s += ",";
+            s += "[" + to_string(vs[d].x) + "," + to_string(vs[d].y) + "," + to_string(vs[d].z) + "]";
+        }
+        s += "]";
+    };
+    xyz(N->divs, "divs"); xyz(N->mods, "mods");
+    s += ",\"mm\":[";
+    for (size_t m = 0; m < N->mms.size(); m++) {
+        const Mm &mm = N->mms[m];
+        if (m) s += ",";
+        s += "{\"m\":" + to_string(mm.ismin) + ",\"r\":" + to_string(mm.r) + ",\"terms\":[";
+        for (size_t i = 0; i < mm.ids.size(); i++) { if (i) s += ","; s += "[" + to_string(mm.ids[i]) + "," + to_string(mm.vals[i]) + "]"; }
+        s += "]}";
+    }
+    s += "]";
+    auto bxy = [&s](const auto &vs, const char *key) {
+        s += ",\""; s += key; s += "\":[";
+        for (size_t r = 0; r < vs.size(); r++) {
+            if (r) s += ",";
+            s += "{\"mode\":" + to_string(vs[r].mode) + ",\"b\":" + to_string(vs[r].b) + ",\"x\":" + to_string(vs[r].x) + ",\"y\":" + to_string(vs[r].y) + "}";
+        }
+        s += "]";
+    };
+    bxy(N->reifs, "reif"); bxy(N->ents, "ent");
+    s += ",\"lex\":[";
+    for (size_t l = 0; l < N->lexs.size(); l++) {
+        const Lex &lx = N->lexs[l];
+        if (l) s += ",";
+        s += "{\"le\":" + to_string(lx.le) + ",\"pairs\":[";
+        for (size_t i = 0; i < lx.pr.size(); i++) { if (i) s += ","; s += "[" + to_string(lx.pr[i].first) + "," + to_string(lx.pr[i].second) + "]"; }
+        s += "]}";
+    }
+    s += "]";
+    s += ",\"obj\":" + to_string(obj);
+    s += ",\"label\":[";
+    if (nlab > 0) {
+        for (int i = 0; i < nlab; i++) { if (i) s += ","; s += to_string(lab[i]); }
+    } else {
+        for (size_t i = 0; i < N->label.size(); i++) { if (i) s += ","; s += to_string(N->label[i]); }
+    }
+    s += "]}";
+    *len = s.size();
+    char *out = (char *)malloc(s.size() + 1);
+    memcpy(out, s.data(), s.size() + 1);
+    return out;
+}
 }
 
 // ------------------------------------------------------------------ search

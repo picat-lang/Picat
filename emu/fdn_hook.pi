@@ -4,6 +4,15 @@
 % '$fdn_orig_labeling'/2. If the network on Vars is fully supported, the
 % native solver enumerates the solutions (same order as Picat's own search),
 % else Picat's labeling runs unchanged.
+%
+% External CP-SAT (FDN_EXTSOLVER=cp-sat): c_fdn_exton/0 is true when the env
+% variable is set. The external path only runs when nothing else is
+% constrained in the store (c_fdn_alone) — the external server has no replay
+% for Picat's rest step — and falls back to the native path (then to Picat's
+% own labeling) when the net is unsupported or a cap or time limit cut the
+% search. The external search is CP-SAT's own, so the solution order and the
+% backtracks are not Picat's; the solution sets, counts and optimal values
+% are the net's.
 module fdn_hook.
 
 % labeling/2 (fd_labeling.pi): with no options, labeling(Vars) (leftmost, up)
@@ -12,9 +21,26 @@ module fdn_hook.
 % labeling_reorder_vars/3, then generic_labeling/3, wrapped in minof/maxof
 % when an objective is given. fdn_plan/7 computes the same with Picat's own
 % predicates, or fails for options the native solver does not run.
+%
+% The external dispatch when other constrained variables are in the store
+% (compiler-introduced helper variables of decomposed sums, for instance):
+% the label list is extended with them (retrieve_frozen_dvars) and alone is
+% re-checked on the extension — the ext net already covers their constraints,
+% and binding them from the external solution is equivalent to Picat's rest
+% step, which would find everything bound.  When the extension does not reach
+% alone, or the net is unsupported, the native path (then Picat's labeling)
+% runs as before.
 fdn_labeling([], Vars) =>
     (bp.c_fdn_alone(Vars) -> Path = false ; Path = true),
-    (bp.c_fdn_start(leftmost, up, Vars, Path, H) ->
+    (bp.c_fdn_exton,
+     (Path == false ->
+         L = Vars
+     ;
+         bp.retrieve_frozen_dvars(F), L = Vars ++ F, bp.c_fdn_alone(L)
+     ),
+     bp.c_fdn_extsolve(leftmost, up, L, Vars, '$none', Sols, _O) ->
+        fdn_ext_emit(Sols, L)
+    ; bp.c_fdn_start(leftmost, up, Vars, Path, H) ->
         (Path == false ->
             fdn_sols(H, Vars)
         ;
@@ -27,14 +53,24 @@ fdn_labeling(Opts, Vars) =>
     (fdn_plan(Opts, Vars, VS, US, Vs, Obj, Report) ->
         (Obj == '$none' ->
             (bp.c_fdn_alone(Vs) -> Path = false ; Path = true),
-            (bp.c_fdn_start(VS, US, Vs, Path, H) ->
-                (Path == false ->
-                    fdn_sols(H, Vs)
-                ;
-                    fdn_solsp(H, Vs), fdn_rest(VS, US)
-                )
+            (bp.c_fdn_exton,
+             (Path == false ->
+                 L = Vs
+             ;
+                 bp.retrieve_frozen_dvars(F), L = Vs ++ F, bp.c_fdn_alone(L)
+             ),
+             bp.c_fdn_extsolve(VS, US, L, Vs, '$none', Sols, _O) ->
+                fdn_ext_emit(Sols, L)
             ;
-                bp.'$fdn_orig_labeling'(Opts, Vars)
+                (bp.c_fdn_start(VS, US, Vs, Path, H) ->
+                    (Path == false ->
+                        fdn_sols(H, Vs)
+                    ;
+                        fdn_solsp(H, Vs), fdn_rest(VS, US)
+                    )
+                ;
+                    bp.'$fdn_orig_labeling'(Opts, Vars)
+                )
             )
         ;
             fdn_bb(VS, US, Vs, Obj, Report)
@@ -42,6 +78,10 @@ fdn_labeling(Opts, Vars) =>
     ;
         bp.'$fdn_orig_labeling'(Opts, Vars)
     ).
+
+% the external solutions as alternatives: CP-SAT's order, each solution a
+% list of values aligned with Vars
+fdn_ext_emit(Sols, Vars) => member(Sol, Sols), Vars = Sol.
 
 % Options the native solver runs: all of them known to
 % '$check_labeling_option'/1 (so stock prints no warning), none of rand,
@@ -126,6 +166,43 @@ fdn_dec(rg(X, L, U)) => bp.domain_region(X, L, U).
 % expression, or the network is not supported, minof itself or its loop
 % (minof_repeat) runs, from the same state.
 fdn_bb(VS, US, Vs, Obj, Report) =>
+    (bp.c_fdn_exton -> fdn_ext_bb(VS, US, Vs, Obj, Report) ; fdn_bb_nat(VS, US, Vs, Obj, Report)).
+
+% the external branch and bound: V #= Obj is posted as the native path does,
+% then the external server minimizes V in one shot. The label list is
+% extended with the other constrained variables of the store when there are
+% any (see fdn_labeling). On success the optimal solution is bound and Report
+% is called once (Picat's minof calls it per improving round; the external
+% search has one round). Anything else — the objective not an FD expression,
+% not alone in the store, the net unsupported, unsat or a cut search — falls
+% back to minof itself, which re-runs the whole loop (and fails on unsat, as
+% Picat's does).
+fdn_ext_bb(VS, US, Vs, Obj, Report) =>
+    bp.vars_set(Obj, OV),
+    (bp.dvar_or_int_list(OV) ->
+        bp.fd_new_domain(V),
+        bp.'#='(V, Obj),
+        Goal = $generic_labeling(Vs, VS, US),
+        ((bp.c_fdn_alone([V | Vs]) ->
+             L = [V | Vs]
+         ;
+             bp.retrieve_frozen_dvars(F), L = [V | Vs] ++ F, bp.c_fdn_alone(L)
+         ),
+         bp.c_fdn_extsolve(VS, US, L, [V | Vs], V, Sols, _OVal) ->
+            (Sols = [Sol] ->
+                L = Sol,
+                bp.call(Report)
+            ;
+                bp.minof(Goal, V, Report)
+            )
+        ;
+            bp.minof(Goal, V, Report)
+        )
+    ;
+        bp.minof($generic_labeling(Vs, VS, US), Obj, Report)
+    ).
+
+fdn_bb_nat(VS, US, Vs, Obj, Report) =>
     Goal = $generic_labeling(Vs, VS, US),
     bp.vars_set(Obj, OV),
     (bp.dvar_or_int_list(OV) ->
@@ -178,13 +255,16 @@ fdn_bb_round(H, bb(K, GV, V, Report, Vs, VS, US, Alone)) =>
 % constrained variable is left for Picat's labeling to label (see fdn_rest,
 % c_fdn_alone). The Vars conversion is the one of cp's solve/1,2; options go
 % through fdn_plan like labeling's (an objective: the original code). Every
-% other goal runs the original code.
+% other goal runs the original code. With FDN_EXTSOLVER=cp-sat the external
+% count is tried first — it needs no alone check (the net covers the other
+% constrained variables' constraints, and the count is the whole store's) —
+% the native count is its fallback.
 fdn_count_all(G, C) =>
     (nonvar(G), fdn_cp_solve(G, Opts, Vars),
      (bp.dvar_or_int_list(Vars) -> VList = Vars ; VList = vars(Vars)),
      fdn_count_plan(Opts, VList, VS, US, Vs),
-     bp.c_fdn_alone(Vs),
-     bp.c_fdn_count(VS, US, Vs, C0)
+     ((bp.c_fdn_exton, bp.c_fdn_extcount(VS, US, Vs, C0)) ;
+      (bp.c_fdn_alone(Vs), bp.c_fdn_count(VS, US, Vs, C0)))
     ->
         bp.global_set('_$count_all', C0), C = C0
     ;

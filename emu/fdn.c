@@ -1010,6 +1010,283 @@ int c_fdn_count(void) {
     return unify(C, MAKEINT(cnt));
 }
 
+/* ---------------------------------------------------------------- external CP-SAT */
+/* FDN_EXTSOLVER=cp-sat: the net is exported as a JSON model (fdn_solver.cpp
+   fdn_export_json) and solved by fdn_cpsat.py (ortools CP-SAT), a server
+   process reading one request line per solve, so repeated solves pay the
+   interpreter start-up once. The external search is CP-SAT's own: the
+   solution order and the backtracks are not Picat's; the solution sets,
+   counts and optimal values are the net's. Falls back (fails) when anything
+   is unsupported, when the server cannot be started, or when a cap or time
+   limit cuts the search (status limit). */
+#include <sys/socket.h>
+
+static int ext_fd = -1;                 /* the socket to the server */
+static int ext_state = 0;               /* 0: untried, 1: up, -1: dead */
+static char *resp; static size_t respcap;
+static char rbuf[65536]; static size_t rbn, rbpos;
+
+static void ext_kill(void) {
+    if (ext_fd >= 0) close(ext_fd);
+    ext_fd = -1; ext_state = -1;
+}
+
+static int ext_server(void) {
+    char path[4096];
+    if (ext_state == 1) return 1;
+    if (ext_state < 0) return 0;
+    const char *e = getenv("FDN_CPSAT");
+    if (e) snprintf(path, sizeof path, "%s", e);
+    else {
+        ssize_t n = readlink("/proc/self/exe", path, sizeof path - 32);
+        if (n < 0) { ext_state = -1; return 0; }
+        path[n] = 0; char *sl = strrchr(path, '/'); strcpy(sl ? sl + 1 : path, "fdn_cpsat.py");
+    }
+    if (access(path, R_OK) != 0) { ext_state = -1; return 0; }
+    int sv[2];
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) < 0) { ext_state = -1; return 0; }
+    pid_t pid = fork();
+    if (pid < 0) { close(sv[0]); close(sv[1]); ext_state = -1; return 0; }
+    if (pid == 0) {                     /* the server: stdin and stdout on the socket */
+        dup2(sv[0], 0); dup2(sv[0], 1);
+        close(sv[0]); close(sv[1]);
+        execlp("python3", "python3", path, "--server", (char *)0);
+        _exit(127);
+    }
+    close(sv[0]);
+    ext_fd = sv[1]; rbn = rbpos = 0; ext_state = 1;
+    return 1;
+}
+
+static int rnext(void) {
+    if (rbpos >= rbn) {
+        ssize_t r = recv(ext_fd, rbuf, sizeof rbuf, 0);
+        if (r <= 0) return -1;
+        rbn = (size_t)r; rbpos = 0;
+    }
+    return (unsigned char)rbuf[rbpos++];
+}
+
+static int ext_ask(const char *req, size_t len) {
+    if (ext_state != 1 && !ext_server()) return 0;
+    size_t off = 0;
+    while (off < len) {
+        ssize_t w = send(ext_fd, req + off, len - off, MSG_NOSIGNAL);
+        if (w <= 0) { ext_kill(); return 0; }
+        off += (size_t)w;
+    }
+    if (send(ext_fd, "\n", 1, MSG_NOSIGNAL) != 1) { ext_kill(); return 0; }
+    size_t n = 0; int c;
+    for (;;) {
+        c = rnext();
+        if (c < 0) { ext_kill(); return 0; }
+        if (n + 2 > respcap) { respcap = respcap ? 2 * respcap : 65536; resp = realloc(resp, respcap); }
+        if (c == '\n') { resp[n] = 0; return 1; }
+        resp[n++] = (char)c;
+    }
+}
+
+static const char *jkey(const char *s, const char *key) {
+    char pat[64]; snprintf(pat, sizeof pat, "\"%s\":", key);
+    const char *p = strstr(s, pat);
+    return p ? p + strlen(pat) : NULL;
+}
+/* the response line: {"status":"ok","obj":N,"count":N,"sols":[[...],...]}.
+   The parsed solutions go to xsols/xlen (C arrays, freed by the caller). */
+static int **xsols; static int *xlen; static int xns;
+
+static void xsols_free(void) {
+    for (int i = 0; i < xns; i++) free(xsols[i]);
+    free(xsols); free(xlen); xsols = NULL; xlen = NULL; xns = 0;
+}
+
+static int ext_result(const char *key, long *out) {   /* an int field, or -1 */
+    const char *p = jkey(resp, key);
+    if (!p) return 0;
+    *out = strtol(p, NULL, 10);
+    return 1;
+}
+
+static int parse_sols(void) {
+    const char *p = jkey(resp, "sols");
+    xsols_free();
+    if (!p) { xns = 0; return 1; }      /* no sols field: none */
+    while (*p == ' ') p++;
+    if (*p != '[') return 0;
+    p++;
+    int cap = 16; xsols = malloc(cap * sizeof *xsols); xlen = malloc(cap * sizeof *xlen); xns = 0;
+    while (*p == ' ') p++;
+    while (*p && *p != ']') {
+        if (*p != '[') { xsols_free(); return 0; }
+        p++;
+        int acap = 16, an = 0; int *arr = malloc(acap * sizeof(int));
+        for (;;) {
+            while (*p == ' ' || *p == ',') p++;
+            if (*p == ']') { p++; break; }
+            if (!*p) { free(arr); xsols_free(); return 0; }
+            char *q; long v = strtol(p, &q, 10);
+            if (q == p) { free(arr); xsols_free(); return 0; }
+            p = q;
+            if (an == acap) { acap *= 2; arr = realloc(arr, acap * sizeof(int)); }
+            arr[an++] = (int)v;
+        }
+        if (xns == cap) { cap *= 2; xsols = realloc(xsols, cap * sizeof *xsols); xlen = realloc(xlen, cap * sizeof *xlen); }
+        xsols[xns] = arr; xlen[xns] = an; xns++;
+        while (*p == ' ' || *p == ',') p++;
+    }
+    return 1;
+}
+
+/* Vars positions: fixed integers and var ids (as new_handle does) */
+static int ext_positions(BPLONG Vars, int n, ext *e, BPLONG **pfixed, int **pvid) {
+    BPLONG *fixed = malloc(n * sizeof(BPLONG)); int *vid = malloc(n * sizeof(int));
+    BPLONG t = Vars; DEREF(t); int i = 0;
+    while (ISLIST(t) && i < n) {
+        BPLONG_PTR p = (BPLONG_PTR)UNTAGGED_ADDR(t); BPLONG x = FOLLOW(p); DEREF(x);
+        if (IS_SUSP_VAR(x)) { fixed[i] = 0; vid[i] = vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(x)); }
+        else { fixed[i] = x; vid[i] = -1; }
+        i++; t = FOLLOW(p + 1); DEREF(t);
+    }
+    *pfixed = fixed; *pvid = vid;
+    return i == n;
+}
+
+static BPLONG ext_atom(const char *a) { return ADDTAG(insert_sym((char *)a, strlen(a), 0), ATM); }
+
+static int ext_run(fdn_net *net, int objid, const int *lab, int nlab, const char *mode, long maxsols, double tlim,
+                   long *status_ok, long *objv, long *count) {
+    size_t mlen; const char *mj = fdn_export_json(net, objid, lab, nlab, &mlen);
+    int ok = 0;
+    char head[192];
+    char *timebuf = tlim > 0 ? (char *)malloc(32) : NULL;
+    if (timebuf) snprintf(timebuf, 32, "%.3f", tlim);
+    const char *wt = getenv("FDN_EXTTHREADS");
+    long workers = wt ? strtol(wt, NULL, 10) : fdn_nthreads();
+    snprintf(head, sizeof head, "{\"mode\":\"%s\",\"maxsols\":%ld,\"time\":%s,\"workers\":%ld,\"model\":",
+             mode, maxsols, timebuf ? timebuf : "0", workers);
+    size_t cap = strlen(head) + mlen + 8;
+    char *req = malloc(cap);
+    if (mj && req) {
+        memcpy(req, head, strlen(head));
+        memcpy(req + strlen(head), mj, mlen);
+        strcpy(req + strlen(head) + mlen, "}");
+        if (getenv("FDN_EXTDUMP")) fprintf(stderr, "fdn: ext request: %s\n", req);
+        if (ext_ask(req, strlen(head) + mlen + 1)) {
+            const char *p = jkey(resp, "status");
+            if (p) {
+                char st[16] = {0};
+                const char *q = strchr(p, '"');
+                if (q && (size_t)(strchr(q + 1, '"') - q) < sizeof st) {
+                    memcpy(st, q + 1, (size_t)(strchr(q + 1, '"') - q - 1));
+                    *status_ok = !strcmp(st, "ok");
+                    long o = 0, cn = 0;
+                    ext_result("obj", &o); ext_result("count", &cn);
+                    *objv = o; *count = cn;
+                    ok = 1;
+                }
+            }
+        }
+    }
+    free(timebuf); free(req); free((void *)mj);
+    return ok;
+}
+
+/* c_fdn_extsolve(VS, US, L, Orig, Opt, Sols, ObjVal): the solutions of
+   labeling L (Opt = '$none') or the optimal solution of the objective
+   variable Opt (minimized; fdn_hook.pi negates maxof), from the external
+   CP-SAT server. L is the (possibly extended) label list; Orig the original
+   one — the solution-dedup projection, since only the original label
+   variables' assignments are solutions (the extended ones are helper
+   variables Picat's rest step binds once). Sols is the list of solutions
+   (each aligned with L), [] when unsat. Fails when the net is unsupported,
+   the server is unavailable, or a cap or time limit cut the search. */
+int c_fdn_extsolve(void) {
+    BPLONG VS = ARG(1, 7), US = ARG(2, 7), L = ARG(3, 7), Orig = ARG(4, 7), Opt = ARG(5, 7), Sols = ARG(6, 7), ObjVal = ARG(7, 7);
+    if (verbose < 0) verbose = getenv("FDN_VERBOSE") != NULL;
+    ext e; int n;
+    fdn_net *net = extract(VS, US, L, ext_new(&e), &n);
+    if (!net) { ext_free(&e); return BP_FALSE; }
+    DEREF(Opt);
+    int objid = -1;
+    if (!atom_is(Opt, "$none")) {
+        if (!IS_SUSP_VAR(Opt)) { fdn_net_free(net); ext_free(&e); return BP_FALSE; }
+        objid = vm_get(&e.ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(Opt));
+        if (objid < 0) {
+            fdn_net_free(net); ext_free(&e);
+            if (verbose) fprintf(stderr, "fdn: external cp-sat: the objective is not in the net\n");
+            return BP_FALSE;
+        }
+    }
+    /* the dedup projection: the original label list's variable ids */
+    int *olab = malloc(n * sizeof(int)); int on = 0;
+    BPLONG t = Orig; DEREF(t);
+    while (ISLIST(t)) {
+        BPLONG_PTR p = (BPLONG_PTR)UNTAGGED_ADDR(t); BPLONG x = FOLLOW(p); DEREF(x);
+        if (IS_SUSP_VAR(x)) { int id = vm_get(&e.ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(x)); if (id >= 0 && on < n) olab[on++] = id; }
+        t = FOLLOW(p + 1); DEREF(t);
+    }
+    const char *mx = getenv("FDN_EXTMAX");
+    long maxsols = mx ? strtol(mx, NULL, 10) : 100000;
+    const char *tm = getenv("FDN_EXTTIME");
+    double tlim = tm ? atof(tm) : 0;
+    long status_ok = 0, objv = 0, count = 0;
+    int got = ext_run(net, objid, olab, on, "solve", maxsols, tlim, &status_ok, &objv, &count);
+    free(olab);
+    fdn_net_free(net);
+    if (!got || !status_ok || !parse_sols()) {
+        if (got && verbose) fprintf(stderr, "fdn: external cp-sat: %s\n", jkey(resp, "status") ? resp : "no response");
+        xsols_free(); ext_free(&e);
+        return BP_FALSE;
+    }
+    if (verbose) fprintf(stderr, "fdn: external cp-sat solve: %ld solutions, obj %ld\n", (long)xns, objv);
+    BPLONG *fixed; int *vid;
+    if (!ext_positions(L, n, &e, &fixed, &vid)) { xsols_free(); ext_free(&e); return BP_FALSE; }
+    int ok = 1;
+    BPLONG outer = nil_sym;
+    for (int s = xns - 1; ok && s >= 0; s--) {
+        if (xlen[s] != e.dvs.n) { ok = 0; break; }   /* the solution must cover every net variable */
+        LOCAL_OVERFLOW_CHECK_WITH_MARGIN("fdn", 2 * n + 64);
+        BPLONG lst = nil_sym;
+        for (int i = n - 1; i >= 0; i--) {
+            BPLONG v = vid[i] >= 0 ? MAKEINT(xsols[s][vid[i]]) : fixed[i];
+            FOLLOW(heap_top) = v; FOLLOW(heap_top + 1) = lst;
+            lst = ADDTAG(heap_top, LST); heap_top += 2;
+        }
+        FOLLOW(heap_top) = lst; FOLLOW(heap_top + 1) = outer;
+        outer = ADDTAG(heap_top, LST); heap_top += 2;
+    }
+    free(fixed); free(vid); xsols_free(); ext_free(&e);
+    if (!ok) return BP_FALSE;
+    return unify(Sols, outer) && unify(ObjVal, MAKEINT(objv));
+}
+
+/* c_fdn_extcount(VS, US, Vars, C): the number of solutions, counted by the
+   external server without handing any solution over. Fails like
+   c_fdn_extsolve; unsat counts 0. */
+int c_fdn_extcount(void) {
+    BPLONG VS = ARG(1, 4), US = ARG(2, 4), Vars = ARG(3, 4), C = ARG(4, 4);
+    if (verbose < 0) verbose = getenv("FDN_VERBOSE") != NULL;
+    ext e; int n;
+    fdn_net *net = extract(VS, US, Vars, ext_new(&e), &n);
+    if (!net) { ext_free(&e); return BP_FALSE; }
+    const char *tm = getenv("FDN_EXTTIME");
+    double tlim = tm ? atof(tm) : 0;
+    long status_ok = 0, objv = 0, count = 0;
+    int got = ext_run(net, -1, NULL, 0, "count", 0, tlim, &status_ok, &objv, &count);
+    fdn_net_free(net); ext_free(&e);
+    if (!got || !status_ok) {
+        if (got && verbose) fprintf(stderr, "fdn: external cp-sat count: %s\n", jkey(resp, "status") ? resp : "no response");
+        return BP_FALSE;
+    }
+    if (verbose) fprintf(stderr, "fdn: external cp-sat count: %ld solutions\n", count);
+    return unify(C, MAKEINT(count));
+}
+
+int c_fdn_exton(void) {
+    const char *e = getenv("FDN_EXTSOLVER");
+    return e && !strcmp(e, "cp-sat") ? BP_TRUE : BP_FALSE;
+}
+
 static void fdn_dump_syms(const char *sub) {
     for (long b = 0; b < BUCKET_CHAIN; b++)
         for (SYM_REC_PTR s = sym_hash_table[b]; s; s = GET_NEXT(s))
@@ -1026,6 +1303,9 @@ void fdn_boot(void) {
     insert_cpred("c_fdn_round", 3, c_fdn_round);
     insert_cpred("c_fdn_close", 1, c_fdn_close);
     insert_cpred("c_fdn_alone", 1, c_fdn_alone);
+    insert_cpred("c_fdn_extsolve", 7, c_fdn_extsolve);
+    insert_cpred("c_fdn_extcount", 4, c_fdn_extcount);
+    insert_cpred("c_fdn_exton", 0, c_fdn_exton);
 }
 
 /* point name/2 at hook/2; the original code stays reachable as orig/2 */
