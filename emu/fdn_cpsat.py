@@ -193,10 +193,16 @@ def solve(req):
     # free and would multiply the solutions), and with num_workers > 1 the
     # same solution can also be found more than once
     lab = m.get("label", list(range(len(X))))
+    # the lazy protocol: the C side re-asks with the label projections it
+    # already holds forbidden, so each ask returns only new solutions
+    avoid = req.get("avoid", [])
+    if avoid:
+        M.AddForbiddenAssignments([X[i] for i in lab], avoid)
     # with num_workers > 1 the callback runs on several threads at once:
     # the dedup set and the counter need a lock (nsol[0] += 1 alone loses
     # increments, the check-then-add races)
     cblock = threading.Lock()
+    capped = [False]
 
     class CB(cp_model.CpSolverSolutionCallback):
         def on_solution_callback(self):
@@ -209,6 +215,7 @@ def solve(req):
                 if mode == "solve":
                     sols.append([self.Value(v) for v in X])
                 if maxs and nsol[0] >= maxs:
+                    capped[0] = True
                     self.StopSearch()
 
     def enum_once(width):
@@ -224,11 +231,31 @@ def solve(req):
     # with several the portfolio can silently drop solutions and still
     # report OPTIMAL.  An INFEASIBLE verdict is sound at any width (and much
     # faster there -- pigeonhole proofs), but a solution set must be
-    # complete, so anything else is re-enumerated on one worker.
+    # complete, so anything else is re-enumerated on one worker.  The
+    # solution cap is the exception: the C side re-asks for the rest (the
+    # lazy protocol), so a capped batch returns at once -- a first-solution
+    # search then costs one ask and no single-threaded re-pass.
     t0 = time.time()
+    if maxs == 1:
+        # the first batch of the lazy protocol: any one new solution.  The
+        # solve mode (default heuristics) is far faster at finding one than
+        # the enumeration mode (measured: queens-200, 2 s vs 27 s).  The
+        # status is "limit" whenever a solution was found: the C side cannot
+        # know whether more exist, and a full walk re-asks with the avoid
+        # list, which completes the set; INFEASIBLE is unsat, sound.
+        st = solver.Solve(M)
+        wall = time.time() - t0
+        if st in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+            return {"status": "limit", "obj": 0, "count": 1,
+                    "sols": [[solver.Value(v) for v in X]], "wall": wall}
+        if st == cp_model.INFEASIBLE:
+            return {"status": "ok", "obj": 0, "count": 0, "sols": [], "wall": wall}
+        return {"status": "limit", "obj": 0, "count": 0, "sols": [], "wall": wall}
     st, w1 = enum_once(w)
     if st == cp_model.INFEASIBLE:
         return {"status": "ok", "obj": 0, "count": 0, "sols": [], "wall": w1}
+    if capped[0]:
+        return {"status": "limit", "obj": 0, "count": nsol[0], "sols": sols, "wall": w1}
     if w > 1 or st != cp_model.OPTIMAL:
         st, w2 = enum_once(1)
         wall = w1 + w2

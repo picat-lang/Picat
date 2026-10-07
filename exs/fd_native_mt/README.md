@@ -237,15 +237,28 @@ collides with ortools' and the import aborts.  Set `FDN_CPSAT=path` to use a
 different server program (it must speak the same JSON protocol over stdin;
 see `emu/fdn_cpsat.py`'s module docstring).
 
-Enumeration is two-phase: an INFEASIBLE verdict is sound at any worker
-width (and much faster there — pigeonhole proofs), but a solution set must
-be complete, and ortools' multithreaded enumeration can silently drop
-solutions while still reporting OPTIMAL (measured: an `element` model
-returned 4 of 6 solutions at 8 workers), so anything else is re-enumerated
-on a single worker.  Solutions are deduplicated on the original label
-list's projection: reification bools outside the label list can be free,
-and with several workers the same solution can also be found more than
-once.
+Enumeration is lazy: Picat's `solve/2` is backtrackable, and
+`findall(solve(..), ..)` (solve_all, the count_all wrapping) walks every
+solution through the same goal, so the dispatch cannot know whether the
+caller wants one solution or all.  Handing over the full enumeration would
+waste a first-solution search.  Instead `c_fdn_extopen` opens a session and
+fetches the first solution (a batch of one, the fast solve mode);
+`c_fdn_extnext` serves the batch and, when the caller backtracks past it,
+re-asks with the label projections already handed over forbidden (the
+server's `AddForbiddenAssignments`), so each ask returns only new
+solutions.  Batches grow 1, 64, 4096, 262144, so a full walk costs about
+log4(k) asks; a first-solution search costs exactly one.  `count_all` still
+counts in one complete enumeration (`c_fdn_extcount`).
+
+Complete enumeration is only reliable on a single worker in ortools: with
+several the portfolio can silently drop solutions and still report OPTIMAL
+(measured: an `element` model returned 4 of 6 solutions at 8 workers), so a
+complete enumeration (and each continuation batch) is re-enumerated on a
+single worker.  An INFEASIBLE verdict is sound at any width (and much
+faster there -- pigeonhole proofs).  Solutions are deduplicated on the
+original label list's projection: reification bools outside the label list
+can be free, and with several workers the same solution can also be found
+more than once.
 
 Environment variables (all optional; the ext mode is off unless
 `FDN_EXTSOLVER=cp-sat`):
@@ -287,8 +300,12 @@ The server wins on hard unsat proofs only: INFEASIBLE is sound at any
 width and parallelizes (pigeonhole is exponentially hard for the
 single-threaded proof).  On models with solutions the completeness
 re-enumeration and the translation overhead dominate, and the native fdn
-is faster everywhere measured.  Treat the ext mode as an escape hatch for
-proof-style models, not a general speedup.
+is faster everywhere measured.  The neq-heavy first-solution models are
+the worst case: queens is posted as ~N*N/2 binary disequalities, and
+CP-SAT's search on that shape is 20-40x slower than the native fdn at any
+worker width (queens-200: 20-40 s vs 1.2 s) -- the lazy protocol removes
+the enumeration waste but not the solver's base speed.  Treat the ext mode
+as an escape hatch for proof-style models, not a general speedup.
 
 ## Limits and known differences
 

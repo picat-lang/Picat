@@ -58,6 +58,7 @@ enum { US_UP, US_DOWN, US_UPDOWN, US_SPLIT, US_REVERSE_SPLIT };
 /* xs: label order (any reordering already done by the caller) */
 void fdn_label(fdn_net *, int varsel, int valsel, int n, const int *xs);
 const int *fdn_net_label(fdn_net *, int *n);   /* the label order set by fdn_label */
+int fdn_net_nvars(const fdn_net *);            /* the net variable count (the solution length) */
 void fdn_net_free(fdn_net *);
 
 /* search; the run takes ownership of the net. path: every solution carries

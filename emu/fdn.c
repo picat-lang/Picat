@@ -1183,8 +1183,25 @@ static int ext_positions(BPLONG Vars, int n, ext *e, BPLONG **pfixed, int **pvid
 
 static BPLONG ext_atom(const char *a) { return ADDTAG(insert_sym((char *)a, strlen(a), 0), ATM); }
 
+/* the response's "status" value without the quotes */
+static int ext_status(char *st, size_t n) {
+    const char *p = jkey(resp, "status");
+    const char *q = p ? strchr(p, '"') : NULL;
+    const char *r = q ? strchr(q + 1, '"') : NULL;
+    if (!q || !r || (size_t)(r - q) >= n) return 0;
+    memcpy(st, q + 1, r - q - 1); st[r - q - 1] = 0;
+    return 1;
+}
+
+/* one ext ask.  avoid/navoid/avoidw: the label projections the caller
+   already holds (each a row of avoidw values for the label variables, in
+   the export's label order) -- the server forbids them, so the response
+   holds only new solutions.  status_ok: the server completed the search;
+   limited: the status was "limit" (the solution cap hit -- more solutions
+   may exist; a time-limited incomplete search reports the same). */
 static int ext_run(fdn_net *net, int objid, const int *lab, int nlab, const char *mode, long maxsols, double tlim,
-                   long *status_ok, long *objv, long *count) {
+                   long *status_ok, long *objv, long *count,
+                   int *const *avoid, int navoid, int avoidw, long *limited) {
     size_t mlen; const char *mj = fdn_export_json(net, objid, lab, nlab, &mlen);
     int ok = 0;
     char head[192];
@@ -1194,42 +1211,56 @@ static int ext_run(fdn_net *net, int objid, const int *lab, int nlab, const char
     long workers = wt ? strtol(wt, NULL, 10) : fdn_nthreads();
     snprintf(head, sizeof head, "{\"mode\":\"%s\",\"maxsols\":%ld,\"time\":%s,\"workers\":%ld,\"model\":",
              mode, maxsols, timebuf ? timebuf : "0", workers);
-    size_t cap = strlen(head) + mlen + 8;
+    /* the avoid rows as JSON */
+    char *aj = NULL;
+    if (navoid > 0 && avoid) {
+        aj = malloc(16 + (size_t)navoid * (avoidw * 12 + 4));
+        if (aj) {
+            char *p = aj; p += sprintf(p, ",\"avoid\":[");
+            for (int j = 0; j < navoid; j++) {
+                if (j) *p++ = ',';
+                *p++ = '[';
+                for (int i = 0; i < avoidw; i++) { if (i) *p++ = ','; p += sprintf(p, "%d", avoid[j][i]); }
+                *p++ = ']';
+            }
+            *p++ = ']'; *p = 0;
+        }
+    }
+    size_t alen = aj ? strlen(aj) : 0;
+    size_t cap = strlen(head) + mlen + alen + 8;
     char *req = malloc(cap);
     if (mj && req) {
         memcpy(req, head, strlen(head));
         memcpy(req + strlen(head), mj, mlen);
-        strcpy(req + strlen(head) + mlen, "}");
+        if (aj) memcpy(req + strlen(head) + mlen, aj, alen);
+        strcpy(req + strlen(head) + mlen + alen, "}");
         if (getenv("FDN_EXTDUMP")) fprintf(stderr, "fdn: ext request: %s\n", req);
-        if (ext_ask(req, strlen(head) + mlen + 1)) {
-            const char *p = jkey(resp, "status");
-            if (p) {
-                char st[16] = {0};
-                const char *q = strchr(p, '"');
-                if (q && (size_t)(strchr(q + 1, '"') - q) < sizeof st) {
-                    memcpy(st, q + 1, (size_t)(strchr(q + 1, '"') - q - 1));
-                    *status_ok = !strcmp(st, "ok");
-                    long o = 0, cn = 0;
-                    ext_result("obj", &o); ext_result("count", &cn);
-                    *objv = o; *count = cn;
-                    ok = 1;
-                }
+        if (ext_ask(req, strlen(head) + mlen + alen + 1)) {
+            char st[16] = {0};
+            if (ext_status(st, sizeof st)) {
+                *status_ok = !strcmp(st, "ok");
+                if (limited) *limited = !strcmp(st, "limit");
+                long o = 0, cn = 0;
+                ext_result("obj", &o); ext_result("count", &cn);
+                *objv = o; *count = cn;
+                ok = 1;
             }
         }
     }
-    free(timebuf); free(req); free((void *)mj);
+    free(aj); free(timebuf); free(req); free((void *)mj);
     return ok;
 }
 
-/* c_fdn_extsolve(VS, US, L, Orig, Opt, Sols, ObjVal): the solutions of
-   labeling L (Opt = '$none') or the optimal solution of the objective
-   variable Opt (minimized; fdn_hook.pi negates maxof), from the external
-   CP-SAT server. L is the (possibly extended) label list; Orig the original
-   one — the solution-dedup projection, since only the original label
-   variables' assignments are solutions (the extended ones are helper
-   variables Picat's rest step binds once). Sols is the list of solutions
-   (each aligned with L), [] when unsat. Fails when the net is unsupported,
-   the server is unavailable, or a cap or time limit cut the search. */
+/* c_fdn_extsolve(VS, US, L, Orig, Opt, Sols, ObjVal): the optimal solution
+   of the objective variable Opt (minimized; fdn_hook.pi negates maxof) from
+   the external CP-SAT server -- one solution per call, the branch-and-bound
+   loop re-extracts per round. L is the (possibly extended) label list; Orig
+   the original one -- the solution-dedup projection, since only the original
+   label variables' assignments are solutions (the extended ones are helper
+   variables Picat's rest step binds once). Sols is a one-element list.
+   Fails when the net is unsupported, the server is unavailable, or a cap or
+   time limit cut the search (the native path takes over).  The objective-
+   free enumeration is lazy now: c_fdn_extopen/c_fdn_extnext below. */
 int c_fdn_extsolve(void) {
     BPLONG VS = ARG(1, 7), US = ARG(2, 7), L = ARG(3, 7), Orig = ARG(4, 7), Opt = ARG(5, 7), Sols = ARG(6, 7), ObjVal = ARG(7, 7);
     if (verbose < 0) verbose = getenv("FDN_VERBOSE") != NULL;
@@ -1237,19 +1268,20 @@ int c_fdn_extsolve(void) {
     fdn_net *net = extract(VS, US, L, ext_new(&e), &n);
     if (!net) { ext_say(why[0] ? why : "the model does not translate"); ext_free(&e); return BP_FALSE; }
     DEREF(Opt);
-    int objid = -1;
-    if (!atom_is(Opt, "$none")) {
-        if (!IS_SUSP_VAR(Opt)) {
-            fdn_net_free(net); ext_free(&e);
-            ext_say("the objective is not a variable");
-            return BP_FALSE;
-        }
-        objid = vm_get(&e.ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(Opt));
-        if (objid < 0) {
-            fdn_net_free(net); ext_free(&e);
-            ext_say("the objective is not in the net");
-            return BP_FALSE;
-        }
+    if (atom_is(Opt, "$none")) {   /* the enumeration path is lazy now */
+        fdn_net_free(net); ext_free(&e);
+        return BP_FALSE;
+    }
+    if (!IS_SUSP_VAR(Opt)) {
+        fdn_net_free(net); ext_free(&e);
+        ext_say("the objective is not a variable");
+        return BP_FALSE;
+    }
+    int objid = vm_get(&e.ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(Opt));
+    if (objid < 0) {
+        fdn_net_free(net); ext_free(&e);
+        ext_say("the objective is not in the net");
+        return BP_FALSE;
     }
     /* the dedup projection: the original label list's variable ids */
     int *olab = malloc(n * sizeof(int)); int on = 0;
@@ -1264,7 +1296,7 @@ int c_fdn_extsolve(void) {
     const char *tm = getenv("FDN_EXTTIME");
     double tlim = tm ? atof(tm) : 0;
     long status_ok = 0, objv = 0, count = 0;
-    int got = ext_run(net, objid, olab, on, "solve", maxsols, tlim, &status_ok, &objv, &count);
+    int got = ext_run(net, objid, olab, on, "solve", maxsols, tlim, &status_ok, &objv, &count, NULL, 0, 0, NULL);
     free(olab);
     fdn_net_free(net);
     if (!got || !status_ok || !parse_sols()) {
@@ -1296,6 +1328,152 @@ int c_fdn_extsolve(void) {
     return unify(Sols, outer) && unify(ObjVal, MAKEINT(objv));
 }
 
+/* ---- the lazy enumeration: solutions are pulled one ask at a time ----
+
+   Picat's solve/2 is backtrackable, and findall(solve(..), ..) (solve_all,
+   the count_all wrapping) walks every solution through the same goal, so
+   the dispatch cannot know whether the caller wants one solution or all.
+   Handing over the full enumeration wastes a first-solution search (it
+   would enumerate everything and use the first).  Instead c_fdn_extopen
+   opens a session and fetches the first solution (a batch of one);
+   c_fdn_extnext serves the batch and, when the caller backtracks past it,
+   re-asks with the label projections already handed over forbidden -- the
+   server's AddForbiddenAssignments -- so each ask returns only new
+   solutions.  Batches grow 1, 64, 4096, 262144, so a full walk costs
+   about log4(k) asks; a first-solution search costs exactly one. */
+
+typedef struct {
+    fdn_net *net;
+    int n;                              /* the label list length (the binding bound) */
+    int nn;                             /* the net variable count (the solution length) */
+    int *olab; int on;                  /* the dedup projection's variable ids */
+    BPLONG *fixed; int *vid;            /* the label list positions (as ext_positions gives) */
+    int **sols; int *sollen; int ns, si; /* the current batch */
+    long more;                          /* the last ask hit the cap: more may exist */
+    int **seen; int nseen, seencap;     /* the handed-over projections (the avoid) */
+    int asks;                           /* the ask counter (the batch size) */
+    int slot;
+} exth;
+static exth **EH; static int EHTn;
+
+static int put_exth(exth *h) {
+    int slot = 0; while (slot < EHTn && EH[slot]) slot++;
+    if (slot == EHTn) { EH = realloc(EH, (EHTn + 16) * sizeof *EH); memset(EH + EHTn, 0, 16 * sizeof *EH); EHTn += 16; }
+    EH[slot] = h; h->slot = slot; return slot;
+}
+static exth *get_exth(BPLONG H) {
+    BPLONG_PTR top; DEREF(H);
+    if (!ISINT(H)) return NULL;
+    int slot = INTVAL(H);
+    return slot < 0 || slot >= EHTn ? NULL : EH[slot];
+}
+static void free_exth(exth *h) {
+    if (h->slot >= 0 && h->slot < EHTn) EH[h->slot] = NULL;
+    fdn_net_free(h->net);
+    free(h->olab); free(h->fixed); free(h->vid);
+    for (int i = 0; i < h->ns; i++) free(h->sols[i]);
+    free(h->sols); free(h->sollen);
+    for (int i = 0; i < h->nseen; i++) free(h->seen[i]);
+    free(h->seen);
+    free(h);
+}
+
+static long ext_batch_size(int asks) {
+    static const long bs[] = {1, 64, 4096, 262144};
+    return bs[asks < 3 ? asks : 3];
+}
+
+/* one batch ask: solve with the handed-over projections forbidden, steal
+   the parsed solutions into the session, record them for the next avoid.
+   "limit" is a successful batch here (the cap hit, more may exist); only
+   an unavailable/erroring server or a malformed response fails. */
+static int ext_batch(exth *h, long maxs) {
+    const char *tm = getenv("FDN_EXTTIME");
+    double tlim = tm ? atof(tm) : 0;
+    long status_ok = 0, objv = 0, count = 0, limited = 0;
+    int got = ext_run(h->net, -1, h->olab, h->on, "solve", maxs, tlim, &status_ok, &objv, &count,
+                      h->seen, h->nseen, h->on, &limited);
+    if (!got || !parse_sols()) {
+        char msg[320];
+        ext_reason(got, 0, msg, sizeof msg);
+        ext_say(msg);
+        return 0;
+    }
+    char st[16] = {0};
+    if (!ext_status(st, sizeof st) || (strcmp(st, "ok") && strcmp(st, "limit"))) {
+        char msg[320];
+        ext_reason(1, 0, msg, sizeof msg);
+        ext_say(msg);
+        return 0;
+    }
+    h->sols = xsols; h->sollen = xlen; h->ns = xns; xsols = NULL; xlen = NULL; xns = 0;
+    h->si = 0;
+    h->more = !strcmp(st, "limit");
+    if (verbose) fprintf(stderr, "fdn: external cp-sat batch %d: %d solutions%s\n", h->asks, h->ns, h->more ? ", more may exist" : "");
+    h->asks++;
+    for (int s = 0; s < h->ns; s++) {
+        if (h->nseen == h->seencap) {
+            h->seencap = h->seencap ? h->seencap * 2 : 16;
+            h->seen = realloc(h->seen, h->seencap * sizeof *h->seen);
+        }
+        int *row = malloc((h->on ? h->on : 1) * sizeof(int));
+        for (int j = 0; j < h->on; j++) row[j] = h->sols[s][h->olab[j]];
+        h->seen[h->nseen++] = row;
+    }
+    return 1;
+}
+
+/* c_fdn_extopen(VS, US, L, Orig, H): open a lazy enumeration session over
+   the external CP-SAT server and fetch the first solution.  Fails (the
+   native path takes over) when the net is unsupported, the server is
+   unavailable, or the first ask gives up. */
+int c_fdn_extopen(void) {
+    BPLONG VS = ARG(1, 5), US = ARG(2, 5), L = ARG(3, 5), Orig = ARG(4, 5), H = ARG(5, 5);
+    if (verbose < 0) verbose = getenv("FDN_VERBOSE") != NULL;
+    ext e; int n;
+    fdn_net *net = extract(VS, US, L, ext_new(&e), &n);
+    if (!net) { ext_say(why[0] ? why : "the model does not translate"); ext_free(&e); return BP_FALSE; }
+    exth *h = calloc(1, sizeof *h);
+    h->net = net; h->n = n; h->nn = fdn_net_nvars(net);
+    /* the dedup projection: the original label list's variable ids */
+    h->olab = malloc(n * sizeof(int));
+    BPLONG t = Orig; DEREF(t);
+    while (ISLIST(t)) {
+        BPLONG_PTR p = (BPLONG_PTR)UNTAGGED_ADDR(t); BPLONG x = FOLLOW(p); DEREF(x);
+        if (IS_SUSP_VAR(x)) { int id = vm_get(&e.ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(x)); if (id >= 0 && h->on < n) h->olab[h->on++] = id; }
+        t = FOLLOW(p + 1); DEREF(t);
+    }
+    if (!h->on) { free_exth(h); ext_free(&e); ext_say("nothing to label"); return BP_FALSE; }
+    if (!ext_positions(L, n, &e, &h->fixed, &h->vid)) { free_exth(h); ext_free(&e); ext_say("an internal error binding the solutions"); return BP_FALSE; }
+    if (!ext_batch(h, ext_batch_size(h->asks)) || (h->ns == 0 && h->more)) { free_exth(h); ext_free(&e); return BP_FALSE; }
+    ext_free(&e);
+    return unify(H, MAKEINT(put_exth(h)));
+}
+
+/* c_fdn_extnext(H, Sol): the next solution of the session, aligned with the
+   label list.  Re-asks with the earlier projections forbidden when the
+   batch runs out; fails (ends the enumeration) when the search is
+   exhausted, a re-ask gives up, or a re-ask returns nothing new. */
+int c_fdn_extnext(void) {
+    BPLONG H = ARG(1, 2), Sol = ARG(2, 2);
+    exth *h = get_exth(H);
+    if (!h) return BP_FALSE;
+    if (h->si >= h->ns) {
+        if (!h->more) { free_exth(h); return BP_FALSE; }
+        if (!ext_batch(h, ext_batch_size(h->asks)) || h->ns == 0) { free_exth(h); return BP_FALSE; }
+    }
+    if (h->sollen[h->si] != h->nn) { free_exth(h); ext_say("a solution does not cover every net variable"); return BP_FALSE; }
+    int *s = h->sols[h->si++];
+    LOCAL_OVERFLOW_CHECK_WITH_MARGIN("fdn", 2 * h->n + 64);
+    BPLONG lst = nil_sym;
+    for (int i = h->n - 1; i >= 0; i--) {
+        BPLONG v = h->vid[i] >= 0 ? MAKEINT(s[h->vid[i]]) : h->fixed[i];
+        FOLLOW(heap_top) = v; FOLLOW(heap_top + 1) = lst;
+        lst = ADDTAG(heap_top, LST); heap_top += 2;
+    }
+    return unify(Sol, lst);
+}
+
 /* c_fdn_extcount(VS, US, Vars, C): the number of solutions, counted by the
    external server without handing any solution over. Fails like
    c_fdn_extsolve; unsat counts 0. */
@@ -1308,7 +1486,7 @@ int c_fdn_extcount(void) {
     const char *tm = getenv("FDN_EXTTIME");
     double tlim = tm ? atof(tm) : 0;
     long status_ok = 0, objv = 0, count = 0;
-    int got = ext_run(net, -1, NULL, 0, "count", 0, tlim, &status_ok, &objv, &count);
+    int got = ext_run(net, -1, NULL, 0, "count", 0, tlim, &status_ok, &objv, &count, NULL, 0, 0, NULL);
     fdn_net_free(net); ext_free(&e);
     if (!got || !status_ok) {
         char msg[320];
@@ -1342,6 +1520,8 @@ void fdn_boot(void) {
     insert_cpred("c_fdn_close", 1, c_fdn_close);
     insert_cpred("c_fdn_alone", 1, c_fdn_alone);
     insert_cpred("c_fdn_extsolve", 7, c_fdn_extsolve);
+    insert_cpred("c_fdn_extopen", 5, c_fdn_extopen);
+    insert_cpred("c_fdn_extnext", 2, c_fdn_extnext);
     insert_cpred("c_fdn_extcount", 4, c_fdn_extcount);
     insert_cpred("c_fdn_exton", 0, c_fdn_exton);
 }

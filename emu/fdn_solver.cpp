@@ -226,6 +226,7 @@ void fdn_lex(fdn_net *n, int le, int np, const int *pr) {
 }
 void fdn_label(fdn_net *n, int vs, int us, int k, const int *xs) { n->varsel = vs; n->valsel = us; n->label.assign(xs, xs + k); }
 const int *fdn_net_label(fdn_net *n, int *k) { *k = n->label.size(); return n->label.data(); }
+int fdn_net_nvars(const fdn_net *n) { return (int)n->vals.size(); }
 void fdn_net_free(fdn_net *n) { delete n; }
 
 // the net as a JSON model for the external CP-SAT server (fdn_cpsat.py,
