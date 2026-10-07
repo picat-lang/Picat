@@ -281,7 +281,7 @@ Reference results (whole-program wall time, same machine, under load):
 | qopt 13 ff (optimization) | **459 ms** | 17083 ms | 4432 ms |
 | kakuroN 1000 (20 solves) | **609 ms** | 5494 ms | 11570 ms |
 | qall 14 (365596 solutions) | **208 ms** | > 30 s | > 30 s |
-| qff 600 (enumeration) | **18165 ms** | > 30 s | > 30 s |
+| qff 600 (first solution) | **18165 ms** | > 30 s | > 30 s |
 
 The server wins on hard unsat proofs only: INFEASIBLE is sound at any
 width and parallelizes (pigeonhole is exponentially hard for the
