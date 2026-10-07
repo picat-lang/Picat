@@ -674,11 +674,11 @@ static int atom_is(BPLONG t, const char *a) {
 /* VS, US: the strategy atoms computed by labeling_var_strategy/2 and
    labeling_val_strategy/2 (fdn_hook.pi) */
 static int parse_strat(BPLONG VS, BPLONG US, int *vs, int *us) {
-    static const char *vn[] = {"leftmost", "ff", "min", "max", "ff_min", "ff_max"};
-    static const char *un[] = {"up", "down", "updown", "split", "reverse_split"};
+    static const char *vn[] = {"leftmost", "ff", "min", "max", "ff_min", "ff_max", "rand_var"};
+    static const char *un[] = {"up", "down", "updown", "split", "reverse_split", "rand_val"};
     *vs = *us = -1;
-    for (int i = 0; i < 6; i++) if (atom_is(VS, vn[i])) *vs = i;
-    for (int i = 0; i < 5; i++) if (atom_is(US, un[i])) *us = i;
+    for (int i = 0; i < 7; i++) if (atom_is(VS, vn[i])) *vs = i;
+    for (int i = 0; i < 6; i++) if (atom_is(US, un[i])) *us = i;
     if (*vs < 0) return unsupported("variable strategy");
     if (*us < 0) return unsupported("value strategy");
     return 1;

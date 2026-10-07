@@ -53,8 +53,8 @@ void fdn_lex(fdn_net *, int le, int np, const int *pr);
 const char *fdn_export_json(const fdn_net *, int obj, const int *lab, int nlab, size_t *len);
 /* labeling strategies (labeling_var_strategy/2, labeling_val_strategy/2 in
    cpeval/decompiled/fd_labeling.pi) */
-enum { VS_LEFTMOST, VS_FF, VS_MIN, VS_MAX, VS_FF_MIN, VS_FF_MAX };
-enum { US_UP, US_DOWN, US_UPDOWN, US_SPLIT, US_REVERSE_SPLIT };
+enum { VS_LEFTMOST, VS_FF, VS_MIN, VS_MAX, VS_FF_MIN, VS_FF_MAX, VS_RAND_VAR };
+enum { US_UP, US_DOWN, US_UPDOWN, US_SPLIT, US_REVERSE_SPLIT, US_RAND_VAL };
 /* xs: label order (any reordering already done by the caller) */
 void fdn_label(fdn_net *, int varsel, int valsel, int n, const int *xs);
 const int *fdn_net_label(fdn_net *, int *n);   /* the label order set by fdn_label */

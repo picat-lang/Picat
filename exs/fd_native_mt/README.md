@@ -65,14 +65,20 @@ Environment variables:
 | lex chains (`e$$cp$$watch_lex_lt/le`) | watch bounds on the leading pairs, arc-consistent last pair |
 
 Labeling: heuristics `[]`/`leftmost`, `ff`, `min`, `max`, `ff_min`, `ff_max`,
-`ffd`, `degree`, `constr`, `ffc`; value strategies `up`, `down`, `updown`,
-`split`, `reverse_split`; reorderings `backward`, `inout`; also `forward`.
+`ffd`, `degree`, `constr`, `ffc`, `rand_var` (the `rand` option sets it
+together with `rand_val`); value strategies `up`, `down`, `updown`,
+`split`, `reverse_split`, `rand_val`; reorderings `backward`, `inout`; also
+`forward`.  The `rand*` strategies run the fdn's own randomness: valid
+solutions with full coverage, but not Picat's random sequence -- the
+solutions and their order can differ from the interpreted path (Picat
+consumes the C library's `rand()` one call per decision; the fdn does not
+reproduce that sequence).
 Branch and bound: `$min(O)`, `$max(O)`, `$minimize(O)`, `$maximize(O)`, with
 `$report(G)` and `limit(N)` next to an objective (see the next section).
 Still falling back to Picat's labeling: any model with a multiply
 constraint (`X*Y #= Z`, quadratics — the native rule for it is value-by-value
 on the operands' domains and superlinear in the width, so Picat's own
-bounds propagation wins at every measured width), `rand*`, `label(_)`,
+bounds propagation wins at every measured width), `label(_)`,
 `time_out(..)`, `limit(N)` without an objective, a non-FD objective,
 `split`/`reverse_split` on a negative minimum (Picat 3.9#12 itself loops
 forever there), other attributes, value ranges wider than 65536.
@@ -280,7 +286,7 @@ mode was requested, no verbose flag needed.  The C-side fallbacks print
 cut (the solution cap or the time limit)`, `the server errored: <message>`,
 or `the search was not completed`.  The Picat-side fallbacks print the same
 prefix: `the labeling options are not translated by the fdn` (e.g. the
-`rand` option -- neither the server nor the native fdn runs, Picat's own
+`label(_)` option -- neither the server nor the native fdn runs, Picat's own
 labeling takes over), `the label list extension does not cover the store`,
 and `the objective is not an FD expression`.  When the ext mode was
 requested, the native fdn's own fallback to Picat's labeling

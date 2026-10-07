@@ -119,9 +119,9 @@ fdn_plan(Opts, Vars, VS, US, Vs, Obj, Report) =>
     fdn_objective(Opts, Obj),
     (Obj == '$none' -> not (member(L, Opts), nonvar(L), L = $limit(_)) ; true),
     once(bp.labeling_var_strategy(Opts, VS)),
-    membchk(VS, [leftmost, ff, min, max, ff_min, ff_max]),
+    membchk(VS, [leftmost, ff, min, max, ff_min, ff_max, rand_var]),
     once(bp.labeling_val_strategy(Opts, US)),
-    membchk(US, [up, down, updown, split, reverse_split]),
+    membchk(US, [up, down, updown, split, reverse_split, rand_val]),
     once(bp.labeling_reorder_vars(Opts, Vars, Vs)),
     (member(R, Opts), nonvar(R), R = $report(G) -> Report = G ; Report = true).
 
@@ -129,7 +129,7 @@ fdn_opts_ok([]) => true.
 fdn_opts_ok([O | Os]) => nonvar(O), fdn_opt_ok(O), fdn_opts_ok(Os).
 fdn_opt_ok(O), atom(O) =>
     membchk(O, [leftmost, forward, backward, inout, ff, ffc, ffd, degree, constr,
-                min, max, up, down, updown, split, reverse_split]).
+                min, max, up, down, updown, split, reverse_split, rand, rand_var, rand_val]).
 fdn_opt_ok(min(_)) => true.
 fdn_opt_ok(max(_)) => true.
 fdn_opt_ok(minimize(_)) => true.

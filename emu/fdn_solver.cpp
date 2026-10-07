@@ -1084,12 +1084,23 @@ struct alignas(128) Search {
         return best;
     }
     int select_var() {
-        if (N.valsel >= US_SPLIT && !st.empty() && SZ[st.back().x] > 1) return st.back().x;
+        if ((N.valsel == US_SPLIT || N.valsel == US_REVERSE_SPLIT) && !st.empty() && SZ[st.back().x] > 1) return st.back().x;
         int n = N.label.size();
         while (ls < n && SZ[N.label[ls]] == 1) ls++;
         if (ls == n) return -1;
         switch (N.varsel) {
         case VS_LEFTMOST: return N.label[ls];
+        case VS_RAND_VAR: {                 // a random unbound label entry
+            int cnt = 0;
+            for (int i = ls; i < n; i++) if (SZ[N.label[i]] > 1) cnt++;
+            if (cnt == 0) return -1;
+            long pick = (long)rand() % cnt;
+            for (int i = ls; i < n; i++) {
+                int x = N.label[i];
+                if (SZ[x] > 1 && pick-- == 0) return x;
+            }
+            return -1;
+        }
         case VS_FF: {
             int best = -1, bs = INT_MAX; const int *lab = N.label.data();
             for (int i = ls; i < n; i++) {
@@ -1139,13 +1150,26 @@ struct alignas(128) Search {
     //   split   indomain_split: domain_region(min..Mid), then (Mid+1..max),
     //           no backtracks counted; the variable is split again until
     //           bound (select_var); reverse_split: upper half first
-    enum { K_UP, K_DOWN, K_FB, K_BF, K_SPLIT0, K_SPLIT1 };
+    enum { K_UP, K_DOWN, K_FB, K_BF, K_RAND, K_SPLIT0, K_SPLIT1 };
     // new choice point on x; the snapshot is already taken; returns the
     // backtracks counted before its first alternative
     long push_cp(int x) {
         size_t off = DS.size(); W *d = dom(x); DS.insert(DS.end(), d, d + NW);
         CP c; c.x = x; c.ls = ls; c.tm = TR.size(); c.dom = off;
         long inc = first_alt(c); st.push_back(c); return inc;
+    }
+    int nth_in(const W *d, long n) {           // the n-th (0-based) domain value
+        long seen = 0;
+        for (int k = 0; k < NW; k++) {
+            W w = d[k]; if (!w) continue;
+            long cnt = __builtin_popcountll(w);
+            if (seen + cnt > n) {
+                for (int o = 0; o < 64; o++)
+                    if (w >> o & 1) { if (seen == n) return GLO + k * 64 + o; seen++; }
+            }
+            seen += cnt;
+        }
+        return INT_MIN;
     }
     // set up c for variable c.x (snapshot at DS[c.dom]); returns the
     // backtracks counted before the first alternative
@@ -1155,6 +1179,12 @@ struct alignas(128) Search {
         switch (N.valsel) {
         case US_UP: c.k = K_UP; c.a = mn; return 0;
         case US_DOWN: c.k = K_DOWN; c.a = mx; return 0;
+        case US_RAND_VAL: {                 // a random domain value first, then
+            long ssz = 0;                   // the rest in domain order (wrapping):
+            for (int k = 0; k < NW; k++) ssz += __builtin_popcountll(d[k]);
+            if (ssz <= 0) { c.k = K_UP; c.a = mn; return 0; }
+            c.k = K_RAND; c.a = nth_in(d, (long)rand() % ssz); c.b = (int)ssz; return 0;
+        }
         case US_UPDOWN: {
             long mid = ((long)mn + mx) / 2;
             c.k = K_FB;
@@ -1172,6 +1202,14 @@ struct alignas(128) Search {
         if (c.k == K_UP) {                  // the common case first
             if (c.a >= c.smax) return false;
             inc++; c.a = next_in(d, c.a, INT_MAX); c.idx++; return true;
+        }
+        if (c.k == K_RAND) {                // the wrap-around value order
+            c.idx++;
+            if (c.idx >= c.b) return false; // c.b: the snapshot's domain size
+            inc++;
+            int v = next_in(d, c.a, INT_MAX);
+            if (v == INT_MIN) v = next_in(d, c.smin - 1, INT_MAX);
+            c.a = v; return true;
         }
         switch (c.k) {
         case K_UP: if (c.a >= c.smax) return false; inc++; c.a = next_in(d, c.a, INT_MAX); break;
