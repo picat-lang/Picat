@@ -10,7 +10,7 @@
 \begin{document}
 }
 
-\chapter{\label{chapter:syntax}Appendix: Grammar}
+\chapter{\label{chapter:syntax}Grammar}
 \begin{scriptsize}
 \begin{verbatim}
 /* Picat syntax rules 
@@ -20,13 +20,14 @@
       "..." means a token
       %... one-line comment
       input tokens:
-            atom
-            variable
-            integer
-            float
+            atom_token
+            integer_literal
             operator
+            real_literal
             separator
-            eor is "." followed by a white space or eof
+            string_literal
+            variable_token
+            eor is "." followed by a whitespace character or eof
 */
 program ->
     [module_declaration]
@@ -34,16 +35,16 @@ program ->
     program_body
 
 program_body ->
-    {predicate_definition | function_definition | actor_definition}
+    {predicate_definition | function_definition | actor_definition | include_directive}
 
 module_declaration -> 
-    "module" atom eor
+    "module" atom_token eor
 
 import_declaration ->
     import import_item {"," import_item} eor
 
 import_item ->
-    atom 
+    atom_token 
 
 predicate_definition ->
     {predicate_directive} predicate_rule_or_fact {predicate_rule_or_fact}
@@ -62,7 +63,10 @@ function_directive ->
 predicate_directive ->
     "private"
     "table" ["(" table_mode {"," table_mode} ")" ]
-    "index" index_declaration {"," index_declaration}
+    "index" index_declaration {index_declaration}
+
+include_directive ->
+    "include" string_literal eor
 
 index_declaration ->
     "(" index_mode {"," index_mode} ")"
@@ -76,6 +80,8 @@ table_mode ->
    "-"
    "min"
    "max"
+   "mmin"
+   "mmax"
    "nt"
       
 predicate_rule_or_fact ->
@@ -97,7 +103,7 @@ predicate_fact ->
     head eor
 
 head ->
-    atom ["(" [term {"," term}] ")"]
+    atom_token ["(" [term {"," term}] ")"]
 
 function_rule ->
     head "=" expression ["," condition] "=>" body eor    
@@ -122,15 +128,18 @@ goal ->
     disjunctive_goal
 
 disjunctive_goal ->
-    disjunctive_goal ";" conjunctive_goal
+    disjunctive_goal (";" | "||") conjunctive_goal
+    conjunctive_goal "->" disjunctive_goal         % Prolog-style if-then
     conjunctive_goal
 
 conjunctive_goal ->
-    conjunctive_goal ","  negative_goal
+    conjunctive_goal ("," | "&&") negative_goal
     negative_goal
 
 negative_goal ->
    "not" negative_goal
+   "\+" negative_goal
+   "once" negative_goal
    equiv_constr
 
 equiv_constr ->
@@ -158,41 +167,49 @@ not_constr ->
    enclosed_goal
 
 enclosed_goal ->
-   "if" if_cond goal {"elseif" if_cond goal} "else" goal "end"
+   "if" if_cond goal {"elseif" if_cond goal} ["else" goal] "end"
    "foreach" "(" iterator {"," (iterator | condition)} ")" goal "end"
    "while" "(" goal ")" ["do"] goal "end"
    "do" goal "while" "(" goal ")"
    expression {bin_rel_op expression}
 
+iterator ->
+   expression "in" expression
+    
 if_cond -> "(" goal ")" ["then"]       % "then" is optional
-if_cond -> goal "then"                 % "then" is mandated if goal is not enclosed in parentheses
+if_cond -> goal "then"                 % "then" is required if goal is 
+                                       % not enclosed in parentheses
 
 bin_rel_op ->
-    "=" 
     "!="
-    ":=" 
-    "=="
     "!=="
-    ">"
-    ">="
-    "<"
-    "=<"
-    "<="
-    "::"
-    "in"
-    "notin"
-    "#=" 
     "#!=" 
+    "#<" 
+    "#<=" 
+    "#=" 
+    "#=<" 
     "#>" 
     "#>=" 
-    "#<" 
-    "#=<" 
-    "#<=" 
+    "::"
+    ":=" 
+    "<"
+    "<="
+    "=" 
+    "=.."
+    "=:="
+    "=<"
+    "=="
+    "=\="
+    ">"
+    ">="
+    "@<" 
+    "@<=" 
+    "@=<" 
     "@>" 
     "@>=" 
-    "@<" 
-    "@=<" 
-    "@<=" 
+    "in"
+    "is"
+    "notin"
 
 expression -> 
     concat_expression 
@@ -209,7 +226,7 @@ or_expression  ->
 
 xor_expression ->  
     and_expression 
-    xor_expression "^" and_expression              % bit-wise xor
+    xor_expression "^" and_expression              % bitwise xor
 
 and_expression ->
     shift_expression 
@@ -217,7 +234,7 @@ and_expression ->
 
 shift_expression ->
     additive_expression 
-    shift_expr ( "<<" | ">>" ) additive_expression 
+    shift_expression ( "<<" | ">>" ) additive_expression 
 
 additive_expression ->
     multiplicative_expression
@@ -234,33 +251,38 @@ multiplicative_expression ->
     multiplicative_expression "div" unary_expression
     multiplicative_expression "mod" unary_expression
     multiplicative_expression "rem" unary_expression
-
     
 unary_expression ->
     power_expression
     "+" unary_expression
     "-" unary_expression
-    "~" unary_expression                           % bit-wise complement
+    "~" unary_expression                           % bitwise complement
 
 power_expression ->
     primary_expression ["**" unary_expression]
 
 primary_expression ->
     "(" goal ")"
-    variable "[" argument ["," argument] "]"       % subscript notation
+    variable "[" argument {"," argument} "]"       % subscript notation
     variable "@" term ["@"]                        % as-pattern
-    variable
-    integer
-    float
     atom_or_call
+    integer_literal
+    real_literal
+    string_literal
+    variable_token
+    higher_order_call
     list_expression
     array_expression
     function_call
     term_constructor
+    atom_token "." higher_order_call                     % module qualified higher-order call
     primary_expression "." atom_or_call            % dot-notation
 
 atom_or_call ->
-    atom ["(" [argument {"," argument}] ")"]  
+    atom_token ["(" [argument {"," argument}] ")"]  
+
+higher_order_call ->
+    variable "(" [argument {"," argument}] ")"     % higher order call variable
 
 list_expression ->
     "[]"
@@ -279,7 +301,7 @@ array_expression_suffix ->
     {"," argument} 
 
 function_call ->
-    [primary_expression "."] atom "(" [argument {"," argument}] ")"
+    [primary_expression "."] atom_token "(" [argument {"," argument}] ")"
 
 variable_list ->
     "[" [variable {"," variable}] "]"
@@ -287,10 +309,10 @@ variable_list ->
 term_constructor ->
     "$" goal ["$"]
 
-/* a term has the same form as a goal except that it cannot contain loops 
-   or if statements. Note that subscript notations, range expressions, dot
-   notations, and list comprehensions are still treated as functions in 
-   term constructors */
+/* a term has the same form as a goal except that it cannot contain assignments,
+   loops or if statements. Note that subscript notations, range expressions, dot
+   notations, list comprehensions, and higher-order function calls are still 
+   treated as functions in term constructors */
 
 \end{verbatim}
 \end{scriptsize}

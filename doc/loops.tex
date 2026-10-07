@@ -21,9 +21,9 @@ Picat variables are \emph{single-assignment}\index{assignment}\index{single-assi
 test => X = 0, X := X + 1,  X := X + 2, write(X).
 \end{verbatim}
 
-The compiler needs to give special consideration to the \emph{scope}\index{scope} of a variable.  The scope\index{scope} of a variable refers to the parts of a program where a variable occurs.  
+The compiler needs to give special consideration to the \emph{scope} of a variable. The scope of a variable is the region of the program in which its name refers to that variable.
 
-Consider the \texttt{test} example.  This example binds \texttt{X} to $0$.  Then, the example tries to bind \texttt{X} to \texttt{X + 1}.  However, \texttt{X} is still in scope\index{scope}, meaning that \texttt{X} is already bound to $0$.  Since \texttt{X} cannot be bound again, the compiler must perform extra operations in order to manage assignments\index{assignment} that use the \texttt{:=} operator. 
+Consider the \texttt{test} example.  This example binds \texttt{X} to $0$.  Then, the example tries to bind \texttt{X} to \texttt{X + 1}.  However, \texttt{X} is still visible at the assignment, and the preceding \texttt{X = 0} has bound it.  Since \texttt{X} cannot be bound again, the compiler must perform extra operations in order to manage assignments\index{assignment} that use the \texttt{:=} operator. 
 
 In order to handle assignments\index{assignment}, Picat creates new variables at compile time.  In the \texttt{test} example, at compile time, Picat creates a new variable, say \texttt{X1}, to hold the value of \texttt{X} after the assignment\index{assignment} \verb-X := X + 1-. Picat replaces \texttt{X} by \texttt{X1} on the LHS of the assignment\index{assignment}.  All occurrences of \texttt{X} after the assignment\index{assignment} are replaced by \texttt{X1}.  When encountering \verb-X1 := X1 + 2-, Picat creates another new variable, say \texttt{X2}, to hold the value of \texttt{X1} after the assignment\index{assignment}, and replaces the remaining occurrences of \texttt{X1} by \texttt{X2}. When \texttt{write(X2)}\index{\texttt{write/1}} is executed, the value held in \texttt{X2}, which is 3, is printed.  This means that the compiler rewrites the above example as follows:
 \begin{verbatim}
@@ -55,11 +55,11 @@ if_ex(Z) =>
    println([Xout,Yout]).
 
 p(Xin, Xout, Yin, Yout, Z), Z > 0 =>
-   Xout = X * Z,
+   Xout = Xin * Z,
    Yout = Yin.
 p(Xin, Xout, Yin, Yout, Z) =>
    Xout = Xin,
-   Yout = Y + Z.
+   Yout = Yin + Z.
 \end{verbatim}
 One rule is generated for each branch of the if-else statement\index{if statement}.  For each variable \texttt{V} that occurs on the LHS of an assignment\index{assignment} statement that is inside of the if-else statement\index{if statement}, predicate \texttt{p} is passed two arguments, \texttt{Vin} and \texttt{Vout}.  In the above example, \texttt{X} and \texttt{Y} each occur on the LHS of an assignment\index{assignment} statement.  Therefore, predicate \texttt{p} is passed the parameters \texttt{Xin}, \texttt{Xout}, \texttt{Yin}, and \texttt{Yout}. 
 
@@ -118,7 +118,7 @@ loop_ex3 =>
     end.
 \end{verbatim}
 
-Also recall that the function \texttt{zip($List_1$,$List_2$,$\ldots$,$List_n$)}\index{\texttt{zip}} returns a list of tuples. This function can be used to simultaneously iterate over multiple lists.
+Also recall that the function \texttt{zip($List_1$, $List_2$, $\ldots$, $List_n$)}\index{\texttt{zip}} returns a list of tuples. This function can be used to simultaneously iterate over multiple lists.
 
 \subsection*{Example:}
 \begin{verbatim}
@@ -156,7 +156,7 @@ loop_ex5 =>
 \end{verbatim}
 
 \subsection{Foreach Loops with the \texttt{break} Condition}
-When the condition \texttt{break($Cond$)}\index{\texttt{break}} occurs to the right of an iterator in a \texttt{foreach} loop, it terminates the iterator if $Cond$ is true. Note that the loop body is not executed when $Cond$ is true. 
+When the condition \texttt{break($Cond$)}\index{\texttt{break}} occurs to the right of an iterator in a \texttt{foreach} loop, it terminates the loop if $Cond$ is true. Note that the loop body is not executed when $Cond$ is true. 
 
 The foreach loop in \texttt{loop\_ex6} prints out the elements of the array \texttt{A}, stopping when it encounters a 0.
 \begin{verbatim}
@@ -263,15 +263,15 @@ aa \= aaa \= aaa \= aaa \= aaa \= aaa \= aaa \kill
 
 \subsection*{Example}
 \begin{verbatim}
-picat> L = [(A, I) : A in [a, b], I in 1 .. 2].
+Picat> L = [(A, I) : A in [a, b], I in 1 .. 2].
 L = [(a , 1),(a , 2),(b , 1),(b , 2)]
 
-picat> L = {(A, I) : A in [a, b], I in 1 .. 2}.
+Picat> L = {(A, I) : A in [a, b], I in 1 .. 2}.
 L = {(a , 1),(a , 2),(b , 1),(b , 2)}
 \end{verbatim}
 
 \section{Compilation of Loops}
-Variables that occur in a loop, but do not occur before the loop in the outer scope\index{scope}, are local\index{local variable} to each iteration of the loop. For example, in the rule
+Variables that occur in a loop, but do not occur before the loop in the outer scope, are local\index{local variable} to each iteration of the loop. For example, in the rule
 \begin{verbatim}
 p(A) =>
     foreach (I in 1 .. A.length)
@@ -341,12 +341,12 @@ p([E|T], MinIn, MinOut, MaxIn, MaxOut) =>
     Max1 = max(MaxIn, E),
     p(T, Min1, MinOut, Max1, MaxOut).
 \end{verbatim}
-Notice that there are multiple accumulators\index{accumulator}: \texttt{MinIn} and \texttt{MaxIn}.  Since the \texttt{min\_max} predicate returns two values, the accumulators each have an \textit{in} variable (\texttt{MinIn} and \texttt{Maxin}) and an \textit{out} variable (\texttt{MinOut} and \texttt{MaxOut}).   If the first parameter of predicate \texttt{p} is an empty list, then \texttt{MinOut} is set to the value of \texttt{MinIn}, and \texttt{MaxOut} is set to the value of \texttt{MaxIn}.
+Notice that there are multiple accumulators\index{accumulator}: \texttt{MinIn} and \texttt{MaxIn}.  Since the \texttt{min\_max} predicate returns two values, the accumulators each have an \textit{in} variable (\texttt{MinIn} and \texttt{MaxIn}) and an \textit{out} variable (\texttt{MinOut} and \texttt{MaxOut}).   If the first parameter of predicate \texttt{p} is an empty list, then \texttt{MinOut} is set to the value of \texttt{MinIn}, and \texttt{MaxOut} is set to the value of \texttt{MaxIn}.
 
 Foreach\index{foreach loop} and do-while loops\index{do-while loop} are compiled in a similar manner to while loops\index{while loop}.
 
 \subsubsection{Nested Loops}
-As mentioned above, variables that only occur within a loop are local\index{local variable} to each iteration of the loop.  In nested loops\index{nested loop}, variables that are local\index{local variable} to the outer loop are global to the inner loop.  In other words, if a variable occurs in the outer loop, then the variable is also visible in the inner loop.  However, variables that are local\index{local variable} to the inner loop are not visiable to the outer loop.
+As mentioned above, variables that only occur within a loop are local\index{local variable} to each iteration of the loop.  In nested loops\index{nested loop}, variables that are local\index{local variable} to the outer loop are global to the inner loop.  In other words, if a variable occurs in the outer loop, then the variable is also visible in the inner loop.  However, variables that are local\index{local variable} to the inner loop are not visible to the outer loop.
 
 For example, consider the nested loops\index{nested loop}:
 \begin{verbatim}
@@ -374,12 +374,12 @@ comp_ex =>
 This list comprehension\index{list comprehension} is compiled to:
 \begin{verbatim}
 comp_ex =>
-    List = L, 
+    L = List, 
     foreach (A in [a, b], X in 1 .. 2)
-        L = [(A, X) | T], 
-        L := T
+        List = [(A, X) | T], 
+        List := T
     end,
-    L = [].
+    List = [].
 \end{verbatim}
 
 \subsection*{Example}

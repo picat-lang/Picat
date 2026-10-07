@@ -11,42 +11,39 @@
 
 }
 \chapter{\label{chapter:exception}Exceptions}
-An \emph{exception}\index{exception} is an event that occurs during the execution of a program.  An exception\index{exception} requires a special treatment. In Picat, an exception\index{exception} is just a term. A built-in exception\index{exception} is a structure\index{structure}, where the name denotes the \emph{type} of the exception\index{exception}, and the arguments provide other information about the exception\index{exception}, such as the \emph{source}, which is the goal or function that raised the exception\index{exception}.
+An \emph{exception}\index{exception} is an event that occurs during the execution of a program.  An exception\index{exception} requires special treatment. In Picat, an exception\index{exception} is just a term. A built-in exception\index{exception} is an atom or a structure. If it is a structure, the name denotes the \emph{type} of the exception\index{exception}, and the arguments provide other information about the exception\index{exception}, such as the \emph{source}, which is the goal or function that raised the exception\index{exception}.
 
 \section{Built-in Exceptions}
 Picat throws many types of exceptions. The following are some of the built-in exceptions\index{exception}:\footnote{In the current implementation, exceptions thrown by B-Prolog are not compliant with the documentation.}
 \begin{itemize}
-\item \texttt{zero\_divisor($Source$)}: $Source$ divides a number by zero.
-\item \texttt{domain\_error($Val$,$Source$)}: $Source$ receives a value $Val$ that is unexpected in the domain.
-\item \texttt{existence\_error($Entity$,$Source$)}: $Source$ tries to use $Entity$, such as a file, a function, or a solver, that does not exist.
-% \item \texttt{function\_not\_found($FName$,$Source$)}: $Source$ tries to call a function that is not defined in the imported modules, where $Source$ is a higher-order call in which names cannot be completely bound to definitions at compile time.
-\item \texttt{interrupt($Source$)}: The execution is interrupted\index{interrupt} by a signal. For an interrupt\index{interrupt} caused by \texttt{ctrl-c}, $Source$ is \texttt{keyboard}.
-\item \texttt{io\_error($ENo$,$EMsg$,$Source$)}: An I/O error with the number $ENo$ and message $EMsg$ occurs in $Source$.
-%\item \texttt{key\_not\_found($Key$,$Source$)}: $Source$ tries to access a map or an attributed variable with a $Key$ that does not exist.
-\item \texttt{load\_error($FName$,$Source$)}: An error occurs while loading the byte-code file named $FName$.  This error is caused by the malformatted byte-code file.
+\item \texttt{domain\_error($Val$, $Source$)}: $Source$ receives a value $Val$ that is unexpected in the domain.
+\item \texttt{existence\_error($Entity$, $Source$)}: $Source$ tries to use $Entity$, such as a file, a function, or a solver, that does not exist.
+\item \texttt{interrupt}: The execution is interrupted\index{interrupt} by a signal or \texttt{ctrl-c}.
+\item \texttt{io\_error($ENo$, $EMsg$, $Source$)}: An I/O error with the number $ENo$ and message $EMsg$ occurs in $Source$.
+\item \texttt{load\_error($FName$, $Source$)}: An error occurs while loading the bytecode file named $FName$.  This error is caused by the malformed bytecode file.
+\item \texttt{out\_of\_bound($EIndex$, $Source$)}: $Source$ tries to access an element of a compound value using the index $EIndex$, which is out of bounds.  An index is out of bounds if it is less than or equal to zero, or if it is greater than the length of the compound value.
 \item \texttt{out\_of\_memory($Area$)}: The system runs out of memory while expanding $Area$, which can be: \texttt{stack\_heap}, \texttt{trail}, \texttt{program}, \texttt{table}, or \texttt{findall}.
-\item \texttt{out\_of\_bound($EIndex$,$Source$)}: $Source$ tries to access an element of a compound value using the index $EIndex$, which is out of bound.  An index is out of bound if it is less than or equal to zero, or if it is greater than the length of the compound value.
-%\item \texttt{predicate\_not\_found($PredName$,$Source$)}: $Source$ tries to call a predicate that is not defined in the imported modules, where $Source$ is a higher-order call in which names cannot be completely bound to definitions at compile time.
-\item \texttt{syntax\_error($String$,$Source$)}: $String$ cannot be parsed into a value that is expected by $Source$. For example, \texttt{read\_int()}\index{\texttt{read\_int/0}} throws this exception\index{exception} if it reads in a string \texttt{"a"} rather than an integer.
+\item \texttt{syntax\_error($String$, $Source$)}: $String$ cannot be parsed into a value that is expected by $Source$. For example, \texttt{read\_int()}\index{\texttt{read\_int/0}} throws this exception\index{exception} if it reads in a string \texttt{"a"} rather than an integer.
 \item \texttt{unresolved\_function\_call($FCall$)}: No rule is applicable to the function call $FCall$.
-\item \texttt{\emph{Type}\_expected($EArg$,$Source$)}: The argument $EArg$ in $Source$ is not an expected type or value, where $Type$ can be \texttt{var}, \texttt{nonvar}, \texttt{dvar}, \texttt{atom}, \texttt{integer}, \texttt{real}, \texttt{number}, \texttt{list}, \texttt{map}, etc.
+\item \texttt{zero\_divisor($Source$)}: $Source$ divides a number by zero.
+\item \texttt{\emph{Type}\_expected($EArg$, $Source$)}: The argument $EArg$ in $Source$ does not have the expected type or value, where $Type$ can be \texttt{var}, \texttt{nonvar}, \texttt{dvar}, \texttt{atom}, \texttt{integer}, \texttt{real}, \texttt{number}, \texttt{list}, \texttt{map}, etc.
 \end{itemize}
 
 \section{Throwing Exceptions}
 The built-in predicate \texttt{throw($Exception$)}\index{\texttt{throw/1}}  throws $Exception$. After an exception\index{exception} is thrown, the system searches for a handler\index{handler} for the exception\index{exception}. If none is found, then the system displays the exception\index{exception} and aborts the execution of the current query. It also prints the backtrace of the stack if it is in debug mode. For example, for the function call \texttt{open("abc.txt")}\index{\texttt{open/1}}, the following message will be displayed if there is no file that is named \texttt{"abc.txt"}.
 \begin{verbatim}
-    *** error(existence_error(source_sink,abc.txt),open)
+    *** error(existence_error(source_sink, abc.txt), open)
 \end{verbatim}
 
 \section{Defining Exception Handlers}
 All exceptions, including those raised by built-ins and interruptions, can be caught by catchers. A catcher is a call in the form:
 \begin{verbatim}
-      catch(Goal,Exception,RecoverGoal)
+      catch(Goal, Exception, Handler)
 \end{verbatim}
-which is equivalent to \texttt{Goal}, except when an exception is raised during the execution of \texttt{Goal} that unifies \texttt{Exception}. When such an exception is raised, all of the bindings that have been performed on variables in \texttt{Goal} will be undone, and \texttt{RecoverGoal} will be executed to handle the exception. Note that \texttt{Exception} is unified with a renamed copy of the exception before \texttt{RecoverGoal} is executed. Also note that only exceptions that are raised by a descendant call of \texttt{Goal} can be caught.
+which is equivalent to \texttt{Goal}, except when an exception is raised during the execution of \texttt{Goal} that unifies with \texttt{Exception}. When such an exception is raised, all of the bindings that have been performed on variables in \texttt{Goal} will be undone, and \texttt{Handler} will be executed to handle the exception. Note that \texttt{Exception} is unified with a renamed copy of the exception before \texttt{Handler} is executed. Also note that only exceptions that are raised by a descendant call of \texttt{Goal} can be caught.
 \index{\texttt{catch/3}}
 
-The call \texttt{call\_cleanup(Call,Cleanup)} is equivalent to \texttt{call(Call)}, except that \texttt{Cleanup} is called when \texttt{Call} succeeds determinately (i.e., with no remaining choice point), when \texttt{Call} fails, or when \texttt{Call} raises an exception.
+The call \texttt{call\_cleanup(Call, Cleanup)} is equivalent to \texttt{call(Call)}, except that \texttt{Cleanup} is called when \texttt{Call} succeeds deterministically (i.e., with no remaining choice point), when \texttt{Call} fails, or when \texttt{Call} raises an exception.
 \index{\texttt{call\_cleanup/2}}
 
 \ignore{

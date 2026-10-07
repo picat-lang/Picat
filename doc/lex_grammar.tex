@@ -10,7 +10,7 @@
 \begin{document}
 }
 
-\chapter{\label{chapter:lex}Appendix: Tokens}
+\chapter{\label{chapter:lex}Tokens}
 \begin{scriptsize}
 \begin{verbatim}
 /* Picat lexical rules 
@@ -78,18 +78,18 @@ token ->
     integer_literal
     real_literal
     string_literal
-    operator_token
-    separator_token
+    operator
+    separator
 
 atom_token ->
-    small_letter {alphanumeric_char}
+    small_letter {alphanumeric}
     single_quoted_token
    
 variable_token ->
     anonymous_variable
     named_variable 
 
-anonymous variable ->
+anonymous_variable ->
     "_"
 
 named_variable ->
@@ -101,7 +101,7 @@ alphanumeric ->
     decimal_digit
     
 alpha_char ->
-    underscore_char
+    "_"
     letter
 
 letter ->
@@ -169,14 +169,14 @@ binary_numeral ->
     "0b" binary_digits 
     "0B" binary_digits
 
-binary_digits:
+binary_digits ->
     binary_digit [binary_digits_and_underscores]
 
 binary_digits_and_underscores ->
     binary_digit_or_underscore 
     binary_digits_and_underscores binary_digit_or_underscore 
 
-binary_digit_or_underscore:
+binary_digit_or_underscore ->
     binary_digit
     "_" 
 
@@ -205,7 +205,8 @@ operator ->
       "=" "!=" ">" ">=" "<" "<=" "=<" ".." "!"
       "," ";" ":" "::" "." ". " (dot-whitespace)
       "=>" "?=>" "==" "!==" ":=" "|" "$" "@"
-      "/\" "\/" "~" "^" "<<" ">>"
+      ":-" "-->" "->" "&&" "||" "//" "=:=" 
+      "=\=" "=.." "/\" "\/" "~" "<<" ">>"
       "+" "-" "*" "**" "/" "/>" "/<" "^" 
       "#=" "#!=" "#>" "#>=" "#<" "#<=" "#=<"
       "#/\" "#\/" "#~" "#^" "#=>" "#<=>"
