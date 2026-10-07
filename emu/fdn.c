@@ -808,7 +808,9 @@ int c_fdn_start(void) {
     fdn_net *net = extract(VS, US, Vars, ext_new(&e), &n);
     if (!net) {
         ext_free(&e);
-        if (verbose) fprintf(stderr, "fdn: fallback to Picat labeling: %s\n", why);
+        /* when the external solver was requested, this fallback must say why
+           too: the ext failure was reported first, the native reason here */
+        if (verbose || getenv("FDN_EXTSOLVER")) fprintf(stderr, "fdn: fallback to Picat labeling: %s\n", why);
         return BP_FALSE;
     }
     handle *h = new_handle(Vars, n, &e, net);

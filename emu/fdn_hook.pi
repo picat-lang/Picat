@@ -36,7 +36,12 @@ fdn_labeling([], Vars) =>
      (Path == false ->
          L = Vars
      ;
-         bp.retrieve_frozen_dvars(F), L = Vars ++ F, bp.c_fdn_alone(L)
+         bp.retrieve_frozen_dvars(F), L = Vars ++ F,
+         (bp.c_fdn_alone(L) -> Al = 1 ;
+             Al = 0,
+             fdn_ext_fallback($'fdn: external cp-sat fallback: the label list extension does not cover the store')
+         ),
+         Al == 1
      ),
      bp.c_fdn_extopen(leftmost, up, L, Vars, H) ->
         fdn_ext_emit(H, L)
@@ -57,7 +62,12 @@ fdn_labeling(Opts, Vars) =>
              (Path == false ->
                  L = Vs
              ;
-                 bp.retrieve_frozen_dvars(F), L = Vs ++ F, bp.c_fdn_alone(L)
+                 bp.retrieve_frozen_dvars(F), L = Vs ++ F,
+                 (bp.c_fdn_alone(L) -> Al = 1 ;
+                     Al = 0,
+                     fdn_ext_fallback($'fdn: external cp-sat fallback: the label list extension does not cover the store')
+                 ),
+                 Al == 1
              ),
              bp.c_fdn_extopen(VS, US, L, Vs, H) ->
                 fdn_ext_emit(H, L)
@@ -76,6 +86,7 @@ fdn_labeling(Opts, Vars) =>
             fdn_bb(VS, US, Vs, Obj, Report)
         )
     ;
+        fdn_ext_fallback($'fdn: external cp-sat fallback: the labeling options are not translated by the fdn: Picat runs its own labeling'),
         bp.'$fdn_orig_labeling'(Opts, Vars)
     ).
 
@@ -89,6 +100,13 @@ fdn_labeling(Opts, Vars) =>
 fdn_ext_emit(H, L) => bp.c_fdn_extnext(H, Sol), fdn_ext_alt(H, L, Sol).
 fdn_ext_alt(_H, L, Sol) ?=> L = Sol.
 fdn_ext_alt(H, L, _Sol) => fdn_ext_emit(H, L).
+
+% When the external solver was requested (FDN_EXTSOLVER), every fallback must
+% say why: a fallback to the native fdn or to Picat's own labeling otherwise
+% happens silently and it is unclear what ran.  Without the request the
+% fallback stays silent, as before.
+fdn_ext_fallback(Msg) =>
+    (bp.c_fdn_exton -> println(stderr, Msg) ; true).
 
 % Options the native solver runs: all of them known to
 % '$check_labeling_option'/1 (so stock prints no warning), none of rand,
@@ -193,7 +211,12 @@ fdn_ext_bb(VS, US, Vs, Obj, Report) =>
         ((bp.c_fdn_alone([V | Vs]) ->
              L = [V | Vs]
          ;
-             bp.retrieve_frozen_dvars(F), L = [V | Vs] ++ F, bp.c_fdn_alone(L)
+             bp.retrieve_frozen_dvars(F), L = [V | Vs] ++ F,
+             (bp.c_fdn_alone(L) -> Al = 1 ;
+                 Al = 0,
+                 fdn_ext_fallback($'fdn: external cp-sat fallback: the label list extension does not cover the store')
+             ),
+             Al == 1
          ),
          bp.c_fdn_extsolve(VS, US, L, [V | Vs], V, Sols, _OVal) ->
             (Sols = [Sol] ->
@@ -206,6 +229,7 @@ fdn_ext_bb(VS, US, Vs, Obj, Report) =>
             bp.minof(Goal, V, Report)
         )
     ;
+        fdn_ext_fallback($'fdn: external cp-sat fallback: the objective is not an FD expression: Picat runs minof'),
         bp.minof($generic_labeling(Vs, VS, US), Obj, Report)
     ).
 
