@@ -81,7 +81,13 @@ on the operands' domains and superlinear in the width, so Picat's own
 bounds propagation wins at every measured width), `label(_)`,
 `time_out(..)`, `limit(N)` without an objective, a non-FD objective,
 `split`/`reverse_split` on a negative minimum (Picat 3.9#12 itself loops
-forever there), other attributes, value ranges wider than 65536.
+forever there), other attributes, value ranges wider than 65536, and
+constraint networks over the 200000-variable/200000-frame cap (the reason
+names the numbers: `network too large (68556 vars, 52428 frames, the cap is
+200000)`).  The trail is sparse (one entry per changed domain word), so the
+cap is a safety limit, not a memory one: the aspic queens-128 example
+(68556 FD variables, 52428 frames) runs natively in 0.75 s and through the
+external server in 3.9 s.
 
 ## Native branch and bound
 

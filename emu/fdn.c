@@ -714,7 +714,12 @@ static fdn_net *extract(BPLONG VS, BPLONG US, BPLONG Vars, ext *e, int *nout) {
     if (us == US_SPLIT || us == US_REVERSE_SPLIT)
         for (int q = 0; q < nlab; q++) if (DV_first(e->dvs.a[q]) < 0) { unsupported("split on negative values"); return NULL; }
     if (!ext_collect(e)) return NULL;
-    if (e->frames.n > 5000 || e->dvs.n > 5000) { unsupported("network too large"); return NULL; }
+    if (e->frames.n > 200000 || e->dvs.n > 200000) {
+        char dbg[128];
+        snprintf(dbg, sizeof dbg, "network too large (%d vars, %d frames, the cap is 200000)", e->dvs.n, e->frames.n);
+        unsupported("%s", dbg);
+        return NULL;
+    }
     fdn_net *net = fdn_net_new((int)e->glo, (int)e->ghi);
     {
         int *vals = malloc((e->ghi - e->glo + 1) * sizeof(int));
