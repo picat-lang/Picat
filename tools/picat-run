@@ -1,0 +1,16 @@
+#!/bin/sh
+# Runs a Picat script that starts with a "#!" line: picat rejects that line
+# and only loads files named *.pi, so run a copy with line 1 turned into a
+# "%" comment (line numbers in error messages stay the same).
+# Usage in a script:  #!/usr/bin/env picat-run
+# Usage from a shell: picat-run script.pi [args...]
+# PICAT selects the binary (default: picat on PATH), PICATPATH is prepended
+# with the script's own directory so "import m." finds m.pi next to it.
+[ $# -ge 1 ] || { echo "usage: picat-run script.pi [args...]" >&2; exit 2; }
+src=$1; shift
+dir=$(mktemp -d) || exit 1
+trap 'rm -rf "$dir"' EXIT HUP INT TERM
+name=$(basename "$src" .pi).pi
+sed '1s/^#!/%#!/' "$src" > "$dir/$name" || exit 1
+PICATPATH="$(cd "$(dirname "$src")" && pwd)${PICATPATH:+:$PICATPATH}" \
+    "${PICAT:-picat}" "$dir/$name" "$@"
