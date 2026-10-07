@@ -322,6 +322,8 @@ weighted 14-queens branch and bound **9.5x** (native B&B; the option lists
 Details, supported propagators, benchmark suite and reference numbers:
 [exs/fd_native_mt/README.md](exs/fd_native_mt/README.md).
 
+## Executable Picat scripts in Linux
+
 Picat files with a `#!` first line can be run as executable scripts
 (`./prog args`) with the `tools/picat-run` wrapper: picat rejects that
 line and only loads `*.pi` files, so the wrapper runs a copy with line 1
