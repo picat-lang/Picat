@@ -59,7 +59,7 @@ Depth-bounded search amounts to exploring the search space, taking into account 
 \item \texttt{best\_plan($S$, $Plan$)}\index{\texttt{best\_plan/2}}: This predicate is the same as the \texttt{best\_plan/4} predicate, except that the limit is assumed to be 268435455, and that the plan's cost is not returned.
 
 \item \texttt{best\_plan\_bb($S$, $Limit$, $Plan$, $Cost$)}\index{\texttt{best\_plan\_bb/4}}: 
-This predicate, if it succeeds, binds $Plan$ to an optimal plan that can transform state $S$ to a final state. $Cost$ is the cost of $Plan$, which cannot exceed $Limit$, which is a given non-negative integer. The branch-and-bound algorithm is used to find an optimal plan.
+This predicate, if it succeeds, binds $Plan$ to an approximated optimal plan that can transform state $S$ to a final state. $Cost$ is the cost of $Plan$, which cannot exceed $Limit$, which is a given non-negative integer. The branch-and-bound algorithm is used to find an optimal plan.\footnote{The branch-and-bound algorithm does not ensure plan optimality.}
 
 \item \texttt{best\_plan\_bb($S$, $Limit$, $Plan$)}: If the second argument is an integer, then this predicate is the same as the \texttt{best\_plan\_bb/4} predicate, except that the plan's cost is not returned. 
 
@@ -69,7 +69,7 @@ This predicate, if it succeeds, binds $Plan$ to an optimal plan that can transfo
 This predicate is the same as the \texttt{best\_plan\_bb/4} predicate, except that the limit is assumed to be 268435455, and that the plan's cost is not returned.
 
 \item \texttt{best\_plan\_bin($S$, $Limit$, $Plan$, $Cost$)}\index{\texttt{best\_plan\_bin/4}}: 
-This predicate, if it succeeds, binds \newline $Plan$ to an optimal plan that can transform state $S$ to a final state. $Cost$ is the cost of $Plan$, which cannot exceed $Limit$, which is a given non-negative integer. The branch-and-bound algorithm is used with binary search to find an optimal plan.
+This predicate, if it succeeds, binds \newline $Plan$ to an approximated optimal plan that can transform state $S$ to a final state. $Cost$ is the cost of $Plan$, which cannot exceed $Limit$, which is a given non-negative integer. The branch-and-bound algorithm is used with binary search to find an optimal plan.\footnote{The branch-and-bound algorithm does not ensure plan optimality.}
 
 \item \texttt{best\_plan\_bin($S$, $Limit$, $Plan$)}: If the second argument is an integer, then this predicate is the same as the \texttt{best\_plan\_bin/4} predicate, except that the plan's cost is not returned. 
 
@@ -86,6 +86,8 @@ This predicate is the same as the \texttt{best\_plan\_bin/4} predicate, except t
 
 \item \texttt{is\_tabled\_state($S$)}\index{\texttt{is\_tabled\_state/1}}: This predicate succeeds if the state $S$ has been explored before and has been tabled.
 \end{itemize}
+
+If depth-bounded search is used, the table area must be cleared by calling \texttt{initialize\_table} before each subsequent call to \texttt{plan} or \texttt{best\_plan}.
 
 \section{Depth-Unbounded Search}
 In contrast to depth-bounded search, depth-unbounded search does not take into account the available resource amount. A new state can be explored even if no resource is available for the exploration. The advantage of depth-unbounded search is that failed states are never re-explored.

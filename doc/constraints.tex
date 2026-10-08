@@ -77,7 +77,7 @@ The following built-ins are provided for domain variables.
 \item \texttt{fd\_dom($FDVar$) = $List$}\index{\texttt{fd\_dom/1}}: This function returns the domain of $FDVar$ as a list,  where $FDVar$ is an integer-domain variable. If $FDVar$ is an integer, then the returned list contains the integer itself.
 \item \texttt{fd\_false($FDVar$, $Elm$)}\index{\texttt{fd\_false/2}}: This predicate is true if the integer $Elm$ is not an element in the domain of $FDVar$.
 \item \texttt{fd\_max($FDVar$) = $Max$}\index{\texttt{fd\_max/1}}: This function returns the upper bound of the domain of $FDVar$, where $FDVar$ is an integer-domain variable.
-\item \texttt{fd\_min($FDVar$) = $Min$}\index{\texttt{fd\_min/1}}: This function returns the lower bound of the domain of \\ $FDVar$, where $FDVar$ is an integer-domain variable.
+\item \texttt{fd\_min($FDVar$) = $Min$}\index{\texttt{fd\_min/1}}: This function returns the lower bound of the domain of $FDVar$, where $FDVar$ is an integer-domain variable.
 \item \texttt{fd\_min\_max($FDVar$, $Min$, $Max$)}\index{\texttt{fd\_min\_max/3}}: This predicate binds $Min$ to the lower bound of the domain of $FDVar$, and binds $Max$ to the upper bound of the domain of $FDVar$, where $FDVar$ is an integer-domain variable.
 \item \texttt{fd\_next($FDVar$, $Elm$) = $NextElm$}\index{\texttt{fd\_next/2}}: This function returns the element following $Elm$ in $FDVar$'s domain. It throws an exception if $Elm$ has no next element in $FDVar$'s domain.
 \item \texttt{fd\_prev($FDVar$, $Elm$) = $PrevElm$}\index{\texttt{fd\_prev/2}}: This function returns the element preceding $Elm$ in $FDVar$'s domain. It throws an exception if $Elm$ has no previous element in $FDVar$'s domain.
@@ -215,9 +215,10 @@ Picat provides the following global constraints.
     
 \item \texttt{all\_different($FDVars$)}\index{\texttt{all\_different/1}}: This constraint ensures that each pair of variables in the list or array $FDVars$ is different. This constraint is compiled into a set of inequality constraints. For each pair of variables $V1$ and $V2$ in $FDVars$, \texttt{all\_different($FDVars$)}\index{\texttt{all\_different/1}} generates the constraint {\tt $V1$ \verb+#!=+ $V2$}.
 
+\item \texttt{all\_different\_except\_0($FDVars$)}\index{\texttt{all\_different\_except\_0/1}}: This constraint is true if all non-zero values in $FDVars$ are different.	
+
 \item \texttt{all\_distinct($FDVars$)}\index{\texttt{all\_distinct/1}}: This constraint is the same as \texttt{all\_different}\index{\texttt{all\_different/1}}, but for the \texttt{cp} module it maintains a higher level of consistency. For some problems, this constraint is faster and requires fewer backtracks than \texttt{all\_different}\index{\texttt{all\_different/1}}, and, for some other problems, this constraint is slower due to the overhead of consistency checking.
 
-\item \texttt{all\_different\_except\_0($FDVars$)}\index{\texttt{all\_different\_except\_0/1}}: This constraint is true if all non-zero values in $FDVars$ are different.
 \item \texttt{assignment($FDVars1$, $FDVars2$)}\index{\texttt{assignment/2}}: This constraint ensures that $FDVars2$ is a \emph{dual assignment} of $FDVars1$, i.e., if the $i$th element of $FDVars1$ is $j$, then the $j$th element of $FDVars2$ is $i$. The constraint can be defined as:
 \begin{verbatim}
     assignment(Xs, Ys) =>
@@ -323,7 +324,7 @@ Picat provides the following global constraints.
 
 \item \texttt{hcp\_grid($A$, $Es$)}\index{\texttt{hcp\_grid/2}}: This constraint is the same as \texttt{hcp\_grid($A$)}, except that it also restricts the edges to $Es$, which consists of triplets of the form $\{V_1,V_2,B\}$. In a triplet in $Es$, $V_1$ and $V_2$ take the form $(R, C)$, where $R$ is a row number and $C$ is a column number, and $B$ is a Boolean variable, which denotes that $V_1$ is connected to $V_2$  by an edge in the graph if and only if $B = 1$. If $Es$ is a variable, then it is bound to the edges of the grid graph.  
 
-\item \texttt{hcp\_grid($A$, $Es$, $K$)}\index{\texttt{hcp\_grid/3}}: This constraint is the same as\\ \texttt{hcp\_grid($A$, $Es$)}, except that it also constrains the number of vertices in the graph to be $K$. 
+\item \texttt{hcp\_grid($A$, $Es$, $K$)}\index{\texttt{hcp\_grid/3}}: This constraint is the same as \texttt{hcp\_grid($A$, $Es$)}, except that it also constrains the number of vertices in the graph to be $K$. 
 
 \item \texttt{increasing($L$)}\index{\texttt{increasing/1}}: The sequence (an array or a list) $L$ is in (non-strictly) increasing order.
 
@@ -355,6 +356,10 @@ Picat provides the following global constraints.
 
 \item \texttt{scc($Vs$, $Es$, $K$)}\index{\texttt{scc/3}}:  This constraint is the same as \texttt{scc($Vs$, $Es$)}, except that it also constrains the number of vertices in the graph to be $K$. 
 
+\item \texttt{scc\_d($Vs$, $Es$)}\index{\texttt{scc\_d/2}}: This constraint ensures that the \textit{directed}\index{directed graph} graph represented by $Vs$ and $Es$ is strongly connected, where $Vs$ and $Es$ are the same as those in \texttt{scc($Vs$, $Es$)}, except that the graph is directed.
+
+\item \texttt{scc\_d($Vs$, $Es$, $K$)}\index{\texttt{scc\_d/3}}: This constraint is the same as \texttt{scc\_d($Vs$, $Es$)}, except that it also constrains the number of vertices in the graph to be $K$.
+
 \item \texttt{scc\_grid($A$)}\index{\texttt{scc\_grid/1}}:  This constraint ensures that the grid\index{grid graph} graph represented by $A$, which is a two-dimensional array of Boolean variables, forms a connected undirected graph. In a grid graph, each cell is directly connected horizontally and vertically, but not diagonally, to its neighbors. Only cells labeled 1 are considered as vertices of the graph. This constraint is implemented as follows by using \texttt{scc}:
 \begin{verbatim}
     scc_grid(A) =>
@@ -381,17 +386,13 @@ Note that there is an edge between each pair of neighboring cells in the resulti
 
 \item \texttt{scc\_grid($A$, $K$)}\index{\texttt{scc\_grid/2}}: This constraint is the same as \texttt{scc\_grid($A$)}, except that it also constrains the number of vertices in the graph to be $K$. 
 
-\item \texttt{scc\_d($Vs$, $Es$)}\index{\texttt{scc\_d/2}}: This constraint ensures that the \textit{directed}\index{directed graph} graph represented by $Vs$ and $Es$ is strongly connected, where $Vs$ and $Es$ are the same as those in \texttt{scc($Vs$, $Es$)}, except that the graph is directed.
-
-\item \texttt{scc\_d($Vs$, $Es$, $K$)}\index{\texttt{scc\_d/3}}: This constraint is the same as \texttt{scc\_d($Vs$, $Es$)}, except that it also constrains the number of vertices in the graph to be $K$. 
-
 \item \texttt{serialized($Starts$, $Durations$)}\index{\texttt{serialized/2}}: This constraint describes a set of non-overlapping tasks, where $Starts$ and $Durations$ are lists of integer-domain variables, and the lists have the same length. Let $Os$ be a list of 1s that has the same length as $Starts$. This constraint is equivalent to \texttt{cumulative($Starts$, $Durations$, $Os$, 1)}\index{\texttt{cumulative/4}}.
 
 \item \texttt{subcircuit($FDVars$)}\index{\texttt{subcircuit/1}}: This constraint is the same as \texttt{circuit($FDVars$)}\index{\texttt{circuit/1}}, except that not all of the vertices are required to be in the circuit. If the $i$th element of $FDVars$ is $i$, then the vertex $i$ is not part of the circuit. 
 
 \item \texttt{subcircuit\_grid($A$)}\index{\texttt{subcircuit\_grid/1}}: This constraint ensures that the grid\index{grid graph} graph represented by $A$, which is a two-dimensional array of Boolean (0/1) variables, forms a Hamiltonian cycle\index{Hamiltonian cycle}. In a grid graph, each cell is directly connected horizontally and vertically, but not diagonally, to its neighbors. Only non-zero cells are considered as vertices of the graph.
 
-\item \texttt{subcircuit\_grid($A$, $K$)}\index{\texttt{subcircuit\_grid/2}}: This constraint is the same as \\\texttt{subcircuit\_grid($A$)}, except that it also constrains the number of vertices in the graph to be $K$.
+\item \texttt{subcircuit\_grid($A$, $K$)}\index{\texttt{subcircuit\_grid/2}}: This constraint is the same as \texttt{subcircuit\_grid($A$)}, except that it also constrains the number of vertices in the graph to be $K$.
 
 \item \texttt{tree($Vs$, $Es$)}\index{\texttt{tree/2}}: This constraint ensures that the \textit{undirected}\index{undirected graph} graph represented by $Vs$ and $Es$ is a tree, where $Vs$ is a list of pairs of the form $\{V,B\}$, and $Es$ is a list of triplets of the form $\{V_1,V_2,B\}$. A pair $\{V,B\}$ in $Vs$, where $V$ is a ground term and $B$ is a Boolean variable, denotes that $V$ is in the tree if and only if $B = 1$. A triplet $\{V_1,V_2,B\}$ denotes that $V_1$ is connected with $V_2$  by an edge in the tree if and only if $B = 1$ and both $V_1$ and $V_2$ are in the tree. Note that the graph to be constructed is assumed to be undirected. If there exists a triplet $\{V_1,V_2,B\}$ in $Es$, then the triplet $\{V_2,V_1,B\}$ will be added to $Es$ if it is not specified.
 
@@ -430,11 +431,11 @@ The \texttt{sat} module supports bit-vector constraints, which enhance modeling 
 
 \item\texttt{solve($Vars$)}\index{\texttt{solve/1}}: This predicate is the same as \texttt{solve([], $Vars$)}\index{\texttt{solve/2}}. 
 \item \texttt{indomain($Var$)}\index{\texttt{indomain/1}}: This predicate is only accepted by \texttt{cp}. It is the same as \texttt{solve([], [$Var$])}\index{\texttt{solve/2}}.
+\item \texttt{indomain\_down($Var$)}\index{\texttt{indomain\_down/1}}: This predicate is only accepted by \texttt{cp}. It is the same as \newline \texttt{solve([down], [$Var$])}\index{\texttt{solve/2}}. 
 \item \texttt{solve\_all($Opts$, $Vars$) = $List$}\index{\texttt{solve\_all/2}}: This function returns all the solutions that satisfy the constraints.
 \item \texttt{solve\_all($Vars$) = $List$}\index{\texttt{solve\_all/1}}: This function is the same as \texttt{solve\_all([], $Vars$)}.
 \item \texttt{solve\_suspended($Opts$)}\index{\texttt{solve\_suspended/1}}: After \texttt{solve($Vars$)} has successfully labeled $Vars$, some constraints may remain suspended and not completely checked because not all of the decision variables are included in $Vars$. The \texttt{solve\_suspended($Opts$)} predicate labels all remaining variables in the suspended constraints. This predicate is only provided by the \texttt{cp} module. 
 \item \texttt{solve\_suspended}\index{\texttt{solve\_suspended/0}}: This predicate is the same as \texttt{solve\_suspended([])}.
-\item \texttt{indomain\_down($Var$)}\index{\texttt{indomain\_down/1}}: This predicate is the same as \texttt{solve([down], [$Var$])}\index{\texttt{solve/2}}. It is only accepted by \texttt{cp}. 
 \end{itemize}
 
 
