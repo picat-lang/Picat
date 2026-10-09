@@ -22,7 +22,7 @@ end.
 aspic_gen(ID,Constr,Lines)=Snippet=>
 genbuf_init()
 ,asparse(Lines,R,T,Mini)
-,(R=[] -> true; abort)
+,(R=[] -> true; println(stderr,"aspic_gen: ASP syntax error in the asp block: "++R.to_string()), abort)
 ,genprintln("var(X,_)=X.\nrange(_,_)=0.")
 ,H=get_heap_map(asp_atoms)
 ,Native=get_heap_map(native_atoms)
@@ -395,32 +395,50 @@ asparse(A,R,T,ObjMin)=>
 B=[]
 ,C=[]
 ,Mini=[]
+,Dr=[]
+,HadMin:=0
 ,foreach(L in A)
 if(member('%',L)) then
 I:=[J:J in 1..L.length,L[J]='%'], L:=L[1..I[1]-1]
 end
 ,if(L.len>=1,L[1]=='#') then
-if(L[1..7]=="#const ") then
+(L[1..7]=="#const " ->
 L2:=L[8..L.len].split("=").map(strip)
 % ,d(l2const=L2)
-,V:=L2[2]
-,C:=[(L2[1].to_atom,V[1..V.len-1].to_int)|C]
-end
-,if(L[1..9]=="#minimize") then
-%d("optimization not implemented yet")
-d(mini=[X:X in L[10..L.len],X!=' ',ord(X)>32]),
-p(mini,[X:X in L[10..L.len],X!=' ',ord(X)>32],ROpt,TOpt)
-,d(topt=TOpt)
+,(L2.len>=2,V=L2[2],
+(catch(VI=V[1..V.len-1].to_int,_,fail);
+ catch(VI=V.to_int,_,fail)) ->
+C:=[(L2[1].to_atom,VI)|C]
+;Dr:=[("invalid #const (an integer value is required): "++L)|Dr])
+; L[1..9]=="#minimize" ->
+(L.len>=10 ->
+(HadMin==1 ->
+Dr:=[("duplicate #minimize (only one is supported): "++L)|Dr]
+;
+MiniText:=[X:X in L[10..L.len],X!=' ',ord(X)>32],
+(p(mini,MiniText,ROpt,TOpt) ->
+d(topt=TOpt)
 ,TOpt:=TOpt.allvariants
 ,TOpt:=TOpt[1]
 ,Mini:="sum"++replacesetmini(TOpt)
 ,d(mini=Mini)
-end
+;Dr:=[("invalid #minimize (expected one-line { Weight,Terms : Body }.): "++L)|Dr])),
+HadMin:=1
+;Dr:=[("invalid #minimize (expected a { ... } set after the directive): "++L)|Dr])
+; L[1..6]=="#show " -> println(stderr,"% aspic: WARNING: #show is not implemented; the line was ignored (use the show script): "++L)
+; L[1..6]=="#show." -> println(stderr,"% aspic: WARNING: #show is not implemented; the line was ignored (use the show script): "++L)
+; L[1..6]=="#hide " -> println(stderr,"% aspic: WARNING: #hide is not implemented; the line was ignored: "++L)
+; L[1..6]=="#hide." -> println(stderr,"% aspic: WARNING: #hide is not implemented; the line was ignored: "++L)
+; Dr:=[("unsupported ASP directive: "++L)|Dr])
 ,L:=[]
 end
 ,foreach(K in 1..L.len-3)
 if(L[K..K+3]="not ") then % a hack
     L[K]:=' ',L[K+1]:=' ',L[K+2]:='~',L[K+3]:=' '
+elseif(L[K..K+3]="not\t") then % a hack: default negation followed by a tab
+    L[K]:=' ',L[K+1]:=' ',L[K+2]:='~',L[K+3]:=' '
+elseif(L[K..K+3]="not(") then % a hack: default negation with a parenthesized body, rewritten to "~ (" so elimws yields "~("
+    L[K]:='~',L[K+1]:=' ',L[K+2]:='(',L[K+3]:=' '
 end
 end
 %,L:=[X:X in L,X!=' ',ord(X)>32]
@@ -431,7 +449,8 @@ B:=[L|B]
 end
 end
 ,d("ready to parse")
-,p(program,join(B.reverse,''),R,T)
+,p(program,join(B.reverse,''),R0,T)
+,R = Dr.reverse ++ R0
 ,d("after parsing")
 %,d(constants=C)
 ,foreach((K,V2) in C) %substitute the constants
@@ -506,7 +525,7 @@ p(term,S,R,T),S=[A|S2],(ascii_lowercase(A)),p(restterm,S2,R,T2) %had to disable 
 p(restterm,S,R,T),S=[A|S2],(ascii_alpha_digit(A);member(A,"_")),p(restterm,S2,R,T2)=>T=[A|T2].
 p(restterm,S,R,T),S=R=>T=[].
 
-p(num,S,R,T),S=[A|S2],(ascii_digit(A);A='-'),p(restnum,S2,R,T2)=>T=[A|T2].to_int.
+p(num,S,R,T),S=[A|S2],(ascii_digit(A);A='-'),p(restnum,S2,R,T2)=>catch(T=[A|T2].to_int(),_,fail). % a lone "-" or a non-numeric token must fail cleanly, not crash in to_int
 % p(num,S,R,T),S=[A|R],ascii_digit(A)=>T=[A].
 p(restnum,S,R,T),S=[A|S2],(ascii_digit(A);member(A,"_")),p(restnum,S2,R,T2)=>T=[A|T2].
 p(restnum,S,R,T),S=R=>T=[].
@@ -567,6 +586,7 @@ p(logic,S,R,T2),paren(notampersand,"&","&",S,R,T)=>T2=T.
 p(logic,S,R,T),member(Op,[eq,ne,gt,lt,le,ge,not]),p(Op,S,R,T)=>true.
 p(logic,S,R,T),p(atom,S,R,T)=>true.
 p(logic,S,R,T),p(card,S,R,T)=>true.
+p(logic,S,R,T2),paren(disj,"(",")",S,R,T)=>T2=T. % parenthesized body expression: ~(X), not(p;q), (p;q),r
 
 %conj
 p(conj,S,R,T2)=>l(logic,",",S,R,T),T2=aspic_conj(T).

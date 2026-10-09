@@ -63,9 +63,12 @@ picat -log aspic.pi ASPFILE1.lp ASPFILE2.lp
 
 ## b) or with explicit calls:
 
-picat -log aspic_transpiler.pi ASPFILE.lp 2>tmpfile.pi
+picat -log aspic_transpiler.pi run ASPFILE.lp 2>tmpfile.pi
 
 picat -log tmpfile.pi 2>&1
+
+(the "run" keyword selects the transpile mode; "cp"/"sat"/"all" etc. are
+alternatives, see below)
 
 ## c) or using an alias:
 
@@ -127,11 +130,54 @@ color(netherlands,green)
 ```
 
 
-# Not implemented yet:
+# Not implemented yet
 
-- several language aspects: explicit #count, #sum, #max, #min, #show 
+The aggregates #sum, #max, #min and #count ARE supported in rule bodies and
+constraints over numeric terms (e.g. `#sum { X : p(X) }`), since v0.3.
 
-- probably others as well
+Everything else in the following list is NOT supported. None of it is
+accepted silently: unknown or malformed input is reported as an error
+(notparsed, "ASP syntax error!"), so a program either transpiles or stops
+with a diagnostic that names the offending line.
+
+- #maximize (no maximization; the directive is reported as an error)
+- weak constraints (`:~ ... [w@l]`); priority levels/weights (`@l`) in #minimize
+- more than one #minimize directive in one program (duplicates are reported)
+- a #minimize whose { ... } set spans several lines (it must be on one line)
+- disjunctive heads (`a ; b :- c.`)
+- strong negation (`-p(X)`)
+- conditional literals (`H : B`) outside aggregates/cardinality constraints
+- aggregates over atoms (`#sum { p(X) : q(X) }`); only numeric terms allowed
+- reals/floats; strings; quoted atoms
+- mod, **, abs and other arithmetic functions; the <> comparison operator
+- block comments `/* ... */` (only `%` line comments)
+- #if/#ifdef/#include/#program/#external/#heuristic/#project/#script/#base
+
+#show is also not implemented, but it is TOLERATED: the line is ignored and
+a `% aspic: WARNING: ...` comment is emitted, and the script "show" (see
+above) can be used to filter the printed solutions instead.
+
+# Diagnostics
+
+- a `#` directive other than #const, #minimize, #show, #hide stops the
+  transpilation with "unsupported ASP directive: <line>"
+- a #const value that is not an integer, an unparseable or multi-line
+  #minimize, or a duplicate #minimize each stop with a named diagnostic
+- constructs that the parser does not know are reported through the
+  standard notparsed mechanism; the transpiler never crashes on them
+- default negation is recognized as `not ` (space or tab) and as `not(`
+  (parenthesized body); `~` is accepted directly
+
+# Tests
+
+test/test_aspic_syntax.sh runs the regression battery: the syntax cases in
+test/cases/ (ok_* must parse; err_* must fail with a clean diagnostic and
+never crash; run_* are transpiled and executed end-to-end), a parse check
+over all examples/*.lp, and an end-to-end run of the embedded-ASP flow:
+
+    bash test/test_aspic_syntax.sh
+
+Exit status 0 iff all tests pass.
 
 # Requirements
 
@@ -146,6 +192,26 @@ color(netherlands,green)
 - so far only tested on Linux 
 
 # Version history
+
+v0.3.6:
+
+- Unknown # directives (#maximize, #include, #heuristic, ...) are now
+  reported as errors instead of being silently ignored (previously
+  #maximize was silently dropped and the program solved WITHOUT the
+  objective). #show/#hide are tolerated, ignored with a warning comment;
+  the show script remains the workaround.
+- Only one #minimize is allowed; duplicates are reported. #const values
+  must be integers; violations are reported with a clear error.
+- Default negation "not(" (parenthesized body) and "not" followed by a tab
+  are now recognized; previously "not(q)" was silently read as the positive
+  atom not(q) with wrong semantics. Parenthesized body expressions
+  (`~(X)`, `(p;q),r`) are supported.
+- Constructs that used to crash the transpiler (bare "-" terms, e.g. the
+  strong negation -p(X); non-integer #const values; multi-line #minimize)
+  now give clean syntax errors instead of aborting mid-transpile.
+- Tab and CR characters in whitespace-only lines and CRLF line endings no
+  longer break the parse.
+- Regression tests: test/test_aspic_syntax.sh.
 
 v0.3.5:
 
