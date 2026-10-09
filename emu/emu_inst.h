@@ -8700,7 +8700,7 @@ lab_table_produce:
             table_arg_ptr = ANSWER_ARG_ADDR(answer);
             op1 = FOLLOW(stack_arg_ptr-opt_arg_index); DEREF(op1);
             op2 = FOLLOW(table_arg_ptr+opt_arg_index);
-            TABLE_ANS_COMPARE(op1, op2, res);
+            res = bp_compare(op1, op2);
             if (maximize == 0 && res > 0 || maximize == 1 && res < 0){  // worse objective value, discard 
                 BACKTRACK;
             }
@@ -8740,7 +8740,7 @@ lab_table_produce:
         table_arg_ptr = ANSWER_ARG_ADDR(answer);
         op1 = FOLLOW(stack_arg_ptr-opt_arg_index); DEREF(op1);
         op2 = FOLLOW(table_arg_ptr+opt_arg_index);
-        TABLE_ANS_COMPARE(op1, op2, res);
+        res = bp_compare(op1, op2);
         if (maximize == 0 && res > 0 || maximize == 1 && res < 0){  // worse objective value, discard 
             BACKTRACK;
         }

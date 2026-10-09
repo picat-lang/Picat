@@ -464,7 +464,7 @@ BPLONG_PTR lookupSubgoalTable(BPLONG_PTR stack_arg_ptr, int arity, SYM_REC_PTR s
     if (mode_bits != 0) {  /* check mode */
         tmp_mode_bits = mode_bits;
         for (i = 0; i < arity; i++) {
-            if ((tmp_mode_bits & 0x1L) == 1) {
+            if (tmp_mode_bits & 0x1L) {
                 BPLONG t1;
                 t1 = FOLLOW(this_subgoal_arg_ptr+i);
                 if (!IsNumberedVar(t1)) {
@@ -1712,7 +1712,7 @@ BPLONG answer_table_entry_2_struct(SYM_REC_PTR sym_ptr, BPLONG_PTR ptr0) {
 int table_statistics() {
     BPLONG i, count, subgoal_count, total_ans_count, max_ans_count, zero_ans_count, total_its_count, max_its_count, scc_nodes_count;
     BPLONG_PTR subgoal_entry, answerTable, ptr;
-    subgoal_count = 0;
+    subgoal_count = 1;
     total_its_count = 0;
     max_its_count = 0;
     total_ans_count = 0;
@@ -1727,9 +1727,9 @@ int table_statistics() {
             count++;
             answerTable = (BPLONG_PTR)GT_ANSWER_TABLE(subgoal_entry);
             if (answerTable != NULL) {
-                if ((BPLONG)answerTable & 0x1 == 0) {
+                if (((BPLONG)answerTable & 0x1) == 0) {
                     total_ans_count += ANSWERTABLE_COUNT(answerTable);
-                    if (ANSWERTABLE_COUNT((BPLONG_PTR)GT_ANSWER_TABLE(subgoal_entry)) > max_ans_count) max_ans_count = ANSWERTABLE_COUNT((BPLONG_PTR)GT_ANSWER_TABLE(subgoal_entry));
+                    if (ANSWERTABLE_COUNT(answerTable) > max_ans_count) max_ans_count = ANSWERTABLE_COUNT(answerTable);
                 } else {
                     total_ans_count++;
                 }
