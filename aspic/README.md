@@ -130,6 +130,37 @@ color(netherlands,green)
 ```
 
 
+# Rule order: place atom-creating rules before choice rules
+
+Rules are translated in program order, and every rule line's variables are
+enumerated over the constants of the atoms translated SO FAR (the
+"universe"). A choice rule whose line comes first therefore iterates over an
+EMPTY universe: no atoms of its head predicate are created, and every later
+reference to them - in other rules, in an optimization directive, in the
+printed solution - sees them as simply false. The choice rule silently
+becomes vacuous, with no error and no warning.
+
+Example - the choice rule below creates nothing, and the maximum is
+reported as 0:
+
+    {pick(X) : dom(X)}.
+    dom(1). dom(2). dom(3).
+    val(1,1). val(2,2). val(3,10).
+    #maximize { V,X : pick(X), val(X,V) }.
+
+Moving the facts before the choice rule fixes it - the same program then
+reports the maximum 13 with pick(1), pick(2) and pick(3) chosen:
+
+    dom(1). dom(2). dom(3).
+    val(1,1). val(2,2). val(3,10).
+    {pick(X) : dom(X)}.
+
+Recommendation: always place facts (or any rules that introduce new
+constants) BEFORE choice rules. The regression cases test/cases/ok_maximize.lp
+and test/cases/run_maximize.lp follow this order; this behavior is a known
+limitation of the translation, not of #maximize.
+
+
 # Not implemented yet
 
 The aggregates #sum, #max, #min and #count ARE supported in rule bodies and
