@@ -21,7 +21,7 @@ end.
 
 aspic_gen(ID,Constr,Lines)=Snippet=>
 genbuf_init()
-,asparse(Lines,R,T,Mini,Dir)
+,asparse(Lines,R,T,Mini,Dir,Weak)
 ,(R=[] -> true; println(stderr,"aspic_gen: ASP syntax error in the asp block: "++R.to_string()), abort)
 ,genprintln("var(X,_)=X.\nrange(_,_)=0.")
 ,H=get_heap_map(asp_atoms)
@@ -48,7 +48,8 @@ end
 ,genprintln("aspic_stoplearning(),")
 ,translate_rules(T,2)
 ,translate_completion(T)
-,genprintln("ASPIC_OPT#="++cond(Mini=[],"0",Mini)++cond(Dir==max,",aspic_solve_dir(max)","")++",")
+,ObjStr=cond(Weak==[],cond(Mini==[],"0",Mini),join(Weak,"+"))
+,genprintln("ASPIC_OPT#="++ObjStr++cond(Dir==max,",aspic_solve_dir(max)","")++",")
 ,genprintln("true.")
 ,Snippet=genbuf_get()
 .
@@ -391,12 +392,14 @@ end
 % main(_)=>true.
 
 %parse ASP from list of lines
-asparse(A,R,T,ObjMin,ObjDir)=>
+asparse(A,R,T,ObjMin,ObjDir,ObjWeak)=>
 B=[]
 ,C=[]
 ,Mini=[]
 ,Dr=[]
 ,HadMin:=0
+,HadWeak:=0
+,Weak=[]
 ,Dir:=min
 ,foreach(L in A)
 if(member('%',L)) then
@@ -415,6 +418,8 @@ C:=[(L2[1].to_atom,VI)|C]
 (L.len>=10 ->
 (HadMin==1 ->
 Dr:=[("duplicate #minimize/#maximize (only one optimization directive is supported): "++L)|Dr]
+;HadWeak==1 ->
+Dr:=[("mixing #minimize/#maximize with weak constraints is not supported (use either): "++L)|Dr]
 ;
 MiniText:=[X:X in L[10..L.len],X!=' ',ord(X)>32],
 (p(mini,MiniText,ROpt,TOpt) ->
@@ -431,6 +436,8 @@ HadMin:=1
 (L.len>=10 ->
 (HadMin==1 ->
 Dr:=[("duplicate #minimize/#maximize (only one optimization directive is supported): "++L)|Dr]
+;HadWeak==1 ->
+Dr:=[("mixing #minimize/#maximize with weak constraints is not supported (use either): "++L)|Dr]
 ;
 MiniText:=[X:X in L[10..L.len],X!=' ',ord(X)>32],
 (p(mini,MiniText,ROpt,TOpt) ->
@@ -449,6 +456,15 @@ HadMin:=1
 ; L[1..6]=="#hide." -> println(stderr,"% aspic: WARNING: #hide is not implemented; the line was ignored: "++L)
 ; Dr:=[("unsupported ASP directive: "++L)|Dr])
 ,L:=[]
+end
+,if(L.len>=2,L[1..2]==":~") then
+ (HadMin==1 ->
+  Dr:=[("mixing #minimize/#maximize with weak constraints is not supported (use either): "++L)|Dr]
+ ;
+  (MiniSet=weakline(L) ->
+    Weak:=[MiniSet|Weak],HadWeak:=1
+  ; Dr:=[("invalid weak constraint (expected :~ Body. [Weight@Level,Terms].): "++L)|Dr]))
+ ,L:=[]
 end
 ,foreach(K in 1..L.len-3)
 if(L[K..K+3]="not ") then % a hack
@@ -480,7 +496,61 @@ end
 end
 ,ObjMin=Mini
 ,ObjDir=Dir
+,ObjWeak=Weak
 .
+
+% weakline(L)=MiniSet: parse one ":~ Body. [Weight@Level,Terms]" line and
+% return the equivalent #minimize set text with the @Level part removed
+% (levels are parsed but ignored: all weak constraints merge into one
+% weighted penalty sum, minimized with aspic_solve(...,min)).  Fails if
+% the line does not parse.  Kept in sync with aspic_transpiler.pi.
+weakline(L)=MiniText=>
+Idx=[I:I in 1..L.length,L[I]==']']
+,(Idx==[] ->
+   BodyRaw=L[3..L.length],BracketRaw=""
+ ;  J=Idx.last,I=matchopen(L,J),BodyRaw=L[3..I-1],BracketRaw=L[I+1..J-1])
+,foreach(K in 1..BodyRaw.length-3)
+ if(BodyRaw[K..K+3]="not ") then
+     BodyRaw[K]:=' ',BodyRaw[K+1]:=' ',BodyRaw[K+2]:='~',BodyRaw[K+3]:=' '
+ elseif(BodyRaw[K..K+3]="not\t") then
+     BodyRaw[K]:=' ',BodyRaw[K+1]:=' ',BodyRaw[K+2]:='~',BodyRaw[K+3]:=' '
+ elseif(BodyRaw[K..K+3]="not(") then
+     BodyRaw[K]:='~',BodyRaw[K+1]:=' ',BodyRaw[K+2]:='(',BodyRaw[K+3]:=' '
+ end
+end
+,BodyList=[X:X in BodyRaw,X!=' ',X!='\t',ord(X)>32]
+,(BodyList.length>=1,BodyList[BodyList.length]=='.' ->
+   BodyText=BodyList[1..BodyList.length-1]
+ ;  BodyText=BodyList)
+,BracketText=[X:X in BracketRaw,X!=' ',X!='\t',ord(X)>32]
+,LAt=[A:A in 1..BracketText.length,BracketText[A]=='@']
+,(LAt==[] ->
+   BracketText2=BracketText
+ ;  A=LAt[1]
+   ,LCm=[C:C in A+1..BracketText.length,BracketText[C]==',']
+   ,(LCm==[] ->
+      catch(BracketText[A+1..BracketText.length].to_int=_,_,fail)
+     ,BracketText2=BracketText[1..A-1]
+    ;  C=LCm[1]
+      ,catch(BracketText[A+1..C-1].to_int=_,_,fail)
+      ,BracketText2=BracketText[1..A-1]++BracketText[C..BracketText.length]))
+,Bracket2=cond(BracketText2=="","1",BracketText2)
+,Set="{"++Bracket2++":"++BodyText++"}."
+,p(mini,Set,ROpt,TOpt)
+,TOpt:=TOpt.allvariants
+,TOpt:=TOpt[1]
+,MiniText="sum"++replacesetmini(TOpt)
+.
+
+% matchopen(L,J)=I: position of the '[' matching the ']' at position J
+% (depth-aware over nested brackets), fails if there is none
+matchopen(L,J)=I=>
+matchopen2(L,J-1,0,I)
+.
+matchopen2(L,K,D,I),K>=1,L[K]=='[',D==0=>I=K.
+matchopen2(L,K,D,I),K>=1,L[K]=='['=>matchopen2(L,K-1,D-1,I).
+matchopen2(L,K,D,I),K>=1,L[K]==']'=>matchopen2(L,K-1,D+1,I).
+matchopen2(L,K,D,I),K>=1=>matchopen2(L,K-1,D,I).
 
 aspic_sum(A,B)=R,number(A),number(B)=>R=A+B.
 aspic_sum(A,B)=R=>R=$aspic_sum(A,B).

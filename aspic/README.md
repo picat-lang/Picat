@@ -178,16 +178,28 @@ per program, the { ... } set on one line, over numeric terms, e.g.
 `#maximize { V,X : in(X), val(X,V) }`. In an embedded asp block the
 maximized objective arrives in the block's ASPIC_OPT_N variable and
 aspic_solve_sub maximizes it.
+Weak constraints (`:~ Body. [Weight@Level,Terms].`) ARE supported as a soft
+weighted optimum (v0.3.9): every weak constraint contributes its penalty
+terms to ONE combined objective, minimized with aspic_solve(...,min); the
+level after `@` is parsed (and must be an integer) but is IGNORED — all
+levels merge into the single weighted sum, so multi-level lexicographic
+optimization is not implemented. The bracket is optional (`:~ Body.` means
+weight 1, level 1); the weight may be a constant or a variable grounded by
+the body; several weak constraints per program are allowed and their
+penalties add up. Mixing weak constraints with #minimize/#maximize in one
+program (or one embedded block) is rejected with a diagnostic. In an
+embedded asp block the combined penalty arrives in the block's ASPIC_OPT_N
+variable.
 
 Everything else in the following list is NOT supported. None of it is
 accepted silently: unknown or malformed input is reported as an error
 (notparsed, "ASP syntax error!"), so a program either transpiles or stops
 with a diagnostic that names the offending line.
 
-- weak constraints (`:~ ... [w@l]`); priority levels/weights (`@l`) in
-  #minimize/#maximize
+- priority levels/weights (`@l`) in #minimize/#maximize; multi-level
+  lexicographic weak-constraint optimization (levels are parsed but merged)
 - more than one #minimize/#maximize directive in one program (duplicates
-  are reported)
+  are reported); mixing #minimize/#maximize with weak constraints
 - a #minimize/#maximize whose { ... } set spans several lines (must be on
   one line)
 - disjunctive heads (`a ; b :- c.`)
@@ -210,6 +222,11 @@ above) can be used to filter the printed solutions instead.
 - a #const value that is not an integer, an unparseable or multi-line
   #minimize/#maximize, or a duplicate #minimize/#maximize each stop with a
   named diagnostic
+- a weak constraint that does not parse (missing bracket, non-integer
+  level) stops with "invalid weak constraint (expected :~ Body.
+  [Weight@Level,Terms].): <line>"; mixing #minimize/#maximize with weak
+  constraints stops with "mixing #minimize/#maximize with weak constraints
+  is not supported (use either): <line>"
 - constructs that the parser does not know are reported through the
   standard notparsed mechanism; the transpiler never crashes on them
 - default negation is recognized as `not ` (space or tab) and as `not(`
@@ -239,6 +256,27 @@ Exit status 0 iff all tests pass.
 - so far only tested on Linux 
 
 # Version history
+
+v0.3.9:
+
+- Weak constraints (`:~ Body. [Weight@Level,Terms].`) are supported as a
+  soft weighted optimum: every weak constraint contributes its penalty
+  terms (weight x grounding) to ONE combined objective ASPIC_OPT, minimized
+  with aspic_solve(...,min) - the same encoding as #minimize, but with any
+  number of directives allowed and their penalties summed. The level after
+  `@` must be an integer but is ignored (all levels merge into the single
+  weighted sum; lexicographic per-level optimization is not implemented).
+  The bracket is optional (weight 1, level 1 by default); the weight may be
+  a constant or a variable grounded by the body; default negation in the
+  weak body works (the same not-hack as in rule bodies). Mixing weak
+  constraints with #minimize/#maximize in one program or block is rejected
+  with a diagnostic. Implemented in both parsers (aspic_transpiler.pi and
+  the aspic_gen.pi copy); the runtime is unchanged (the existing min path
+  is reused). New tests: ok_weak.lp, ok_weak_multi.lp, ok_weak_not.lp,
+  err_weak_mixed.lp, err_weak_mixed2.lp, err_weak_invalid.lp, run_weak.lp
+  (soft weighted optimum 2 on the forced-pick weighted example),
+  run_emb_weak.pi (embedded block, optimum 1). The former error case
+  err_weak_constraint.lp became the ok_weak.lp case. 77 checks pass.
 
 v0.3.8:
 

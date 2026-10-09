@@ -100,6 +100,25 @@ for f in test/cases/ok_*.lp; do
             bad "$name: #show was not reported as an ignored line (warning comment expected)"
             continue
         fi ;;
+    ok_weak.lp)
+        if ! grep -q 'ASPIC_OPT#=sum(' "$TMP/err.txt"; then
+            bad "$name: the weak constraint did not produce the penalty objective"
+            continue
+        fi
+        if ! grep -q 'aspic_solve(ASPIC_SEARCH,ASPIC_OPT,min)' "$TMP/err.txt"; then
+            bad "$name: the weak constraint did not minimize (aspic_solve(...,min) expected)"
+            continue
+        fi ;;
+    ok_weak_multi.lp)
+        if ! grep -q 'ASPIC_OPT#=sum(.*)+sum(' "$TMP/err.txt"; then
+            bad "$name: the two weak constraints were not merged into one summed objective"
+            continue
+        fi ;;
+    ok_weak_not.lp)
+        if ! grep -q 'aspic_not' "$TMP/err.txt"; then
+            bad "$name: negation in the weak constraint body did not become aspic_not"
+            continue
+        fi ;;
     esac
     ok
 done
@@ -133,6 +152,16 @@ for f in test/cases/err_*.lp; do
     err_duplicate_minimize.lp|err_dup_min_max.lp)
         if ! grep -q 'duplicate #minimize' "$TMP/out.txt"; then
             bad "$name: expected 'duplicate #minimize' in the diagnostic"
+            continue
+        fi ;;
+    err_weak_mixed.lp|err_weak_mixed2.lp)
+        if ! grep -q 'mixing #minimize/#maximize with weak constraints' "$TMP/out.txt"; then
+            bad "$name: expected the mixing diagnostic in the output"
+            continue
+        fi ;;
+    err_weak_invalid.lp)
+        if ! grep -q 'invalid weak constraint' "$TMP/out.txt"; then
+            bad "$name: expected 'invalid weak constraint' in the diagnostic"
             continue
         fi ;;
     esac
@@ -176,6 +205,13 @@ for f in test/cases/run_*.lp; do
         else
             ok
         fi ;;
+    run_weak.lp)
+        sol=$(grep -oE 'optimization\([0-9-]+\)' "$TMP/run_out.txt" | head -1)
+        if [ "$sol" != "optimization(2)" ]; then
+            bad "$name: expected the soft weighted optimum optimization(2), got ${sol:-nothing}"
+        else
+            ok
+        fi ;;
     esac
 done
 
@@ -197,6 +233,12 @@ for f in test/cases/run_*.pi; do
             ok
         else
             bad "$name: expected the maximized objective 10 on stdout, got: $(tail -1 "$TMP/embcase/run_out.txt")"
+        fi ;;
+    run_emb_weak.pi)
+        if grep -q '^1$' "$TMP/embcase/run_out.txt"; then
+            ok
+        else
+            bad "$name: expected the soft weighted optimum 1 on stdout, got: $(tail -1 "$TMP/embcase/run_out.txt")"
         fi ;;
     *)
         ok ;;
