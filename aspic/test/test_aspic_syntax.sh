@@ -149,16 +149,6 @@ for f in test/cases/err_*.lp; do
             bad "$name: expected 'invalid #minimize' in the diagnostic"
             continue
         fi ;;
-    err_duplicate_minimize.lp|err_dup_min_max.lp)
-        if ! grep -q 'duplicate #minimize' "$TMP/out.txt"; then
-            bad "$name: expected 'duplicate #minimize' in the diagnostic"
-            continue
-        fi ;;
-    err_weak_mixed.lp|err_weak_mixed2.lp)
-        if ! grep -q 'mixing #minimize/#maximize with weak constraints' "$TMP/out.txt"; then
-            bad "$name: expected the mixing diagnostic in the output"
-            continue
-        fi ;;
     err_weak_invalid.lp)
         if ! grep -q 'invalid weak constraint' "$TMP/out.txt"; then
             bad "$name: expected 'invalid weak constraint' in the diagnostic"
@@ -277,6 +267,22 @@ for f in test/cases/run_*.lp; do
             bad "$name: no solution printed"
         elif echo "$sol" | grep -q 'q'; then
             bad "$name: q should not hold (no p is false, the negated sum is 0), got $sol"
+        else
+            ok
+        fi ;;
+    run_mixed_minmax.lp)
+        sol=$(grep -oE 'optimization\([0-9-]+\)' "$TMP/run_out.txt" | head -1)
+        if [ "$sol" != "optimization(-13)" ]; then
+            bad "$name: expected the unified objective optimization(-13), got ${sol:-nothing}"
+        elif grep 'solution' "$TMP/run_out.txt" | head -1 | grep -q 'q'; then
+            bad "$name: q should be false (it costs 1), got a solution with q"
+        else
+            ok
+        fi ;;
+    run_weak_max_mix.lp)
+        sol=$(grep -oE 'optimization\([0-9-]+\)' "$TMP/run_out.txt" | head -1)
+        if [ "$sol" != "optimization(-13)" ]; then
+            bad "$name: expected the unified objective optimization(-13), got ${sol:-nothing}"
         else
             ok
         fi ;;

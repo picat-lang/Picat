@@ -198,11 +198,17 @@ comma-group becomes part of the condition). The negated form works too
 conditional elements in head disjunctions (`p(X) : d(X).` as a head) and
 head aggregates with the extra literal between tuple and condition
 (`#count { X: p(X,Y): X=1..3 } = 1`).
-#minimize and #maximize ARE supported (v0.3.7): one optimization directive
-per program, the { ... } set on one line, over numeric terms, e.g.
-`#maximize { V,X : in(X), val(X,V) }`. In an embedded asp block the
-maximized objective arrives in the block's ASPIC_OPT_N variable and
-aspic_solve_sub maximizes it.
+#minimize and #maximize ARE supported (v0.3.7); since v0.3.13 several
+directives are allowed and they may be freely MIXED with weak constraints:
+all of them unify into ONE signed objective, minimized with
+aspic_solve(...,min) — #minimize elements and weak constraints contribute
++w, #maximize elements contribute -w (clingo: a #minimize element IS a
+weak constraint :~ body. [w@l,t], a #maximize element IS
+:~ body. [-w@l,t] — the weight sign distinguishes them). A pure-#maximize
+program keeps the positive maximized objective in ASPIC_OPT (backward
+compatible with the single-directive behavior); a mixed program has the
+signed combined objective. In an embedded asp block the unified objective
+arrives in the block's ASPIC_OPT_N variable.
 Weak constraints (`:~ Body. [Weight@Level,Terms].`) ARE supported as a soft
 weighted optimum (v0.3.9): every weak constraint contributes its penalty
 terms to ONE combined objective, minimized with aspic_solve(...,min); the
@@ -225,8 +231,6 @@ with a diagnostic that names the offending line.
   lexicographic weak-constraint optimization (levels are parsed but merged)
 - conditional elements in head disjunctions (`p(X) : d(X).` as a head) and
   head aggregates with the extra literal (`#count { X: p(X,Y): X=1..3 } = 1`)
-- more than one #minimize/#maximize directive in one program (duplicates
-  are reported); mixing #minimize/#maximize with weak constraints
 - a #minimize/#maximize whose { ... } set spans several lines (must be on
   one line)
 - disjunctive heads (`a ; b :- c.`)
@@ -245,14 +249,11 @@ above) can be used to filter the printed solutions instead.
 
 - a `#` directive other than #const, #minimize, #maximize, #show, #hide
   stops the transpilation with "unsupported ASP directive: <line>"
-- a #const value that is not an integer, an unparseable or multi-line
-  #minimize/#maximize, or a duplicate #minimize/#maximize each stop with a
-  named diagnostic
+- a #const value that is not an integer, or an unparseable or multi-line
+  #minimize/#maximize each stop with a named diagnostic
 - a weak constraint that does not parse (missing bracket, non-integer
   level) stops with "invalid weak constraint (expected :~ Body.
-  [Weight@Level,Terms].): <line>"; mixing #minimize/#maximize with weak
-  constraints stops with "mixing #minimize/#maximize with weak constraints
-  is not supported (use either): <line>"
+  [Weight@Level,Terms].): <line>"
 - constructs that the parser does not know are reported through the
   standard notparsed mechanism; the transpiler never crashes on them
 - default negation is recognized as `not ` (space or tab) and as `not(`
@@ -286,6 +287,34 @@ random).
 - so far only tested on Linux 
 
 # Version history
+
+v0.3.13:
+
+- Weak constraints and #minimize/#maximize directives unify into ONE signed
+  objective: #minimize elements and weak constraints contribute +w,
+  #maximize elements contribute -w (clingo: a #minimize element IS a weak
+  constraint :~ body. [w@l,t], a #maximize element IS :~ body. [-w@l,t] -
+  the weight sign distinguishes them). The two restrictions are lifted:
+  several #minimize/#maximize directives per program are allowed, and they
+  may be freely mixed with weak constraints - all their penalties sum into
+  one ASPIC_OPT objective, minimized (aspic_solve(...,min)). Backward
+  compatible: an all-positive objective (only #minimize and weak) keeps
+  Dir=min with the plain joined objective; an all-negative objective (only
+  #maximize directives) keeps the positive maximized objective in ASPIC_OPT
+  (aspic_solve(...,max), aspic_solve_dir(max) for embedded blocks) - the
+  existing fixtures are unchanged. A mixed-sign objective is the signed
+  join with a positive term first (the picat tokenizer rejects the
+  generated sequence #=- with or without a following space, so the minus
+  never follows the = directly). Implemented in both parsers
+  (aspic_transpiler.pi and the aspic_gen.pi copy): one Terms accumulator of
+  (Sign,SumString) pairs replaces the separate Mini string and Weak list;
+  the duplicate and mixing diagnostics are removed. New tests:
+  run_mixed_minmax.lp (#maximize + #minimize, the unified objective
+  optimization(-13): q costs 1 so it is left out, the picks are maximized),
+  run_weak_max_mix.lp (:~ + #maximize, optimization(-13)), 
+  ok_multiple_minimize.lp (two #minimize directives, parse); the former
+  err_weak_mixed.lp, err_weak_mixed2.lp, err_duplicate_minimize.lp,
+  err_dup_min_max.lp became valid programs. 85 checks pass.
 
 v0.3.12:
 - Negated aggregate elements are supported: `#sum { not p(X) : dom(X) }`
@@ -410,8 +439,10 @@ v0.3.6:
   #maximize was silently dropped and the program solved WITHOUT the
   objective). #show/#hide are tolerated, ignored with a warning comment;
   the show script remains the workaround.
-- Only one #minimize is allowed; duplicates are reported. #const values
-  must be integers; violations are reported with a clear error.
+- Only one #minimize was allowed in this version; duplicates were reported.
+  Several directives (and mixing with weak constraints) are allowed since
+  v0.3.13. #const values must be integers; violations are reported with a
+  clear error.
 - Default negation "not(" (parenthesized body) and "not" followed by a tab
   are now recognized; previously "not(q)" was silently read as the positive
   atom not(q) with wrong semantics. Parenthesized body expressions
