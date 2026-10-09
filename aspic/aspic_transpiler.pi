@@ -216,7 +216,17 @@ translate_rules(T,Phase)=>
 NR:=0
 ,foreach(L0 in T,L0=[L,Orig],L2 in allvariants(L))
 NR:=NR+1
-,if(Phase==1,not(functor(L2,$aspic_not,_));Phase==2,functor(L2,$aspic_not,_))
+% Phase 1: facts, definite rules and equivalences (atom-creating, non-choice)
+% Phase 11: choice rules (head cardinality) - deferred AFTER phase 1 so
+% their comprehensions enumerate over the universe accumulated by the
+% atom-creating rules (a choice rule whose line comes first in the source
+% would otherwise iterate over an empty universe and create no atoms;
+% rule order does not matter semantically in ASP, so the reordering is
+% safe)
+% Phase 2: integrity constraints
+,if(Phase==1,not(functor(L2,$aspic_not,_)),not(functor(L2,$aspic_card,_));
+    Phase==11,functor(L2,$aspic_card,_);
+    Phase==2,functor(L2,$aspic_not,_))
 d(orig=Orig),
 println(stderr,"% {"++NR.to_string()++"}\t"++Orig),
 %println(stderr,"d(\""++Orig++"\"),"),
@@ -391,7 +401,8 @@ end
 ,if(Extra==subsat;Extra==subcp) FN:="aspic_"++ID++"(ASPIC_OPT)" end
 ,println(stderr,FN++"=>ASPIC_SEARCH:=sat,")
 ,println(stderr,"aspic_startlearning(),")
-,translate_rules(T,1) %anything except constraints
+,translate_rules(T,1) %facts, definite rules, equivalences
+,translate_rules(T,11) %choice rules, after the atom-creating rules
 ,println(stderr,"aspic_stoplearning(),")
 ,translate_rules(T,2) %only constraints 
 ,translate_completion(T)

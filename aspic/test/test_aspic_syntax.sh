@@ -195,6 +195,13 @@ for f in test/cases/run_*.lp; do
         else
             ok
         fi ;;
+    run_firstpos.lp)
+        sol=$(grep -oE 'maximization\([0-9-]+\)' "$TMP/run_out.txt" | head -1)
+        if [ "$sol" != "maximization(13)" ]; then
+            bad "$name: expected maximization(13) with the choice rule in the first position, got ${sol:-nothing}"
+        else
+            ok
+        fi ;;
     run_weak.lp)
         sol=$(grep -oE 'optimization\([0-9-]+\)' "$TMP/run_out.txt" | head -1)
         if [ "$sol" != "optimization(2)" ]; then

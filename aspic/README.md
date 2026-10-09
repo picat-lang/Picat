@@ -138,40 +138,36 @@ color(netherlands,green)
 ```
 
 
-# Rule order: place atom-creating rules before choice rules
+# Rule order: no longer relevant (v0.3.14)
 
 Rules are translated in program order, and every rule line's variables are
 enumerated over the constants of the atoms translated SO FAR (the
-"universe"). A choice rule whose line comes first therefore iterates over an
-EMPTY universe: no atoms of its head predicate are created, and every later
-reference to them - in other rules, in an optimization directive, in the
-printed solution - sees them as simply false. The choice rule silently
-becomes vacuous, with no error and no warning.
+"universe"). A choice rule whose line comes first in the source used to
+iterate over an EMPTY universe: no atoms of its head predicate were created
+and every later reference to them saw them as simply false - the choice
+rule silently became vacuous, with no error and no warning. Since v0.3.14
+the choice rules are emitted AFTER the atom-creating rules (facts, definite
+rules, equivalences) in the generated code: rule order does not matter
+semantically in ASP, so the reordering is safe, and a choice rule in the
+first position now creates its atoms (the regression case
+test/cases/run_firstpos.lp follows this order).
 
-Example - the choice rule below creates nothing, and the maximum is
-reported as 0:
+Example - the choice rule below used to create nothing and report the
+maximum 0; since v0.3.14 it reports the maximum 13 with pick(1), pick(2)
+and pick(3) chosen:
 
     {pick(X) : dom(X)}.
     dom(1). dom(2). dom(3).
     val(1,1). val(2,2). val(3,10).
     #maximize { V,X : pick(X), val(X,V) }.
 
-Moving the facts before the choice rule fixes it - the same program then
-reports the maximum 13 with pick(1), pick(2) and pick(3) chosen:
-
-    dom(1). dom(2). dom(3).
-    val(1,1). val(2,2). val(3,10).
-    {pick(X) : dom(X)}.
-
-Recommendation: always place facts (or any rules that introduce new
-constants) BEFORE choice rules. The regression cases test/cases/ok_maximize.lp
-and test/cases/run_maximize.lp follow this order; this behavior is a known
-limitation of the translation, not of #maximize. Re-verified with the
-completion alive (v0.3.11): the example still reports 0 - the choice atoms
-are never created during translation, so the completion cannot fire for
-them; a duplicate choice rule later in the program does create them
-(tested: the same program with a second {pick(X) : dom(X)} line reports
-the maximum 13).
+Recommendation (no longer required, kept as good practice): place facts
+before choice rules for readability. The regression cases
+test/cases/ok_maximize.lp and test/cases/run_maximize.lp follow this order.
+NOTE: the reordering covers dependencies of a choice rule on atom-creating
+rules; a choice rule whose CONDITION mentions another choice rule's head is
+still not covered (the atoms of the other choice rule do not exist yet when
+the first choice rule's comprehension is enumerated).
 
 
 # Not implemented yet
@@ -302,6 +298,24 @@ correctly rejected with loud errors), 4 timeouts (the planning examples).
 - so far only tested on Linux 
 
 # Version history
+
+v0.3.14:
+
+- The first-position choice rule limitation is solved: the choice rules
+  (head cardinality rules) are now emitted AFTER the atom-creating rules
+  (facts, definite rules, equivalences) in the generated code, so their
+  comprehensions enumerate over the universe accumulated by those rules
+  instead of the empty universe they saw when their line came first in the
+  source. Rule order does not matter semantically in ASP, so the
+  reordering is safe. translate_rules gained the phase filter (phase 1:
+  atom-creating rules, phase 11: choice rules, phase 2: constraints) and
+  main2/aspic_gen emit the three passes with learning still on for phases
+  1 and 11. Implemented in both parsers (aspic_transpiler.pi and the
+  aspic_gen.pi copy). The README's rule-order section is updated (the
+  order is no longer relevant; a choice rule whose condition mentions
+  another choice rule's head is still not covered). New test:
+  run_firstpos.lp (the choice rule first, the maximum 13 verified). 85
+  checks pass.
 
 v0.3.13:
 

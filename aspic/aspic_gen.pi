@@ -44,7 +44,8 @@ end
 % interpreter (e.g. the web build re-running programs in one module).
 ,genprintln("aspic_"++ID++"(ASPIC_OPT)=>aspic_seed_bump(),ASPIC_SEARCH:="++Constr.to_string()++",")
 ,genprintln("aspic_startlearning(),")
-,translate_rules(T,1)
+,translate_rules(T,1) %facts, definite rules, equivalences
+,translate_rules(T,11) %choice rules, after the atom-creating rules
 ,genprintln("aspic_stoplearning(),")
 ,translate_rules(T,2)
 ,translate_completion(T)
@@ -248,7 +249,17 @@ translate_rules(T,Phase)=>
 NR:=0
 ,foreach(L0 in T,L0=[L,Orig],L2 in allvariants(L))
 NR:=NR+1
-,if(Phase==1,not(functor(L2,$aspic_not,_));Phase==2,functor(L2,$aspic_not,_))
+% Phase 1: facts, definite rules and equivalences (atom-creating, non-choice)
+% Phase 11: choice rules (head cardinality) - deferred AFTER phase 1 so
+% their comprehensions enumerate over the universe accumulated by the
+% atom-creating rules (a choice rule whose line comes first in the source
+% would otherwise iterate over an empty universe and create no atoms;
+% rule order does not matter semantically in ASP, so the reordering is
+% safe).  Kept in sync with aspic_transpiler.pi.
+% Phase 2: integrity constraints
+,if(Phase==1,not(functor(L2,$aspic_not,_)),not(functor(L2,$aspic_card,_));
+    Phase==11,functor(L2,$aspic_card,_);
+    Phase==2,functor(L2,$aspic_not,_))
 d(orig=Orig),
 genprintln("% {"++NR.to_string()++"}\t"++Orig),
 %genprintln("d(\""++Orig++"\"),"),
