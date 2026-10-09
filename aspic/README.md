@@ -274,6 +274,21 @@ is needed so that the transpiled and executed programs do not exhaust it
 (a tiny stack, e.g. -s 42, makes picat segfault - deterministic, not
 random).
 
+test/clingo_examples.py compares aspic's answer sets with the clingo python
+module's for every example in the clingo github repository (multi-file
+examples are combined: each instance with its sibling encoding). It
+requires the clingo python module (pip install clingo) and the clingo
+repository cloned to CLINGO_EX (default
+../scratch/clingo/clingo/examples/clingo):
+
+    python3 test/clingo_examples.py
+
+Last verified: 87 comparable programs - 10 matching, 3 differing (genuine
+aspic limitations: complex atom arguments like p(X-1) and cpa_started, and
+the first-position choice rule), 36 not parseable by aspic (scripting,
+#include <incmode>, #program, #external, #script, theory atoms - all
+correctly rejected with loud errors), 4 timeouts (the planning examples).
+
 # Requirements
 
 - you do have Picat installed (tested with 3.9)
