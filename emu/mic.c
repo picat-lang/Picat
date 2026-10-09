@@ -58,10 +58,23 @@
     }
 
 #define COMPARE_FLOAT_FLOAT(f1, f2) {           \
-        if (f1 < f2) return -1L;                \
-        else if (f1 == f2) return 0;            \
-        else return 1;                          \
-    }
+    if (f1 < f2) return -1L;                    \
+    else if (f1 == f2) return 0;                \
+    else return 1;                              \
+  }
+
+#define COMPARE_INT_FLOAT(f1, f2) {             \
+    if (f1 < f2) return -1L;                    \
+    else if (f1 == f2) return 1;                \
+    else return 1;                              \
+  }
+
+#define COMPARE_FLOAT_INT(f1, f2) {             \
+    if (f1 < f2) return -1L;                    \
+    else if (f1 == f2) return -1L;              \
+    else return 1;                              \
+  }
+
 
 extern BPLONG no_gcs;
 extern BPLONG gc_time;
@@ -345,7 +358,7 @@ compare_atom_float:
     if (ISINT(val1)) {
         double f1 = (double)INTVAL(val1);
         double f2 = floatval(val2);
-        COMPARE_FLOAT_FLOAT(f1, f2);
+        COMPARE_INT_FLOAT(f1, f2);
     } else {
         return 1;
     }
@@ -393,7 +406,7 @@ int compare_bigint_float(BPLONG val1, BPLONG val2)
     double f1, f2;
     f1 = bp_bigint_to_double(val1);
     f2 = floatval(val2);
-    COMPARE_FLOAT_FLOAT(f1, f2);
+    COMPARE_INT_FLOAT(f1, f2);
 }
 
 int compare_float_unknown(BPLONG val1, BPLONG val2)
@@ -409,10 +422,10 @@ int compare_float_unknown(BPLONG val1, BPLONG val2)
         return 1;
     } else if (ISINT(val2)) {
         f2 = (double)INTVAL(val2);
-        COMPARE_FLOAT_FLOAT(f1, f2);
+        COMPARE_FLOAT_INT(f1, f2);
     } else if (IS_BIGINT(val2)) {
         f2 = bp_bigint_to_double(val2);
-        COMPARE_FLOAT_FLOAT(f1, f2);
+        COMPARE_FLOAT_INT(f1, f2);
     } else
         return -1L;
 }
@@ -1085,19 +1098,19 @@ int b_HASHVAL1_cf(BPLONG op1, BPLONG op2)  /* op1 a term, op2 the hash value of 
     return BP_TRUE;
 }
 
+/*
+  picat_get(Map,Key,Val), Map = '$hshtb'(_,_) =>
+  (b_HASHTABLE_GET_ccf(Map,Key, Val) -> true; handle_exception(existence_error(key,Key), get)).
+  picat_get(Map,Key,Val), Map = '$ghshtb'(Num,_) =>
+  (b_PICAT_GLOBAL_MAP_GET_ccf(Num,Key, Val1) -> Val = Val1; handle_exception(existence_error(key,Key), get)).
+  picat_get(Map,Key,Val), Map = '$thshtb'(Num,_) =>
+  (b_PICAT_TABLE_MAP_GET_ccf(Num,Key, Val1) -> Val = Val1; handle_exception(existence_error(key,Key), get)).
+*/
 int b_HASHTABLE_GET_ccf(BPLONG table, BPLONG key, BPLONG value)
 {
-    SYM_REC_PTR sym_ptr;
-    BPLONG res, buckets;
     BPLONG_PTR ptr, top;
-    BPLONG index, size;
 
-    /*  write_term(key);printf("   "); write_term(table);printf("\n"); */
-    DEREF(key);
-    if (ISREF(key)) {
-        bp_exception = nonvariable_expected;
-        return BP_ERROR;
-    }
+//    write_term(key);printf("\n"); 
 
     DEREF(table);
     if (!ISSTRUCT(table)) {
@@ -1105,25 +1118,40 @@ int b_HASHTABLE_GET_ccf(BPLONG table, BPLONG key, BPLONG value)
         return BP_ERROR;
     }
     ptr = (BPLONG_PTR)UNTAGGED_ADDR(table);
-    if ((SYM_REC_PTR)FOLLOW(ptr) != hashtable_psc) {
+    if ((SYM_REC_PTR)FOLLOW(ptr) == hashtable_psc) {
+        BPLONG res, buckets, index, size;
+        SYM_REC_PTR sym_ptr;
+
+        DEREF(key);
+        if (ISREF(key)) {
+            bp_exception = nonvariable_expected;
+            return BP_ERROR;
+        }
+        buckets = FOLLOW(ptr+2);  /* $hshtb(Count,Buckets) */
+        DEREF(buckets);
+        ptr = (BPLONG_PTR)UNTAGGED_ADDR(buckets);
+        sym_ptr = (SYM_REC_PTR)FOLLOW(ptr);
+        size = GET_ARITY(sym_ptr);
+        index = bp_hashval(key) % size + 1;
+        res = hashtable_lookup_chain(FOLLOW(ptr+index), key);
+        if (res == 0) return 0;
+        DEREF(res);  /* avoid creating cyclic terms by setarg? */
+        if (IS_SUSP_VAR(res)) {  /* added 8/2018: this bug caused the failure of an intance in XCSP'18 */
+            res = UNTAGGED_TOPON_ADDR(res);
+        }
+        //  printf("%x hashtable_get ", res); write_term(res); printf("\n");
+        ASSIGN_sv_heap_term(value, res);
+        return BP_TRUE;
+    } else if ((SYM_REC_PTR)FOLLOW(ptr) == ghashtable_psc) {
+        BPLONG gmap_num = FOLLOW(ptr+1);  /* '$ghshtb'(Num,_) */
+        return b_PICAT_GLOBAL_MAP_GET_ccf(gmap_num, key, value);
+    } else if ((SYM_REC_PTR)FOLLOW(ptr) == thashtable_psc) {
+        BPLONG tmap_num = FOLLOW(ptr+1);  /* '$thshtb'(Num,_) */
+        return b_PICAT_TABLE_MAP_GET_ccf(tmap_num, key, value);
+    } else {
         bp_exception = illegal_arguments;
         return BP_ERROR;
     }
-    buckets = FOLLOW(ptr+2);  /* $hshtb(Count,Buckets) */
-    DEREF(buckets);
-    ptr = (BPLONG_PTR)UNTAGGED_ADDR(buckets);
-    sym_ptr = (SYM_REC_PTR)FOLLOW(ptr);
-    size = GET_ARITY(sym_ptr);
-    index = bp_hashval(key) % size + 1;
-    res = hashtable_lookup_chain(FOLLOW(ptr+index), key);
-    if (res == 0) return 0;
-    DEREF(res);  /* avoid creating cyclic terms by setarg? */
-    if (IS_SUSP_VAR(res)) {  /* added 8/2018: this bug caused the failure of an intance in XCSP'18 */
-        res = UNTAGGED_TOPON_ADDR(res);
-    }
-    //  printf("%x hashtable_get ", res); write_term(res); printf("\n");
-    ASSIGN_sv_heap_term(value, res);
-    return BP_TRUE;
 }
 
 int hashtable_contains_key(BPLONG table, BPLONG key)

@@ -59,7 +59,10 @@ BPLONG picat_table_map_ids[NUM_PICAT_TABLE_MAPS];
 GTERMS_HTABLE ta_gterms_htable;
 GTERMS_HTABLE_PTR ta_gterms_htable_ptr;
 
-/* this is called only once, in "init.c" */
+/**
+ * Initialize the process-wide table arena and subgoal/ground-term indexes.
+ * this is called only once, in "init.c" 
+ */
 void init_table_area() {
     int i, success;
     ta_gterms_htable_ptr = &ta_gterms_htable;
@@ -84,6 +87,9 @@ void init_table_area() {
     table_free_cells_ptr = NULL;
 }
 
+/**
+ * Return table-storage capacity in BPLONG cells, not bytes.
+ */
 BPLONG table_area_size() {
     BPLONG_PTR block_low_addr, subgoal_entry, answerTable;
     BPLONG size, i;
@@ -112,6 +118,9 @@ BPLONG table_area_size() {
     return size;
 }
 
+/**
+ * Return unused cells remaining in the current arena block.
+ */
 BPLONG table_area_notin_use() {
     if (ta_record_ptr->low_addr != NULL) {
         return (ta_record_ptr->up_addr - ta_record_ptr->top + 1);
@@ -123,6 +132,9 @@ int table_area_num_expansions() {
     return ta_record_ptr->num_expansions;
 }
 
+/**
+ * Reset table storage for a new computation.
+ */
 int c_INITIALIZE_TABLE() {
     BPLONG_PTR low_addr, prev_low_addr;
     void init_picat_table_maps();
@@ -150,10 +162,14 @@ int c_INITIALIZE_TABLE() {
     table_free_cells_ptr = NULL;
 
     init_picat_table_maps();
+    subgoalTableEntriesCount = 0;
 #endif
     return BP_TRUE;
 }
 
+/**
+ * Collect bucket-chain statistics for the three table indexes.
+ */
 void subgoal_table_statistics(int *nSubgoals, int *maxGTCollisions, float *aveGTCollisions,
                               int *nAnswers, int *maxATCollisions, float *aveATCollisions,
                               int *nTerms, int *maxTTCollisions, float *aveTTCollisions) {
@@ -208,6 +224,9 @@ void subgoal_table_statistics(int *nSubgoals, int *maxGTCollisions, float *aveGT
     gterms_table_statistics(ta_gterms_htable_ptr, nTerms, maxTTCollisions, aveTTCollisions);
 }
 
+/**
+ * Clear subgoal buckets and release separately allocated answer tables.
+ */
 void init_subgoal_table() {
     BPLONG i;
     BPLONG_PTR subgoal_entry, answerTable, bucket_ptr;
@@ -229,9 +248,10 @@ void init_subgoal_table() {
     }
 }
 
-/*
-  both t1 and t2 are numbered terms in the table area.
-*/
+/**
+ * Test exact structural equality of two numbered table terms.
+ *  both t1 and t2 are numbered terms in the table area.
+ */
 int identicalTabledTerms(BPLONG t1, BPLONG t2) {
     BPLONG i, arity, op1, op2;
 
@@ -269,6 +289,9 @@ beginning:
     return 0;
 }
 
+/**
+ * Match a runtime term t1 and an already compatible tabled term t2.
+ */
 void match_term_tabledTerm(BPLONG t1, BPLONG t2) {
     BPLONG_PTR top;
     BPLONG i, arity;
@@ -308,7 +331,10 @@ lab_match_term_tabledTerm:
     }
 }
 
-/* make sure there is enough space on the heap befor calling this function */
+/**
+ * Convert a numbered table term into a usable runtime term.
+ * make sure there is enough space on the heap befor calling this function 
+ */
 BPLONG unnumberVarTabledTerm(BPLONG term) {
     BPLONG_PTR ptr, term_ptr;
     BPLONG varNo;
@@ -371,6 +397,9 @@ BPLONG unnumberVarTabledTerm(BPLONG term) {
 }
 
 /******************* SUBGOAL TABLE ********************/
+/**
+ * Grow and rehash the global subgoal table.
+ */
 void expandSubgoalTable() {
     BPLONG new_htable_size, old_htable_size, i, index;
     BPLONG_PTR new_htable, old_htable, next_subgoal_entry;
@@ -400,6 +429,9 @@ void expandSubgoalTable() {
     subgoalTable = new_htable;
 }
 
+/**
+ * Find or register a variant of a tabled call.
+ */
 BPLONG_PTR lookupSubgoalTable(BPLONG_PTR stack_arg_ptr, int arity, SYM_REC_PTR sym_ptr, int mode_bits, int nt_last_arg) {
     BPLONG_PTR entryPtrPtr0, entryPtr, thisEntryPtr;
     BPLONG_PTR subgoal_arg_ptr, this_subgoal_arg_ptr;
@@ -458,7 +490,7 @@ BPLONG_PTR lookupSubgoalTable(BPLONG_PTR stack_arg_ptr, int arity, SYM_REC_PTR s
             t2 = FOLLOW(subgoal_arg_ptr+i);
             if (t1 != t2 && !identicalTabledTerms(t1, t2)) goto lab_fail1;
         }
-        if (nt_last_arg == 0) {
+        if (nt_last_arg == 0 && arity > 0) {
             BPLONG t1, t2;
             t1 = FOLLOW(this_subgoal_arg_ptr+arity1);
             t2 = FOLLOW(subgoal_arg_ptr+arity1);
@@ -491,6 +523,9 @@ lookup_end:
     return thisEntryPtr;
 }
 
+/**
+ * Copy call arguments into table storage and compute their combined hash.
+ */
 int numberVarCopySubgoalArgsToTableArea(BPLONG_PTR stack_arg_ptr, BPLONG_PTR table_arg_ptr, int arity, BPLONG hcode0, BPLONG_PTR hcode_ptr) {
     BPLONG i;
     BPLONG term;
@@ -539,6 +574,9 @@ int numberVarCopySubgoalArgsToTableArea(BPLONG_PTR stack_arg_ptr, BPLONG_PTR tab
     return BP_TRUE;
 }
 
+/**
+ * Copy answer arguments into table storage and hash the tuple.
+ */
 int numberVarCopyAnswerArgsToTableArea(BPLONG_PTR stack_arg_ptr, BPLONG_PTR table_arg_ptr, int arity, BPLONG_PTR hcode_ptr) {
     BPLONG i;
     BPLONG term, term_cp;
@@ -549,6 +587,7 @@ int numberVarCopyAnswerArgsToTableArea(BPLONG_PTR stack_arg_ptr, BPLONG_PTR tabl
         return BP_TRUE;
     }
 
+    // printf("=> numberVarCopyAnswerArgsToTableArea\n");
     term = FOLLOW(stack_arg_ptr);
     if (TAG(term) == ATM) {
         hcode_sum = ((term & HASH_BITS) >> 2);
@@ -574,9 +613,13 @@ int numberVarCopyAnswerArgsToTableArea(BPLONG_PTR stack_arg_ptr, BPLONG_PTR tabl
         if (this_hcode != 0) hcode_sum = MurmurHash3_x86_32_uint32((UW32)this_hcode, (UW32)hcode_sum);
     }
     *hcode_ptr = (hcode_sum & HASH_BITS);
+    // printf("<= numberVarCopyAnswerArgsToTableArea\n");
     return BP_TRUE;
 }
 
+/**
+ * Return the hash of a stored subgoal.
+ */
 BPLONG hashval_of_tabled_subgoal(BPLONG_PTR subgoal_entry) {
     SYM_REC_PTR sym_ptr;
     BPLONG_PTR table_arg_ptr;
@@ -598,6 +641,9 @@ BPLONG hashval_of_tabled_subgoal(BPLONG_PTR subgoal_entry) {
     return (hcode_sum & HASH_BITS);
 }
 
+/**
+ * Return the tuple hash of an answer.
+ */
 BPLONG hashval_of_tabled_answer(BPLONG_PTR answer, int arity) {
     BPLONG_PTR table_arg_ptr;
     int i;
@@ -613,6 +659,9 @@ BPLONG hashval_of_tabled_answer(BPLONG_PTR answer, int arity) {
     return (hcode_sum & HASH_BITS);
 }
 
+/**
+ * Return the hash of a term.
+ */
 BPLONG hashval_of_numbered_term(BPLONG term) {
     BPLONG_PTR term_ptr;
 
@@ -640,6 +689,9 @@ int isGroundNumberedTerm(BPLONG term) {
 }
 
 /******************************************************************************/
+/**
+ * Clear an allocated ground-term hash table.
+ */
 void init_gterms_htable(GTERMS_HTABLE_PTR gterms_htable_ptr) {
     int i, size;
     BPLONG_PTR htable;
@@ -652,6 +704,9 @@ void init_gterms_htable(GTERMS_HTABLE_PTR gterms_htable_ptr) {
     gterms_htable_ptr->count = 0;
 }
 
+/**
+ * Compare two ground table terms structurally without binding.
+ */
 int identical_numbered_gterms(BPLONG op1, BPLONG op2) {
 lab_start:
     if (op1 == op2) return 1;
@@ -681,6 +736,9 @@ lab_start:
     return 0;
 }
 
+/**
+ * Measure entries and chain lengths in a ground-term hash table.
+ */
 void gterms_table_statistics(GTERMS_HTABLE_PTR gterms_htable_ptr, int *nTerms, int *maxTTCollisions, float *aveTTCollisions) {
     BPLONG_PTR htable;
     int i, size, cTerms, maxChainLen, totalChains;
@@ -726,6 +784,9 @@ BPLONG gterms_htable_num_of_occupied_slots(GTERMS_HTABLE_PTR gterms_htable_ptr) 
     */
 }
 
+/**
+ * Allocate and initialize a ground-term hash table.
+ */
 void allocate_gterms_htable(GTERMS_HTABLE_PTR gterms_htable_ptr, int size) {
     BPLONG_PTR htable;
 
@@ -738,11 +799,14 @@ void allocate_gterms_htable(GTERMS_HTABLE_PTR gterms_htable_ptr, int size) {
     init_gterms_htable(gterms_htable_ptr);
 }
 
-/* term is either a ground list or a ground structure,
-   let ptr points to the term. The location (ptr-1) is used for hash-chaining
-   and (ptr-2) is used to hold hash code. If the top-bit of a stored hash code 
-   is 1, then the term is ground.
-*/
+/**
+ * Intern a ground list or structure in the supplied hash table.
+ *
+ * term is either a ground list or a ground structure,
+ *  let ptr points to the term. The location (ptr-1) is used for hash-chaining
+ *  and (ptr-2) is used to hold hash code. If the top-bit of a stored hash code 
+ *  is 1, then the term is ground.
+ */
 BPLONG register_gterms_htable(GTERMS_HTABLE_PTR gterms_htable_ptr, BPLONG term, BPLONG hcode) {
     BPLONG term_in_table;
     BPLONG_PTR term_ptr, slot_addr;
@@ -771,6 +835,9 @@ BPLONG register_gterms_htable(GTERMS_HTABLE_PTR gterms_htable_ptr, BPLONG term, 
     return term;
 }
 
+/**
+ * Grow a ground-term hash table and rebuild its bucket chains.
+ */
 void expand_gterms_htable(GTERMS_HTABLE_PTR gterms_htable_ptr) {
     BPLONG new_htable_size, old_htable_size, i;
     BPLONG_PTR new_htable, old_htable;
@@ -808,12 +875,14 @@ void expand_gterms_htable(GTERMS_HTABLE_PTR gterms_htable_ptr) {
     gterms_htable_ptr->htable = new_htable;
 }
 
-/*
-  Copy term (numbered) to the table area and computes its hash code. The copy (let its address be ptr)
-  has two extra cells preceeding it if it is compound, one (ptr-2) storing the hash code and the 
-  other (ptr-1) being used to connect to the next term on the hash chain in gterms_htable. This function 
-  must be changed accordingly whenever bp_hashval (in "mic.c") is changed.
-*/
+/**
+ * Number variables and copy/intern a term in a numbered-term arena.
+ *
+ * Copy term (numbered) to the table area and computes its hash code. The copy (let its address be ptr)
+ * has two extra cells preceeding it if it is compound, one (ptr-2) storing the hash code and the 
+ * other (ptr-1) being used to connect to the next term on the hash chain in gterms_htable. This function 
+ * must be changed accordingly whenever bp_hashval (in "mic.c") is changed.
+ */
 BPLONG numberVarCopyToTableArea(NUMBERED_TERM_AREA_RECORD_PTR area_record_ptr, BPLONG term, BPLONG_PTR hcode_ptr, BPLONG_PTR ground_flag_ptr)
 {
     BPLONG_PTR term_ptr, dest_ptr;
@@ -916,10 +985,12 @@ l_number_var_copy_faa:
     }
 }
 
-/*
-  Iteratively copy a list (to avoid native stack overflow). In the first pass, pointers are reversed, and 
-  in the second pass, pointers are reversed back while hash code is computed and the term is copied.
-*/
+/**
+ * Copy a list iteratively while numbering and interning its terms.
+ *
+ * Iteratively copy a list (to avoid native stack overflow). In the first pass, pointers are reversed, and 
+ * in the second pass, pointers are reversed back while hash code is computed and the term is copied.
+ */
 BPLONG numberVarCopyListToTableArea(NUMBERED_TERM_AREA_RECORD_PTR area_record_ptr, BPLONG term, BPLONG_PTR hcode_ptr, BPLONG_PTR ground_flag_ptr) {
     BPLONG prev_term, car, cdr, car_cp, cdr_cp, term_cp, term_cp1, this_hcode, hcode_sum, tmp, this_ground_flag;
     BPLONG_PTR term_ptr, dest_ptr;
@@ -1028,6 +1099,9 @@ lab_reverse_back:
 
 
 /******************************************************************************/
+/**
+ * Propagate dependency and answer-change state to a tabled ancestor.
+ */
 void propagate_scc_root(BPLONG_PTR fp, BPLONG_PTR subgoal_entry, BPLONG_PTR scc_root, BPLONG_PTR scc_root_ar) {
     BPLONG_PTR subgoal_entry0, scc_root_ar0, scc_root0, list_ptr;
 
@@ -1059,7 +1133,9 @@ void propagate_scc_root(BPLONG_PTR fp, BPLONG_PTR subgoal_entry, BPLONG_PTR scc_
     }
 }
 
-/* initialize the subgoal and all of its dependents */
+/**
+ * Clear iteration state for a subgoal and its dependent SCC entries.
+ */
 void initialize_scc_elms(BPLONG_PTR subgoal_entry) {
     BPLONG_PTR ptr, entry;
 
@@ -1074,6 +1150,9 @@ void initialize_scc_elms(BPLONG_PTR subgoal_entry) {
     }
 }
 
+/**
+ * Mark a subgoal and its SCC dependents complete.
+ */
 void complete_scc_elms(BPLONG_PTR subgoal_entry) {
     BPLONG_PTR ptr, entry, tmp_ptr;
 
@@ -1092,6 +1171,9 @@ void complete_scc_elms(BPLONG_PTR subgoal_entry) {
 }
 
 /********************** ANSWER TABLE *********************/
+/**
+ * Allocate and number the first answer record for a subgoal.
+ */
 BPLONG_PTR addFirstTableAnswer(BPLONG_PTR stack_arg_ptr, int arity) {
     BPLONG_PTR answer;
     BPLONG hcode;
@@ -1112,6 +1194,9 @@ BPLONG_PTR addFirstTableAnswer(BPLONG_PTR stack_arg_ptr, int arity) {
     return answer;
 }
 
+/**
+ * Create a multi-answer answer table containing an existing first answer.
+ */
 BPLONG_PTR allocateAnswerTable(BPLONG_PTR first_answer, int arity) {
     BPLONG i, index;
     BPLONG_PTR answer_table, bucket_ptr;
@@ -1139,7 +1224,7 @@ BPLONG_PTR allocateAnswerTable(BPLONG_PTR first_answer, int arity) {
     }
 
     index = hashval_of_tabled_answer(first_answer, arity)%InitAnswerTableBucketSize;
-    BPLONG_PTR table_arg_ptr = ANSWER_ARG_ADDR(first_answer);
+//    BPLONG_PTR table_arg_ptr = ANSWER_ARG_ADDR(first_answer);
     FOLLOW(bucket_ptr+index) = (BPLONG)first_answer;
     /*
       {
@@ -1152,12 +1237,16 @@ BPLONG_PTR allocateAnswerTable(BPLONG_PTR first_answer, int arity) {
 }
 
 
+/**
+ * Insert a distinct answer into an existing nonempty answer table.
+ */
 int addTableAnswer(BPLONG_PTR stack_arg_ptr, int arity, BPLONG_PTR subgoal_entry) {
     BPLONG_PTR answer_table, this_answer, answer, last_answer, bucket_ptr, this_table_arg_ptr, table_arg_ptr, entryPtr;
     // BPLONG_PTR trail_top0;
     BPLONG_PTR old_table_top;
     BPLONG i, answer_record_size, bucket_size, hcode;
 
+    // printf("=> addTableAnswer\n");
     answer_table = (BPLONG_PTR)GT_ANSWER_TABLE(subgoal_entry);
     //  initial_diff0 = (BPULONG)trail_up_addr-(BPULONG)trail_top;
     PREPARE_NUMBER_TERM(0);
@@ -1214,13 +1303,18 @@ int addTableAnswer(BPLONG_PTR stack_arg_ptr, int arity, BPLONG_PTR subgoal_entry
     }
 
     SET_SUBGOAL_ANS_REVISED(subgoal_entry);
+    //    printf("<= addTableAnswer\n");
     return BP_TRUE;
 }
 
-/* same as addTableAnswer, but the answer table has been cleaned */
+/**
+ * Insert the first answer into a previously cleared full answer table.
+ * same as addTableAnswer, but the answer table has been cleaned 
+ */
+
 int addTableAnswer0(BPLONG_PTR stack_arg_ptr, int arity, BPLONG_PTR subgoal_entry) {
-    BPLONG_PTR answer_table, this_answer, answer, last_answer, bucket_ptr, this_table_arg_ptr, table_arg_ptr, entryPtr;
-    BPLONG i, answer_record_size, bucket_size, hcode;
+    BPLONG_PTR answer_table, this_answer, bucket_ptr, this_table_arg_ptr, entryPtr;
+    BPLONG answer_record_size, bucket_size, hcode;
 
     answer_table = (BPLONG_PTR)GT_ANSWER_TABLE(subgoal_entry);
     //  initial_diff0 = (BPULONG)trail_up_addr-(BPULONG)trail_top;
@@ -1253,6 +1347,9 @@ int addTableAnswer0(BPLONG_PTR stack_arg_ptr, int arity, BPLONG_PTR subgoal_entr
     return BP_TRUE;
 }
 
+/**
+ * Grow an answer table while preserving answer enumeration order.
+ */
 void expandAnswerTable(BPLONG_PTR answer_table, int arity) {
     BPLONG new_htable_size, old_htable_size, i, index;
     BPLONG_PTR new_htable, old_htable;
@@ -1284,6 +1381,9 @@ void expandAnswerTable(BPLONG_PTR answer_table, int arity) {
 }
 
 
+/**
+ * Shallow-copy argument cells between two answer records.
+ */
 void copyTabledAnswerArgs(BPLONG_PTR src_ans, BPLONG_PTR des_ans, int arity) {
     BPLONG_PTR src_arg_ptr, des_arg_ptr;
     int i;
@@ -1304,6 +1404,9 @@ int c_VARIANT() {
     return b_VARIANT_cc(op1, op2);
 }
 
+/**
+ * Test whether two runtime terms are variants.
+ */
 int b_VARIANT_cc(BPLONG op1, BPLONG op2) {
     int i;
     BPLONG_PTR trail_top0;
@@ -1329,9 +1432,10 @@ int b_VARIANT_cc(BPLONG op1, BPLONG op2) {
     return i != 0;
 }
 
-/*
-  t2 is a numbered term, which needs to be dereferenced
-*/
+/**
+ * Match a general runtime term t1 against a numbered target t2.
+ *  t2 is a numbered term, which needs to be dereferenced
+ */
 int term_subsume_numberedterm(BPLONG t1, BPLONG t2) {
     BPLONG_PTR top;
     BPLONG i, arity;
@@ -1367,6 +1471,9 @@ beginning:
                      });
 }
 
+/**
+ * Test whether the first term op1 subsumes the second op2.
+ */
 int term_subsume_term(BPLONG op1, BPLONG op2) {
     int i;
     BPLONG_PTR trail_top0;
@@ -1384,6 +1491,9 @@ int term_subsume_term(BPLONG op1, BPLONG op2) {
     return i != 0;
 }
 
+/**
+ * Clear active-frame references for incomplete tabled choice points.
+ */
 int c_table_reset_subgoal_ar() {
     BPLONG_PTR sp;
     BPLONG_PTR subgoal_entry;
@@ -1410,6 +1520,9 @@ int c_SUBGOAL_TABLE_SIZE() {
     return unify(gt_bucket_size, MAKEINT(subgoalTableBucketSize));
 }
 
+/**
+ * Find an existing variant call without registering or copying it.
+ */
 BPLONG_PTR lookupSubgoalTableNoCopy(BPLONG_PTR stack_arg_ptr, int arity, SYM_REC_PTR sym_ptr) {
     BPLONG_PTR entryPtrPtr0, entryPtr, thisEntryPtr;
     BPLONG_PTR subgoal_arg_ptr;
@@ -1465,6 +1578,9 @@ lookup_end:
     return thisEntryPtr;
 }
 
+/**
+ * Instantiate a call from the first answer of its variant table entry.
+ */
 int c_TABLE_GET_ONE_ANSWER() {
     BPLONG Call, t1, t2;
     BPLONG_PTR top, subgoal_entry, call_arg_ptr, ans_arg_ptr, stack_arg_ptr, answerTable, answer;
@@ -1511,7 +1627,9 @@ int c_TABLE_GET_ONE_ANSWER() {
     return BP_TRUE;
 }
 
-/******* fectch all answers for a call ***/
+/**
+ * Collect answers from every stored subgoal subsumed by a call pattern.
+ */
 int c_TABLE_GET_ALL_ANSWERS() {
     BPLONG Call, Answers;
     BPLONG list, list0, ans;
@@ -1554,6 +1672,9 @@ int c_TABLE_GET_ALL_ANSWERS() {
     return unify(Answers, list0);
 }
 
+/**
+ * Test whether a call pattern subsumes a stored argument tuple.
+ */
 int table_subsume(BPLONG Call, SYM_REC_PTR sym_ptr, BPLONG_PTR arg_ptr) {
     BPLONG subgoal;
 
@@ -1561,9 +1682,10 @@ int table_subsume(BPLONG Call, SYM_REC_PTR sym_ptr, BPLONG_PTR arg_ptr) {
     return term_subsume_term(Call, subgoal);
 }
 
-/* convert an answer record to a Prolog structure
-   ptr0 points to a sequence of arguments
-*/
+/**
+ * Materialize numbered argument cells as a runtime structure.
+ * ptr0 points to a sequence of arguments
+ */
 BPLONG answer_table_entry_2_struct(SYM_REC_PTR sym_ptr, BPLONG_PTR ptr0) {
     BPLONG ans, op;
     BPLONG_PTR call_ptr;
@@ -1584,74 +1706,12 @@ BPLONG answer_table_entry_2_struct(SYM_REC_PTR sym_ptr, BPLONG_PTR ptr0) {
     return ans;
 }
 
-/*****************************************************************/
-/* The table modes and cardinality are stored as operands of a table_mode instruction
-
-   name/arity:
-   table_allocate Arity,Size,Sym,MaxS
-   table_mode ModeBits, OptArg,Card 
-*/
-int c_table_cardinality_limit() {
-    BPLONG name, arity, card;
-    BPLONG_PTR ep;
-    SYM_REC_PTR sym_ptr;
-
-    name = ARG(1, 3);
-    arity = ARG(2, 3);
-    card = ARG(3, 3); DEREF(card);
-
-    GET_GLOBAL_SYM(name, arity, sym_ptr);
-
-    ep = (BPLONG_PTR)GET_EP(sym_ptr);
-    if (GET_ETYPE(sym_ptr) != T_PRED) {
-        bp_exception = illegal_arguments;
-        return -1;
-    }
-
-    if (FOLLOW(ep) != table_allocate_code) {
-        bp_exception = illegal_arguments;
-        return -1;
-    }
-    if (ISREF(card)) {
-        BPLONG cur_limit = FOLLOW(ep+8);
-        if (cur_limit == 0) {
-            cur_limit = BP_MAXINT_1W;
-        }
-        return unify(card, MAKEINT(cur_limit));
-    } if (ISINT(card)) {
-        FOLLOW(ep+8) = INTVAL(card);
-        return BP_TRUE;
-    }
-}
-
-/* set the cardinality limit of all tabled predicates (except those with
-   unlimited cardinality) to be the given one. */
-int c_set_all_table_cardinality_limit() {
-    BPLONG card;
-    BPLONG i;
-    SYM_REC_PTR sym_ptr;
-    BPLONG_PTR ep;
-
-    card = ARG(1, 1); DEREF(card); card = INTVAL(card);
-
-    for (i = 0; i < BUCKET_CHAIN; ++i) {
-        sym_ptr = sym_hash_table[i];
-        while (sym_ptr != NULL) {
-            if (GET_ETYPE(sym_ptr) == T_PRED) {
-                ep = (BPLONG_PTR)GET_EP(sym_ptr);
-                if (FOLLOW(ep) == table_allocate_code) {
-                    FOLLOW(ep+8) = card;
-                }
-            }
-            sym_ptr = GET_NEXT(sym_ptr);
-        }
-    }
-    return BP_TRUE;
-}
-
+/**
+ * Print aggregate tabling diagnostics to curr_out.
+ */
 int table_statistics() {
     BPLONG i, count, subgoal_count, total_ans_count, max_ans_count, zero_ans_count, total_its_count, max_its_count, scc_nodes_count;
-    BPLONG_PTR subgoal_entry, ptr;
+    BPLONG_PTR subgoal_entry, answerTable, ptr;
     subgoal_count = 0;
     total_its_count = 0;
     max_its_count = 0;
@@ -1665,10 +1725,14 @@ int table_statistics() {
         subgoal_entry = (BPLONG_PTR)FOLLOW(subgoalTable+i);
         while (subgoal_entry != NULL) {
             count++;
-            if (GT_ANSWER_TABLE(subgoal_entry) != (BPLONG)NULL) {
-                /*      fprintf(curr_out,"(%d)",ANSWERTABLE_COUNT((BPLONG_PTR)GT_ANSWER_TABLE(subgoal_entry))); */
-                total_ans_count += ANSWERTABLE_COUNT((BPLONG_PTR)GT_ANSWER_TABLE(subgoal_entry));
-                if (ANSWERTABLE_COUNT((BPLONG_PTR)GT_ANSWER_TABLE(subgoal_entry)) > max_ans_count) max_ans_count = ANSWERTABLE_COUNT((BPLONG_PTR)GT_ANSWER_TABLE(subgoal_entry));
+            answerTable = (BPLONG_PTR)GT_ANSWER_TABLE(subgoal_entry);
+            if (answerTable != NULL) {
+                if ((BPLONG)answerTable & 0x1 == 0) {
+                    total_ans_count += ANSWERTABLE_COUNT(answerTable);
+                    if (ANSWERTABLE_COUNT((BPLONG_PTR)GT_ANSWER_TABLE(subgoal_entry)) > max_ans_count) max_ans_count = ANSWERTABLE_COUNT((BPLONG_PTR)GT_ANSWER_TABLE(subgoal_entry));
+                } else {
+                    total_ans_count++;
+                }
             } else {
                 zero_ans_count++;
             }
@@ -1694,11 +1758,13 @@ int table_statistics() {
     return 1;
 }
 
-/* Returns the current plan that transforms the initial state
-   to the current state, and the current resource amount. 
-   These two values are available at the latest call
-   '_$plan'(S,iplan(Limit,Plan,PlanLen)).
-*/
+/**
+ * Read resource amount, plan, and cost from the nearest active planner frame.
+ * Returns the current plan that transforms the initial state
+ * to the current state, and the current resource amount. 
+ * These two values are available at the latest call
+ *  '_$plan'(S,iplan(Limit,Plan,PlanLen)).
+ */
 int b_PLANNER_CURR_RPC_fff(BPLONG Amount, BPLONG Plan, BPLONG Cost) {
     BPLONG_PTR f0, f;
     f0 = arreg;
@@ -1722,13 +1788,16 @@ int b_PLANNER_CURR_RPC_fff(BPLONG Amount, BPLONG Plan, BPLONG Cost) {
         f0 = f;
         f = (BPLONG_PTR)AR_AR(f);
     }
-    ASSIGN_f_atom(Amount, MAKEINT(BP_MAXINT_1W));
+    ASSIGN_f_atom(Amount, MAKEINT(268435455));
     ASSIGN_f_atom(Plan, nil_sym);
     ASSIGN_f_atom(Cost, BP_ZERO);
     return BP_TRUE;
 }
 
-/* check if a call '_$planner'(S,_) has been tabled */
+/**
+ * Test whether a planner-state lookup call is already tabled.
+ * check if a call '_$planner'(S,_) has been tabled 
+ */
 int b_IS_PLANNER_STATE_c(BPLONG state) {
     BPLONG_PTR stack_arg_ptr;
 
@@ -1738,6 +1807,9 @@ int b_IS_PLANNER_STATE_c(BPLONG state) {
     return (lookupSubgoalTableNoCopy(stack_arg_ptr, 2, thashtable_psc) != NULL) ? BP_TRUE : BP_FALSE;
 }
 
+/**
+ * Lower the planner's stored explored-depth value when appropriate.
+ */
 int b_PLANNER_UPDATE_EXPLORED_DEPTH_c(BPLONG depth) {
     BPLONG cur_depth = (BPLONG)GET_EP(planner_explored_depth_psc);
 
@@ -1747,7 +1819,10 @@ int b_PLANNER_UPDATE_EXPLORED_DEPTH_c(BPLONG depth) {
     return BP_TRUE;
 }
 
-/* retrieve ta_record_ptr->top */
+/**
+ * Expose the current table allocation pointer as a tagged integer.
+ * retrieve ta_record_ptr->top 
+ */
 int c_TA_TOP_f() {
     BPLONG op = ARG(1, 1);
     ASSIGN_f_atom(op, ADDTAG((BPLONG)ta_record_ptr->top, INT_TAG));
@@ -1776,6 +1851,9 @@ int c_TA_TOP_f() {
     typedef MAP_RECORD *MAP_RECORD_PTR;
 */
 
+/**
+ * Clear the registry of table-backed maps.
+ */
 void init_picat_table_maps() {
     BPLONG i;
 
@@ -1784,14 +1862,16 @@ void init_picat_table_maps() {
     }
 }
 
-/* Return the number of the map with map_id. If no map with the id was found,
-   then create a new map and register it into table_maps. Linear prob is used 
-   to look for the map with map_id.
+/**
+ * Find or create a table-backed map identified by a ground term.
+ * Return the number of the map with map_id. If no map with the id was found,
+ *  then create a new map and register it into table_maps. Linear prob is used 
+ *  to look for the map with map_id.
 
-   Each entry in table_maps is a pointer to a MAP_RECORD, which stores the 
-   information about the map, including the size of the bucket table, the number 
-   of key-value pairs (count), and a pointer to the bucket table (htable).
-*/
+ *  Each entry in table_maps is a pointer to a MAP_RECORD, which stores the 
+ *  information about the map, including the size of the bucket table, the number 
+ *  of key-value pairs (count), and a pointer to the bucket table (htable).
+ */
 int b_GET_PICAT_TABLE_MAP_cf(BPLONG map_id, BPLONG map_num) {
     BPLONG slot_i0, slot_i, i, map_id_cp, this_hcode, this_ground_flag;
     BPLONG_PTR tmp_ptr;
@@ -1834,6 +1914,9 @@ int b_GET_PICAT_TABLE_MAP_cf(BPLONG map_id, BPLONG map_num) {
     return unify(map_num, MAKEINT(slot_i));
 }
 
+/**
+ * Return the map registry and bucket capacity in cells.
+ */
 BPLONG table_maps_buckets_size() {
     BPLONG i, size;
     MAP_RECORD_PTR map_ptr;
@@ -1849,6 +1932,9 @@ BPLONG table_maps_buckets_size() {
     return size;
 }
 
+/**
+ * Grow a map's bucket array and rehash its existing pairs.
+ */
 void expand_picat_table_map(MAP_RECORD_PTR mr_ptr) {
     BPLONG new_htable_size, old_htable_size, i;
     BPLONG_PTR new_htable, old_htable;
@@ -1882,6 +1968,9 @@ void expand_picat_table_map(MAP_RECORD_PTR mr_ptr) {
     mr_ptr->htable = new_htable;
 }
 
+/**
+ * Insert or replace a key/value pair in a table-backed map.
+ */
 int b_PICAT_TABLE_MAP_PUT_ccc(BPLONG map_num, BPLONG key, BPLONG val) {
     BPLONG key_cp, val_cp, this_hcode, this_ground_flag, dummy_hcode, dummy_ground_flag;
     BPLONG_PTR trail_top0, tmp_ptr, kvp_ptr_ptr;
@@ -1937,6 +2026,9 @@ lookup_end:
     return BP_TRUE;
 }
 
+/**
+ * Look up a key and unify val with its stored value.
+ */
 int b_PICAT_TABLE_MAP_GET_ccf(BPLONG map_num, BPLONG key, BPLONG val) {
     BPLONG this_hcode;
     BPLONG_PTR kvp_ptr_ptr;
@@ -1969,6 +2061,9 @@ int b_PICAT_TABLE_MAP_GET_ccf(BPLONG map_num, BPLONG key, BPLONG val) {
     return BP_FALSE;
 }
 
+/**
+ * Remove a key from a table-backed map if present.
+ */
 int c_PICAT_TABLE_MAP_DEL_cc(){
     BPLONG map_num;
     BPLONG key;
@@ -2007,6 +2102,9 @@ int c_PICAT_TABLE_MAP_DEL_cc(){
     return BP_TRUE;
 }
 
+/**
+ * Unify size with the number of pairs in a map.
+ */
 int b_PICAT_TABLE_MAP_SIZE_cf(BPLONG map_num, BPLONG size) {
     MAP_RECORD_PTR mr_ptr;
 
@@ -2016,6 +2114,9 @@ int b_PICAT_TABLE_MAP_SIZE_cf(BPLONG map_num, BPLONG size) {
     return unify(size, MAKEINT(mr_ptr->count));
 }
 
+/**
+ * Remove every pair from a registered map.
+ */
 int b_PICAT_TABLE_MAP_CLEAR_c(BPLONG map_num) {
     int i;
     MAP_RECORD_PTR mr_ptr;
@@ -2032,6 +2133,9 @@ int b_PICAT_TABLE_MAP_CLEAR_c(BPLONG map_num) {
     return BP_TRUE;
 }
 
+/**
+ * Collect a registered map's keys as a runtime list.
+ */
 int b_PICAT_TABLE_MAP_KEYS_cf(BPLONG map_num, BPLONG keys) {
     BPLONG i, lst, key;
     BPLONG_PTR kvp_ptr_ptr;
@@ -2061,6 +2165,9 @@ int b_PICAT_TABLE_MAP_KEYS_cf(BPLONG map_num, BPLONG keys) {
     return unify(lst, keys);
 }
 
+/**
+ * Collect a registered map's values as a runtime list.
+ */
 int b_PICAT_TABLE_MAP_VALS_cf(BPLONG map_num, BPLONG vals) {
     BPLONG i, lst, val;
     BPLONG_PTR kvp_ptr_ptr;
@@ -2090,6 +2197,9 @@ int b_PICAT_TABLE_MAP_VALS_cf(BPLONG map_num, BPLONG vals) {
     return unify(lst, vals);
 }
 
+/**
+ * Collect a registered map as a list of Key=Value structures.
+ */
 int b_PICAT_TABLE_MAP_LIST_cf(BPLONG map_num, BPLONG pairs) {
     BPLONG i, lst, key, val, pair;
     BPLONG_PTR kvp_ptr_ptr;

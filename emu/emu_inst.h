@@ -8757,7 +8757,7 @@ lab_table_produce:
             for (int i = 0; i < bucket_size; i++){
                 FOLLOW(bucket_ptr+i) = (BPLONG)NULL;
             }
-            entryPtr = bucket_ptr+hcode%bucket_size;
+            entryPtr = bucket_ptr + hcode%bucket_size;
             FOLLOW(entryPtr) = (BPLONG)answer;
             ANSWERTABLE_LAST(answer_table) = (BPLONG)answer;
             ANSWER_NEXT_IN_CHAIN(answer) = (BPLONG)NULL;

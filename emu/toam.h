@@ -810,24 +810,24 @@ extern BPLONG no_gcs;
     }
 
 #define RESET_TABLED_SUBGOAL_AR(f) {                                    \
-        if (IS_TABLE_FRAME(f)) {                                        \
-            BPLONG_PTR subgoal_entry = (BPLONG_PTR)GET_AR_SUBGOAL_TABLE(f); \
-            if (subgoal_entry != NULL && GT_TOP_AR(subgoal_entry) != SUBGOAL_COMPLETE) { \
-                GT_TOP_AR(subgoal_entry) = (BPLONG)NULL;                \
-                GT_SCC_ROOT(subgoal_entry) = (BPLONG)subgoal_entry;     \
-                GT_SCC_ELMS(subgoal_entry) = (BPLONG)NULL;              \
-                SUBGOAL_START_NORMAL(subgoal_entry);                    \
-            }                                                           \
-        }                                                               \
-    }
+    if (IS_TABLE_FRAME(f)) {                                            \
+      BPLONG_PTR subgoal_entry = (BPLONG_PTR)GET_AR_SUBGOAL_TABLE(f);   \
+      if (subgoal_entry != NULL){                                       \
+        GT_TOP_AR(subgoal_entry) = (BPLONG)NULL;                        \
+        GT_SCC_ROOT(subgoal_entry) = (BPLONG)subgoal_entry;             \
+        GT_SCC_ELMS(subgoal_entry) = (BPLONG)NULL;                      \
+        SUBGOAL_START_NORMAL(subgoal_entry);                            \
+      }                                                                 \
+    }                                                                   \
+  }
 
 #define TABLE_ANS_COMPARE(t1, t2, r) r = ((ISINT(t1) && ISINT(t2)) ? (INTVAL(t1)-INTVAL(t2)) : bp_compare(t1, t2))
 
 /* create an answer table to store 'answer' and the new answer on the stack if it is not a variant of 'answer'. */
 #define CREATE_ANSWER_TABLE_ADD_ANSWER(stack_arg_ptr, answer, arity, subgoal_entry){ \
-    answer_table = allocateAnswerTable(answer, arity);                  \
-    if ((BPLONG)answer_table == BP_ERROR) goto table_error;             \
-    GT_ANSWER_TABLE(subgoal_entry) = (BPLONG)answer_table;              \
-    if (addTableAnswer(stack_arg_ptr, arity, subgoal_entry) == BP_ERROR) \
-      goto table_error;                                                 \
-  }    
+        answer_table = allocateAnswerTable(answer, arity);              \
+        if ((BPLONG)answer_table == BP_ERROR) goto table_error;         \
+        GT_ANSWER_TABLE(subgoal_entry) = (BPLONG)answer_table;          \
+        if (addTableAnswer(stack_arg_ptr, arity, subgoal_entry) == BP_ERROR) \
+            goto table_error;                                           \
+    }    

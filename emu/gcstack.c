@@ -10,7 +10,7 @@
 Detailed descriptions can be found in:
 
 N.F. Zhou: Garbage Collection in B-Prolog, 2000.
- ********************************************************************/
+********************************************************************/
 
 #include <stdlib.h>
 #include <time.h>

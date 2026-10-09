@@ -1295,8 +1295,6 @@ extern int c_TABLE_GET_ONE_ANSWER();
 extern int c_TABLE_GET_ALL_ANSWERS();
 extern int table_subsume(BPLONG Call, SYM_REC_PTR sym_ptr, BPLONG_PTR arg_ptr);
 extern BPLONG answer_table_entry_2_struct(SYM_REC_PTR sym_ptr, BPLONG_PTR ptr0);
-extern int c_table_cardinality_limit();
-extern int c_set_all_table_cardinality_limit();
 extern int table_statistics();
 extern int b_PLANNER_CURR_RPC_fff(BPLONG, BPLONG, BPLONG);
 extern int b_TABLE_MAP_PUT_cc(BPLONG, BPLONG);

@@ -12,8 +12,6 @@
 #include "event.h"
 #include "frame.h"
 
-BPLONG true_sym;
-
 BPLONG build_delayed_call_on_the_heap(BPLONG_PTR frame)
 {
     SYM_REC_PTR sym_ptr;
@@ -85,7 +83,7 @@ int c_frozen_cf() {
 
         return unify(return_goal, goal);
     }
-    else return unify(return_goal, true_sym);
+    else return unify(return_goal, true_atom);
 }
 
 BPLONG_PTR frozen_cs(BPLONG_PTR cs, BPLONG_PTR Plist)
@@ -234,12 +232,25 @@ void print_cs(BPLONG cs_list)
     printf("\n");
 }
 
+int c_reset_store(){
+    BPLONG_PTR frame;
+
+    frame = sfreg;
+    while (AR_PREV(frame) != (BPLONG)frame) {  /* end of chain */
+        if (!FRAME_IS_DEAD(frame)) {
+            AR_STATUS(frame) = SUSP_EXIT;   
+        }
+        frame = (BPLONG_PTR)AR_PREV(frame);
+    }
+    return BP_TRUE;
+}
+    
 void Cboot_delay()
 {
 
     insert_cpred("c_frozen_cf", 2, c_frozen_cf);
     insert_cpred("c_frozen_f", 1, c_frozen_f);
-    true_sym = ADDTAG(BP_NEW_SYM("true", 0), ATM);
+    insert_cpred("c_reset_store", 0, c_reset_store);
 }
 
 

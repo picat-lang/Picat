@@ -114,7 +114,7 @@ void init_toam(int argc, char *argv[])
                     print_picat_usage();
                     exit(0);
                 } else if (*(str+2) == 'v' || strcmp(str+2, "version") == 0) {
-                    printf("Picat version 3.9#12\n");
+                    printf("Picat version 4.0b5\n");
                     exit(0);
                 }
                 /*
@@ -224,9 +224,9 @@ void init_toam(int argc, char *argv[])
     init_picat_global_maps();
 
 #ifdef WIN32
-        picat_terminal = fopen("CON", "r");
+    picat_terminal = fopen("CON", "r");
 #else
-        picat_terminal = fopen("/dev/tty", "r");
+    picat_terminal = fopen("/dev/tty", "r");
 #endif
 
     inst_begin = 0;

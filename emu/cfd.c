@@ -377,7 +377,7 @@ int b_CFD_BUILD_TRIES_NOTIN(BPLONG CompVars, BPLONG HTable, BPLONG A2Tries)
 
     /* complete the construction of supports Sijk (supports in Vj of k in Vi)  */
     compute_supports_notin(0, n, htable_ptr, htable_size, tuple_ptr, CompVarArray, tries_ptr, MinArray, MaxArray);
-
+    
     local_top = local_top0;
 
     return BP_TRUE;
@@ -655,7 +655,7 @@ int b_CFD_REMOVE_AC_UNSUPPORTED(BPLONG CompVars, BPLONG Tries)
     BPLONG_PTR comp_vars_ptr, tries_ptr;
     SYM_REC_PTR sym_ptr;
 
-    //  printf("=>b_CFD_REMOVE_AC_UNSUPPORTED %x %x ",local_top,heap_top); write_term(Tries); printf("\n");
+    // printf("=>b_CFD_REMOVE_AC_UNSUPPORTED %x %x ",local_top,heap_top); write_term(Tries); printf("\n");
     DEREF_NONVAR(CompVars);
     comp_vars_ptr = (BPLONG_PTR)UNTAGGED_ADDR(CompVars);
     sym_ptr = (SYM_REC_PTR)FOLLOW(comp_vars_ptr);
@@ -828,7 +828,7 @@ int b_CFD_DIFF_TUPLE(BPLONG Tuple, BPLONG CompVars)
 }
 
 /* Let CompVars=t(a1,...,a(i-1),V,a(i+1),...,an) where V is the only variable remaining.
-   Eor each element k in the domain of V, if t(a1,...,a(i-1),k,a(i+1),...,an) is not in the 
+   For each element k in the domain of V, if t(a1,...,a(i-1),k,a(i+1),...,an) is not in the 
    hash table, then exclude k from the domain of V.
 */
 int b_CFD_IN_FORWARD_CHECKING(BPLONG HTable, BPLONG CompVars)
@@ -889,7 +889,7 @@ int b_CFD_IN_FORWARD_CHECKING(BPLONG HTable, BPLONG CompVars)
 }
 
 /* Let CompVars=t(a1,...,a(i-1),V,a(i+1),...,an) where V is the only variable remaining.
-   Eor each element k in the domain of V, if t(a1,...,a(i-1),k,a(i+1),...,an) is in the negative 
+   For each element k in the domain of V, if t(a1,...,a(i-1),k,a(i+1),...,an) is in the negative 
    table, then exclude k from the domain of V.
 */
 int b_CFD_NOTIN_FORWARD_CHECKING(BPLONG HTable, BPLONG CompVars)
