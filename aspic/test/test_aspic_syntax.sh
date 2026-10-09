@@ -202,6 +202,15 @@ for f in test/cases/run_*.lp; do
         else
             ok
         fi ;;
+    run_choice_multi.lp)
+        sol=$(grep 'solution' "$TMP/run_out.txt" | head -1)
+        if [ -z "$sol" ]; then
+            bad "$name: no solution printed (the multi-atom choice rule must parse and run)"
+        elif ! echo "$sol" | grep -q 'c'; then
+            bad "$name: c should hold (the rule conditioned on the choice atom a), got $sol"
+        else
+            ok
+        fi ;;
     run_weak.lp)
         sol=$(grep -oE 'optimization\([0-9-]+\)' "$TMP/run_out.txt" | head -1)
         if [ "$sol" != "optimization(2)" ]; then

@@ -707,7 +707,7 @@ p(mini,S,R,T)=>paren(miniobj,"{","}.",S,R,T).
 
 p(cardobj,S,R,T),p(head,S,":"++S2,T1)=>p(disj,S2,R,T2),T=$set(T1,T2).
 p(cardobj,S,R,T),p(head,S,R,T1)=>T=$set(T1).
-p(cardobj,S,R,T),p(enum,S,R,T1)=>T=$options(T1).
+p(cardobj,S,R,T),p(enum,S,R,T1)=>T1=$options(L),T=..[$set|[$aspic_var(X):X in L]].
 
 %cardinal
 p(card,S,R,T),p(nv,S,S2,T1),paren(cardobj,"{","}",S2,S3,T2),p(nv,S3,R,T3)=>T=$aspic_card(T2,T1,T3).

@@ -279,11 +279,20 @@ repository cloned to CLINGO_EX (default
 
     python3 test/clingo_examples.py
 
-Last verified: 87 comparable programs - 10 matching, 3 differing (genuine
-aspic limitations: complex atom arguments like p(X-1) and cpa_started, and
-the first-position choice rule), 36 not parseable by aspic (scripting,
-#include <incmode>, #program, #external, #script, theory atoms - all
-correctly rejected with loud errors), 4 timeouts (the planning examples).
+Last verified: 87 comparable programs - 11 matching, 2 differing (genuine
+aspic limitations, both from non-numeric atom arguments: consequences/example
+uses arithmetic in atom arguments like p(X+1), whose variable aspic
+enumerates over the whole universe including the non-numeric constant q, so
+the eager aspic_sum(X,1) fails; planning/uts01 is a pure-fact instance with
+compound atom arguments like cpa_started, for which the completion generates
+aspic_eq comparisons between non-numeric terms that the runtime cannot
+evaluate - both stop with unresolved_function_call), 36 not parseable by
+aspic (scripting, #include <incmode>, #program, #external, #script, theory
+atoms - all correctly rejected with loud errors), 4 timeouts (the planning
+examples). The itersolve example ({a;b;c}. - a multi-atom variable-free
+choice rule) matches since v0.3.15: the choice-rule enumeration path now
+wraps each element in the set functor, so the atoms become free choice
+variables instead of the card's bounds arguments.
 
 # Requirements
 
@@ -298,6 +307,25 @@ correctly rejected with loud errors), 4 timeouts (the planning examples).
 - so far only tested on Linux 
 
 # Version history
+
+v0.3.15:
+
+- The multi-atom variable-free choice rule ({a;b;c}.) is fixed: the
+  choice-rule enumeration path (cardobj delegating to the semicolon enum)
+  wrapped the element list in the options functor TWICE (the enum clause
+  wraps, the cardobj clause wrapped again) with the elements parsed as
+  plain atoms, and the emitted call was aspic_card(a,b,c) - the atoms
+  became the cardinality's bounds arguments, which the 3-arg runtime
+  clause rejects, so the whole program failed silently with no models
+  (the clingo example itersolve/program.lp differed). The cardobj+enum
+  clause now unwraps the enum's list and builds ONE set functor over the
+  elements, each wrapped in the atom-variable functor - the emitted call
+  is aspic_card([aspic_var(a),aspic_var(b),aspic_var(c)]), the atoms
+  become free choice variables, and the choice semantics are verified in
+  all directions ({a;b;c}. gives the empty first model, a choice atom
+  forced by a fact holds, and a rule conditioned on a choice atom derives
+  its conclusion). Implemented in both parsers. 86 checks pass; the
+  clingo comparison is 11 matching, 2 differing.
 
 v0.3.14:
 
