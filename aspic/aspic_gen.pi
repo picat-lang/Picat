@@ -712,7 +712,15 @@ p(aggreg,S,R,T),S="#max"++R=>T=$max.
 p(aggreg,S,R,T),S="#min"++R=>T=$min.
 p(aggreg,S,R,T),S="#count"++R=>T=$count.
 
-p(lnv,S,R,T)=>l(nv,",",S,R,T).
+p(lnv,S,R,T)=>l(nva,",",S,R,T).
+
+%num or var or expr in parentheses; atoms are accepted as aggregate
+%elements (aggregates over atoms): the element evaluates to the atom's
+%0/1 truth value (the transpiler-generated atom function, or aspic_var
+%for a ground atom), so the aggregate sums/counts the atoms themselves.
+%Atoms come FIRST: p(num) has a fallback that would otherwise swallow a
+%lowercase identifier as $const before the atom interpretation is tried.
+p(nva,S,R,T),(p(atom,S,R,T);p(num,S,R,T);p(var,S,R,T);paren(ae,"(",")",S,R,T))=>true.
 
 p(valset,S,R,T),p(lnv,S,":"++S2,T1)=>p(disj,S2,R,T2),T=$valset(T1,T2).
 p(valset,S,R,T),p(lnv,S,R,T1)=>T=$valset(T1).

@@ -671,8 +671,11 @@ p(t0,S,R,T),(p(f,S,R,T);p(range,S,R,T);p(term,S,R,T);p(num,S,R,T);p(var,S,R,T))=
 %atom
 p(atom,S,R,T2),(p(f,S,R,T),T2=T;p(term,S,R,T),T2=$aspic_var(T))=>true.
 
-%num or var or expr in parentheses
-p(nv,S,R,T),(p(num,S,R,T);p(var,S,R,T);paren(ae,"(",")",S,R,T))=>true.
+%num or var or expr in parentheses; atoms are accepted as aggregate
+%elements (aggregates over atoms): the element evaluates to the atom's
+%0/1 truth value (the transpiler-generated atom function, or aspic_var
+%for a ground atom), so the aggregate sums/counts the atoms themselves
+p(nv,S,R,T),(p(num,S,R,T);p(var,S,R,T);paren(ae,"(",")",S,R,T);p(atom,S,R,T))=>true.
 p(factor,S,R,T),(p(num,S,R,T);p(var,S,R,T);paren(ae,"(",")",S,R,T);p(agval,S,R,T))=>true.
 
 p(prod,S,R,T),p(factor,S,[H|S2],T1),op1(H)=>p(prod,S2,R,T2),T=aspic_muldiv(H,T1,T2).
@@ -736,7 +739,15 @@ p(aggreg,S,R,T),S="#max"++R=>T=$max.
 p(aggreg,S,R,T),S="#min"++R=>T=$min.
 p(aggreg,S,R,T),S="#count"++R=>T=$count.
 
-p(lnv,S,R,T)=>l(nv,",",S,R,T).
+p(lnv,S,R,T)=>l(nva,",",S,R,T).
+
+%num or var or expr in parentheses; atoms are accepted as aggregate
+%elements (aggregates over atoms): the element evaluates to the atom's
+%0/1 truth value (the transpiler-generated atom function, or aspic_var
+%for a ground atom), so the aggregate sums/counts the atoms themselves.
+%Atoms come FIRST: p(num) has a fallback that would otherwise swallow a
+%lowercase identifier as $const before the atom interpretation is tried.
+p(nva,S,R,T),(p(atom,S,R,T);p(num,S,R,T);p(var,S,R,T);paren(ae,"(",")",S,R,T))=>true.
 
 p(valset,S,R,T),p(lnv,S,":"++S2,T1)=>p(disj,S2,R,T2),T=$valset(T1,T2).
 p(valset,S,R,T),p(lnv,S,R,T1)=>T=$valset(T1).

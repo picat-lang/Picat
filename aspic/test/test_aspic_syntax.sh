@@ -212,6 +212,17 @@ for f in test/cases/run_*.lp; do
         else
             ok
         fi ;;
+    run_aggregate_atoms.lp)
+        sol=$(grep 'solution' "$TMP/run_out.txt" | head -1)
+        if [ -z "$sol" ]; then
+            bad "$name: no solution printed"
+        elif ! echo "$sol" | grep -q 'q'; then
+            bad "$name: q should hold (the atom aggregate >= 1 forces at least one p), got $sol"
+        elif ! echo "$sol" | grep -q 'p('; then
+            bad "$name: at least one p should be chosen, got $sol"
+        else
+            ok
+        fi ;;
     esac
 done
 

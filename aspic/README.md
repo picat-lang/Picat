@@ -173,6 +173,12 @@ limitation of the translation, not of #maximize.
 
 The aggregates #sum, #max, #min and #count ARE supported in rule bodies and
 constraints over numeric terms (e.g. `#sum { X : p(X) }`), since v0.3.
+Aggregates over ATOMS are supported too (v0.3.10): the element before the
+colon may be a predicate literal, e.g. `q :- #sum { p(X) : dom(X) } >= 1.`
+means q holds iff at least one p(X) is true — the element contributes the
+atom's 0/1 truth value (so #sum over atoms is a count of the true atoms
+among the groundings). Negated elements (`#sum { not p(X) : ... }`) are not
+supported; negation in the aggregate BODY works.
 #minimize and #maximize ARE supported (v0.3.7): one optimization directive
 per program, the { ... } set on one line, over numeric terms, e.g.
 `#maximize { V,X : in(X), val(X,V) }`. In an embedded asp block the
@@ -198,6 +204,7 @@ with a diagnostic that names the offending line.
 
 - priority levels/weights (`@l`) in #minimize/#maximize; multi-level
   lexicographic weak-constraint optimization (levels are parsed but merged)
+- negated elements in aggregates (`#sum { not p(X) : q(X) }`)
 - more than one #minimize/#maximize directive in one program (duplicates
   are reported); mixing #minimize/#maximize with weak constraints
 - a #minimize/#maximize whose { ... } set spans several lines (must be on
@@ -205,7 +212,6 @@ with a diagnostic that names the offending line.
 - disjunctive heads (`a ; b :- c.`)
 - strong negation (`-p(X)`)
 - conditional literals (`H : B`) outside aggregates/cardinality constraints
-- aggregates over atoms (`#sum { p(X) : q(X) }`); only numeric terms allowed
 - reals/floats; strings; quoted atoms
 - mod, **, abs and other arithmetic functions; the <> comparison operator
 - block comments `/* ... */` (only `%` line comments)
@@ -256,6 +262,29 @@ Exit status 0 iff all tests pass.
 - so far only tested on Linux 
 
 # Version history
+
+v0.3.10:
+
+- Aggregates over atoms are supported: the element before the colon in
+  #sum/#count/#max/#min may now be a predicate literal, e.g.
+  `q :- #sum { p(X) : dom(X) } >= 1.` - the element contributes the atom's
+  0/1 truth value (a sum over atoms is a count of the true atoms among the
+  groundings). Previously such aggregates stopped with notparsed (the
+  element grammar only accepted numbers, variables and parenthesized
+  arithmetic). Implemented with a new element parser nva in both parsers
+  (aspic_transpiler.pi and the aspic_gen.pi copy) that tries the atom
+  interpretation FIRST - the numeric parser has a fallback that would
+  otherwise swallow a lowercase identifier as a #const reference before
+  the atom branch is reached - and used only for the aggregate valset, so
+  the cardinality bounds and the #minimize elements are unchanged. The
+  translation needed no change: the element lands in the generated
+  ASPIC_AGVAL1= expression, which evaluates to the atom's fd value via the
+  transpiler-generated atom function (or aspic_var for a ground atom).
+  Semantics verified both ways: with :- not q. the model contains q and at
+  least one p; with :- q. it contains neither. New tests: ok_aggregate_atoms.lp,
+  run_aggregate_atoms.lp, err_aggregate_neg.lp (negated elements stay an
+  error); the former err_aggregate_atoms.lp became the ok/run cases. 79
+  checks pass.
 
 v0.3.9:
 
