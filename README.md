@@ -328,7 +328,8 @@ Picat files with a `#!` first line can be run as executable scripts
 (`./prog args`) with the `tools/picat-run` wrapper: picat rejects that
 line and only loads `*.pi` files, so the wrapper runs a copy with line 1
 turned into a comment, the script's directory prepended to `PICATPATH`,
-and `${PICAT:-picat}` as the interpreter.
+and `${PICAT:-picat}` as the interpreter. Design, installation and
+tests: [tools/picat-run.md](tools/picat-run.md).
 
 
 __Current version 3.9#12.__
