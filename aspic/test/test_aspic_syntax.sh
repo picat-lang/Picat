@@ -232,6 +232,34 @@ for f in test/cases/run_*.lp; do
         else
             ok
         fi ;;
+    run_condlit.lp)
+        sol=$(grep 'solution' "$TMP/run_out.txt" | head -1)
+        if [ -z "$sol" ]; then
+            bad "$name: no solution printed"
+        elif ! echo "$sol" | grep -q 'all'; then
+            bad "$name: all should hold (the conditional literal is forced), got $sol"
+        elif ! echo "$sol" | grep -q 'p(1)' || ! echo "$sol" | grep -q 'p(2)' || ! echo "$sol" | grep -q 'p(3)'; then
+            bad "$name: all three p should be chosen (all <-> the universal conditional literal), got $sol"
+        else
+            ok
+        fi ;;
+    run_condlit_neg.lp)
+        sol=$(grep 'solution' "$TMP/run_out.txt" | head -1)
+        if [ -z "$sol" ]; then
+            bad "$name: no solution printed"
+        elif ! echo "$sol" | grep -q 's'; then
+            bad "$name: s should hold (the instance X=2 is violated: dom(2) holds, p(2) false), got $sol"
+        elif echo "$sol" | grep -q 'p(2)'; then
+            bad "$name: p(2) should be false (not derivable), got $sol"
+        else
+            ok
+        fi ;;
+    run_condlit_unsat.lp)
+        if grep -q 'solution' "$TMP/run_out.txt"; then
+            bad "$name: expected UNSAT (the universal cannot hold with p(2) forbidden), got a solution"
+        else
+            ok
+        fi ;;
     esac
 done
 

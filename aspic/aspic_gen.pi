@@ -321,7 +321,7 @@ getaspcompletionhead(X)=R=>d(notdefined_getaspcompletionhead_for=X),R=[X,[]].
 translate_completion(T)=>
 %T:=[X:X in T,X=$aspic_impl(_,_)]
 genprintln("aspic_stoplearning(),")
-,genprintln("H=get_heap_map(aspic_atoms),M2=get_heap_map(aspic_asserted),\nforeach(ASPIC_ATOM in H.keys())\nif(not aspic_isfdvariable(ASPIC_ATOM),not(M2.has_key(ASPIC_ATOM)))")
+,genprintln("H=get_heap_map(aspic_m(aspic_atoms)),M2=get_heap_map(aspic_m(aspic_asserted)),\nforeach(ASPIC_ATOM in H.keys())\nif(not aspic_isfdvariable(ASPIC_ATOM),not(M2.has_key(ASPIC_ATOM)))")
 ,genprintln("L=[]")
 ,foreach(L0 in T,L0=[L,Orig],L2 in allvariants(L))
 d(orig=L)

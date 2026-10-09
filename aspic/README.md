@@ -179,6 +179,18 @@ means q holds iff at least one p(X) is true — the element contributes the
 atom's 0/1 truth value (so #sum over atoms is a count of the true atoms
 among the groundings). Negated elements (`#sum { not p(X) : ... }`) are not
 supported; negation in the aggregate BODY works.
+Conditional literals in rule bodies are supported (v0.3.11): `all :- p(X) :
+dom(X).` means all holds iff every p(X) with dom(X) holds — the conclusion
+must hold for every grounding whose condition holds (each instance is an
+implication condition -> conclusion; the conjunction of all instances must
+hold). The conclusion's variables are local to the conditional literal and
+range over the universe; the condition is comma-separated. Separate the
+conditional literal from other body elements with `;` (a following
+comma-group becomes part of the condition). The negated form works too
+(`s :- not p(X) : dom(X).` — some instance is violated). NOT supported:
+conditional elements in head disjunctions (`p(X) : d(X).` as a head) and
+head aggregates with the extra literal between tuple and condition
+(`#count { X: p(X,Y): X=1..3 } = 1`).
 #minimize and #maximize ARE supported (v0.3.7): one optimization directive
 per program, the { ... } set on one line, over numeric terms, e.g.
 `#maximize { V,X : in(X), val(X,V) }`. In an embedded asp block the
@@ -205,6 +217,8 @@ with a diagnostic that names the offending line.
 - priority levels/weights (`@l`) in #minimize/#maximize; multi-level
   lexicographic weak-constraint optimization (levels are parsed but merged)
 - negated elements in aggregates (`#sum { not p(X) : q(X) }`)
+- conditional elements in head disjunctions (`p(X) : d(X).` as a head) and
+  head aggregates with the extra literal (`#count { X: p(X,Y): X=1..3 } = 1`)
 - more than one #minimize/#maximize directive in one program (duplicates
   are reported); mixing #minimize/#maximize with weak constraints
 - a #minimize/#maximize whose { ... } set spans several lines (must be on
@@ -262,6 +276,35 @@ Exit status 0 iff all tests pass.
 - so far only tested on Linux 
 
 # Version history
+
+v0.3.11:
+
+- Conditional literals in rule bodies are supported: `all :- p(X) : dom(X).`
+  means all holds iff every p(X) with dom(X) holds (each instance is an
+  implication condition -> conclusion; the conjunction of all instances must
+  hold - clingo's universal reading of body conditional literals). The
+  conclusion's variables are local to the conditional literal and range over
+  the universe inside the generated comprehension; the negated form works
+  (s :- not p(X) : dom(X). - some instance is violated). Implemented with a
+  p(logic) grammar clause producing a \$condlit AST term and a
+  replacesetmini clause translating it to a conjunction comprehension with
+  cond(condition,conclusion,1) per instance (1 when the condition is false -
+  vacuously true), combined with aspic_conj (#/\); getvars/getdetvars stop
+  at \$condlit so the local variables do not become rule instances. Both
+  parsers (aspic_transpiler.pi and the aspic_gen.pi copy).
+- FIXED a significant pre-existing bug found while verifying: the Clark
+  completion in the LP flow read the raw map names
+  (get_heap_map(aspic_atoms)) instead of the seed-scoped
+  (get_heap_map(aspic_m(aspic_atoms))) ones the atoms actually live in, so
+  the ENTIRE completion was dead code - it never fired for any construct.
+  With the fix the completion fires and gives clingo-like supportedness:
+  atoms that appear only in bodies and are defined by no rule are now false
+  (previously they were free fd variables defaulting to true with rand).
+  All 80 existing checks still pass with the completion alive.
+- New tests: ok_condlit.lp (parse), run_condlit.lp (the universal forces all
+  three p via :- not all.), run_condlit_neg.lp (the negated form: s holds,
+  the instance X=2 is violated), run_condlit_unsat.lp (UNSAT when p(2) is
+  forbidden). 84 checks pass.
 
 v0.3.10:
 
