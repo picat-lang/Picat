@@ -534,14 +534,13 @@ end
       ObjMin=join(Ts,"+"),ObjDir=max
    ; not(member(-1,Sg)) ->
       ObjMin=join(Ts,"+"),ObjDir=min
-   ;  % mixed signs: put a positive term first (the picat tokenizer rejects
-      % the sequence #=- in the generated code, with or without a space)
-      % and join the rest with their signs
-      Pos=[P:P in Terms,P[1]=1],Neg=[P:P in Terms,P[1]=(-1)],
+   ;  % mixed signs: the signed join in program order; a space before each
+      % sign (the picat tokenizer rejects the sequence #=- with the minus
+      % directly after the =, while #= -sum(...) is fine)
       ObjStr="",I=0,
-      foreach(P in Pos++Neg)
+      foreach(P in Terms)
         I:=I+1,
-        Pfx=cond(I=1,cond(P[1]=1,"","- "),cond(P[1]=1,"+","- ")),
+        Pfx=cond(I=1,cond(P[1]=1,""," -"),cond(P[1]=1," +"," -")),
         ObjStr:=ObjStr++Pfx++P[2]
       end,
       ObjMin=ObjStr,ObjDir=min))

@@ -303,9 +303,9 @@ v0.3.13:
   #maximize directives) keeps the positive maximized objective in ASPIC_OPT
   (aspic_solve(...,max), aspic_solve_dir(max) for embedded blocks) - the
   existing fixtures are unchanged. A mixed-sign objective is the signed
-  join with a positive term first (the picat tokenizer rejects the
-  generated sequence #=- with or without a following space, so the minus
-  never follows the = directly). Implemented in both parsers
+  join in program order, with a space before each sign (the picat
+  tokenizer rejects the sequence #=- with the minus directly after the =,
+  while #= -sum(...) is fine). Implemented in both parsers
   (aspic_transpiler.pi and the aspic_gen.pi copy): one Terms accumulator of
   (Sign,SumString) pairs replaces the separate Mini string and Weak list;
   the duplicate and mixing diagnostics are removed. New tests:
