@@ -288,6 +288,16 @@ for f in test/cases/run_*.pi; do
         else
             bad "$name: expected the soft weighted optimum 1 on stdout, got: $(tail -1 "$TMP/embcase/run_out.txt")"
         fi ;;
+    run_emb_comp.pi)
+        if ! grep -q '^s = 0$' "$TMP/embcase/run_out.txt"; then
+            bad "$name: s should be false (the body q,p(2) fails with p(2) forced false by the completion), got: $(grep '^s' "$TMP/embcase/run_out.txt")"
+        elif ! grep -q '^p2 = 0$' "$TMP/embcase/run_out.txt"; then
+            bad "$name: p(2) should be forced false by the completion (defined by no rule), got: $(grep '^p2' "$TMP/embcase/run_out.txt")"
+        elif ! grep -q '^q = 1$' "$TMP/embcase/run_out.txt"; then
+            bad "$name: q should hold (the rule direction works), got: $(grep '^q' "$TMP/embcase/run_out.txt")"
+        else
+            ok
+        fi ;;
     *)
         ok ;;
     esac

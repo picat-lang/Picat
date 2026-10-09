@@ -166,7 +166,12 @@ reports the maximum 13 with pick(1), pick(2) and pick(3) chosen:
 Recommendation: always place facts (or any rules that introduce new
 constants) BEFORE choice rules. The regression cases test/cases/ok_maximize.lp
 and test/cases/run_maximize.lp follow this order; this behavior is a known
-limitation of the translation, not of #maximize.
+limitation of the translation, not of #maximize. Re-verified with the
+completion alive (v0.3.11): the example still reports 0 - the choice atoms
+are never created during translation, so the completion cannot fire for
+them; a duplicate choice rule later in the program does create them
+(tested: the same program with a second {pick(X) : dom(X)} line reports
+the maximum 13).
 
 
 # Not implemented yet
@@ -304,7 +309,14 @@ v0.3.11:
 - New tests: ok_condlit.lp (parse), run_condlit.lp (the universal forces all
   three p via :- not all.), run_condlit_neg.lp (the negated form: s holds,
   the instance X=2 is violated), run_condlit_unsat.lp (UNSAT when p(2) is
-  forbidden). 84 checks pass.
+  forbidden). The completion was then verified for the EMBEDDED flow too
+  (run_emb_comp.pi: s = 0, p(2) = 0 forced false by the completion, q = 1 -
+  the rule direction works), and the first-position choice rule behavior
+  re-checked with the completion alive: the README example still reports
+  maximization(0) - unchanged (the choice atoms are never created during
+  translation, so the completion cannot fire for them); a duplicate choice
+  rule later in the program does create them (the same program with a
+  second {pick(X) : dom(X)} line reports the maximum 13). 85 checks pass.
 
 v0.3.10:
 
