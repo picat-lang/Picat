@@ -1,0 +1,11 @@
+#define DIM 3
+import aspic_runtime.
+main=>asp
+#const n=DIM.
+dom(1..n).
+val(1,1). val(2,2). val(3,10).
+{pick(X) : dom(X)}=1.
+#maximize { V,X : pick(X), val(X,V) }.
+end,
+aspic_solve_sub(ASPIC_OPT_0),
+println(ASPIC_OPT_0),fail;true.

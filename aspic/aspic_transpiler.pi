@@ -337,7 +337,7 @@ end
 %%  convert ASP from given file F to picat text on stderr
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 main2(FileList,Extra)=>main2(FileList,[],Extra).
-main2(FileList,ID,Extra),A=[Line:F in FileList,AX=read_file_lines(F),Line in AX],d(lines=A.len),asparse(A,R,T,Mini),println(stdout,notparsed=R)
+main2(FileList,ID,Extra),A=[Line:F in FileList,AX=read_file_lines(F),Line in AX],d(lines=A.len),asparse(A,R,T,Mini,Dir),println(stdout,notparsed=R)
 =>
 d(extra=Extra),
 if(R!=[]) then
@@ -375,13 +375,13 @@ end
 ,println(stderr,"aspic_stoplearning(),")
 ,translate_rules(T,2) %only constraints 
 ,translate_completion(T)
-,println(stderr,"ASPIC_OPT#="++cond(Mini=[],"0",Mini)++",")
+,println(stderr,"ASPIC_OPT#="++cond(Mini=[],"0",Mini)++cond(Dir==max,",aspic_solve_dir(max)","")++",")
 ,if (Extra==sat;Extra==cp)
-println(stderr,"aspic_solve(ASPIC_SEARCH,ASPIC_OPT)")
+println(stderr,"aspic_solve(ASPIC_SEARCH,ASPIC_OPT,"++Dir.to_string()++")")
 ,println(stderr,".")
 else
 if(Extra==allsat;Extra==allcp)
-println(stderr,"aspic_solve(ASPIC_SEARCH,ASPIC_OPT)")
+println(stderr,"aspic_solve(ASPIC_SEARCH,ASPIC_OPT,"++Dir.to_string()++")")
 ,println(stderr,",fail.")
 else
 println(stderr,"true")
@@ -415,12 +415,13 @@ W:=to_atom(W)
 % main(_)=>true.
 
 %parse ASP from list of lines
-asparse(A,R,T,ObjMin)=>
+asparse(A,R,T,ObjMin,ObjDir)=>
 B=[]
 ,C=[]
 ,Mini=[]
 ,Dr=[]
 ,HadMin:=0
+,Dir:=min
 ,foreach(L in A)
 if(member('%',L)) then
 I:=[J:J in 1..L.length,L[J]='%'], L:=L[1..I[1]-1]
@@ -437,7 +438,7 @@ C:=[(L2[1].to_atom,VI)|C]
 ; L[1..9]=="#minimize" ->
 (L.len>=10 ->
 (HadMin==1 ->
-Dr:=[("duplicate #minimize (only one is supported): "++L)|Dr]
+Dr:=[("duplicate #minimize/#maximize (only one optimization directive is supported): "++L)|Dr]
 ;
 MiniText:=[X:X in L[10..L.len],X!=' ',ord(X)>32],
 (p(mini,MiniText,ROpt,TOpt) ->
@@ -445,10 +446,27 @@ d(topt=TOpt)
 ,TOpt:=TOpt.allvariants
 ,TOpt:=TOpt[1]
 ,Mini:="sum"++replacesetmini(TOpt)
+,Dir:=min
 ,d(mini=Mini)
 ;Dr:=[("invalid #minimize (expected one-line { Weight,Terms : Body }.): "++L)|Dr])),
 HadMin:=1
 ;Dr:=[("invalid #minimize (expected a { ... } set after the directive): "++L)|Dr])
+; L[1..9]=="#maximize" ->
+(L.len>=10 ->
+(HadMin==1 ->
+Dr:=[("duplicate #minimize/#maximize (only one optimization directive is supported): "++L)|Dr]
+;
+MiniText:=[X:X in L[10..L.len],X!=' ',ord(X)>32],
+(p(mini,MiniText,ROpt,TOpt) ->
+d(topt=TOpt)
+,TOpt:=TOpt.allvariants
+,TOpt:=TOpt[1]
+,Mini:="sum"++replacesetmini(TOpt)
+,Dir:=max
+,d(mini=Mini)
+;Dr:=[("invalid #maximize (expected one-line { Weight,Terms : Body }.): "++L)|Dr])),
+HadMin:=1
+;Dr:=[("invalid #maximize (expected a { ... } set after the directive): "++L)|Dr])
 ; L[1..6]=="#show " -> println(stderr,"% aspic: WARNING: #show is not implemented; the line was ignored (use the show script): "++L)
 ; L[1..6]=="#show." -> println(stderr,"% aspic: WARNING: #show is not implemented; the line was ignored (use the show script): "++L)
 ; L[1..6]=="#hide " -> println(stderr,"% aspic: WARNING: #hide is not implemented; the line was ignored: "++L)
@@ -485,6 +503,7 @@ end
 end
 end
 ,ObjMin=Mini
+,ObjDir=Dir
 .
 
 aspic_sum(A,B)=R,number(A),number(B)=>R=A+B.

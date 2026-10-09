@@ -21,7 +21,7 @@ end.
 
 aspic_gen(ID,Constr,Lines)=Snippet=>
 genbuf_init()
-,asparse(Lines,R,T,Mini)
+,asparse(Lines,R,T,Mini,Dir)
 ,(R=[] -> true; println(stderr,"aspic_gen: ASP syntax error in the asp block: "++R.to_string()), abort)
 ,genprintln("var(X,_)=X.\nrange(_,_)=0.")
 ,H=get_heap_map(asp_atoms)
@@ -48,7 +48,7 @@ end
 ,genprintln("aspic_stoplearning(),")
 ,translate_rules(T,2)
 ,translate_completion(T)
-,genprintln("ASPIC_OPT#="++cond(Mini=[],"0",Mini)++",")
+,genprintln("ASPIC_OPT#="++cond(Mini=[],"0",Mini)++cond(Dir==max,",aspic_solve_dir(max)","")++",")
 ,genprintln("true.")
 ,Snippet=genbuf_get()
 .
@@ -391,12 +391,13 @@ end
 % main(_)=>true.
 
 %parse ASP from list of lines
-asparse(A,R,T,ObjMin)=>
+asparse(A,R,T,ObjMin,ObjDir)=>
 B=[]
 ,C=[]
 ,Mini=[]
 ,Dr=[]
 ,HadMin:=0
+,Dir:=min
 ,foreach(L in A)
 if(member('%',L)) then
 I:=[J:J in 1..L.length,L[J]='%'], L:=L[1..I[1]-1]
@@ -413,7 +414,7 @@ C:=[(L2[1].to_atom,VI)|C]
 ; L[1..9]=="#minimize" ->
 (L.len>=10 ->
 (HadMin==1 ->
-Dr:=[("duplicate #minimize (only one is supported): "++L)|Dr]
+Dr:=[("duplicate #minimize/#maximize (only one optimization directive is supported): "++L)|Dr]
 ;
 MiniText:=[X:X in L[10..L.len],X!=' ',ord(X)>32],
 (p(mini,MiniText,ROpt,TOpt) ->
@@ -421,10 +422,27 @@ d(topt=TOpt)
 ,TOpt:=TOpt.allvariants
 ,TOpt:=TOpt[1]
 ,Mini:="sum"++replacesetmini(TOpt)
+,Dir:=min
 ,d(mini=Mini)
 ;Dr:=[("invalid #minimize (expected one-line { Weight,Terms : Body }.): "++L)|Dr])),
 HadMin:=1
 ;Dr:=[("invalid #minimize (expected a { ... } set after the directive): "++L)|Dr])
+; L[1..9]=="#maximize" ->
+(L.len>=10 ->
+(HadMin==1 ->
+Dr:=[("duplicate #minimize/#maximize (only one optimization directive is supported): "++L)|Dr]
+;
+MiniText:=[X:X in L[10..L.len],X!=' ',ord(X)>32],
+(p(mini,MiniText,ROpt,TOpt) ->
+d(topt=TOpt)
+,TOpt:=TOpt.allvariants
+,TOpt:=TOpt[1]
+,Mini:="sum"++replacesetmini(TOpt)
+,Dir:=max
+,d(mini=Mini)
+;Dr:=[("invalid #maximize (expected one-line { Weight,Terms : Body }.): "++L)|Dr])),
+HadMin:=1
+;Dr:=[("invalid #maximize (expected a { ... } set after the directive): "++L)|Dr])
 ; L[1..6]=="#show " -> println(stderr,"% aspic: WARNING: #show is not implemented; the line was ignored (use the show script): "++L)
 ; L[1..6]=="#show." -> println(stderr,"% aspic: WARNING: #show is not implemented; the line was ignored (use the show script): "++L)
 ; L[1..6]=="#hide " -> println(stderr,"% aspic: WARNING: #hide is not implemented; the line was ignored: "++L)
@@ -461,6 +479,7 @@ end
 end
 end
 ,ObjMin=Mini
+,ObjDir=Dir
 .
 
 aspic_sum(A,B)=R,number(A),number(B)=>R=A+B.

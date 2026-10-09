@@ -162,7 +162,12 @@ var(X)=X.
 % ,d(satclauses=NCLS)=>true.
 aspic_showsatstats(_).
 
-aspic_solve_gen(Mini)=>
+% aspic_solve_dir(D): store the optimization direction (min or max) of an
+% asp block in the seed-scoped map, for aspic_solve_sub to read (the
+% generated block predicates call this when the block has #maximize).
+aspic_solve_dir(D)=>M=get_heap_map(aspic_m(aspic_solvedir)),M.put(now,D).
+
+aspic_solve_gen(Mini,Dir)=>
 M=get_heap_map(aspic_m(aspic_atoms))
 ,MV=M.values()
 %,S::0..MV.len
@@ -181,9 +186,12 @@ d(universe_size=universe().len)
 ,if Mini==0 then solve([rand],MV)
 ,d(solution=[K.show:K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K)]
 ++[X=X.showfd:X in [F:K in M.keys,aspic_isfdvariable(K),K=..L,L2=L.removelast,F=..L2].remove_dups.sort])
+elseif Dir==max then solve([$max(Mini),rand],[Mini|MV])
+,d(solution=[$maximization(Mini)|[K.show:K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K)]
+++[X=X.showfd:X in [F:K in M.keys,aspic_isfdvariable(K),K=..L,L2=L.removelast,F=..L2].remove_dups.sort]])
 else solve([$min(Mini),rand],[Mini|MV])
-,d(solution=[$optimization(Mini)|[K.show:K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K)]]
-++[X=X.showfd:X in [F:K in M.keys,aspic_isfdvariable(K),K=..L,L2=L.removelast,F=..L2].remove_dups.sort])
+,d(solution=[$optimization(Mini)|[K.show:K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K)]
+++[X=X.showfd:X in [F:K in M.keys,aspic_isfdvariable(K),K=..L,L2=L.removelast,F=..L2].remove_dups.sort]])
 end
 % ,d([K.show:K in M.keys.sort,V=M.get(K),V=0])
 %,d(s=S)
@@ -195,11 +203,16 @@ d("UNSAT")
 ,current_datetime().d
 .
 
-aspic_solve(sat,Mini)=>aspic_solve_gen(Mini).
+aspic_solve(sat,Mini,Dir)=>aspic_solve_gen(Mini,Dir).
 
-%used when embedding ASP islands in Picat
+% backward-compatible 2-arg form: minimize
+aspic_solve(sat,Mini)=>aspic_solve_gen(Mini,min).
+
+%used when embedding ASP islands in Picat; the optimization direction
+%(min or max) is read from the map written by aspic_solve_dir (default min)
 aspic_solve_sub(Mini)=>
-M=get_heap_map(aspic_m(aspic_atoms))
+D=get_heap_map(aspic_m(aspic_solvedir)).get(now,min)
+,M=get_heap_map(aspic_m(aspic_atoms))
 ,MV=M.values()
 ,d("starting to solve")
 ,(aspic_showsatstats(MV),fail
@@ -213,9 +226,12 @@ d(universe_size=universe().len)
 ,if Mini==0 then solve([rand],MV)
 %,d(solution=[K.show:K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K)]
 %++[X=X.showfd:X in [F:K in M.keys,aspic_isfdvariable(K),K=..L,L2=L.removelast,F=..L2].remove_dups.sort])
+elseif D==max then solve([$max(Mini),rand],[Mini|MV])
+%,d(solution=[$maximization(Mini)|[K.show:K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K)]
+%++[X=X.showfd:X in [F:K in M.keys,aspic_isfdvariable(K),K=..L,L2=L.removelast,F=..L2].remove_dups.sort]])
 else solve([$min(Mini),rand],[Mini|MV])
-%,d(solution=[$optimization(Mini)|[K.show:K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K)]]
-%++[X=X.showfd:X in [F:K in M.keys,aspic_isfdvariable(K),K=..L,L2=L.removelast,F=..L2].remove_dups.sort])
+%,d(solution=[$optimization(Mini)|[K.show:K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K)]
+%++[X=X.showfd:X in [F:K in M.keys,aspic_isfdvariable(K),K=..L,L2=L.removelast,F=..L2].remove_dups.sort]])
 end
 % ,d([K.show:K in M.keys.sort,V=M.get(K),V=0])
 %,d(s=S)

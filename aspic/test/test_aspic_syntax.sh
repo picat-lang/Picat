@@ -77,6 +77,15 @@ for f in test/cases/ok_*.lp; do
             bad "$name: generated code lacks the #minimize objective"
             continue
         fi ;;
+    ok_maximize.lp)
+        if ! grep -q 'aspic_solve(ASPIC_SEARCH,ASPIC_OPT,max)' "$TMP/err.txt"; then
+            bad "$name: generated code lacks the maximize direction in aspic_solve"
+            continue
+        fi
+        if ! grep -q 'aspic_solve_dir(max)' "$TMP/err.txt"; then
+            bad "$name: generated code lacks aspic_solve_dir(max)"
+            continue
+        fi ;;
     ok_not_paren.lp)
         if ! grep -q 'aspic_not(aspic_var(q))' "$TMP/err.txt"; then
             bad "$name: not(q) did not become negation (aspic_not) in the generated code"
@@ -121,7 +130,7 @@ for f in test/cases/err_*.lp; do
             bad "$name: expected 'invalid #minimize' in the diagnostic"
             continue
         fi ;;
-    err_duplicate_minimize.lp)
+    err_duplicate_minimize.lp|err_dup_min_max.lp)
         if ! grep -q 'duplicate #minimize' "$TMP/out.txt"; then
             bad "$name: expected 'duplicate #minimize' in the diagnostic"
             continue
@@ -160,6 +169,37 @@ for f in test/cases/run_*.lp; do
         else
             bad "$name: no solution printed (one of the two stable models expected)"
         fi ;;
+    run_maximize.lp)
+        sol=$(grep -oE 'maximization\([0-9-]+\)' "$TMP/run_out.txt" | head -1)
+        if [ "$sol" != "maximization(13)" ]; then
+            bad "$name: expected maximization(13), got ${sol:-nothing}"
+        else
+            ok
+        fi ;;
+    esac
+done
+
+# ---- 3b. run_*.pi cases (embedded flow: aspic_prep + execute) --------------
+
+for f in test/cases/run_*.pi; do
+    [ -e "$f" ] || continue
+    name=$(basename "$f")
+    mkdir -p "$TMP/embcase"
+    if ! picat aspic_prep.pi pre "$f" "$TMP/embcase" "$TMP/embcase/out.pi" aspic_runtime_template.pi sat >/dev/null 2>&1 \
+       || [ ! -f "$TMP/embcase/out.pi" ]; then
+        bad "$name: aspic_prep failed to pre-transpile"
+        continue
+    fi
+    ( cd "$TMP/embcase" && picat -log -s 1234567890 out.pi >run_out.txt 2>&1 )
+    case "$name" in
+    run_emb_maximize.pi)
+        if grep -q '^10$' "$TMP/embcase/run_out.txt"; then
+            ok
+        else
+            bad "$name: expected the maximized objective 10 on stdout, got: $(tail -1 "$TMP/embcase/run_out.txt")"
+        fi ;;
+    *)
+        ok ;;
     esac
 done
 

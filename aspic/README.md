@@ -134,16 +134,23 @@ color(netherlands,green)
 
 The aggregates #sum, #max, #min and #count ARE supported in rule bodies and
 constraints over numeric terms (e.g. `#sum { X : p(X) }`), since v0.3.
+#minimize and #maximize ARE supported (v0.3.7): one optimization directive
+per program, the { ... } set on one line, over numeric terms, e.g.
+`#maximize { V,X : in(X), val(X,V) }`. In an embedded asp block the
+maximized objective arrives in the block's ASPIC_OPT_N variable and
+aspic_solve_sub maximizes it.
 
 Everything else in the following list is NOT supported. None of it is
 accepted silently: unknown or malformed input is reported as an error
 (notparsed, "ASP syntax error!"), so a program either transpiles or stops
 with a diagnostic that names the offending line.
 
-- #maximize (no maximization; the directive is reported as an error)
-- weak constraints (`:~ ... [w@l]`); priority levels/weights (`@l`) in #minimize
-- more than one #minimize directive in one program (duplicates are reported)
-- a #minimize whose { ... } set spans several lines (it must be on one line)
+- weak constraints (`:~ ... [w@l]`); priority levels/weights (`@l`) in
+  #minimize/#maximize
+- more than one #minimize/#maximize directive in one program (duplicates
+  are reported)
+- a #minimize/#maximize whose { ... } set spans several lines (must be on
+  one line)
 - disjunctive heads (`a ; b :- c.`)
 - strong negation (`-p(X)`)
 - conditional literals (`H : B`) outside aggregates/cardinality constraints
@@ -159,10 +166,11 @@ above) can be used to filter the printed solutions instead.
 
 # Diagnostics
 
-- a `#` directive other than #const, #minimize, #show, #hide stops the
-  transpilation with "unsupported ASP directive: <line>"
+- a `#` directive other than #const, #minimize, #maximize, #show, #hide
+  stops the transpilation with "unsupported ASP directive: <line>"
 - a #const value that is not an integer, an unparseable or multi-line
-  #minimize, or a duplicate #minimize each stop with a named diagnostic
+  #minimize/#maximize, or a duplicate #minimize/#maximize each stop with a
+  named diagnostic
 - constructs that the parser does not know are reported through the
   standard notparsed mechanism; the transpiler never crashes on them
 - default negation is recognized as `not ` (space or tab) and as `not(`
@@ -192,6 +200,16 @@ Exit status 0 iff all tests pass.
 - so far only tested on Linux 
 
 # Version history
+
+v0.3.7:
+
+- #maximize is supported (it was previously reported as an error, and
+  before that silently ignored): `#maximize { Weight,Terms : Body }.` on
+  one line, one optimization directive per program. The generated LP-flow
+  program solves with $max and reports $maximization(<value>); in an
+  embedded asp block the generated predicate emits aspic_solve_dir(max) so
+  aspic_solve_sub maximizes the block's ASPIC_OPT_N objective.
+- #minimize regression: unchanged semantics ($min, $optimization(<value>)).
 
 v0.3.6:
 
