@@ -182,8 +182,10 @@ Aggregates over ATOMS are supported too (v0.3.10): the element before the
 colon may be a predicate literal, e.g. `q :- #sum { p(X) : dom(X) } >= 1.`
 means q holds iff at least one p(X) is true — the element contributes the
 atom's 0/1 truth value (so #sum over atoms is a count of the true atoms
-among the groundings). Negated elements (`#sum { not p(X) : ... }`) are not
-supported; negation in the aggregate BODY works.
+among the groundings). Negated elements are supported too (v0.3.12):
+`#sum { not p(X) : dom(X) }` counts the instances where p(X) is FALSE —
+the element contributes 1 - atom via the runtime's aspic_not. Negation in
+the aggregate BODY works as before.
 Conditional literals in rule bodies are supported (v0.3.11): `all :- p(X) :
 dom(X).` means all holds iff every p(X) with dom(X) holds — the conclusion
 must hold for every grounding whose condition holds (each instance is an
@@ -221,7 +223,6 @@ with a diagnostic that names the offending line.
 
 - priority levels/weights (`@l`) in #minimize/#maximize; multi-level
   lexicographic weak-constraint optimization (levels are parsed but merged)
-- negated elements in aggregates (`#sum { not p(X) : q(X) }`)
 - conditional elements in head disjunctions (`p(X) : d(X).` as a head) and
   head aggregates with the extra literal (`#count { X: p(X,Y): X=1..3 } = 1`)
 - more than one #minimize/#maximize directive in one program (duplicates
@@ -281,6 +282,22 @@ Exit status 0 iff all tests pass.
 - so far only tested on Linux 
 
 # Version history
+
+v0.3.12:
+
+- Negated aggregate elements are supported: `#sum { not p(X) : dom(X) }`
+  counts the instances where p(X) is FALSE - the element contributes
+  1 - atom via the runtime's aspic_not, so the aggregate sums 1 for every
+  grounding whose condition holds and whose atom is false. Previously such
+  aggregates stopped with notparsed. Implemented with a new nva grammar
+  clause (~atom, then the atom) producing an \$aspic_not-wrapped element,
+  in both parsers (aspic_transpiler.pi and the aspic_gen.pi copy); the
+  translation needed no change (the element lands in the generated
+  ASPIC_AGVAL1= expression, which evaluates to 1 - atom). Semantics
+  verified both ways: with :- not q. forcing q, the model contains q and
+  not all p chosen (at least one p is false); with p(1),p(2) facts, q does
+  not hold. New tests: run_aggregate_neg.lp, run_aggregate_neg_all.lp; the
+  former err_aggregate_neg.lp became the run cases. 86 checks pass.
 
 v0.3.11:
 

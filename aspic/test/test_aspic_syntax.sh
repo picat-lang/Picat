@@ -260,6 +260,26 @@ for f in test/cases/run_*.lp; do
         else
             ok
         fi ;;
+    run_aggregate_neg.lp)
+        sol=$(grep 'solution' "$TMP/run_out.txt" | head -1)
+        if [ -z "$sol" ]; then
+            bad "$name: no solution printed"
+        elif ! echo "$sol" | grep -q 'q'; then
+            bad "$name: q should hold (the negated element forces at least one false p), got $sol"
+        elif echo "$sol" | grep -q 'p(1)' && echo "$sol" | grep -q 'p(2)'; then
+            bad "$name: not both p(1) and p(2) should be chosen (at least one p must be false), got $sol"
+        else
+            ok
+        fi ;;
+    run_aggregate_neg_all.lp)
+        sol=$(grep 'solution' "$TMP/run_out.txt" | head -1)
+        if [ -z "$sol" ]; then
+            bad "$name: no solution printed"
+        elif echo "$sol" | grep -q 'q'; then
+            bad "$name: q should not hold (no p is false, the negated sum is 0), got $sol"
+        else
+            ok
+        fi ;;
     esac
 done
 

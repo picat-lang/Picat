@@ -772,6 +772,9 @@ p(lnv,S,R,T)=>l(nva,",",S,R,T).
 %for a ground atom), so the aggregate sums/counts the atoms themselves.
 %Atoms come FIRST: p(num) has a fallback that would otherwise swallow a
 %lowercase identifier as $const before the atom interpretation is tried.
+%A negated element (~atom) is accepted too: it evaluates to 1 - atom
+%(1 when the atom is false), via the runtime's aspic_not.
+p(nva,S,R,T),S="~"++S2,p(atom,S2,R,T1)=>T=$aspic_not(T1).
 p(nva,S,R,T),(p(atom,S,R,T);p(num,S,R,T);p(var,S,R,T);paren(ae,"(",")",S,R,T))=>true.
 
 p(valset,S,R,T),p(lnv,S,":"++S2,T1)=>p(disj,S2,R,T2),T=$valset(T1,T2).
