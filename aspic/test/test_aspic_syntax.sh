@@ -223,6 +223,15 @@ for f in test/cases/run_*.lp; do
         else
             ok
         fi ;;
+    run_island_spaces.lp)
+        sol=$(grep 'solution' "$TMP/run_out.txt" | head -1)
+        if [ -z "$sol" ]; then
+            bad "$name: no solution printed"
+        elif ! echo "$sol" | grep -q 'r'; then
+            bad "$name: r should hold (the spaced island evaluates to 1), got $sol"
+        else
+            ok
+        fi ;;
     esac
 done
 
