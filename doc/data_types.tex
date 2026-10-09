@@ -556,7 +556,7 @@ parses $String$ as an integer in base $Base$ and returns the decimal integer, wh
 \ignore{
 \item \texttt{unnumber\_vars($Term_1$) = $Term_2$}\index{\texttt{unnumber\_vars/1}}: $Term_2$ is a copy of $Term_1$, with all numbered variables being replaced by Picat variables.  Different numbered variables are replaced by different Picat variables.
 }
-\item \texttt{variant($Term_1$, $Term_2$)}\index{\texttt{variant/2}}: This predicate is true if $Term_2$ is a variant of $Term_1$.
+\item \texttt{variant($Term_1$, $Term_2$)}\index{\texttt{variant/2}}: This predicate is true if $Term_2$ is a variant of $Term_1$. $Term_1$ and $Term_2$ cannot share variables.
 \item \texttt{vars($Term$) = $Vars$}\index{\texttt{vars/1}}: This function returns a list\index{list} of variables that occur in $Term$.
 \end{itemize}
 \ignore{
