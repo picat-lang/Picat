@@ -222,7 +222,7 @@ wspc(C,K) =>
   .
 
 numbl(Pr,Bl) =>
-  numbl0(Pr,0,[],Bl)
+  numbl0(Pr,1,[],Bl)   % blocks are numbered from 1, matching the picasp flow
   .
 numbl0([],K,Acc,Bl)=>Bl=Acc.
 numbl0([P|T],K,Acc,Bl)=>numbl0(T,K+1,[[P[1],P[2],K]|Acc],Bl).

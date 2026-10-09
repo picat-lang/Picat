@@ -35,9 +35,17 @@ external programs at all, in two ordinary `picat` runs:
    `OUT.pi` and generates `LIBDIR/aspic_runtime.pi` from the template
    (in place of the `sed` step; `ASPIC_CONSTRAINTS_LIB` becomes `sat`
    or `cp`).  `#if`/`#ifdef`/`#include` are rejected with a clear error.
-* stage 2: an ordinary Picat program (imports `aspic_runtime.`), runs
-  on any Picat build — including the browser build, where
-  `aspic_prep`'s `main` (fixed web-FS paths) is what the page stages.
+ * stage 2: an ordinary Picat program (imports `aspic_runtime.`), runs
+   on any Picat build — including the browser build, where
+   `aspic_prep`'s `main` (fixed web-FS paths) is what the page stages.
+
+The blocks are numbered from 1 in BOTH flows (aspic_prep and picasp): the
+Nth `asp ... end` block is replaced by `aspic_N(ASPIC_OPT_N)`, and the
+block's objective variable is that same `ASPIC_OPT_N` — an
+`aspic_solve_sub(ASPIC_OPT_N)` call in the surrounding code must reference
+exactly that N. Passing a variable of a different name gives the solver a
+variable that appears in no constraint, which stops with
+`free_var_not_allowed`.
 
 The constraint library is `sat` by default; a `#constr cp` line
 (outside the `asp` block) switches to the picat CP solver — the
@@ -231,6 +239,17 @@ Exit status 0 iff all tests pass.
 - so far only tested on Linux 
 
 # Version history
+
+v0.3.8:
+
+- aspic_prep numbers the asp blocks from 1, matching the picasp flow
+  (previously 0-based): the Nth block is `aspic_N(ASPIC_OPT_N)` in both
+  flows. The shipped example asp_embedded_in_picat.pi, written for
+  picasp's ASPIC_OPT_1, now also runs through aspic_prep (it previously
+  failed there with free_var_not_allowed, because the spliced block bound
+  ASPIC_OPT_0 while the example referenced ASPIC_OPT_1 - a variable in no
+  constraint). The block-numbering contract is documented in the
+  Pure-Picat embedded-ASP flow section.
 
 v0.3.7:
 
