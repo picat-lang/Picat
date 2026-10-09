@@ -267,7 +267,11 @@ over all examples/*.lp, and an end-to-end run of the embedded-ASP flow:
 
     bash test/test_aspic_syntax.sh
 
-Exit status 0 iff all tests pass.
+Exit status 0 iff all tests pass. The battery's run steps invoke picat with
+-s 1234567890 - that is the STACK SIZE (not a random seed): a large stack
+is needed so that the transpiled and executed programs do not exhaust it
+(a tiny stack, e.g. -s 42, makes picat segfault - deterministic, not
+random).
 
 # Requirements
 
@@ -284,7 +288,6 @@ Exit status 0 iff all tests pass.
 # Version history
 
 v0.3.12:
-
 - Negated aggregate elements are supported: `#sum { not p(X) : dom(X) }`
   counts the instances where p(X) is FALSE - the element contributes
   1 - atom via the runtime's aspic_not, so the aggregate sums 1 for every
