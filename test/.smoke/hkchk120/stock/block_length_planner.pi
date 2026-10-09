@@ -1,0 +1,116 @@
+/* 
+
+  Block height problem in Picat.
+
+  From 
+  https://www.cs.bham.ac.uk/research/projects/poplog/doc/popprimer.dir/node195.html
+  """
+   3. Try using the problem solver to solve the problem of selecting some blocks 
+      from a pile of blocks to build a tower of exactly a given height. E.g. you may 
+      be given a list of numbers representing the heights of the available blocks:
+
+      [3 16 12 22 5 5 24 14 8 7 22 11]
+
+      and the task of finding blocks to make a tower exactly 30 units high.
+  """
+
+  Note: It's not clear if one can reuse an already used height (number).
+  Here we assume that one cannot reuse numbers.
+
+  This Picat model was created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+
+import planner.
+import cp.
+
+
+main => go.
+
+%
+% Fixed final value, only the first found best plan
+%
+go =>
+  Init = [0|[]],
+  available(Available),
+  println(available=Available),
+  println(init=Init),
+  best_plan(Init,Plan),
+  foreach(Move in Plan)
+    println(Move)
+  end,
+  nl.
+
+%
+% Random final value and also showing all optimal solutions.
+%
+go2 =>
+  Init = [0|[]],
+  available(Available),
+  println(available=Available),
+  println(init=Init),
+  _ = random2(),
+  Final = random(min(Available),sum(Available)),
+  println(final=Final),
+  get_global_map().put(final,Final),
+  best_plan_nondet(Init,Plan),
+  foreach(Move in Plan)
+    println(Move)
+  end,
+  nl,
+  fail,
+  nl.
+
+
+%
+% CP variant: sumset sum problem.
+% Here we don't care about the order of the
+%
+go3 => 
+  available(Available),
+  final([Final|_]),
+  println(available=Available),
+  println(final=Final),
+
+  N = Available.length,
+  X = new_list(N),
+  X :: 0..1, % If we can only use a value once
+  % X :: 0..100, % We can reuse a value.
+
+  sum([X[I] *Available[I] : I in 1..N]) #= Final,
+  Z #= sum([X[I] : I in 1..N]),
+  solve($[min(Z)], X),
+
+  println(x=X),
+  println(z=Z),
+  println(solution=[[Available[I] : J in 1..X[I]] : I in 1..N, X[I] > 0].flatten()),
+  nl,
+  % fail,
+  nl.
+
+final([S|_L]) => S = get_global_map().get(final,84).
+
+
+action([Sum1|From1],To,Move,Cost) =>
+   % println($action([Sum1|From1],To,Move,Cost) ),
+   available(Available),
+   Available2 = [A : A in Available, not member(A,From1)],
+   member(H,Available2),
+   % not member(H,From1), % cannot pick a previous selected 
+   
+   Sum2 = Sum1 + H,
+   Move = [add,H,to,From1,giving,Sum2],
+   To = [Sum2|From1++[H]],
+   Cost = 1.
+
+
+% index(-)
+available([3,16,12,22,5,5,24,14,8,7,22,11]).
+
+% available(Available) => 
+%   Available = [1 + random2() mod 25 : _ in 1..20].remove_dups().
+
+
+

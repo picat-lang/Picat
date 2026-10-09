@@ -1,0 +1,167 @@
+/*
+
+  Golomb ruler in Picat.
+
+  A Golomb ruler is a set of integers (marks) a(1) < ...  < a(n) such
+  that all the differences a(i)-a(j) (i > j) are distinct.  Clearly we
+  may assume a(1)=0.  Then a(n) is the length of the Golomb ruler.
+  For a given number of marks, n, we are interested in finding the
+  shortest Golomb rulers.  Such rulers are called optimal. 
+
+  See http://www.research.ibm.com/people/s/shearer/grule.html
+
+
+  Model created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+import cp.
+
+
+main => go.
+
+go =>
+   time2(golomb(8, Xs)),
+   println(Xs),
+   nl.
+
+%
+% Benchmarking: n=10
+%
+% golomb
+% CPU time 10.55 seconds. Backtracks: 0
+%
+% golomb2 
+% CPU time 6.057 seconds. Backtracks: 292528
+%
+% golomb3
+% CPU time 1.694 seconds. Backtracks: 0
+%
+go2 => 
+   time2(golomb(10, Xs)),
+   println(golomb=Xs),
+   
+   time2(golomb2(10, Xs2)),
+   println(golomb2=Xs2),
+   
+   time2(golomb3(10, Xs3)),
+   println(golomb3=Xs3),
+   nl.
+
+go3 =>
+  println("testing golomb/2"),
+  foreach(N in 2..15)
+    time2(golomb(N,Xs)),
+    println(Xs),
+    nl
+  end,
+  nl.
+
+go4 =>
+  println("testing golomb2/2"),
+  foreach(N in 2..15)
+    time2(golomb2(N,Xs)),
+    println(Xs),
+    nl
+  end,
+  nl.
+
+go5 =>
+  println("testing golomb3/2"),
+  foreach(N in 2..15)
+    time2(golomb3(N,Xs)),
+    println(Xs),
+    nl
+  end,
+  nl.
+
+
+
+
+golomb(N, Xs) =>
+  println(n=N),
+  Xs = new_list(N),
+  NN = 2**(N-1)-1,
+  Xs :: 0..NN,
+
+  Xn #= Xs[N], % to minimize
+  Xs[1] #= 0,
+
+  all_different(Xs),
+  increasing(Xs),
+
+  Diffs = [Diff : I in 1..N, J in 1..N, I != J, Diff #=  Xs[I]-Xs[J]],
+  all_different(Diffs),
+
+  % Symmetry breaking
+  Xs[2] - Xs[1] #< Xs[N] - Xs[N-1],
+  Diffs[1] #< Diffs[N],
+
+  Vars = Xs ++ Diffs,
+  solve($[split,min(Xn)],Vars).
+
+
+%
+% Another approach.
+% Inspired by 
+% Barbara M. Smith, Kostas Stergiou, and Toby Walsh:
+% "Modelling the Golomb Ruler Problem"
+%
+golomb2(N, Xs) =>
+  println(n=N),
+  Xs = new_list(N),
+  Xs :: 0..N**2,
+
+  % Xn #= Xs[N], % to minimize
+  Xs[1] #= 0,
+
+  % all_distinct(Xs),
+  % increasing(Xs), % note: this is #=<, not #<
+
+  foreach(I in 2..N)
+    Xs[I-1] #< Xs[I]
+  end,
+
+  foreach(I in 1..N, J in 1..N, K in 1..N, I < J, J < K)
+    2*Xs[J] - Xs[I] - Xs[K] #!= 0
+  end,
+
+  foreach(I in 1..N, J in 1..N, K in 1..N, L in 1..N, 
+                          I < J, K < L, [I,J] @< [K,L])
+     Xs[J] - Xs[I] #!= Xs[L] - Xs[K]
+  end,
+
+  % Symmetry breaking
+  Xs[2] - Xs[1] #< Xs[N] - Xs[N-1],
+
+  solve($[ffc,updown,min(Xs[N])],Xs).
+
+%%
+%% From an ECLiPSe model.
+%%
+golomb3(N, Xs) =>
+        println(n=N),
+        Xs = new_list(N),
+        NN = 2**(N-1)-1,
+        Xs :: 0..NN,
+        append([0|_], [Xn], Xs),
+        increasing(Xs),
+        distances(Xs, Diffs),
+        Diffs :: 1..NN,
+        all_different(Diffs),
+        append([D1|_], [Dn], Diffs),
+        D1 #< Dn,
+
+        solve($[min(Xn),ff,split],Xs).
+
+distances([], X) ?=> X = [].
+distances([X|Ys], D0) =>
+        distances(X, Ys, D0, D1),
+        distances(Ys, D1).
+
+distances(_, [], D, D1) ?=> D1=D.
+distances(X, [Y|Ys], DiffD1, D0) =>
+        DiffD1 = [Diff|D1],
+        Diff #= Y-X,
+        distances(X, Ys, D1, D0).

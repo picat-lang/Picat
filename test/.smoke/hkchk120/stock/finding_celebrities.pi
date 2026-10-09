@@ -1,0 +1,242 @@
+/*
+
+  Finding celebrities problem in Picat.
+
+  From Uwe Hoffmann
+  "Finding celebrities at a party"
+  http://www.codemanic.com/papers/celebs/celebs.pdf
+  """
+  Problem: Given a list of people at a party and for each person the list of
+  people they know at the party, we want to find the celebrities at the party. 
+  A celebrity is a person that everybody at the party knows but that 
+  only knows other celebrities. At least one celebrity is present at the party.
+  """
+  (This paper also has an implementation in Scala.)
+  
+  Note: The original of this problem is 
+    Richard Bird and Sharon Curtis: 
+    "Functional pearls: Finding celebrities: A lesson in functional programming"
+    J. Funct. Program., 16(1):13–20, 2006.
+
+  The problem from Hoffmann's paper is to find of who are the 
+  celebrity/celebrities in this party graph:
+    Adam  knows {Dan,Alice,Peter,Eva},
+    Dan   knows {Adam,Alice,Peter},
+    Eva   knows {Alice,Peter},
+    Alice knows {Peter},
+    Peter knows {Alice}
+  
+  Solution: the celebrities are Peter and Alice.
+
+  I blogged about this problem in "Finding celebrities at a party"
+  http://www.hakank.org/constraint_programming_blog/2010/01/finding_celebrities_at_a_party.html
+
+
+  This model:
+  - checks for the number of celebrities
+  - generate a party of a certain size and perhaps with 
+    some constraints on the celebrities
+
+
+  Model created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+import cp.
+
+
+main => go.
+
+%
+% Solve the 4 problem instances.
+%
+go =>
+   foreach(P in 1..4)
+      writeln(problem=P),
+      problem(P,N,Party),
+      if find_celebrities(N,Party,Celebrities) then
+         println(celebrities=Celebrities),
+         printf("celebs: %w\n", [I : I in 1..Celebrities.length, Celebrities[I] #= 1])
+      else
+         println("no solution")
+      end,
+      nl
+   end.
+
+%
+% Generate a random Celebrity Party.
+%
+go2 =>
+    % Create the party
+    N = 60,
+    _ = random2(), % randomize it
+    Celebrities = new_list(N),
+    sum(Celebrities) #= N // 10, % require the 10% are celebrities.
+    find_celebrities(N,Party,Celebrities),
+    println(celebrities=Celebrities),
+    printf("celebs: %w\n", [I : I in 1..Celebrities.length, Celebrities[I] #= 1]),
+    foreach(Row in Party) writeln(Row) end,
+
+    % Test it.
+    nl,
+    println("And then we test it..."),
+    find_celebrities(N,Party,Celebrities2),
+    printf("celebs: %w\n", [I : I in 1..Celebrities2.length, Celebrities2[I] #= 1]),
+    if Celebrities == Celebrities2 then
+      println(ok)
+    else
+      println(not_ok)
+    end,
+    nl.
+
+
+%
+% Number of possible parties of size 1..6 with at least one celebrity.
+%
+% N     #sols
+% -----------
+% 1         1
+% 2         3
+% 3        31
+% 4      1431
+% 5    256651
+% 6 172541283
+%
+%
+% Not in OEIS:
+% 1,3,31,1431,256651,172541283
+% https://oeis.org/search?q=+1%2C3%2C31%2C1431%2C256651%2C172541283&language=english&go=Search
+%
+go3 =>
+    foreach(N in 1..6)
+       time(Count = count_all((Celebrities = new_list(N),
+                         sum(Celebrities) #> 0, 
+                         find_celebrities(N,_Party,Celebrities)
+                         ))),
+       println(N=Count)
+    end,
+    nl.
+
+%
+% Find/Create Party and Celebrities:
+% - given a Party
+% - or given the size of the Party (N), and perhaps something about the celebrities.
+%
+find_celebrities(N,Party,Celebrities) =>
+   Gen = false, % Generate a Party?
+   if var(Party) then
+     Gen := true,
+     Party = new_array(N,N),
+     Party :: 0..1
+   end,
+   bp.length(Celebrities,N),
+   
+   Celebrities :: 0..1, % is this a celebrity
+   NumCelebrities #= sum(Celebrities),
+
+   %
+   % All persons know the celebrities
+   % and the celebrities only know celebrities.
+   % (Here we assume that a person knows him/herself.)
+   %
+   foreach(I in 1..N)
+      Celebrities[I] #<=> sum([(Party[J,I]#=1) : J in 1..N]) #= N,
+      Celebrities[I] #<=> sum([(Party[I,J]#=1) : J in 1..N]) #= NumCelebrities
+   end,
+
+   Vars = Party.vars() ++ Celebrities,
+   if Gen then
+     % Just to be a little more interesting, we randomize the labeling.
+     solve([rand_val],Vars)
+   else 
+     solve([ff,split],Vars)
+   end.
+
+
+%
+% The party graph of the example above:
+%
+%  Adam  knows [Dan,Alice,Peter,Eva],  [2,3,4,5]
+%  Dan   knows [Adam,Alice,Peter],     [1,4,5]
+%  Eva   knows [Alice,Peter],     [4,5]
+%  Alice knows [Peter],      [5]
+%  Peter knows [Alice]       [4]
+%
+% Solution: Peter and Alice (4,5) are the celebrities.
+%
+problem(1, N, Party) => 
+  N = 5,
+  Party = [
+    [1,1,1,1,1], % 1
+    [1,1,0,1,1], % 2
+    [0,0,1,1,1], % 3
+    [0,0,0,1,1], % 4
+    [0,0,0,1,1]  % 5
+   ].
+
+
+
+% In this example Alice (4) also knows Adam (1),
+% which makes Alice a non celebrity, and since
+% Peter (5) knows Alices, Peter is now also a
+% non celebrity. Which means that there are no
+% celebrities at this party.
+% 
+problem(2, N, Party) => 
+   N = 5,
+   Party = [
+            [1,1,1,1,1],
+            [1,1,0,1,1],
+            [0,0,1,1,1],
+            [1,0,0,1,1],
+            [0,0,0,1,1]
+           ].
+
+%
+% Here is another example. It has the following
+% cliques:
+%  [1,2]
+%  [4,5,6]
+%  [6,7,8]
+%  [3,9,10]
+%
+% The celebrities are [3,9,10]
+%
+problem(3,N, Party) => 
+   N = 10,
+   Party = [
+      %   1 2 3 4 5 6 7 8 9 10
+          [0,1,1,0,0,0,0,1,1,1],
+          [1,0,1,0,0,0,0,0,1,1],
+          [0,0,1,0,0,0,0,0,1,1],
+          [0,1,1,0,1,1,0,0,1,1],
+          [0,0,1,1,0,1,0,0,1,1],
+          [0,0,1,1,1,0,1,1,1,1],
+          [0,0,1,0,0,1,0,1,1,1],
+          [0,0,1,0,0,1,1,0,1,1],
+          [0,0,1,0,0,0,0,0,1,1],
+          [0,0,1,0,0,0,0,0,1,1]
+   ].
+
+%
+% This is the same graph as the one above
+% with the following changes:
+%   - 9 don't know 3 or 10
+% This party graph now consists of just 
+% one celebrity: [9]
+%
+problem(4,N,Party) => 
+   N = 10,
+   Party = [
+            [0,1,1,0,0,0,0,1,1,1],
+            [1,0,1,0,0,0,0,0,1,1],
+            [0,0,1,0,0,0,0,0,1,1],
+            [0,1,1,0,1,1,0,0,1,1],
+            [0,0,1,1,0,1,0,0,1,1],
+            [0,0,1,1,1,0,1,1,1,1],
+            [0,0,1,0,0,1,0,1,1,1],
+            [0,0,1,0,0,1,1,0,1,1],
+            [0,0,0,0,0,0,0,0,1,0],
+            [0,0,1,0,0,0,0,0,1,1]
+          ].

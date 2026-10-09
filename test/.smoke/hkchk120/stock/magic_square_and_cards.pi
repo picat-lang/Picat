@@ -1,0 +1,78 @@
+/*
+
+  Magic squares and cards in Picat.
+
+  Martin Gardner (July 1971)
+  """
+  Allowing duplicates values, what is the largest constant sum for an order-3
+  magic square that can be formed with nine cards from the deck.
+  """
+
+  Here we generalize to N=2..4
+
+  Model created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+% import sat.
+import cp.
+
+
+main => go.
+
+go ?=>
+   TimeoutSec = 10, % seconds
+   Timeout = TimeoutSec * 1000, % millis
+   foreach(N in 2..7)
+      println(n=N),
+      time_out(time(magic_square_and_cards(N,X,S)),Timeout,Status),
+      println(status=Status),
+      if Status == success then
+         writeln(s=S),
+         foreach(Row in X)
+           println(Row.to_list())
+         end
+      else
+         println(not_ok)
+      end,
+      
+      nl
+   end,
+
+   nl.
+go => true.
+   
+go2 ?=>
+  N = 5,
+  time(magic_square_and_cards(N,X,S)),
+  writeln(s=S),
+  foreach(Row in X)
+    println(Row.to_list())
+  end,
+  nl.
+go2 => true.
+
+magic_square_and_cards(N,X,S) =>
+   X = new_array(N,N),
+   Vars = vars(X),
+   Vars :: 1..13,
+   S :: 0..13*4, % the sum
+
+   % there are 4 cards of each value in a deck
+   foreach(I in 1..13) count(I, Vars,#=<,4) end,
+
+   % the standard magic square constraints (sans all_different)
+   foreach(C in 1..N) sum([X[R,C] : R in 1..N]) #= S end,
+   foreach(R in 1..N) sum([X[R,C] : C in 1..N]) #= S end,   
+
+   sum([X[I,I] : I in 1..N]) #= S,
+   sum([X[I,N+1-I] : I in 1..N]) #= S,
+
+   % Symmetry breaking
+   % X[1,1] #= max([X[1,1], X[1,N], X[N,1], X[N,N]]),
+
+   Vars2 = Vars ++ [S],
+   solve($[max(S),ff,down], Vars2). 
+   %  solve($[ff,down], Vars2).  
+   

@@ -1,0 +1,164 @@
+/* 
+
+  Euler #24 in Picat.
+
+  """
+  A permutation is an ordered arrangement of objects. For example, 3124 is one 
+  possible permutation of the digits 1, 2, 3 and 4. If all of the permutations are 
+  listed numerically or alphabetically, we call it lexicographic order. The 
+  lexicographic permutations of 0, 1 and 2 are:
+   
+      012   021   102   120   201   210
+  
+  What is the millionth lexicographic permutation of the digits 
+  0, 1, 2, 3, 4, 5, 6, 7, 8 and 9?
+  """ 
+
+
+  This Picat model was created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+import util.
+import cp.
+
+main => go.
+
+go => time(euler24).
+
+% 0.0s
+% inspired by a solution on the 'net
+euler24 =>
+   N = 999999,
+   P = 10,
+   Eli = [I mod 10 : I in 1..P],
+   Answer = [],
+   foreach(I in 1..P-1) 
+      F = factorial(P-I),
+      D = N // F,
+      N := N mod F,
+      Answer := Answer ++ [Eli[D]],
+      Eli := Eli.delete(Eli[D])
+   end,
+   println([E.to_string(): E in Answer ++ Eli].flatten()),
+   nl.
+
+% about 1.09s
+euler24a =>
+  L = 0..9,
+  C = 1,
+  while (C < 1000000) 
+    L := next_permutation(L),
+    C := C + 1
+  end,
+  println([I.to_string() : I in L].flatten()).
+
+% Using CP: 2.05s
+euler24b => 
+  % garbage_collect(70_000_000), % stack overflow
+  % garbage_collect(80_000_000), % 5.1s
+  garbage_collect(90_000_000), % 2.05s
+  % garbage_collect(100_000_000), % 2.06s
+  P = alldiff(10),
+  writeln(P[1000000]).
+
+
+% Using permutations/1: 8.88s
+euler24c =>
+   P = permutations(0..9).sort(),
+   println(P[1000000]),
+   nl.
+
+
+% 1.101s
+euler24d =>
+  nth_solution($permutation(0..9,L), 1000000),
+  println([I.to_string() : I in L]).
+
+
+% 5.22s
+euler24e =>
+  L = 0..9,
+  C = 1,
+  while (C < 1000000) 
+    next_higher_permutation(L,L2),
+    L := L2,
+    C := C + 1
+  end,
+  println([I.to_string() : I in L].flatten()).
+
+
+nth_solution(Goal, N) =>
+  get_global_map().put(solcount,1), 
+  call(Goal),
+  C = get_global_map().get(solcount),
+  if C < N then get_global_map().put(solcount,C+1), fail end.
+
+
+next_permutation(P) = Perm =>
+   Perm1 = P,
+   N = Perm1.length,
+   K = N - 1,
+   while (Perm1[K] > Perm1[K+1], K >= 0) 
+      K := K - 1
+   end,
+   if K > 0 then
+      J = N,
+      while (Perm1[K] > Perm1[J])  J := J - 1 end,      
+      % [Perm1[K],Perm1[J]] = [Perm1[J], Perm1[K]], % don't work
+      Tmp := Perm1[K],
+      Perm1[K] := Perm1[J],
+      Perm1[J] := Tmp,
+      R = N, 
+      S = K + 1,
+      while (R > S) 
+         % [Perm1[R],Perm1[S]] = [Perm1[S],Perm1[R]], % don't work
+         Tmp := Perm1[R],
+         Perm1[R] := Perm1[S],
+         Perm1[S] := Tmp,
+         R := R - 1, 
+         S := S + 1
+      end
+   end,
+   Perm = Perm1.
+
+% CP version.
+% solve_all/1 happens to yield all 
+% permutations in correct order.
+alldiff(N) = Perms =>
+  P = new_list(N),
+  P :: 0..N-1,
+  all_different(P),
+  Perms = solve_all(P).
+
+%
+% next_higher_permutation/2
+%
+% From T. Van Le, "Techniques of Prolog Programming", page 100f
+% 
+next_higher_permutation(L,L1) => 
+   reverse3(L,[],L2),
+   append(A,[X,Y|B],L2), X > Y,
+   append(A,[X],C),
+   append(A1,[U|B1],C), U > Y,
+   append(A1,[Y|B1], B2),
+   reverse3([U|B], B2,L1).
+
+%
+% reverse3/3
+%
+% From T. Van Le, "Techniques of Prolog Programming", page 99
+reverse3([],R1,R2) => R1=R2.
+reverse3([H|T],R,L1) => reverse3(T,[H|R],L1).
+
+random_perm(L,N) = Perm => 
+  Perm = L,
+  Len = L.length,
+  foreach(_I in 1..N) 
+     R1 = 1+(random2() mod Len),
+     R2 = 1+(random2() mod Len),
+     T = Perm[R1],
+     Perm[R1] := Perm[R2],
+     Perm[R2] := T
+  end.

@@ -1,0 +1,152 @@
+/* 
+
+  Euler #4 in Picat.
+
+  Problem 4
+  """
+  A palindromic number reads the same both ways. The largest palindrome made 
+  from the product of two 2-digit numbers is 9009 = 91 × 99.
+
+  Find the largest palindrome made from the product of two 3-digit numbers.
+  """
+
+
+  This Picat model was created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+import cp.
+
+main => time(go).
+
+go => euler4.
+
+euler4 =>
+  euler4g.
+
+% 0.066
+% faster since palindromic is just used whenever IJ > Max.
+% The recursive version (euler4e) is slightly faster.
+euler4a =>
+   Max = 0,
+   From = 100,
+   To   = 999,
+   foreach(I in From..To, J in I..To)
+     IJ = I*J,
+     if IJ > Max, palindromic2(IJ) then
+       Max := IJ
+     end
+   end,
+   println(Max).
+
+% 0.227s
+euler4b =>
+   From = 100,
+   To   = 999,
+   L = [IJ : I in From..To, J in I..To, IJ = I*J, palindromic2(IJ)],
+   writeln(max(L)).
+
+% 0.223s
+euler4c =>
+   writeln(max([IJ : I in 100..999, J in I..999, (IJ = I*J, palindromic2(IJ))])).
+
+
+% 0.35s
+euler4d =>
+   Max=max(findall(AB,
+              (between(100,999,A),
+               between(100,A,B),
+               AB=A*B,
+               palindromic2(AB)))),
+   println(Max).
+
+%
+% pure recursion (could probably be neater)
+% 0.061s (slightly faster than euler4a)
+% 
+%
+euler4e => 
+  e4e(100,999,Max),
+  println(Max).
+
+e4e(From,To,Max) =>
+  e4e_loopI(From,To,From,To,0,Max).
+
+
+e4e_loopI(FromI,LimitI,_FromJ,_LimitJ, Max0,Max), FromI > LimitI ?=> 
+  Max = Max0.
+
+e4e_loopI(FromI,LimitI,FromJ,_LimitJ,Max0,Max) =>
+  % Note that we have LimitI both on FromI and FromJ as well
+  % (i.e. stating that I <= J).
+  % This gave a speedup from 0.092s to 0.061s.
+  e4e_loopJ(FromJ,FromI,LimitI,Max0,MaxJ),
+  e4e_loopI(FromI+1,LimitI,FromJ,LimitI,MaxJ,Max).
+
+% base case for 
+e4e_loopJ(FromJ,_FromI,LimitJ,Max0,Max), FromJ > LimitJ ?=>
+  Max = Max0.
+
+% FromJ: J counter
+% FromI: I counter 
+% Limit is FromI
+e4e_loopJ(FromJ,FromI,_LimitJ,Max0,Max) =>
+  Prod = FromJ*FromI,
+  (Prod > Max0, palindromic2(Prod) -> 
+     Max1 = Prod
+   ; 
+     Max1 = Max0
+  ),
+  e4e_loopJ(FromJ+1,FromI,FromI,Max1,Max).
+
+%
+% Another recursive version using lists, which is probably 
+% more natural. Though slightly slower than euler4e: 0.081s
+%
+euler4f => 
+  e4flist_loopI(100..999,100..999,0,Max),
+  println(Max).
+
+e4flist_loopI([],_ListJ,Max0,Max) => 
+  Max = Max0.
+
+e4flist_loopI([I|ListI],ListJ,Max0,Max) => 
+  e4flist_loopJ(ListJ,I,Max0,MaxJ),
+  e4flist_loopI(ListI,ListJ,MaxJ,Max).
+
+e4flist_loopJ([],_,Max0,Max) =>
+  Max = Max0.
+
+e4flist_loopJ([J|JList],I,Max0,Max) =>
+  Prod = I*J,
+  (J =< I, Prod > Max0, palindromic2(Prod) -> 
+     Max1 = Prod
+   ; 
+     Max1 = Max0
+  ),
+  e4flist_loopJ(JList,I,Max1,Max).
+
+
+% From
+% https://stackoverflow.com/questions/68324157/solving-euler-4-with-clp
+% (This is too slow. Can it be faster?)
+% It takes 32.8s in SWI-Prolog.
+%
+% Picat solves it in 0.001s and happens to be the fastest version.
+%
+euler4g :-
+  A :: 1..9,
+  B :: 0..9,
+  C :: 0..9,
+  P #= A * 100001 + B * 10010 + C * 1100,
+  D :: 100..999,
+  E :: 100..999,
+  E #>= D,
+  P #= D * E,
+  println(P),
+  solve($[max(P),down], [A,B,C,D,E,P]),
+  println(P).
+
+% table
+palindromic2(N) => L = number_chars(N), L=reverse(L).

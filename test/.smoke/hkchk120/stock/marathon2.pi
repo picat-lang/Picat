@@ -1,0 +1,159 @@
+/*
+
+  Marathon puzzle in Picat.
+
+  From Xpress example
+  http://www.dashoptimization.com/home/cgi-bin/example.pl?id=mosel_puzzle_5_3
+  """
+  Dominique, Ignace, Naren, Olivier, Philippe, and Pascal
+  have arrived as the first six at the Paris marathon.
+  Reconstruct their arrival order from the following
+  information:
+  a) Olivier has not arrived last
+  b) Dominique, Pascal and Ignace have arrived before Naren
+     and Olivier
+  c) Dominique who was third last year has improved this year.
+  d) Philippe is among the first four.
+  e) Ignace has arrived neither in second nor third position.
+  f) Pascal has beaten Naren by three positions.
+  g) Neither Ignace nor Dominique are on the fourth position.
+  
+     (c) 2002 Dash Associates
+    author: S. Heipcke, Mar. 2002
+  """
+
+  Model created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+import cp.
+
+main => go.
+
+go =>
+
+   N = 6,
+   Names = ["Dominique", "Ignace", "Naren", "Olivier", "Philippe", "Pascal"],
+   Runners = [Dominique, Ignace, Naren, Olivier, Philippe, Pascal],
+   Runners :: 1..6,
+
+   all_different(Runners),
+  
+   % a: Olivier not last
+   Olivier #!= N,
+
+   % b: Dominique, Pascal and Ignace before Naren and Olivier
+   Dominique  #< Naren,
+   Dominique  #< Olivier,
+   Pascal     #< Naren,
+   Pascal     #< Olivier,
+   Ignace     #< Naren,
+   Ignace     #< Olivier,
+   
+   % c: Dominique better than third
+   Dominique  #< 3, 
+   
+   % d: Philippe is among the first four
+   Philippe   #=< 4 ,
+   
+   % e: Ignace neither second nor third
+   Ignace     #!= 2, 
+   Ignace     #!= 3, 
+   
+   % f: Pascal three places earlier than Naren
+   Pascal + 3 #= Naren, 
+   
+   % g: Neither Ignace nor Dominique on fourth position
+   Ignace     #!= 4,
+   Dominique  #!= 4,
+
+   % For the presentation (inverse)
+   assignment(Runners, RunnersInv),
+
+   solve(Runners),
+
+   printf("runners   : %w\n",Runners),
+   printf("assignment: %w\n",RunnersInv),
+   printf("\nPlacings:\n"),
+   foreach(I in 1..N) 
+      printf("Place %d: %w\n", I, Names[Runners[I]])
+   end,
+   nl.
+
+
+%
+% alternative version
+%
+go2 ?=>
+
+
+
+  %     1          2        3      4          5          6
+  % {"Dominique","Ignace","Naren","Olivier","Philippe","Pascal"};
+  Runners = [Dominique,Ignace,Naren,Olivier,Philippe,Pascal],
+  NumRunners = Runners.len,  
+  Runners = 1..NumRunners,
+  RunnersS = ["Dominique","Ignace","Naren","Olivier","Philippe","Pascal"],
+  
+  Pos = NumRunners, % Arrival positions
+  
+  Arrive = new_array(NumRunners, Pos),
+  Arrive :: 0..1,
+    
+  Place = new_list(NumRunners),
+  Place :: 1..Pos,
+
+  foreach (R in 1..NumRunners) 
+    Place[R] #= sum([P*Arrive[R,P] : P in 1..Pos])
+  end,
+
+  % One runner per position
+  foreach(P in 1..Pos) 
+    sum([Arrive[R,P] : R in 1..NumRunners]) #= 1
+  end,
+
+  % One position per runner
+  foreach(R in 1..NumRunners)
+    sum([Arrive[R,P] : P in 1..Pos]) #= 1
+  end,
+
+  % a: Olivier not last
+  Arrive[Olivier,6] #= 0,
+
+  % b: Dominique, Pascal and Ignace before Naren and Olivier
+  sum([Arrive[Dominique,P]+Arrive[Pascal,P]+Arrive[Ignace,P] : P in 5..6]) #= 0,
+  sum([Arrive[Naren,P]+Arrive[Olivier,P] : P in 1..3]) #= 0,
+
+  % c: Dominique better than third
+  Arrive[Dominique,1]+Arrive[Dominique,2] #= 1,
+
+  % d: Philippe is among the first four
+  sum([Arrive[Philippe,P] : P in 1..4])  #= 1,
+
+  % e: Ignace neither second nor third
+  Arrive[Ignace,2]+Arrive[Ignace,3] #= 0,
+
+  % f: Pascal three places earlier than Naren
+  sum([Arrive[Pascal,P] : P in 4..6]) #= 0,
+  sum([Arrive[Naren,P] : P in 1..3]) #= 0,
+
+  % g: Neither Ignace nor Dominique on fourth position
+  Arrive[Ignace,4]+Arrive[Dominique,4] #= 0,
+
+  Vars = Arrive.vars ++ Place,
+  solve(Vars),
+
+  println(place=Place),
+  foreach(Row in Arrive) println(Row) end,
+  nl,
+  foreach(I in 1..Pos)
+    element(P,Place,I),
+    println([place=I,RunnersS[P]])
+  end,
+  fail,
+
+  nl.
+
+
+go2 => true.

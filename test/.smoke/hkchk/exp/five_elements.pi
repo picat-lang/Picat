@@ -1,0 +1,240 @@
+/*
+
+  Five elements problem in Picat.
+
+  From 
+  Charles W. Trigg, PI MU EPSILON JOURNAL, Valume 6, Fall 1977, Number 5
+  """
+  From the following square array of the first 25 positive integers, 
+  choose five, no two of the same row or column, so that the maximum of
+  the five elements is as small as possible.
+
+     2 13 16 11 23
+    15  1  9  7 10
+    14 12 21 24  8
+     3 25 22 18  4
+    20 19  6  5 17
+  """
+
+  Here are some different CP/SAT/IP approaches.
+
+  Model created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+import cp.
+
+main => go.
+
+
+go =>
+
+   matrix(1,Matrix),
+   N = Matrix.len,
+
+   % decision variables
+   X = new_array(N,N),
+   X :: 0..1,
+   XVars = vars(X),
+
+   Y = new_list(N),
+   Y :: 1..N*N,
+
+   % constraints
+
+   % ensure unicity of rows and columns
+   foreach(I in 1..N)
+      sum([X[I,J] : J in 1..N]) #= 1,
+      sum([X[J,I] : J in 1..N]) #= 1
+   end,
+
+   % Find the specific row I for which X[I,J] is 1.
+   %
+   % Using freeze/2 and the Is list in the labeling 
+   % seems to be the only way (when using this matrix approach)
+   Is = [],
+   foreach(J in 1..N)
+      I :: 1..N,
+      freeze(I, 1 #= X[I,J]),
+      freeze(I, Y[I] #= Matrix[I,J]),
+      Is := Is ++ [I]
+    end,
+
+   MaxY #= max(Y),
+
+   Vars = XVars ++ Y ++ Is,
+
+   solve([$min(MaxY), ff], Vars),
+
+   println(values=Y),
+   println(maxY=MaxY),
+   println(is=Is),
+   foreach(Row in X) println(Row) end,
+   nl.
+
+
+%
+% Using reification instead of element for connecting between
+% X and Y.
+%
+go2 =>
+
+   matrix(1,Matrix),
+   N = Matrix.len,
+
+   X = new_array(N,N),
+   X :: 0..1,
+   XVars = vars(X),
+
+   Y = new_list(N),
+   Y :: 1..max(Matrix.flatten()),
+
+   % ensure unicity of rows and columns
+   foreach(I in 1..N)
+      sum([X[I,J] : J in 1..N]) #= 1,
+      sum([X[J,I] : J in 1..N]) #= 1
+   end,
+
+   % Find the specific row I for which X[I,J] is 1.
+   foreach(J in 1..N, I in 1..N)
+     (X[I,J] #= 1) #<=> (Y[I] #= Matrix[I,J])
+   end,
+
+   MaxY #= max(Y),
+
+   Vars = XVars ++ Y,
+   solve([$min(MaxY), ff], Vars),
+
+   println(values=Y),
+   println(maxY=MaxY),
+   foreach(Row in X) println(Row) end,
+   nl.
+
+%
+% Direct IP approach: we don't need Y at all.
+% 
+go3 =>
+
+   matrix(1,Matrix),
+   N = Matrix.len,
+
+   X = new_array(N,N),
+   X :: 0..1,
+   XVars = vars(X),
+
+   % ensure unicity of rows and columns
+   foreach(I in 1..N)
+      sum([X[I,J] : J in 1..N]) #= 1,
+      sum([X[J,I] : J in 1..N]) #= 1
+   end,
+
+   MaxY #= max([sum([X[J,I]*Matrix[I,J] : J in 1..N]) : I in 1..N]),
+
+   Vars = XVars,
+   solve([$min(MaxY), ff], Vars),
+
+   foreach(Row in X)
+     println(Row)
+   end,
+   println(values=[sum([X[J,I]*Matrix[I,J] : J in 1..N]) : I in 1..N]),
+   println(maxY=MaxY),
+   nl.
+
+
+%
+% Another approach, not using the 0/1 matrix at all: 
+% We already know that each row must distinct (cf the approach 
+% most often used in the n-queens problem).
+%
+%   - X contains the Matrix values for each row
+%   - Cols is the column selected for each row.
+%     Cols must be distinct
+%
+go4 =>
+   matrix(1,Matrix),
+   N = Matrix.len,
+
+   X = new_list(N),
+   X :: 1..max(Matrix.flatten()),
+
+   Cols = new_list(N),
+   Cols :: 1..N,
+
+   % ensure unicity of rows and columns
+   foreach(I in 1..N)
+      element(J,Matrix[I],X[I]),
+      Cols[I] #= J
+   end,
+   all_different(Cols),
+
+   MaxX #= max(X),
+
+   Vars = X ++ Cols,
+   solve([$min(MaxX), ff], Vars),
+
+   println(values=X),
+   println(cols=Cols),
+   println(maxX=MaxX),
+   nl.
+
+%
+% Using matrix_element
+%
+go5 =>
+
+   Matrix = 
+       [[ 2, 13, 16, 11, 23],
+        [15,  1,  9,  7, 10],
+        [14, 12, 21, 24,  8],
+        [ 3, 25, 22, 18,  4],
+        [20, 19,  6,  5, 17]],
+   N = 5,
+
+   %
+   % decision variables
+   %
+   X = new_array(N,N),
+   X :: 0..1,
+
+   Y = new_list(N),
+   Y :: 1..N*N,
+   
+   %
+   % constraints
+   %
+
+   % ensure unicity of rows and columns
+   foreach(I in 1..N)
+      sum([X[I,J] : J in 1..N]) #= 1,
+      sum([X[J,I] : J in 1..N]) #= 1
+   end,
+
+   % Find the specific row I for which X[I,J] is 1.
+   Is = new_list(N),
+   foreach(J in 1..N)
+      matrix_element(X,Is[J],J,1),
+      matrix_element(Matrix,Is[J],J,Y[J])
+    end,
+
+   MaxY #= max(Y),
+
+   Vars = X.vars ++ Y ++ Is,
+
+   solve([$min(MaxY), ff], Vars),
+   % solve(Vars),
+
+   println(y=Y),
+   println(maxY=MaxY),
+   foreach(Row in X) println(Row) end,
+   nl.
+
+
+matrix(1,Matrix) =>
+   Matrix = 
+       [[ 2, 13, 16, 11, 23],
+        [15,  1,  9,  7, 10],
+        [14, 12, 21, 24,  8],
+        [ 3, 25, 22, 18,  4],
+        [20, 19,  6,  5, 17]].
+

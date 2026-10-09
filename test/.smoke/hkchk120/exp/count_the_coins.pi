@@ -1,0 +1,225 @@
+/*
+
+  Count the coins in Picat.
+
+  From
+  http://rosettacode.org/wiki/Count_the_coins
+  """
+  There are four types of common coins in US currency: 
+      quarters (25 cents), dimes (10), nickels (5) and pennies (1). 
+  There are 6 ways to make change for 15 cents:
+
+      A dime and a nickel;
+      A dime and 5 pennies;
+      3 nickels;
+      2 nickels and 5 pennies;
+      A nickel and 10 pennies;
+      15 pennies. 
+
+  How many ways are there to make change for a dollar using these common coins? 
+  (1 dollar = 100 cents).
+
+  Optional:
+
+  Less common are dollar coins (100 cents); very rare are half dollars (50 cents). 
+  With the addition of these two coins, how many ways are there to make change for $1000? 
+  (note: the answer is larger than 232). 
+  """
+
+
+  Model created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+import cp.
+
+main => go.
+
+% 
+go =>
+  println("In cents"),
+  Problems = [[1*100, [25,10,5,1]],            % 1 dollar: 0.0s
+              [100*100, [100,50,25,10,5,1]],   % 100 dollars: 0.007s
+              [1000*100, [100,50,25,10,5,1]],  % 1000 dollars: 0.067s
+              [10000*100, [100,50,25,10,5,1]], % 10000 dollars: 0.723s
+              [100000*100, [100,50,25,10,5,1]] % 100000 dollars: 5.44s
+              ],
+  foreach([N,L] in Problems)
+     initialize_table, % clear the tabling from previous run
+     println([n=N,l=L]),
+     time(println(coins(L, N, 1)))
+  end.
+
+go1 => 
+  Problems = [[1*100, [25,10,5,1]]% ,            % 1 dollar: 0.0s
+              % [100*100, [100,50,25,10,5,1]],   % 100 dollars: 0.007s
+              % [1000*100, [100,50,25,10,5,1]] % 1000 dollars: 0.067s
+              % [10000*100, [100,50,25,10,5,1]], % 10000 dollars: 0.723s
+              % [100000*100, [100,50,25,10,5,1]] % 100000 dollars: 5.44s
+              ],
+  foreach([N,L] in Problems)
+     initialize_table, % clear the tabling from previous run
+     println([n=N,l=L]),
+     time(coins2(L, N, Sum)),
+     println(sum=Sum)
+  end.
+
+
+
+go2 =>
+  time(printf("changes($100,[25,10,5,1]): %w\n", coins_array(1*100,[25,10,5,1]))), % 0.0s
+  time(printf("changes($1000,[100,50,25,10,5,1]): %w\n", coins_array(10*100,[100,50,25,10,5,1]))), % 0.017s
+  time(printf("changes($10000,[100,50,25,10,5,1]): %w\n",  coins_array(100*100,[100,50,25,10,5,1]))), % 1.495s
+  time(printf("changes($100000,[100,50,25,10,5,1]): %w\n", coins_array(1000*100,[1000,50,25,10,5,1]))). % 163.686s
+
+
+% CP approach
+% slower than go/0 and go2/0.
+go3 => 
+  garbage_collect(300_000_000),
+  Problems = [[1*100, [1,5,10,25]], % 0.0s
+              [1000*100, [1,5,10,25,50,100]]], % 0.96s
+  foreach([N,L] in Problems)
+     println([n=N,l=L]),
+     time(changes_cp(L,N,Len)),
+     println(Len),
+     nl
+  end.
+
+% Use count_all instead
+go3b => 
+  garbage_collect(300_000_000),
+  Problems = [[1*100, [1,5,10,25]], % 0.0s
+              [1000*100, [1,5,10,25,50,100]]], % 0.96s
+  foreach([N,L] in Problems)
+     println([n=N,l=L]),
+     time(Len = count_all($changes_cp3(L,N))),
+     println(Len),
+     nl
+  end.
+
+
+% CP approach: using count_all/1
+% Slightly faster than go3/0
+go4 => 
+  garbage_collect(300_000_000),
+  Problems = [[1*100, [1,5,10,25]], % 0.0s
+              [1000*100, [1,5,10,25,50,100]]], % 0.854s
+  foreach([N,L] in Problems)
+     println([n=N,l=L]),
+     time(Count = count_all(changes_cp2(L,N))),
+     println(Count),
+     nl
+  end.
+
+% Another approach
+go5 => 
+  garbage_collect(300_000_000),
+  Problems = [[1*100, [25,10,5,1]],            % 1 dollar: 0.0s
+              [100*100, [100,50,25,10,5,1]],   % 100 dollars: 0.005s
+              [1000*100, [100,50,25,10,5,1]],  % 1000 dollars: 0.048s
+              [10000*100, [100,50,25,10,5,1]], % 10000 dollars: 0.51s
+              [100000*100, [100,50,25,10,5,1]] % 100000 dollars: 5.181s
+              ],
+              
+  foreach([N,L] in Problems)
+     initialize_table, % clear the tabling from previous run
+     println([n=N,l=L]),
+     time(Count=coins3(L,N)),
+     println(Count),
+     nl
+  end.
+
+
+% recursive approach using tabling
+% (much faster with table)
+table
+coins(Coins, Money, M) = Sum =>
+    Sum1 = 0,
+    Len = Coins.length,
+    if M == Len then
+      Sum1 := 1,
+    else 
+       foreach(I in M..Len)
+         if Money - Coins[I] == 0 then
+            Sum1 := Sum1 + 1
+         end,
+         if Money - Coins[I] > 0 then
+            Sum1 := Sum1 + coins(Coins, Money-Coins[I], I)
+         end,
+       end
+    end,
+    Sum = Sum1.
+
+% table
+coins2(Coins, Money, Sum) ?=> 
+   coins2(Coins, Money, 0, 1, Sum).
+% base case
+coins2([], Money, _Pos, Sum1, Sum) ?=> 
+  println($coins2a([], Money, Pos,Sum1, Sum)),
+  Sum = Sum1.
+coins2(Coins, Money, Pos, Sum1, Sum) ?=> 
+  println($coins2b(Coins, Money, Pos, Sum1, Sum)),
+  Coins.length == Pos,
+  Sum = Sum1.
+coins2([C|Coins], Money, Pos, Sum1, Sum) ?=>
+  println($coins2c([C|Coins], Money, Sum1, Sum)),
+  Money - C == 0,
+  coins2(Coins, Money, Pos+1, Sum1+1, Sum).
+coins2([C|Coins], Money, Pos, Sum1, Sum) ?=>
+  println($coins2d([C|Coins], Money, Pos,Sum1, Sum)),
+  Money - C > 0,
+  coins2(Coins, Money-C, Pos, Sum1+Money-C, Sum).
+
+
+% From Mathematica example
+coins3(Coinlist,Amount) = N =>
+  Ways = new_array(Amount),
+  bind_vars(Ways,0),
+  foreach(Coin in Coinlist)
+     foreach(J in Coin..Amount)
+       if J - Coin == 0 then
+         Ways[J] := Ways[J]+1
+       else
+         Ways[J] := Ways[J] + Ways[J-Coin]
+       end
+     end
+  end,
+  N = Ways[Amount].
+   
+
+%
+% array approach
+%
+coins_array(Amount, Coins) = Ret =>
+  Ways = [0 : _I in 1..Amount+1],
+  Ways[1] := 1,
+  foreach(Coin in Coins, J in Coin..Amount)
+     Ways[J+1] := Ways[J+1] + Ways[1+J-Coin]
+  end,
+  Ret = Ways[Amount+1].
+
+
+
+changes_cp(L,N,NSols) => 
+  Len = L.length,
+  X = new_list(Len),
+  X :: 0..N,
+  scalar_product(L,X,N),
+  NSols=solve_all([degree,updown],X).length.
+
+changes_cp2(L,N) => 
+  Len = L.length,
+  X = new_list(Len),
+  X :: 0..N,
+  % sum([L[I]*X[I] : I in 1..Len]) #= N,
+  scalar_product(L,X,N),
+  solve([degree,updown],X).
+
+changes_cp3(L,N) => 
+  Len = L.length,
+  X = new_list(Len),
+  X :: 0..N,
+  scalar_product(L,X,N),
+  solve(X)

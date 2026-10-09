@@ -1,0 +1,187 @@
+/* 
+
+  Euler #17 in Picat.
+
+  """
+  If the numbers 1 to 5 are written out in words: one, two, three, four, five, 
+  then there are 3 + 3 + 5 + 4 + 4 = 19 letters used in total.
+  
+  If all the numbers from 1 to 1000 (one thousand) inclusive were written out in 
+  words, how many letters would be used?
+  
+  NOTE: Do not count spaces or hyphens. For example, 342 (three hundred and forty-two) 
+  contains 23 letters and 115 (one hundred and fifteen) contains 20 letters. The use of 
+  "and" when writing out numbers is in compliance with British usage.
+  """
+
+
+  This Picat model was created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+import util.
+
+main => time(go).
+
+go =>  euler17c.
+
+
+english(N) = English =>
+    Divs      =  [1000000000, 1000000,  1000,       100],
+    Divnames  =  ["billion", "million", "thousand", "hundred"],
+    Prefixes  =  ["0", "twen", "thir", "for", "fif", "six", "seven", "eigh", "nine"],
+    _Ordinals  = ["first", "second", "third", "fourth", "fifth", "sixth", "seventh",
+                  "eighth", "ninth", "tenth", "eleventh", "twelfth", "thirteenth", 
+                  "fourteenth","fifteenth", "sixteenth", "seventeenth", 
+                  "eighteenth", "nineteenth"],
+    Cardinals =  ["one", "two", "three", "four", "five", "six", "seven",
+                  "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen",
+                  "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"],
+
+    Sstr = "",
+    Printed = 0,
+    if N < 0 then
+        Sstr := "minus" ++ Sstr,
+        N := -N
+    end,
+    foreach(I in 1..Divs.length) 
+        D = N div Divs[I],
+        N := N mod Divs[I],
+        if D != 0 then
+	    Sstr := Sstr ++ english(D) ++ Divnames[I],
+	    Printed := 1
+        end
+    end,
+    if N > 0, Printed = 1 then
+        Sstr := Sstr ++ "and"
+    end,
+    if N == 0 then      
+        1 == 1 % dummy
+    elseif N > 19 then
+        D = N div 10,
+        N := N mod 10,
+        Sstr := Sstr ++ Prefixes[D] ++ "ty" ++ english(N)
+    else 
+        Sstr := Sstr ++ Cardinals[N]
+    end,
+    English = Sstr.
+
+
+% 0.008s
+euler17 =>
+    Total = 0,
+    foreach(I in 1..1000) 
+        Sstr = english(I),
+        Total := Total + Sstr.length
+    end,
+    println(Total).
+
+% recursive version
+% 0.007s
+euler17b =>
+  e17b(1000,0,Total),
+  println(Total).
+
+e17b(0,Total0,Total) =>
+  Total = Total0.
+
+e17b(N,Total0,Total) =>
+  Total1 = Total0 + length(english(N)),
+  e17b(N-1,Total1,Total).
+
+
+%
+% This is a port of my SWI-Prolog/SICStus Prolog version
+% 0.002c
+euler17c =>
+    Total = 0,
+    foreach(I in 1..1000) 
+        spell(I,S),
+        Total := Total + S.length
+    end,
+    println(Total).
+
+digit(1,"one").
+digit(2,"two").
+digit(3,"three").
+digit(4,"four").
+digit(5,"five").
+digit(6,"six").
+digit(7,"seven").
+digit(8,"eight").
+digit(9,"nine").
+
+teens(10,"ten").
+teens(11,"eleven").
+teens(12,"twelve").
+teens(13,"thirteen").
+teens(14,"fourteen").
+teens(15,"fifteen").
+teens(16,"sixteen").
+teens(17,"seventeen").
+teens(18,"eighteen").
+teens(19,"nineteen").
+
+tens(20,"twenty").
+tens(30,"thirty").
+tens(40,"forty").
+tens(50,"fifty").
+tens(60,"sixty").
+tens(70,"seventy").
+tens(80,"eighty").
+tens(90,"ninety").
+
+hundred(100,"onehundred").
+thousand(1000,"onethousand").
+
+% fix
+spell(0, "") :- !.
+
+% 1..10
+spell(N,Spell) :-
+        N > 0,
+        N < 10, !,
+        digit(N,Spell), !.
+
+% 10..19
+spell(N, Spell) :-
+        N > 9,
+        N < 20,
+        teens(N,Spell), !.
+
+% 20..99
+spell(N, Spell) :-
+        N >= 20,
+        N < 100,
+        !,
+        D is 10*(N//10),
+        tens(D,Ten),
+        M is N mod 10,
+        (M > 0
+        ->
+         digit(M, One)
+        ;
+         One = ""
+        ),
+        Spell =[Ten,One].join(''),!.
+
+% 100..999
+spell(N, Spell) :-
+        N >= 100,
+        N < 1000,
+        Hundred is (N//100),
+        digit(Hundred,Hundred1),
+        M is N mod 100,
+        spell(M, Ones),
+        ( M > 0
+        ->
+          AndStr = "and"
+        ; AndStr = ""
+        ),
+        Spell = [Hundred1,"hundred",AndStr,Ones].join(''), !.
+
+% 1000
+spell(1000, "onethousand") :-
+        !.
+

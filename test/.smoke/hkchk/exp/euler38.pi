@@ -1,0 +1,79 @@
+/* 
+
+  Euler #38 in Picat.
+
+  """
+  Take the number 192 and multiply it by each of 1, 2, and 3:
+
+      192 × 1 = 192
+      192 × 2 = 384
+      192 × 3 = 576
+
+  By concatenating each product we get the 1 to 9 pandigital, 
+  192384576. We will call 192384576 the concatenated product of 192 
+  and (1,2,3)
+
+  The same can be achieved by starting with 9 and multiplying by 
+  1, 2, 3, 4, and 5, giving the pandigital, 918273645, which is the 
+  concatenated product of 9 and (1,2,3,4,5).
+
+  What is the largest 1 to 9 pandigital 9-digit number that can be 
+  formed as the concatenated product of an integer with 
+  (1,2, ... , n) where n > 1?
+  """
+
+  This Picat model was created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+import cp.
+
+main => go.
+
+go => time(euler38).
+
+%
+% 0.003s
+%
+euler38 =>
+    MaxN = 0,
+    foreach(N in 9876..-1..9, S = N.to_string(), MaxN == 0)
+        I = 2,
+        while(S.length < 9)
+            S := S ++ (N*I).to_string(),
+            I := I + 1
+        end,
+        if S.length == 9, is_pandigital(S) then
+        % if SLen == 9, not(member('0',S)), all_different(S) then        
+            MaxN := S
+        end
+
+    end,
+
+    println(MaxN).
+
+is_pandigital(L) =>
+   L.length == 9, not(member('0',L)), [I=1 : I in L.to_string()].new_map().keys().length == 9.
+
+%
+% 0.06s
+%
+euler38b =>
+        L = findall(SS,
+                (between(9,9876,N),
+                 S1 = N.to_string(),
+                 SS = findall(NN,
+                         (between(2,3,I),
+                          NI #= N*I,
+                          S2 = NI.to_string(),
+                          append(S1,S2,S),
+                          9 == length(S),
+                          not(member('0',S)),                          
+                          all_different(S),
+                          NN = S.to_int()
+                         ))
+                )),
+        Ls = sort(L),
+        Lf2 = flatten(Ls),
+        writeln(max(Lf2)).

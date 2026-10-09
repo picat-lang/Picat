@@ -1,0 +1,42 @@
+/* 
+
+  Increment a numerical string (Rosetta code) in Picat.
+
+  http://rosettacode.org/wiki/Increment_a_numerical_string
+  """
+  This task is about incrementing a numerical string. 
+  """
+
+  This Picat model was created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+
+% import util.
+% import cp.
+
+
+main => go.
+
+
+go =>
+  
+  Int = "123",
+  println(int=Int),
+  println(parse_term=Int.parse_term+1),
+  println(to_int=Int.to_int+1), % assumes integer
+  nl,
+  Float = "122.5",
+  println(float=Float),
+  println(parse_term=Float.parse_term+1),
+  println(to_float=Float.to_float+1),  
+
+  nl.
+
+go2 =>
+  print("Type a number to increment: "),
+  X = readln(),
+  println(X),
+  println(parse_term(X)+1),  
+  nl.

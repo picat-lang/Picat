@@ -1,0 +1,38 @@
+'Done'Welcome to the CBC MILP Solver 
+Version: 2.10.11 
+Build Date: Jan 21 2024 
+
+command line - cbc __tmp.lp solve solu __tmp.sol (default strategy 1)
+ CoinLpIO::readLp(): Maximization problem reformulated as minimization
+Coin0009I Switching back to maximization to get correct duals etc
+Continuous objective value is 2300 - 0.00 seconds
+Cgl0004I processed model has 2 rows, 2 columns (2 integer (0 of which binary)) and 4 elements
+Cutoff increment increased from 1e-05 to 9.9999
+Cbc0012I Integer solution of 2300 found by DiveCoefficient after 0 iterations and 0 nodes (0.01 seconds)
+Cbc0001I Search completed - best objective 2300, took 0 iterations and 0 nodes (0.01 seconds)
+Cbc0035I Maximum depth 0, 0 variables fixed on reduced cost
+Cuts at root node changed objective from 2300 to 2300
+Probing was tried 0 times and created 0 cuts of which 0 were active after adding rounds of cuts (0.000 seconds)
+Gomory was tried 0 times and created 0 cuts of which 0 were active after adding rounds of cuts (0.000 seconds)
+Knapsack was tried 0 times and created 0 cuts of which 0 were active after adding rounds of cuts (0.000 seconds)
+Clique was tried 0 times and created 0 cuts of which 0 were active after adding rounds of cuts (0.000 seconds)
+MixedIntegerRounding2 was tried 0 times and created 0 cuts of which 0 were active after adding rounds of cuts (0.000 seconds)
+FlowCover was tried 0 times and created 0 cuts of which 0 were active after adding rounds of cuts (0.000 seconds)
+TwoMirCuts was tried 0 times and created 0 cuts of which 0 were active after adding rounds of cuts (0.000 seconds)
+ZeroHalf was tried 0 times and created 0 cuts of which 0 were active after adding rounds of cuts (0.000 seconds)
+
+Result - Optimal solution found
+
+Objective value:                2300.00000000
+Enumerated nodes:               0
+Total iterations:               0
+Time (CPU seconds):             0.01
+Time (Wallclock seconds):       0.00
+
+Total time (CPU seconds):       0.01   (Wallclock seconds):       0.00
+
+
+gas = 20
+chloride = 30
+max_val = 2300
+

@@ -1,0 +1,178 @@
+/* 
+
+  Wordle solver version IV in Picat.
+
+  This is another Wordle solver using foreach loops etc.
+  It's about as fast as wordle2.pi (which is the fastest solver).
+
+  Compare with:
+  - wordle.pi
+  - wordle2.pi
+  - wordle3.pi
+  - wordle_cp.pi
+  - wordle_cp.pi
+
+  This model was created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+import cp.
+
+main => go.
+
+go ?=>
+
+  wordle("...n.",["","","","",""],"slat"),
+  % ->  [crone,brine,crony,briny,prone,corny,borne,prune,drone,phone,brink,phony,bound,pound,grind,frond,found,bring,drink,being,whine,fiend,chunk,whiny,prong,mound,horny,urine,round,drunk,irony,doing,wound,hound,opine,wring,rhino,downy,wrong,wrung,ebony,ovine,dying,young,owing,eying,vying,eking,penne,penny,bunny,funny,going,ninny,ozone,icing]
+
+  % wordle(".r.n.",["","","","",""],"slatcoe"),
+  % -> [briny,brink,grind,bring,drink,drunk,wring,wrung]
+  
+  % wordle("...st",["s","","","",""],"flancre"),
+  % -> [moist,hoist,ghost,midst,joist,joust,boost,twist]
+  
+  % wordle(".r.n.",["","","","",""],"slatcoe"),
+  % -> [briny,brink,grind,bring,drink,drunk,wring,wrung]
+  
+  % wordle(".r.n.",["","","","",""],"slatcoebiy"),
+  % -> [drunk,wrung]
+  
+  % wordle(".run.",["","","","",""],"slatcoebiydk"),
+  % ->  [wrung]
+
+  % wordle(".l...",["","","a","","t"],"sn"),
+  % -> [alter,ultra,altar]
+
+  % wordle(".....",["","","","",""],""),
+  % -> All words...
+  
+  nl.
+go => true.
+
+
+%
+%   wordle(Words,CorrectPos,CorrectChar,NotInWord)
+%    - Words: the wordlist/candidates
+%    - CorrectPos: correct character in correct position,
+%      Example: n is in position 4 and t is in position 5: "...nt": 
+%    - CorrectChar: correct character but in wrong position.
+%      Example: a is not in position 1, l is not in position 2: ["a","l","","",""]
+%    - NotInWord: characters not in word.
+%      Example: s, a, and t are not in the word: "sat"
+%
+wordle(CorrectPos, CorrectChar, NotInWord) =>
+  println($wordle(CorrectPos, CorrectChar, NotInWord)),
+  N = 5,
+
+  % File = "unixdict.txt", % 3161 5 letter words. Is this the smallest word list?
+  File = "wordle_small.txt", % 2314 words
+  % File = "wordle_large.txt", % 12971 words
+  % File = "eng_dict.txt", % 9336 5 letter words
+  % File = "words_lower.txt", % 21830 English 5 letter words
+  Words = [W : W in read_file_lines(File), W.len == N],
+
+  % Words = [W : W in read_file_lines(File), length(W) == N], 
+  NumWords = Words.len,
+  println(numWordsInDict=NumWords),
+
+  Candidates = [Word : Word in Words,
+                accept_word(Word, CorrectPos, CorrectChar, NotInWord)].sort_candidates(),
+  println(candidates=Candidates),
+  println(len=Candidates.len),
+  (Candidates != [] -> println(suggestion=Candidates.first()) ; true),
+  
+  nl.
+
+%
+% Check if a word satisfies the constraints in
+% - CorrectPos
+% - CorrectChar
+% - NotInWord
+% 
+accept_word(Word, CorrectPos, CorrectChar, NotInWord) =>
+  N = Word.len,
+  foreach(I in 1..N)
+    if CorrectPos[I] != '.' then
+      CorrectPos[I] == Word[I]
+    end,
+    if CorrectChar[I] != [] then
+      foreach(C in CorrectChar[I])
+        Word[I] != C,
+        membchk(C,Word)
+      end
+    end
+  end,
+  foreach(C in NotInWord)
+     not membchk(C,Word)
+  end.
+
+%
+% This use "first fail".
+% Slightly slower than acept_word/4: 0.002s0.003s
+% 
+accept_word2(Word, CorrectPos, CorrectChar, NotInWord) =>
+  N = Word.len,
+  Accepted = true,
+  foreach(I in 1..N, break(Accepted == false))
+    if CorrectPos[I] != '.' then
+      if CorrectPos[I] != Word[I] then
+        Accepted := false
+      end
+    end,
+    if CorrectChar[I] != [] then
+      foreach(C in CorrectChar[I])
+        % Word[I] != C,
+        if Word[I] == C then
+          Accepted := false
+        end,
+        if not membchk(C,Word) then
+          Accepted := false
+        end
+      end
+    end
+  end,
+  foreach(C in NotInWord)
+     if membchk(C,Word) then Accepted := false end
+  end,
+  Accepted == true.
+
+
+%
+% Sort the candidates.
+%
+sort_candidates(Candidates) = Sorted =>
+  % The probability order for each position in the word.
+  % Reversed and with missing chars.
+  % See wordle.pi (go2/0) for the method to get this.
+  Alphas = ["zyjkquinovhewlrmdgfaptbcsx",
+            "zqfkgxvbsdymcwptnhulieroaj",
+            "qjhzkxfwyvcbpmgdstlnrueoia",
+            "xyzbwhfvpkmdguotcrilasnejq",
+            "uzxbiwfcsgmpoakdnhlrtyejqv"
+  ],
+  score_words(Candidates,Alphas,[],Scores),
+  Sorted = [W : [_S=W] in Scores.sort_down].
+
+%
+% Score all words
+% 
+score_words([],_Alpha,Scores,Scores).
+score_words([Word|Words],Alphas,Scores0,[[Score=Word]|Scores]) :-
+  % We prefer words with distinct characters
+  Score1 = cond(Word.len==Word.remove_dups.len,100,0),
+  score_word(Word,Alphas,Score1,Score),
+  score_words(Words,Alphas,Scores0,Scores).
+
+% Score each character in a word
+score_word([],_Alpha,Score,Score).
+score_word([C|Cs],[Alpha|Alphas],Score0,Score) :-
+   nth(N,Alpha,C), % find the position of this character
+   S = N / 2,
+   Score1 = Score0 + S,
+   score_word(Cs,Alphas,Score1,Score).
+
+% Print an empty board
+empty() =>
+  println("wordle(\".....\",[\"\",\"\",\"\",\"\",\"\"],\"\")").
+

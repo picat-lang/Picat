@@ -1,0 +1,69 @@
+/* 
+
+  Using asserts (in bp context) in Picat v3.
+
+  Also see http://hakank.org/picat/bp_test_v3.pi
+
+  This Picat model was created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+% Here we define the bp predicates assert/1 etc.
+import v3_utils.
+
+main => go.
+
+
+go ?=>
+  assert($rich(mary)),
+  assert($(happy(X) :- rich(X), healthy(X))),
+  assert($healthy(mary)),
+  assert($healthy(hakank)),
+  assert($rich(hakank)),    
+
+  % Note: Since happy/1 is defined in bp context one
+  % must use bp.happy
+  bp.happy(X),
+  println(X),
+
+  % Use bp.findall/3
+  findall(X2,$happy(X2),All2), 
+  println(all2=All2),
+  
+  % Remove a fact
+  retract($rich(mary)),
+
+  % Use bp.findall/3 again
+  findall(X3,$happy(X3),All3),
+  println(all3=All3),
+
+  % We can use Picat's findall/2
+  % and accessing happy/1 with bp.happy.
+  % Note: bp.happy should NOT be $ escaped here
+  All4 = findall(X4,bp.happy(X4)),
+  println(all4=All4),
+ 
+  nl.
+
+go => true.
+
+%
+% Testing clause/2 and portray_clause/1
+%
+go2 ?=>
+  assert($rich(mary)),
+  assert($(happy(X) :- rich(X), healthy(X))),
+  assert($healthy(mary)),
+  assert($healthy(hakank)),
+  assert($rich(hakank)),    
+
+  Head = $happy(X),
+  println(head=Head),
+  clause(Head,Body),
+  println(body=Body),  
+  portray_clause($(Head :- Body)),
+
+  nl.
+
+go2 => true.

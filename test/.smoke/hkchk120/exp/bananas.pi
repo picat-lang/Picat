@@ -1,0 +1,49 @@
+/* 
+
+  Bananas problem in Picat.
+
+  """
+  In three dollars, you get 5 bananas, in five dollars, 7 oranges, in
+  seven dollars, 9 mangoes and in nine dollars, three apples, I need to
+  purchase 100 fruits in 100 dollars. Please keep in mind that all type
+  of fruits need to be purchased but I do not like banana and apple, so
+  these should be of minimum quantity.
+  """
+
+  This Picat model was created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+
+% import util.
+import cp.
+
+
+main => go.
+
+
+go =>
+
+   X = [Bananas, Oranges,Mangoes,Apples],
+   X :: 1..100,
+
+   TheSum #= Bananas+Apples,
+
+   % Solution suggested by Josef Feit
+   % These don't work since /, //, and div all use integer division
+   % 3*Bananas//5 + 5*Oranges//7 + 7*Mangoes//9 + 9*Apples//3 #= 100,
+   % 3*Bananas/5 + 5*Oranges/7 + 7*Mangoes/9 + 9*Apples/3 #= 100,
+
+   % instead we multiply with 3*5*7*9=945 on both sides to weed out the
+   % divisions
+   3*Bananas*189 + 5*Oranges*135 + 7*Mangoes*105 + 9*Apples*315 #= 100*945,
+
+   sum(X) #= 100,
+
+   solve($[min(TheSum)], X),
+
+   writeln(theSum=TheSum),
+   writeln(x=X),
+
+   nl.

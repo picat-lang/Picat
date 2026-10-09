@@ -1,0 +1,122 @@
+/* 
+
+  Euler #39 in Picat.
+
+  """
+  If p is the perimeter of a right angle triangle with integral length sides, 
+  {a,b,c}, there are exactly three solutions for p = 120.
+   
+  {20,48,52}, {24,45,51}, {30,40,50}
+   
+  For which value of p <= 1000, is the number of solutions maximised?
+  """
+
+
+  This Picat model was created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+import util.
+import cp.
+
+main => go.
+
+go => time(euler39e).
+
+%
+% 0.024s
+%
+euler39a =>
+  N = 500-1,
+  Squares = new_map([(X*X)=1 : X in 1..N]),
+  Valid = [C : X in Squares.keys(), Y in Squares.keys(),
+            X < Y, Squares.has_key(X+Y), C = round(sqrt(X) + sqrt(Y) + sqrt(X+Y)), C =< 1000],
+  Counts = new_map(),
+  foreach(C in Valid) 
+    Counts.put(C, Counts.get(C,0)+1)
+  end,
+  P = max([V : _K=V in Counts]),
+  println([[n=I,c=C] : I=C in Counts, C == P].first()).
+
+
+% 0.036s
+euler39b =>
+  N = 500-1,
+  Squares = new_map([(X*X)=1 : X in 1..N]),
+  println(Squares.keys.len),
+  Valid = [[X,Y] : X in Squares.keys(), Y in Squares.keys(),
+            X < Y, (sqrt(X) + sqrt(X) + sqrt(X+Y)) < 1000, Squares.has_key(X+Y)],
+  Counts = new_map(),
+  foreach([X2,Y2] in Valid) 
+    C = (sqrt(X2) + sqrt(Y2) + sqrt(X2+Y2)).toint(),
+    Counts.put(C, Counts.get(C,0)+1)
+  end,
+  P = max([V : _K=V in Counts]),
+  println([[n=I,c=C] : I=C in Counts, C == P].first()).
+
+
+% slightly different (and slower) approach
+% 0.106s
+euler39c =>
+  N = 500-1,
+  Squares = [X*X : X in 1..N],
+  Valid = [[X,Y] : X in Squares, Y in Squares,
+            X < Y, (sqrt(X) + sqrt(X) + sqrt(X+Y)) < 1000, membchk(X+Y,Squares)],
+
+  Counts = new_map(),
+  foreach([X2,Y2] in Valid) 
+    C = (sqrt(X2) + sqrt(Y2) + sqrt(X2+Y2)).toint(),
+    Counts.put(C, Counts.get(C,0)+1)
+  end,
+  P = max([V : _K=V in Counts]),
+  println([[n=I,c=C] : I=C in Counts, C == P].first()).
+
+%
+% 0.32s
+%
+euler39d => 
+  Max = 0,
+  N = 0,
+  foreach(I in 2..500) 
+     Num = p39d(I) -> 
+       if Num > Max then
+          Max := Num,
+          N := I
+       end
+     ;  
+     true
+  end,
+  writeln([n=N, max=Max]),
+  nl.
+
+%
+% Skipping Valid
+% _slightly_ faster than euler39a(); 0.023s
+%
+euler39e =>
+  N = 500-1,
+  Squares = new_map([(X*X)=1 : X in 1..N]),
+  Counts = new_map(),
+  foreach(X in Squares.keys(), Y in Squares.keys(), X < Y, Squares.has_key(X+Y),
+                               C = round(sqrt(X) + sqrt(Y) + sqrt(X+Y)), C =< 1000) 
+    Counts.put(C,Counts.get(C,0)+1)
+  end,
+  P = max([V : _K=V in Counts]),
+  println([[n=I,c=C] : I=C in Counts, C == P].first()).
+
+
+
+% 8.26s
+p39d(I) = N =>
+    Vars = [A, B, C],
+    Vars :: 1..I div 2 + 1,
+    increasing(Vars),
+    A + B #> C,
+    A + B + C #= I,
+    A * A + B * B #= C * C,
+    N = solve_all([forward,split], Vars).length.
+
+
+table
+toint(I) = to_integer(I).

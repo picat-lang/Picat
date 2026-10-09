@@ -1,0 +1,339 @@
+/* 
+
+  Sum to 100 problem (Rosetta Code) in Picat.
+
+  http://rosettacode.org/wiki/Sum_to_100
+  """
+  Find solutions to the   sum to one hundred   puzzle.
+
+  Add (insert) the mathematical operators + or ─ (plus or minus) before any of the digits in the
+  decimal numeric string "123456789" such that the resulting mathematical expression adds up to a
+  particular sum (in this iconic case, 100).
+
+  Example:
+
+           123 + 4 - 5 + 67 - 89   =   100   
+
+  Show all output here.
+
+
+  - Show all solutions that sum to   100
+  - Show the sum that has the maximum   number   of solutions   (from zero to infinity*)
+  - Show the lowest positive sum that   can't   be expressed   (has no solutions), using the rules for this task
+  - Show the ten highest numbers that can be expressed using the rules for this task   (extra credit)
+
+
+  An example of a sum that can't be expressed (within the rules of this task) is:   5074
+  which, of course, is not the lowest positive sum that can't be expressed.
+
+
+  *   (where infinity   would be a relatively small   123,456,789)
+  """
+
+  This Picat model was created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+
+import util.
+import cp.
+import v3_utils.
+
+
+main => go.
+
+% Show all solutions that sum to 100
+go => 
+  clear(get_global_map(tt)),
+  Goal = 100,
+  L = 1..9,
+  All = find_all(SS,find_goal(L,Goal,SS)).sort_remove_dups(),
+  foreach(E in All) println(E) end,
+  println(len=All.len),
+
+  nl.
+
+go2 => 
+   L = 1..9,
+   Goal = 100,
+   find_goal2(L,Goal),
+   nl.
+
+%  Show the lowest positive sum that can't be expressed (has no solutions), using the rules for this task.
+go3 => 
+
+  N = 200,
+  L = 1..9,
+  Found = false,
+  while (Found == false) do
+     clear(get_global_map(tt)), 
+     println(testing=N),
+     if find_goal(L,_Goal,_SS) then
+        Found := N
+     end,
+     N := N + 1
+  end,
+  println(found=Found),
+  nl.
+  
+
+% Find the first N not possible to create with these rules
+go4 =>
+   Found = false,
+   foreach(N in 1..100000,Found == false)
+     % println(n=N),
+     % find_goal/3 use get_global_map(tt) so we clear it first     
+     clear(get_global_map(tt)), 
+     % if All = findall(SS,find_goal(1..9,N,SS)) then
+     if find_goal(1..9,N,_SS) then
+       % println(SS)
+       true
+     else
+       Found := N
+     end%,
+     % nl
+   end,
+   println(found=Found),
+   nl.
+
+
+% Find all solutions for N in 1..100
+% and check for maximum number of solutions
+go5 =>
+   MaxSols = 0,
+   MaxN    = 0,
+   Sols = [],
+   foreach(N in 1..100)
+     println(n=N),
+     flush(stdout),
+     
+     % find_goal/3 use get_global_map(tt) so we clear it first     
+     clear(get_global_map(tt)), 
+     if All = findall(SS,find_goal(1..9,N,SS)) then
+       println(All),
+       Len = All.len,
+       println(len=Len),
+       Sols := Sols ++ [Len],
+       if Len > MaxSols then
+          MaxSols := Len,
+          MaxN := N
+       end,
+       nl
+     else
+       println(not_ok)
+     end,
+     nl
+   end,
+   println(sols=Sols),
+   println([maxN=MaxN,maxSols=MaxSols]),
+   nl.
+
+%
+% go6/0..go9/0 are for the port of kunstkrit's solutions
+%
+go6 ?=>
+  sumto(100,Solution),
+  println(Solution),
+  fail,
+  nl.
+go6=>true.
+
+go6b ?=>
+  member(N,1..100),
+  nl,
+  println(n=N),
+  sumto(N,Solution),
+  println(Solution=sum(Solution)),
+  fail,
+  nl.
+go6b => true.
+
+go7 ?=>
+  % highest_sol(X),
+  % println(X),
+  lowest_non_sol(X),
+  println(lowest=X),
+  nl.
+go7 => true.
+
+go8 ?=>
+  highest_sol(X),
+  println(X),
+  nl.
+go8 => true.
+
+go9 ?=>
+  ten_highest_sol(X),
+  println(X),
+  nl.
+go9 => true.
+
+
+go10 ?=>
+  find_goal3(1..9,100),
+  nl.
+go10 => true.
+
+get_all_segments(L) = findall(S,get_segment(L,S)).remove_dups().
+get_all_segments2(L) = findall(S,get_segment2(L,S)).remove_dups().
+
+get_segment(L,S) =>
+  N = L.len,
+  % find all increasing segments
+  Segments = new_list(N),
+  Segments :: 1..N,
+  increasing(Segments),
+  solve([split],Segments),
+  % split into the segments and collect the digits into numbers (as strings)
+  S = [ [L[J].to_string() : J in 1..N, Segments[J] = I].join('') : I in Segments.remove_dups()].
+
+get_segment2(L,S) =>
+  N = L.len,
+  % find all increasing segments
+  Segments = new_list(N),
+  Segments :: 1..N,
+  increasing(Segments),
+  solve([split],Segments),
+  % split into the segments and collect the digits into numbers (as strings)
+  S = [ [L[J].to_string() : J in 1..N, Segments[J] = I].join('').to_int : I in Segments.remove_dups()].
+
+
+find_goal(L,Goal, SSRes) =>
+  N = L.len,
+
+  % find all increasing segments
+  Segments = new_list(N),
+  Segments :: 1..N,
+  increasing(Segments),
+  solve([split],Segments),
+
+  % split into the segments and collect the digits into numbers (as strings)
+  S = [ [L[J].to_string() : J in 1..N, Segments[J] = I].join('') : I in Segments.remove_dups()],
+  % remove duplicates
+  Map = get_global_map(tt),
+  if Map.has_key(S) then
+    fail
+  end,
+  Map.put(S,1),
+  Len = S.len,
+  % println(s=S),
+
+  % we must have at least two segments
+  Len > 1,
+
+  % find the operators
+  Ops = ["+","-"],
+  OpsLen = Len,
+  OpsSep = new_list(OpsLen),
+  foreach(I in 1..OpsLen)
+    member(Op,Ops),
+    OpsSep[I] := Op
+  end,
+
+  % create the complete string
+  SS = [OpsSep[I] ++ S[I]  : I in 1..OpsLen].join(''),
+  Goal == parse_term(SS).apply(),
+  SSRes = SS.
+
+
+find_goal2(L,Goal) =>
+  Map = get_global_map(),
+  Segments = get_all_segments(L).remove_dups(),
+  foreach(Segment in Segments, Segment.len > 1) 
+    if Map.has_key(Segment) then
+       fail
+    end,
+    Map.put(Segment,1),
+    Len = Segment.len,
+    Ops = ["+","-"],
+    OpsLen = Len,
+    OpsSep = new_list(OpsLen),
+    foreach(I in 1..OpsLen)
+      member(Op,Ops),
+      OpsSep[I] := Op
+    end,
+    % create the complete string
+    SS = [OpsSep[I] ++ Segment[I].to_string()  : I in 1..OpsLen].join(''),
+    if Goal == parse_term(SS).apply() then
+    % if Goal == eval(SS) then
+      println(SS)
+    end
+  end,
+  fail,
+  nl.
+
+
+find_goal3(L,Goal) =>
+  Segments = get_all_segments2(L),
+  Res = [],
+  foreach(S in Segments)
+    if solve3(S,Goal,X) then
+      Res := Res ++ [X],
+      println(X)
+    end
+  end,
+  println(Res),
+  
+  println(len=Res.len),
+  nl.
+
+
+solve3(S,Goal,Z) =>
+   Len = S.len,
+   X = new_list(Len),
+   X :: [-1,1],
+   sum([S[I]*X[I] : I in 1..Len]) #= Goal,
+   solve(X),
+   Z = [ X[I]*S[I] : I in 1..Len].
+
+%
+% This is a port of ḱunstkritik's second variant
+% https://www.reddit.com/r/prolog/comments/fcpuuc/weekly_coding_challenge_5_sum_to_100/
+%
+sumto(X, Solution):-
+    sumto("123456789", Solution,X).
+    
+sumto("",[],0).
+sumto(L, [H|SolT],X):-
+    append(A,Rest,L),
+    length(A,Len),
+    Len != 0,
+    number_string(N,A),
+    ( X1 #= X + N, sumto(Rest, SolT ,X1), H is -N
+    ;
+      X2 #= X - N, sumto(Rest, SolT ,X2), H is N
+    ).
+
+highest_sol(X):-
+    highest_sol(0, -1,0, X).
+
+% solution must be smaller 45, because we need
+% as many single digits as possible
+% that can change their sign. 
+% The greatest sum we can build is adding 1 up to 9 which is 45
+highest_sol(N, _, R, R):- N > 45,!.
+highest_sol(N, M, A, R):-
+    S = findall(T, sumto(N,T)),
+    length(S,M1),
+    succ(N, N1),
+    (M1 > M -> highest_sol(N1, M1, N,R); highest_sol(N1,M, A, R)).
+
+lowest_non_sol(X):-
+    between(0, 123456789, X),
+    \+ sumto(X, _), !.
+
+% L = [123456789, 23456790, 23456788, 12345687, 12345669, 3456801, 3456792, 3456790, 3456788, 3456786]
+get_keys([],[]).
+get_keys([K-_|T],[K|T2]):-
+    get_keys(T,T2).
+   
+ten_highest_sol(L):-
+    R = findall($X-Sol, sumto(X, Sol)),
+    println(r=R),
+    println(len=R.len),   
+    Sorted = sort_down(R), % sort(0, @>, R, Sorted),
+    length(Pairs,10),
+    append(Pairs, _, Sorted),
+    get_keys(Pairs, L).
+

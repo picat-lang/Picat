@@ -1,0 +1,44 @@
+/*
+  From Richard Wiseman It's the Friday Puzzle 2010-02-26
+  http://richardwiseman.wordpress.com/2010/02/26/its-the-friday-puzzle-48/
+
+  (see number_puzzle_4 above)  
+
+  Same principle as number_puzzle_4 but with the original 
+  problem statement 
+  """
+  make the number 8 from the numbers 4, 7, 6 and 3.
+  """
+
+  The option
+     get_global_map().put("use_uniqe_digits",true)
+  ensures that all the digits are used exactly once.
+
+  Solutions:
+  maxCount = 5
+  code = (4 + ((5 + 7) / 3)) = [[[3,4,5,7],8]] = [[] = 8.0]
+  code = (4 * ((3 + 7) / 5)) = [[[3,4,5,7],8]] = [[] = 8.0]
+  code = (((5 * 7) - 3) / 4) = [[[3,4,5,7],8]] = [[] = 8.0]
+  code = (4 / (5 / (3 + 7))) = [[[3,4,5,7],8]] = [[] = 8.0]
+  code = ((4 * (3 + 7)) / 5) = [[[3,4,5,7],8]] = [[] = 8.0]
+
+  Cf http://hakank.org/jgap/number_puzzle4.conf
+  which give a couple of solutions, e.g.
+    (d - c) + (b + a)
+    d - ((c - b) - a)
+    (c - a) * (b - d)
+    (b + a) - (c - d)
+
+*/
+data(number_puzzle_4b,Data,Vars,Unknown,Ops,Constants,MaxC) :-
+  Data = [[[3,4,5,7],8] ],
+  Ops = new_map([infix=["+","-","*","/"]]),
+  Constants = [3,4,5,7],
+  Unknown = [], % No unknowns since we only use the numbers
+  Vars = [], % No variables, just use the given numbers
+  % Ensure that we use each digit exactly once
+  get_global_map().put("use_uniqe_digits",true),
+  MaxC = 5.
+
+  
+

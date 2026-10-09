@@ -1,0 +1,138 @@
+/*
+  
+  Odd parity using the Double version of And, Not, Or
+
+  From http://www.dtreg.com/gep.htm
+  """
+  The output parity value should be 1 if there are an odd number of 
+  inputs with the value 1, and the output should be 0 if there are 
+  an even number of inputs with the value 1. 
+  """
+
+  The solution should be something like:
+
+    (In3||(!(In1&&In2)))&&((!(In1||In2))||(In1&In2)||!In3)&&In2||(In1||In3) 
+
+
+  Cf the JGAP model odd_parity.conf
+
+
+  Some alternative solutions
+
+  * Using only xor is easy:
+
+  AllGood:
+  [program = xor(B,xor(A,C)), res = 1, count = 97]
+  [program = xor(C,xor(A,B)), res = 1, count = 91]
+  [program = xor(A,xor(C,B)), res = 1, count = 91]
+  [program = xor(C,xor(B,A)), res = 1, count = 90]
+  [program = xor(A,xor(B,C)), res = 1, count = 89]
+  [program = xor(xor(0,A),xor(C,B)), res = 1, count = 87]
+  [program = xor(xor(A,B),C), res = 1, count = 81]
+  [program = xor(B,xor(C,A)), res = 1, count = 79]
+  [program = xor(xor(A,C),B), res = 1, count = 76]
+  [program = xor(xor(A,0),xor(B,C)), res = 1, count = 55]
+  [program = xor(xor(B,A),C), res = 1, count = 34]
+  [program = xor(xor(0,A),xor(B,C)), res = 1, count = 34]
+  [program = xor(xor(A,C),xor(B,0)), res = 1, count = 32]
+  [program = xor(xor(C,A),B), res = 1, count = 30]
+  [program = xor(xor(C,B),A), res = 1, count = 27]
+  [program = xor(xor(B,C),A), res = 1, count = 27]
+  [program = xor(xor(0,B),xor(A,C)), res = 1, count = 12]
+  [program = xor(xor(B,A),xor(0,C)), res = 1, count = 2]
+  [program = xor(xor(C,B),xor(A,0)), res = 1, count = 1]
+  [program = xor(xor(B,C),xor(A,0)), res = 1, count = 1]
+  [program = xor(xor(B,0),xor(A,C)), res = 1, count = 1]
+  [program = xor(xor(A,0),xor(C,B)), res = 1, count = 1]
+
+  resultMap = [1 = 22]
+
+  * Using Ops = [+,-,mod] and Constants = 0..2:
+
+  AllGood:
+  [program = (C * C - B + A) mod 2, res = 1, count = 47]
+  [program = (C - (A + B)) mod 2, res = 1, count = 46]
+  [program = (C + (B + A + 2) - 2) mod 2, res = 1, count = 42]
+  [program = (C - B - A) mod 2, res = 1, count = 24]
+  [program = (C - (A + B)) mod (1 * 1 - 1 + 2), res = 1, count = 21]
+  [program = (C * C - B + A) mod (2 * 1), res = 1, count = 19]
+  [program = (C * C - B + A) mod (1 * 1 - 1 + 2), res = 1, count = 18]
+  [program = (C + (B + A + 2) - 2) mod (1 * 1 - 1 + 2), res = 1, count = 12]
+  [program = (C - (A + B)) mod (C + 2), res = 2, count = 10]
+  [program = (C - B - A) mod (1 * 1 - 1 + 2), res = 1, count = 4]
+  [program = (C + (B + A + 2) - 2) mod (2 * 1), res = 1, count = 2]
+
+  resultMap = [1 = 10,2 = 1]
+
+
+*/
+
+data(odd_parity,Data,Vars,Unknown,Ops,Constants,MaxSize,Params) :-
+  Data =  [
+[[0,0,0],0],
+[[0,0,1],1],
+[[0,1,0],1],
+[[0,1,1],0],
+[[1,0,0],1],
+[[1,0,1],0],
+[[1,1,0],0],
+[[1,1,1],1]
+  ],
+
+  Unknown = [1,1,1],
+  Vars = ['A','B','C'],
+  Ops = [and,or,not],
+  % Ops = [+,-,*,mod],
+  % Ops = [xor], % easy  
+  Constants = [],  
+  % Constants = 0..2,
+  MaxSize = 111,
+  Params = new_map([
+                    init_size=100,
+                    % reset_timeout=60,
+                    num_gens=1000
+                    % , remove_dups=true
+                   ]).
+
+
+
+/*
+  Using Ops = [count3,mod] and Constants = 0..2
+
+  AllGood:
+  [program = count3(C,B,A) mod 2, res = 1, count = 92]
+  [program = count3(A,B,C) mod 2, res = 1, count = 90]
+  [program = count3(B,C,A) mod 2, res = 1, count = 74]
+  [program = count3(A,C,B) mod count3(1,2,0), res = 1, count = 36]
+  [program = count3(A,C,B) mod 2, res = 1, count = 31]
+  [program = count3(C,A,B) mod 2, res = 1, count = 28]
+  [program = count3(B,A,C) mod 2, res = 1, count = 25]
+  [program = count3(C,B,A) mod count3(1,2,0), res = 1, count = 20]
+  [program = count3(C,B,A) mod count3(2,1,0), res = 1, count = 19]
+
+  resultMap = [1 = 9]
+
+*/
+/*
+data(odd_parity,Data,Vars,Unknown,Ops,Constants,MaxSize,Params) :-
+  Data =  [
+[[0,0,0],0],
+[[0,0,1],1],
+[[0,1,0],1],
+[[0,1,1],0],
+[[1,0,0],1],
+[[1,0,1],0],
+[[1,1,0],0]% ,
+% [[1,1,1],1]
+  ],
+
+  Unknown = [1,1,1], 
+  Vars = ['A','B','C'],
+  Ops = [count3,mod],  
+  Constants = 0..2,
+  MaxSize = 1,
+  Params = new_map([
+                    init_size=1000,
+                    num_gens=100 
+                   ]).
+*/

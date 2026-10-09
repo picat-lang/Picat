@@ -1,0 +1,151 @@
+/*
+
+  Divisible by 9 through 1 puzzle in Picat
+.
+  From http://msdn.microsoft.com/en-us/vcsharp/ee957404.aspx
+  " Solving Combinatory Problems with LINQ"
+  """
+  Find a number consisting of 9 digits in which each of the digits 
+  from 1 to 9 appears only once. This number must also satisfy these 
+  divisibility requirements:
+  
+   1. The number should be divisible by 9.
+   2. If the rightmost digit is removed, the remaining number should 
+      be divisible by 8.
+   3. If the rightmost digit of the new number is removed, the remaining 
+      number should be divisible by 7.
+   4. And so on, until there's only one digit (which will necessarily 
+      be divisible by 1).
+  """
+  
+  Also, see
+  "Intel® Parallel Studio: Great for Serial Code Too (Episode 1)"
+  http://software.intel.com/en-us/blogs/2009/12/07/intel-parallel-studio-great-for-serial-code-too-episode-1/
+
+
+  This model is however generalized to handle any base 
+  (for reasonable limits).
+
+  Model created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+import cp.
+
+main => go.
+
+/* 
+
+  Here are the solutions for the bases (2..14):
+
+   base:2
+   x=[1]
+   t=[1]
+
+   base=3
+
+   base=4
+   x=[1,2,3]
+   t=[27,6,1]
+
+   x=[3,2,1]
+   t=[57,14,3]
+
+
+   base=5
+
+   base=6
+   x=[1,4,3,2,5]
+   t=[2285,380,63,10,1]
+
+   x=[5,4,3,2,1]
+   t=[7465,1244,207,34,5]
+
+   base=8
+   x=[3,2,5,4,1,6,7]
+   t=[874615,109326,13665,1708,213,26,3]
+
+   x=[5,2,3,4,7,6,1]
+   t=[1391089,173886,21735,2716,339,42,5]
+
+   x=[5,6,7,4,3,2,1]
+   t=[1538257,192282,24035,3004,375,46,5]
+
+   base = 10
+   x = [3,8,1,6,5,4,7,2,9]
+   t = [381654729,38165472,3816547,381654,38165,3816,381,38,3]
+
+   base = 14
+   x = [9,12,3,10,5,4,7,6,11,8,1,2,13]
+   t = [559922224824157,39994444630296,2856746045021,204053288930,14575234923,1041088208,74363443,5311674,379405,27100,1935,138,9]
+
+
+
+
+*/
+
+go =>
+   foreach(Base in 2..14)
+       nl,
+       println(base=Base),
+       (
+       problem(Base, X, T) ->
+          println(x=X),
+          println(t=T),nl
+        ;
+          println("No solution"),
+          true
+       )
+   end,
+   nl.
+
+
+% Finds all solutions
+go2 =>
+   foreach(Base in 2..14)
+      nl,
+      println(base=Base),
+      L = findall([X, T], $problem(Base, X, T)),
+      foreach([X2, T2] in L)
+         println(x=X2),
+         println(t=T2),
+         nl
+      end
+    end.
+
+
+
+go(N) ?=>
+   problem(N, X, T),
+   println(x=X),
+   println(t=T),
+   fail.
+
+go(_) => true.
+
+problem(Base, X, T) =>
+
+   M = Base**(Base-1)-1, % largest value
+   N = Base - 1,   % the digits are in 1..N , 
+               % N is also the length of X 
+   X = new_list(N),
+   X :: 1..N,
+   all_different(X),
+
+   T = new_list(N),
+   T :: 1..M,
+
+   foreach(I in 1..N)
+      Base_I = Base - I,
+      XI = [X[J] : J in  1..Base_I],
+      to_num(XI, Base, T[I]),
+      T[Base_I] mod I #= 0
+   end,
+   Vars = T,
+   solve([ff],Vars).
+
+
+to_num(List, Base, Num) =>
+   Len = length(List),
+   Num #= sum([List[I]*Base**(Len-I) : I in 1..Len]).

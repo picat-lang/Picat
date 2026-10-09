@@ -1,0 +1,201 @@
+/* 
+
+  Mad Libs (Rosetta code) in Picat.
+
+  http://rosettacode.org/wiki/Mad_Libs
+  """
+  Mad Libs is a phrasal template word game where one player prompts another for a list of 
+  words to substitute for blanks in a story, usually with funny results.
+
+  Write a program to create a Mad Libs like story. The program should read a multiline 
+  story from the input. The story will be terminated with a blank line. Then, find each 
+  replacement to be made within the story, ask the user for a word to replace it with, and 
+  make all the replacements. Stop when there are none left and print the final story.
+
+  The input should be in the form:
+
+      <name> went for a walk in the park. <he or she>
+      found a <noun>. <name> decided to take it home.
+
+  It should then ask for a name, a he or she and a noun (<name> gets replaced 
+  both times with the same value.) 
+  """
+
+  TODO: The story line should also be an input!
+
+  This Picat model was created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+
+import util.
+import dcg_utils.
+
+main => go.
+
+go =>
+
+  S = "<name> went for a walk in the park. <he or she> 
+found a <noun>. <name> decided to take it home.",
+  println(replace_tags(S,get_input(get_tags(S)))),
+  nl.
+
+% read the story from a file
+go2 => 
+  S = read_file_chars("mad_libs.txt"),
+  println(replace_tags(S,get_input(get_tags(S)))),
+  nl.
+
+% Prepared answers
+go3 => 
+  S = read_file_chars("mad_libs.txt"),
+  Map = ["<name>"="Hakan","<he or she>"="He","<noun>"="computer"],
+  println(replace_tags(S,Map)),
+  nl.
+
+%
+% Another take on get_tags.
+%
+go4 =>
+  Story = "<name> went for a walk in the park. <he or she> 
+found a <noun>. <name> decided to take it home.",
+
+  % get_tags2(Story,[],Tags_),
+  % Tags = Tags_.remove_dups,
+
+  % get_tags2b(Story,Tags2b_),
+  % Tags2b = Tags2b_.remove_dups,
+  % println(tags2b=Tags2b),
+
+  % Neater approach but it's very bad on backtracking!
+  % get_tags_dcg(Tags_,Story,[]),
+  % Tags = Tags_.remove_dups,
+
+  % No problem with backtracking, so we take this.
+  Tags = get_tags3(Story),
+
+  println(tags=Tags),
+
+  % fail,
+
+  if Tags = ["<name>","<he or she>","<noun>"] then
+    println("Tags are OK so we skip the input step!"),
+    % Map = get_input(Tags),
+    Map = ["<name>"="Hakan","<he or she>"="He","<noun>"="computer"],
+    println(map=Map),
+    println(replace_tags(Story,Map))
+  else 
+    println("Bad tags!")
+  end,
+  nl.
+
+
+
+%
+% Picat don't (yet) support regular expressions or some function
+% which make non-greedy string search easy...
+%
+get_tags(S) = Tags =>
+  Len = S.length,
+  StartPos = [P: {C,P} in zip(S,1..Len), C = '<'],
+  EndPos   = [P: {C,P} in zip(S,1..Len), C = '>'],
+  Tags = [slice(S,Start,End) : {Start,End}  in zip(StartPos,EndPos)].remove_dups().
+
+%
+% This identifies the tags.
+% It's a little better on backtracking than the DCG variant:
+% It give all combinations of the names.
+% With the ! it only give one solution.
+get_tags2([],Tags,Tags).
+get_tags2(['<'|Rest],Tags0,[TagS|Tags]) :-
+  get_end(Rest,[],Tag), !, % cut!
+  TagS = "<" ++ Tag ++ ">", % We want <tag>
+  get_tags2(Rest,Tags0,Tags).
+get_tags2([_C|Rest],Tags0,Tags) :-
+   get_tags2(Rest,Tags0,Tags).
+
+get_end([C|Rest],Tag0,[C|Tag]) :-
+  C != '>',
+  get_end(Rest,Tag0,Tag).  
+get_end(['>'|_Rest],Tag,Tag).
+
+% Another version: tags2b/2, i.e. tags2b/3 but without Tags0
+get_tags2b([],[]).
+get_tags2b(['<'|Rest],[TagS|Tags]) :-
+  get_end(Rest,[],Tag), !, % cut!
+  TagS = "<" ++ Tag ++ ">", % We want <tag>
+  get_tags2b(Rest,Tags).
+get_tags2b([_C|Rest],Tags) :-
+   get_tags2b(Rest,Tags).
+
+
+%
+% Using find/4.
+%
+get_tags3(S) = findall(Tag, Tag=slice_between(S,"<",">")).remove_dups.
+% get_tag3(S) = slice_between(S,"<",">").
+
+%
+% Get the slice between (and including) StartString and EndString in S.
+%
+slice_between(S,StartString,EndString) = Slice =>
+  find(S,StartString,Start1,_End1),
+  % Note: End2 is the position in the truncated string S.slice(...)
+  once(find(S.slice(Start1),EndString,_Start2,End2)),
+  Slice = S[Start1..Start1+End2-1].
+
+
+%
+% DCG approach: IMHO a little neater approach than get_tags2.
+% But it behaves bad on backtracking.
+%
+% Note: This behaves very badly on backtracking due to the any/0...
+% get_tags_dcg([Tag|Tags]) -->  any, tag(Tag), any, get_tags_dcg(Tags).
+% get_tags_dcg([]) --> [].
+% tag(Tag) --> "<", any_except(Tag1,">"), ">", {Tag = "<" ++ Tag1 ++ ">"}.
+%
+% This is slightly better. It backtracks many times,
+% though only with the full solution each time.
+% (I've tried with cuts but that doesn't help!)
+%
+get_tags_dcg([Tag|Tags]) -->  no_tag(_NoTag1), 
+                              tag(Tag),
+                              no_tag(_NoTag2), 
+                              get_tags_dcg(Tags).
+get_tags_dcg([]) --> [].
+no_tag([C|Cs]) --> [C], {not membchk(C,"<>")}, no_tag(Cs).
+no_tag([]) --> [].
+% We need to add the devoured "<>".
+tag(Tag) --> "<", any_except(Tag1,">"), ">", {Tag = "<" ++ Tag1 ++ ">"}.
+
+
+
+%
+% Get input from the user
+%
+get_input(Tags) = Map =>
+  Map = new_map(),
+  foreach(Tag in Tags) 
+     printf("%w: ", Tag),
+     Map.put(Tag,readln())
+  end.
+
+%
+% Replace all the <tags> with user values.
+%
+replace_tags(S,Map) = T =>
+  T = copy_term(S),
+  foreach(Tag=Value in Map) 
+    T := replace_string(T,Tag,Value)
+  end.
+
+%
+% replace/3 does not handle substrings, so we roll our own...
+%
+replace_string(List,Old,New) = Res =>
+  Res = copy_term(List),
+  while (find(Res,Old,_,_))
+    once(append(Before,Old,After,Res)),
+    Res := Before ++ New ++ After
+  end.

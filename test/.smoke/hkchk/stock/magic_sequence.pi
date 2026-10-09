@@ -1,0 +1,176 @@
+/*
+
+  Magic sequence problem in Picat.
+
+  http://www.dcs.st-and.ac.uk/~ianm/CSPLib/prob/prob019/spec.html
+  """
+  A magic sequence of length n is a sequence of integers x0 . . xn-1 between 
+  0 and n-1, such that for all i in 0 to n-1, the number i occurs exactly xi 
+  times in the sequence. For instance, 6,2,1,0,0,0,1,0,0,0 is a magic sequence 
+  since 0 occurs 6 times in it, 1 occurs twice, ...
+  """
+
+  As a one-liner (without redundant constraints):
+
+    Picat> N=10,L=new_list(N),L::0..N,global_cardinality(L,$[I-L[I+1]:I in 0..N-1]),solve(L)
+
+
+  Model created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+import cp.
+
+main => go.
+
+go =>
+  magic_sequence(10,Sequence),
+  println(Sequence).
+
+
+go2 =>
+  foreach(N in 4..1000)
+    garbage_collect(20_000_000),
+    if time2(magic_sequence(N,Sequence)) then
+      println(Sequence)
+    else 
+      println("No solution")
+    end
+  end.
+
+% CP
+go3 =>
+  time2(magic_sequence(1400,Sequence)),
+  println(Sequence).
+
+
+% No CP
+go4 =>
+  magic_sequence_no_cp(1400,Sequence),
+  println(Sequence).
+
+% No CP
+go5 =>
+  foreach(N in [1000,10_000,50_000,100_000,1_000_000,10_000_000])
+    println(n=N),
+    time2(magic_sequence_no_cp(N,_Sequence))
+  end,
+  nl.
+
+%
+% Test different models
+%
+go6 =>
+  N = 1000,
+  println("magic_sequence(1000)"),  
+  time2(magic_sequence(N,Sequence1)),
+  println(Sequence1),
+
+  println("\nmagic_sequence2(500)"),  
+  time2(magic_sequence2(500,Sequence2)),
+  println(Sequence2),  
+
+  println("\nmagic_sequence4(100)"),  
+  time2(magic_sequence4(100,Sequence4)),
+  println(Sequence4),  
+
+  println("\nmagic_sequence3(20)"),  
+  time2(magic_sequence3(20,Sequence3)),
+  println(Sequence3),  
+
+
+  nl.
+
+
+magic_sequence(N, Sequence) =>
+
+  printf("\n%d:\n",N),
+
+  Sequence = new_list(N),
+  Sequence :: 0..N-1,
+
+  N #= sum(Sequence),
+  Integers = [ I : I in 0..N-1],
+  scalar_product(Integers, Sequence, N),
+  foreach(I in 0..N-1) count(I,Sequence,#=,Sequence[I+1]) end,
+
+  solve([ff], Sequence).
+
+
+%
+% Alternative model. Use global_cardinality/2 instead of a count loop.
+%
+magic_sequence2(N, Sequence) =>
+
+  printf("\n%d:\n",N),
+
+  Sequence = new_list(N),
+  Sequence :: 0..N-1,
+
+  % extra constraints
+  N #= sum(Sequence),
+
+  Integers = [ I : I in 0..N-1],
+  scalar_product(Integers, Sequence, N),
+
+  % using global_cardinality/2: or N=400: 0.8s
+  GC = [ $I-Sequence[I+1] : I in 0..N-1],
+  global_cardinality(Sequence,GC),
+
+  solve([ff], Sequence).
+
+%
+% Alternative model. Only a loop with sum.
+%
+magic_sequence3(N, Sequence) =>
+
+  printf("\n%d:\n",N),
+
+  Sequence = new_list(N),
+  Sequence :: 0..N-1,
+
+  foreach(I in 0..N-1)
+    Sequence[I+1] #= sum([Sequence[J] #= I : J in 1..N])
+  end,
+    
+
+  solve([ff], Sequence).
+
+%
+% Alternative model. magic_sequence3/2 + two sums
+%
+magic_sequence4(N, Sequence) =>
+
+  printf("\n%d:\n",N),
+
+  Sequence = new_list(N),
+  Sequence :: 0..N-1,
+
+  foreach(I in 0..N-1)
+    Sequence[I+1] #= sum([Sequence[J] #= I : J in 1..N])
+  end,
+
+  sum(Sequence) #= N,
+  sum([I*Sequence[I+1] : I in 0..N-1]) #= N,
+
+  solve([ff], Sequence).
+
+
+
+print_domains(Vars) = [print_domain(Var) : Var in Vars].
+
+print_domain(Var) = to_fstring("%2d..%2d", Min,Max) =>
+  fd_min_max(Var,Min,Max).
+  
+
+
+% Magic sequence, algorithmic approach
+magic_sequence_no_cp(N, Sequence) =>
+  Sequence = new_list(N,0),
+  Sequence[1] := N - 4,
+  Sequence[2] := 2,
+  Sequence[3] := 1,
+  Sequence[N-3] := 1.
+
+  

@@ -1,0 +1,311 @@
+/* 
+
+  Generate spelling errors in Picat.
+
+  This is a port of my Perl CGI program "Generate spelling errors"
+  http://www.hakank.org/reading_scrambled_words/g_spell.cgi
+
+  This version don't use random/0 but generates all possible
+  changes via a lot of member/2. Beware, there's a lot of
+  possible solutions.
+
+
+  Here's the documentation for the original program (spelling_error.pi). 
+  For this program one should to replace "probability" with "generate 
+  different values"....
+
+  """
+  This program tries to make spelling errors on every word.
+  Rules:
+   - some transposing of proximate characters: Transpose, T
+   - inserting a character                   : Insert, I
+   - deleting a character                    : Delete, D
+
+  Explanations
+
+  Probability of spelling error
+  The probability that a specific word in the text should contain a spelling error. 0 mean that no errors will be generated at all, 1 means that every word may have some errors. This probability is checked for each word in a text. This means that for the value of 0.5 (which is default), just about every other word will be changed.
+
+  Error operators
+    - insert: insert a character somewhere in a word
+    - delete: delete a random character from a word
+    - transpose: swap two (near) characters in a word
+    - replace: replace one character with another (randomly selected) character. 
+
+  There are no constraints where in a word the change will be: the positions are just 
+  randomized. For each of these operators it is possible to set a probability (from 0 to 1) 
+  that this type of error will occur. The sum of these probabilities should add to (about) 1 
+  or else something unforseen may happen. (If it don't sums to 1.0 they will be recalculated to 
+  sum to 1.0.)
+
+  If you just want to study (say) transposes, set the transpose probablity to 1 (one) 
+  and the othere to 0 (zero).
+  
+  Language
+  For the insertion operator use of English or Swedish character set may be used. The only 
+  characters that may be inserted is the lower characters "a" to "z" (for both languages) 
+  and "å", "ä" and "ö" (for Swedish). Note that just the lower characters is used for 
+  insertion. The option "word_letters" will use only letters in the word for insertion.
+  Valid values:
+    - eng 
+    - swe
+    - word_letters
+
+  Maximum number of errors
+  For a word that should be changed, there may be more than one change. Set this parameter 
+  to the number of maximum changes to do. The real number of changes is a random value 
+  between 1 and the value stated. Note that the result may be unrealistic, e.g. 
+  transposing a word a couple of times is not very likely in real life. 
+
+  Default is max 1 error per word.
+
+  """
+
+  Also see:
+  * "Detection of spelling errors in Swedish not using a word list en clair" 
+    by Rickard Domeij, Joachim Hollman and Viggo Kann. 
+    From page 5:
+    """
+    Many studies ... show that four common mistakes cause 80 to 90 percent 
+    of all typing errors:
+    1. transposition of two adjacent letters
+    2. one extra letter
+    3. one missing letter, and
+    4. one wrong letter.
+    """
+
+  * I blogged about this program in 2003: 
+    "Skapa stavfel": http://www.hakank.org/webblogg/archives/000191.html (Swedish)
+  
+    Via Google Translate
+    "Create spelling mistakes"
+    https://translate.google.com/translate?sl=sv&tl=en&u=http://www.hakank.org/webblogg/archives/000191.html
+
+  * Reading Scrambled Words:
+    http://www.hakank.org/reading_scrambled_words/r_words.cgi
+
+
+
+  Here's an example (from go/0):
+  """
+  According to
+  to = transpose
+  According ot
+  According ot
+  According ot
+  According ot
+  to = replace
+  According to
+  According tt
+  According oo
+  According to
+  to = insert
+  According tto
+  According tto
+  According oto
+  According too
+  to = delete
+  According o
+  According t
+  According = transpose
+  cAcording to
+  to = transpose
+  cAcording ot
+  cAcording ot
+  cAcording ot
+  cAcording ot
+  to = replace
+  cAcording to
+  cAcording tt
+  cAcording oo
+  ...
+  """
+
+  This model was created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+import util.
+
+main => go.
+
+%
+% Default configuration
+%
+go ?=>
+  configuration(default,SpellingErrorPct,ErrorPcts,MaxNumChanges,Lang),
+  % Text = "According to a research at an English university, it doesn't matter in what order the letters in a word are, the only important thing is that first and last letter is at the right place. The rest can be a total mess and you can still read it without problem. This is because we do not read every letter by itself but the word as a whole. Cheerio.",
+  % Text = "According to a research at an English university.",
+  Text = "According to",
+  spelling_errors(SpellingErrorPct,ErrorPcts,MaxNumChanges,Lang,Text),
+  fail,
+  nl.
+go => true.
+
+%
+% Another example
+% 
+go2 ?=> 
+    SpellingErrorPct = 0.3,
+    ErrorPcts = new_map([transpose = 1,insert = 1,delete = 1, replace = 1]),
+    MaxNumChanges = 2,
+    Lang = word_letters,
+    Text = "programming",
+    spelling_errors(SpellingErrorPct,ErrorPcts,MaxNumChanges,Lang,Text),
+    fail,
+    nl.
+go2 => true.
+
+%
+
+% Customer configuration
+% 
+go3 ?=> 
+    SpellingErrorPct = 0.3,
+    ErrorPcts = new_map([transpose = 1]), % Only transpose
+    MaxNumChanges = 1,
+    Lang = word_letters,
+    Text = "According to a research at an English university, it doesn't matter in what order the letters in a word are, the only important thing is that first and last letter is at the right place. The rest can be a total mess and you can still read it without problem. This is because we do not read every letter by itself but the word as a whole. Cheerio.",
+    spelling_errors(SpellingErrorPct,ErrorPcts,MaxNumChanges,Lang,Text),
+    fail,
+    nl.
+go3 => true.
+
+
+
+
+%
+% Prepare configuration and run make_error/5.
+%
+spelling_errors(SpellingErrorPct,ErrorPcts,MaxNumChanges,Lang,Text) => 
+  println(text=Text),
+  println(errorPcts=keys(ErrorPcts)),
+  println(spellingErrorPct=SpellingErrorPct),
+  println(maxNumChanges=MaxNumChanges),
+  println(lang=Lang),
+  nl,
+  EngAlpha = "abcdefghijklmnopqrstuvwxyz",
+  SweAlpha = EngAlpha ++ "åäö",
+  Alpha = EngAlpha,
+
+  if Lang == swe then 
+    Alpha = SweAlpha
+  end,  
+
+  Words = split(Text),
+  NewText = [],
+  foreach(Word in Words)
+    NewWord = make_error(Word,SpellingErrorPct,ErrorPcts,Alpha,MaxNumChanges,Lang),
+    NewText := NewText ++ [NewWord]
+  end,
+  println(join(NewText)).
+
+
+%
+% Make random error(s) of a word.
+%
+make_error(Word,_SpellingErrorPct,ErrorPct,Alpha,MaxNumChanges,Lang) = NewWord =>
+  AlphaSize = Alpha.len,
+  % NumErrors = 1 + random() mod MaxNumChanges,
+  member(NumErrors, 0..MaxNumChanges),
+  % println(numErrors=NumErrors),
+  NewWord1 = copy_term(Word),
+  NumChanges = 0,
+  ChangesMap = new_map(),
+  foreach(_ in 1..NumErrors)
+    Len = NewWord1.len,
+    % Error = random_item(ErrorPct),
+    member(Error, keys(ErrorPct)),
+    println(Word=Error),
+    NumChanges := NumChanges +1,
+    ChangesMap.put(Error,ChangesMap.get(Error,0)+1),
+    if Error == transpose, Len > 1 then
+       NewWord1 := transpose_char(NewWord1,Len)
+    elseif Error == insert then
+       NewWord1 := insert_char(NewWord1,Lang,Len,AlphaSize,Alpha)
+    elseif Error == delete, Len > 1 then
+       NewWord1 := delete_char(NewWord1,Len)
+    elseif Error == replace then
+       NewWord1 := replace_char(NewWord1,Len,Lang,AlphaSize,Alpha)
+    end
+  end,
+  NewWord = NewWord1.
+
+%
+% Select a random item in the Map PMap
+%
+random_item(PMap) = Item =>
+  member(Item,keys(PMap)).
+
+%
+% Transpose a character
+%
+transpose_char(Word,Len) = NewWord =>
+  member(Pos,1..Len),
+  Dir = [-1,1],
+  member(Direction,Dir), 
+  if Pos == Len, Direction == 1 then
+     Direction := -1
+  end,
+  if Pos == 1, Direction == -1 then
+     Direction := 1
+  end,
+  SwapPos = Pos + Direction,
+  NewWord1 = copy_term(Word),
+  Tmp = Word[Pos],
+  NewWord1[Pos] := Word[SwapPos],
+  NewWord1[SwapPos] := Tmp,
+  NewWord != Word, % require a new distinct word
+  NewWord = NewWord1.
+
+%
+% insert a character
+% 
+insert_char(Word,Lang,Len,AlphaSize,Alpha) = NewWord =>
+  NewChar = "",
+  if Lang == word_letters then
+    member(C,1..Len),
+    NewChar := Word[C]
+  else
+    member(C,1..AlphaSize),
+    NewChar := Alpha[C]
+  end,
+  member(Pos,1..Len),
+  NewWord = insert(Word,Pos,NewChar).
+
+%
+% delete a character
+%
+delete_char(Word,Len) = NewWord =>
+  member(Pos,1..Len),
+  NewWord = Word[1..Pos-1] ++ Word[Pos+1..Len].
+
+%
+% replace a character
+%
+replace_char(Word,Len,Lang,AlphaSize,Alpha) = NewWord =>
+  NewChar = "",
+  if Lang == word_letters then
+    member(C,1..Len),
+    NewChar := Word[C]
+  else
+    member(C,1..AlphaSize),
+    NewChar := Alpha[C]
+  end,
+  member(Pos,1..Len),
+  NewChar != Word[Pos], % require distinct chars to swap
+  NewWord = copy_term(Word),
+  NewWord[Pos] := NewChar.
+
+% 
+% Default configuration
+% 
+configuration(default,SpellingErrorPct,ErrorPcts,MaxNumChanges,Lang) =>
+   SpellingErrorPct = 0.5,
+   % Note: For spelling_errors2 the probabilities don't matter. The important
+   %       is that there is a key with the operation
+   ErrorPcts = new_map([transpose = 0.25,insert = 0.25,delete = 0.25, replace = 0.25]),
+   MaxNumChanges = 1,
+   Lang = word_letters.
+

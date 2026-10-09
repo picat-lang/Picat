@@ -1,0 +1,89 @@
+/* 
+
+  Mutual recursion (Rosetta code) in Picat.
+
+  http://rosettacode.org/wiki/Mutual_recursion
+  """
+  Two functions are said to be mutually recursive if the first calls 
+  the second, and in turn the second calls the first.
+
+  Write two mutually recursive functions that compute members of the Hofstadter 
+  Female and Male sequences defined as:
+
+     F(0) = 1 ; M(0)=0 
+     F(n) = n-M(F(n-1)), n>0 
+     M(n) = n-F(M(n-1)), n>0
+
+  (If a language does not allow for a solution using mutually recursive functions 
+  then state this rather than give a solution by other means).
+  """
+
+  This Picat model was created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+
+main => go.
+
+% For small values table is not needed
+go =>
+  N = 30,
+  println(func),
+  test_func(N),
+  println(pred),
+  test_pred(N),
+  nl.
+
+% the predicate version is a little faster than the function version
+% N=1_000_000
+% func: 1.829s
+% pred: 1.407s
+%
+go2 =>
+  N = 1_000_000,
+  println(func),
+  time(test_func(N)),
+  println(pred),
+  time(test_pred(N)),
+  nl.
+
+
+test_func(N) =>
+  println([M : I in 0..N, male(I,M)]),
+  println([F : I in 0..N, female(I,F)]),
+  nl.
+
+test_pred(N) => 
+  println([M : I in 0..N, male(I,M)]),
+  println([F : I in 0..N, female(I,F)]),
+  nl.
+  
+
+table
+f(0) = 1.
+f(N) = N - m(f(N-1)), N > 0 => true. 
+
+table
+m(0) = 0.
+m(N) = N - f(m(N-1)), N > 0 => true.
+
+
+% translation of the Prolog solution
+table
+female(0,1).
+female(N,F) :-
+  N>0, 
+  N1 = N-1, 
+  female(N1,R),
+  male(R, R1),
+  F = N-R1.
+ 
+table
+male(0,0).
+male(N,F) :-
+  N>0, 
+  N1 = N-1, 
+  male(N1,R),
+  female(R, R1),
+  F = N-R1.

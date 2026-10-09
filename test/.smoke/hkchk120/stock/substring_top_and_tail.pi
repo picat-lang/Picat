@@ -1,0 +1,75 @@
+/* 
+
+  Substring/Top and tail (Rosetta code) in Picat.
+
+  http://rosettacode.org/wiki/Substring/Top_and_tail
+  """
+  The task is to demonstrate how to remove the first and last characters from a 
+  string. The solution should demonstrate how to obtain the following results:
+
+    - String with first character removed
+    - String with last character removed
+    - String with both the first and last characters removed 
+
+  If the program uses UTF-8 or UTF-16, it must work on any valid Unicode code point, 
+  whether in the Basic Multilingual Plane or above it. The program must reference 
+  logical characters (code points), not 8-bit code units for UTF-8 or 16-bit code units 
+  for UTF-16. Programs for other encodings (such as 8-bit ASCII, or EUC-JP) are not 
+  required to handle all Unicode characters. 
+  """
+
+  This Picat model was created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+
+% import util.
+% import cp.
+
+
+main => go.
+
+
+go =>
+  test("upraisers"),
+  test("Δημοτική"),
+  nl.
+
+go2 =>
+  test2("upraisers"),
+  test2("Δημοτική"),
+  nl.
+
+
+test(S) =>
+  println(s=S),
+  println(butfirst=S.slice(2)),
+  println(butfirst=S.tail),
+  println(butfirst=S[2..S.len]),  
+  
+  println(butlast=S.but_last()),
+  
+  println(butfirst_butlast=S.tail.but_last),
+  println(butfirst_butlast=slice(S,2,S.length-1)),
+  println(butfirst_butlast=[S[I] : I in 2..S.length-1]),
+  println(butfirst_butlast=S[2..S.length-1]),  
+
+  nl.
+
+
+but_last(S)  = S.slice(1,S.length-1).
+
+
+% Prolog approach
+test2(L) :-
+    L = [_|L1],
+    remove_last(L, L2),
+    remove_last(L1, L3),
+    writef("Original string          : %s\n", L),
+    writef("Without first char       : %s\n", L1),
+    writef("Without last char        : %s\n", L2),
+    writef("Without first/last chars : %s\n", L3).
+ 
+remove_last(L, LR) :-
+    append(LR, [_], L).

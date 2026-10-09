@@ -1,0 +1,149 @@
+/*
+
+  Broken weights problem in Picat.
+
+  From
+  http://www.mathlesstraveled.com/?p=701
+  """
+  Here's a fantastic problem I recently heard. Apparently it was first 
+  posed by Claude Gaspard Bachet de Méziriac in a book of arithmetic problems 
+  published in 1612, and can also be found in Heinrich Dorrie’s 100 
+  Great Problems of Elementary Mathematics.
+  
+      A merchant had a forty pound measuring weight that broke 
+      into four pieces as the result of a fall. When the pieces were 
+      subsequently weighed, it was found that the weight of each piece 
+      was a whole number of pounds and that the four pieces could be 
+      used to weigh every integral weight between 1 and 40 pounds. What 
+      were the weights of the pieces?
+  
+  Note that since this was a 17th-century merchant, he of course used a 
+  balance scale to weigh things. So, for example, he could use a 1-pound 
+  weight and a 4-pound weight to weigh a 3-pound object, by placing the 
+  3-pound object and 1-pound weight on one side of the scale, and 
+  the 4-pound weight on the other side.
+  """
+
+  Model created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+import util.
+import cp.
+
+main => go.
+
+go =>
+   N = 4,
+   M = 40,
+
+   broken_weights(N,M,Weights,X),
+   writeln(Weights),
+   print_matrix(X),
+   nl.
+
+%
+% Alternative version of the problem:
+% what is the minimal number of weights
+% for weighting all values of 1..80.
+% We don't minimize the last value of the
+% weights, so any value is good.
+%
+go2 =>
+   M = 80,
+   N :: 1..M,
+   indomain(N),
+   writeln(n=N),
+
+   broken_weights(N,M,Weights,X,false),
+   writeln(Weights),
+   print_matrix(X),
+   nl.
+
+% what is the minimal number of weights
+% for weighting all values of 1..80.
+% Also, we minimize the last value of the
+% weights.
+go3 =>
+   N :: 1..40,
+   indomain(N),
+   writeln(n=N),
+
+   M = 80,
+
+   broken_weights(N,M,Weights,X,true),
+   writeln(Weights),
+   print_matrix(X).
+
+%
+% recursive variant, from http://stackoverflow.com/questions/38468488/how-to-program-this-puzzle-recursively
+%
+go4 => 
+  println([broken_weights_rec(N) : N in 1..40]),
+  nl.
+
+   
+% default call
+broken_weights(N,M, Weights, X) =>
+   broken_weights(N,M, Weights, X, true).
+
+% Minimize = true -> minimize the last value of Weights
+broken_weights(N,M, Weights, X, Minimize) =>
+
+   Weights = new_list(N),
+   Weights :: 1..M,
+
+   X = new_array(M,N),
+   X :: -1..1, 
+
+   all_distinct(Weights),
+
+   % symmetry breaking
+   increasing(Weights),
+
+   M #= sum(Weights),
+   foreach(J in 1..M)
+      scalar_product([X[J,I] : I in 1..N],Weights,J)
+   end,
+   
+   % search
+   Vars = Weights ++ X,
+
+   if Minimize = true then
+      % minimize the last weights
+      solve($[min(Weights[N])], Vars)
+   else
+      solve([],Vars)
+   end.
+
+
+print_matrix(X) =>
+   foreach({I,Row} in zip(1..X.length,X.to_list()))
+      writef("%2d: ", I),
+      foreach(R in Row) writef("%3d", R) end,
+      nl
+   end.
+
+product_lists(List1, List2, Sum) =>
+   Sum #= sum([L1*L2 : {L1,L2} in zip(List1, List2)]).
+
+
+
+% From http://stackoverflow.com/questions/38468488/how-to-program-this-puzzle-recursively
+% """
+% So, the answer is (1,3,9,27) which can be generalized as twice the sum of previous terms + 1.
+% """
+% Note that this don't solve the minimization problem, just the satisfiability problem.
+%
+% For N in 1..40:
+% [1,3,9,27,81,243,729,2187,6561,19683,59049,177147,531441,1594323,4782969,14348907,43046721,129140163,387420489,1162261467,3486784401,10460353203,31381059609,94143178827,282429536481,847288609443,2541865828329,7625597484987,22876792454961,68630377364883,205891132094649,617673396283947,1853020188851841,5559060566555523,16677181699666569,50031545098999707,150094635296999121,450283905890997363,1350851717672992089,4052555153018976267]
+% 
+% table
+broken_weights_rec1(N) = [1,1], N <= 1 => true.
+broken_weights_rec1(N) = [NewSum,NewTerm] =>
+  [OldSum, _OldTerm] = broken_weights_rec1(N-1),
+  NewTerm = 2*OldSum + 1,
+  NewSum = OldSum+NewTerm.
+
+broken_weights_rec(N) = broken_weights_rec1(N).second().

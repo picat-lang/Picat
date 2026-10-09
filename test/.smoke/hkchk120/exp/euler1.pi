@@ -1,0 +1,220 @@
+/* 
+
+  Euler #1 in Picat.
+
+  Problem 1
+  """
+  If we list all the natural numbers below 10 that are multiples of 3 or 5, 
+  we get 3, 5, 6 and 9. The sum of these multiples is 23.
+  Find the sum of all the multiples of 3 or 5 below 1000.
+  """
+
+  This Picat model was created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+import cp.
+import util.
+
+main => time(go).
+
+go => euler1.
+
+go2 => 
+   euler1,
+   euler1b,
+   euler1c,
+   euler1d,
+   euler1e,
+   euler1f,
+   euler1g,
+   euler1h,
+   euler1i,
+   euler1j,
+   euler1k,
+   euler1l,
+   euler1m,
+   euler1n,
+   euler1o,
+   euler1p,
+   euler1q,
+   euler1r,
+   euler1s,
+   euler1t,
+   euler1u,   
+   nl.
+
+%
+% some larger limits, using the euler1t solution:
+%
+% 0 = 0
+% 1 = 23
+% 2 = 2318
+% 3 = 233168
+% 4 = 23331668
+% 5 = 2333316668
+% 6 = 233333166668
+% 7 = 23333331666668
+% 8 = 2333333316666668
+% 9 = 233333333166666668
+% 10 = 23333333331666666668
+% ...
+%
+go3 => 
+  M = 100,
+  foreach(I in 0..M)
+    N = 10**I-1,
+    println(I=e1t(3,N) + e1t(5,N) - e1t(15,N))
+  end,
+  nl.
+  
+
+
+euler1 => 
+   writeln(sum([I: I in 1..999, (I mod 3== 0; I mod 5==0)])).
+
+%
+% Some alternative approaches
+%
+euler1b =>
+   Sum = 0,
+   foreach(I in 1..999)
+      if I mod 3 == 0; I mod 5 == 0 then
+        Sum := Sum + I
+      end
+   end,
+   writeln(Sum).
+
+
+pred1c(N) = cond((N mod 3 == 0; N mod 5 == 0), 1, 0).
+euler1c => 
+   writeln(sum([I*pred1c(I): I in 1..999])).
+
+euler1d => 
+   writeln(sum([cond((I mod 3 == 0; I mod 5 == 0), 1, 0)*I: I in 1..999])).
+
+pred1e(N) => N mod 3 == 0; N mod 5 == 0.
+euler1e => 
+   writeln(sum([I: I in 1..999, pred1e(I)])).
+
+
+pred1f(N), N mod 3 == 0 => true.
+pred1f(N), N mod 5 == 0 => true.
+euler1f => 
+   writeln(sum([I: I in 1..999, pred1f(I)])).
+   
+
+euler1g => 
+   L = findall(N, (member(N, 1..999), pred1f(N))),
+   writeln(sum(L)).
+
+% using CP and reification (this is a little contrieved)
+euler1h =>  
+   Len = 999,
+   X = new_list(Len),
+   X :: 0..1, 
+   foreach(I in 1..Len) 
+      I mod 3 #= 0 #\/ I mod 5 #= 0 #<=> X[I] #= 1
+   end,
+
+   Sum #= sum([I*X[I] : I in 1..Len]),
+   solve(X),
+   writeln(Sum).
+
+% another CP approach
+euler1i =>  
+   X #= [I*(I mod 3 #= 0 #\/ I mod 5 #= 0) : I in 1..999],
+   Sum #= sum(X),
+   solve(X),
+   writeln(Sum).
+
+euler1j => 
+   % writeln(union2(3..3..999, 5..5..999).sum()).
+   writeln(remove_dups(3..3..999++5..5..999).sum()).
+
+union2(A,B) = C =>
+    bp.sort(A++B,C).
+
+% using \/ (or) on 0/1 lists
+euler1k => 
+   N = 999,
+   L3 = [cond(I mod 3==0,1,0) : I in 1..N],
+   L5 = [cond(I mod 5==0,1,0) : I in 1..N],
+   println(sum([I : {I,V} in zip(1..N, map(\/,L3,L5)), V=1])).
+
+euler1l => 
+   writeln(sum([I*cond((I mod 3== 0; I mod 5==0),1,0) : I in 1..999])).
+
+
+% Using an acumulator 
+p1m(N,Limit,S) => p1m(N,Limit,0,S).
+p1m(N,Limit,S1,S2) ?=> 
+  N > Limit, S1=S2.
+p1m(N,Limit,S1,S2) ?=> 
+  (N mod 3 = 0; N mod 5 = 0),
+  p1m(N+1,Limit,S1+N,S2).
+p1m(N,Limit,S1,S2)  => 
+  p1m(N+1,Limit,S1,S2).
+
+euler1m =>
+  p1m(1,999,S),
+  println(S).
+
+
+euler1n => 
+  ([I:I in 3..3..999 ]++[I:I in 5..5..999]).remove_dups().sum().println().
+
+sum_mult(Limit,Mults) = sum([sum_mult1(Limit,Mult) : Mult in Mults]) - sum_mult1(Limit,prod(Mults)).
+sum_mult1(Limit,Mult) = 
+   Mult*((Limit div Mult)*(Limit div Mult+1) div 2). % shorter variant
+
+euler1o => 
+  println(sum_mult(999,[3,5])).
+
+
+euler1p =>
+  println(sum([I: I in 1..999,member(M,[3,5]), I mod M == 0])).
+
+
+% analytic version
+e1q(A,B) = floor((A / 2)*(1 + floor((B-A) / A))*(2 + floor((B-A) / A))).
+euler1q =>
+  N = 999,
+  println(e1q(3,N) + e1q(5,N) - e1q(15,N)).
+
+
+% another analytic version
+e1r(A,B) = Ret => 
+  N1=B//A,
+  N2=N1+1,
+  Ret=floor(A*N1*N2 / 2).
+
+euler1r =>
+  N = 999,
+  println(e1r(3,N) + e1r(5,N) - e1r(15,N)).
+
+
+% using triangular numbers
+tri(N) = N*(1+N) // 2.
+e1s(A,B) = tri(B//A)*A.
+euler1s =>
+  N = 999,
+  println(e1s(3,N) + e1s(5,N) - e1s(15,N)).
+
+%
+% Note: This also handles the much 
+% larger limit of 10**20 -> 2333333333333333333316666666666666666668
+%
+e1t(A,B) = X => 
+  N1 = B//A, 
+  X = A*N1*(N1+1) // 2.
+euler1t =>
+  N = 999,
+  println(e1t(3,N) + e1t(5,N) - e1t(15,N)).
+
+
+euler1u =>
+  X::1..999,
+  X mod 3#=0#\/X mod 5#=0,
+  println(sum(solve_all(X))).

@@ -1,0 +1,178 @@
+/* 
+
+  Euler #25 in Picat.
+
+  """
+  The Fibonacci sequence is defined by the recurrence relation:
+
+     Fn = Fn1 + Fn2, where F1 = 1 and F2 = 1.
+  
+  Hence the first 12 terms will be:
+
+     F1 = 1
+     F2 = 1
+     F3 = 2
+     F4 = 3
+     F5 = 5
+     F6 = 8
+     F7 = 13
+     F8 = 21
+     F9 = 34
+     F10 = 55
+     F11 = 89
+     F12 = 144
+
+  The 12th term, F12, is the first term to contain three digits.
+
+  What is the first term in the Fibonacci sequence to contain 1000 digits?")
+  """
+
+  This Picat model was created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+main => go.
+
+go => time(euler25).
+
+% 0.4s
+euler25 => 
+    Target = 1000,
+    FoundUpper = 0,
+    I = 1,
+    FibLen = 0,
+    Step = 43,
+    % Get the upper limit
+    while(FibLen < Target, FoundUpper == 0)
+       FibLen := fib_len(Step*I),
+       if  FibLen > Target then
+         FoundUpper := I
+       end,
+       I := I + 1 % jump to the next step
+    end,
+    % Now check all numbers from Step*(FoundUpper-1) .. Step*FoundUpper
+    % The target must be in that interval.
+    Fib = Step*(FoundUpper-1),
+    FibLen := fib_len(Fib),
+    while(FibLen < Target, Fib <= Step*FoundUpper) 
+       FibLen := fib_len(Fib),
+       Fib := Fib + 1
+    end,
+    writeln([fib=Fib,fibLen=FibLen]),
+    nl.
+    
+
+% 11.7s
+% (to_string() is not very fast in Picat)
+euler25b =>
+    F1 = 1,
+    F2 = 1,
+    Len = 1,
+    Ix = 2,
+    while (Len < 1000) 
+       Tmp = F1,
+       F1 := F2,
+       F2 := Tmp + F1,
+       Len := F2.to_string().length,
+       Ix := Ix + 1
+    end,
+    writeln([Ix,Len]),
+    nl.
+
+
+% 11.9s
+euler25c => 
+    I = 1,
+    Len = 0,
+    while (Len < 1000) 
+       Fib := fib(I),
+       Len := Fib.to_string().length,
+       % Len := nlen(Fib),
+       I := I + 1
+    end,
+    writeln([I,Len]).
+
+%% using int_len: 1min 47s
+% using int_len2/2 is much faster: 0.72s
+euler25d =>
+    F1 = 1,
+    F2 = 1,
+    Len = 1,
+    Ix = 2,
+    while (Len < 1000) 
+       Tmp = F1,
+       F1 := F2,
+       F2 := Tmp + F1,
+       % Len := int_len(F2),
+       Len := int_len2(F2,Len),
+       Ix := Ix + 1
+    end,
+    writeln([ix=Ix,len=Len]),
+    nl.
+
+%
+% a little bit slower than euler25d: 0.76s
+%
+euler25e =>
+    Len = 1,
+    N = 2,
+    while (Len < 1000) 
+       Len := int_len2(fib(N),Len),
+       N := N+1
+    end,
+    writeln([n=N,len=Len]),
+    nl.
+
+% Another approach
+% Much slower 3.738
+euler25f_(N) = cond(fib_len(N) >= 1000, N, euler25f_(N+1)).
+euler25f => println(1+euler25f_(1)).
+
+
+table
+fib_len(I) = fib(I).to_string().length.
+% fib_len(I) = fib(I).number_chars().length.
+
+% From 
+% http://www.had2know.com/academics/number-digits-length-fibonacci-number.html
+% 
+% Nope: It's not that exact, it differ by 1 sometimes:
+%   Picat> L=[ fib_len(I)-fib_len2(I) : I in 1..1000].sum()
+%  L = 209
+%   Picat> L=[ I : I in 1..100, fib_len(I)-fib_len2(I) != 0]         
+%  L = [1,6,11,16,20,25,30,35,39,44,49,54,59,63,68,73,78,83,87,92,97]
+fib_len2(N) = floor(N*log10((1+sqrt(5))/2) - log10(5)/2 + 1).
+
+
+table
+fib(0)=1.
+fib(1)=1.
+fib(N)=F,N>1 => F=fib(N-1)+fib(N-2).
+
+
+% float overflow after I=1475 (length 309)
+nlen(N) = floor(log10(N))+1.
+
+% using this it takes 1min47s.
+int_len(V) = Len =>
+  Len1=1,
+  while (V > 9)
+     Len1 := Len1 + 1,
+     V := V div 10
+  end,
+  Len = Len1.
+
+%
+% This is much faster than int_len/1 (1.47s)
+%
+% For this application we know that Len must be
+% greater or equal that the last length (OldLen).
+%
+int_len2(V,OldLen) = Len =>
+  I = OldLen,
+  while(V > 10**I)
+    I := I+1
+  end,
+  Len := I.
+

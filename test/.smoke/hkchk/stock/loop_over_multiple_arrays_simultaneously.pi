@@ -1,0 +1,85 @@
+/* 
+
+  Loop over multiple arrays simultaneously (Rosetta code) in Picat.
+
+  http://rosettacode.org/wiki/Loop_over_multiple_arrays_simultaneously
+  """
+  Loop over multiple arrays (or lists or tuples or whatever they're called in 
+  your language) and print the ith element of each. Use your language's 
+  "for each" loop if it has one, otherwise iterate through the collection 
+  in order with some other loop.
+
+  For this example, loop over the arrays (a,b,c), (A,B,C) and (1,2,3) to produce 
+  the output
+
+  aA1
+  bB2
+  cC3
+
+  If possible, also describe what happens when the arrays are of different lengths. 
+  """
+
+
+
+  This Picat model was created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+
+import util.
+
+
+main => go.
+
+
+go =>
+
+  L1 = ["a","b","c"], 
+  L2 = ["A","B","C"],
+  L3 = ["1","2","3"],
+
+
+  % foreach loop
+  println("foreach loop:"),
+  foreach({A,B,C} in zip(L1,L2,L3))
+    println([A,B,C].join(''))
+  end,
+  nl,
+
+  % list comprehension
+  % note: zip/n returns an array, hence it's {A,B,C} (and not [A,B,C])
+  println("list comprehension/n:"),
+  println( [[A,B,C].join('') : {A,B,C} in zip(L1,L2,L3)].join("\n")),
+  nl,
+
+  % With uneven lengths the last elements are skipped.
+  println("Uneven lengths:"),
+  L4 = ["P","Q","R","S"], % longer than the other
+  foreach({A,B,C,D} in zip(L1,L2,L3,L4)) 
+    println([A,B,C,D].join('')) 
+  end,
+
+  nl.
+
+%
+% If uneven lengths, the last last elements are skipped
+%
+test_uneven =>
+  println(test_uneven),
+  L1 = ["a","b","c"], 
+  L2 = ["A","B","C"],
+  L3 = ["1","2","3"],
+  L4 = ["P","Q","R","S"], % not the same length as the other
+  foreach({A,B,C,D} in zip(L1,L2,L3,L4)) 
+    println([A,B,C,D].join('')) 
+  end,
+  nl.
+
+
+%
+% A variant of zip/n that can handle lists of uneven lengths.
+%
+zip2(L) = Zip =>
+  MinLen = min([LL.length : LL in L]),
+  Zip = [[L[I,J] : I in 1..length(L)] : J in 1..MinLen ].

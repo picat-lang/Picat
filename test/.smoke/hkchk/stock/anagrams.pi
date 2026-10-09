@@ -1,0 +1,65 @@
+/*
+
+  Anagrams in Picat.
+
+  This version checks for the largest sets of anagrams from a word list,
+  (default /usr/dict/words). Note: this program just cares about words
+  consisting of a-z.
+
+  Also compare with the Rosetta Code:
+  http://rosettacode.org/wiki/Anagrams
+
+  Model created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+import util.
+
+main => go.
+
+go =>
+   FD = open("unixdict.txt"),
+   % FD = open("words_lower.txt"),
+   Dict = new_map(),
+   while (not at_end_of_stream(FD))
+      Line = read_line(FD),
+      Sorted = Line.sort(),
+      Dict.put(Sorted, cond(Dict.has_key(Sorted), Dict.get(Sorted), "") ++ [Line])
+   end,
+   close(FD),
+
+   MaxLen = max([Value.length : _Key=Value in Dict]),
+   writeln(maxLen=MaxLen),
+   foreach(_Key=Value in Dict, Value.length == MaxLen)
+      println(Value)
+   end,
+   nl.
+
+% shorter, and (mis)using [] as a foreach loop.
+go2 =>
+  M = new_map(),
+  _=[_:W in read_file_lines("unixdict.txt"),S=sort(W),M.put(S,M.get(S,"")++[W])],
+  MaxLen = max([Value.length : _Key=Value in M]),
+  writeln(maxLen=MaxLen),
+  _=[Value : _=Value in M, Value.length=MaxLen, println(Value)],
+  nl.
+
+% using group/2
+go3 =>
+  M=[W:W in read_file_lines("unixdict.txt").group(sort)],
+  MaxLen = max([Value.length : _Key=Value in M]),
+  writeln(maxLen=MaxLen),
+  _=[Value : _=Value in M, Value.length=MaxLen, println(Value)],
+  nl.
+
+
+%
+% groups the element in List according to the function F
+%
+group(List, F) = P, list(List) =>
+   P = new_map(),
+   foreach(E in List) 
+      V = apply(F,E),
+      P.put(V, P.get(V,[]) ++ [E])
+   end.

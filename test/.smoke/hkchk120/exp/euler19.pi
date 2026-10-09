@@ -1,0 +1,146 @@
+/* 
+
+  Euler #19 in Picat.
+
+  """
+  You are given the following information, but you may prefer 
+  to do some research for yourself.
+
+  * 1 Jan 1900 was a Monday.
+  * Thirty days has September,
+    April, June and November.
+    All the rest have thirty-one,
+    Saving February alone,
+    Which has twenty-eight, rain or shine.
+    And on leap years, twenty-nine.
+  * A leap year occurs on any year evenly divisible by 4, but not 
+    on a century unless it is divisible by 400.
+  
+  How many Sundays fell on the first of the month during the 
+  twentieth century (1 Jan 1901 to 31 Dec 2000)?
+  """
+
+  This Picat model was created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+import cp.
+
+main => time(go).
+
+go => euler19d.
+
+% 0.029s
+euler19a => 
+   Sum = 0,
+   foreach(D in date2julian(1901,1,1)..date2julian(2000,12,31))
+      DD = julian2date(D),
+      if DD[3] == 1, dow(DD[1],DD[2],DD[3]) == 0 then
+          Sum := Sum+1
+      end
+   end,
+   println(Sum).
+
+% Just one list comprehension: 0.017s
+euler19b => 
+   Sum = [1 : D in date2julian(1901,1,1)..date2julian(2000,12,31), 
+                  DD = julian2date(D), 
+                  DD[3] == 1,
+                  dow(DD[1],DD[2],DD[3]) == 0].sum(),
+   println(Sum).
+
+% recursive version: 0.019s
+euler19c =>
+  L = date2julian(1901,1,1)..date2julian(2000,12,31),
+  e19c(L,0,Sum),
+  println(Sum).
+
+e19c([],Sum0,Sum) =>
+  Sum = Sum0.
+
+e19c([D|T],Sum0,Sum) =>
+  DD = julian2date(D),
+  (  
+    DD[3] == 1,
+    dow(DD[1],DD[2],DD[3]) == 0 ->
+     Sum1 = Sum0 + 1
+   ;
+     Sum1 = Sum0
+  ),
+  e19c(T,Sum1,Sum).
+
+
+%
+% Simpler version, just using dow/3 instead of all that julian stuff...
+% 0.0s
+%
+euler19d =>
+  println([ 1 : Year in 1901..2000, Month in 1..12, dow(Year,Month,1) == 0].length).
+
+%
+% CP approach
+% 0.004s
+%
+euler19e =>
+   Year :: 1901..2000,
+   Month :: 1..12,
+   dow_cp(Year,Month,1,0),
+   All=solve_all([Year,Month]),
+   println(All.len).
+
+%
+% Day of week, Sakamoto's method
+% http:%en.wikipedia.org/wiki/Weekday_determination#Sakamoto.27s_Method
+%
+dow(Y, M, D) = Dow =>
+   T = [0,3,2,5,0,3,5,1,4,6,2,4],
+   YY = Y,
+   if M < 3 then
+      YY := YY - 1
+   end,
+   Dow := (YY + YY div 4 - YY div 100 + YY div 400 + T[M] + D) mod 7.
+
+% CP approach
+dow_cp(Y, M, D, Dow) =>
+   T = [0,3,2,5,0,3,5,1,4,6,2,4],
+   M #< 3 #=> YY #= Y-1,
+   M #>= 3 #=> YY #= Y,   
+   element(M,T,TM),
+   Dow #= (YY + YY div 4 - YY div 100 + YY div 400 + TM + D) mod 7.
+
+
+
+%
+% http://en.wikipedia.org/wiki/Julian_day
+% gregorian date -> julian day
+date2julian(Year,Month,Day) = JD =>
+  A = floor((14-Month) / 12), % 1 for Jan or Feb, 0 for other months
+  Y = Year + 4800 - A,
+  M = Month + 12*A - 3, % 0 for Mars, 11 for Feb
+  JD = Day + floor( (153*M + 2) / 5) + 365*Y + floor(Y/4) -
+       floor(Y / 100) + floor(Y / 400) - 32045.
+
+
+% julian day -> gregorian date
+julian2date(JD) = Date =>
+  Y=4716,
+  V=3,
+  J=1401,
+  U=5,
+  M=2,
+  S=153,
+  N=12,
+  W=2,
+  R=4,
+  B=274277,
+  P=1461,
+  C= -38,
+  F = JD + J + (((4 * JD + B) div 146097) * 3) div 4 + C,
+  E = R * F + V,
+  G = mod(E, P) div R,
+  H = U * G + W,
+  Day = (mod(H, S)) div U + 1,
+  Month = mod(H div S + M, N) + 1,
+  Year = (E div P) - Y + (N + M - Month) div N,
+  Date = [Year,Month,Day].

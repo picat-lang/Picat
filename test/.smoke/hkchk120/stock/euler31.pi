@@ -1,0 +1,127 @@
+/* 
+
+  Euler #31 in Picat.
+
+  Problem 31
+  """
+  In England the currency is made up of pound, £, and pence, p, and 
+  there are eight coins in general circulation:
+
+     1p, 2p, 5p, 10p, 20p, 50p, £1 (100p) and £2 (200p).
+
+  It is possible to make £2 in the following way:
+
+     1×£1 + 1×50p + 2×20p + 1×5p + 1×2p + 3×1p
+
+  How many different ways can £2 be made using any number of coins?
+  """
+
+  This Picat model was created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+import cp.
+
+main => go.
+
+go => time(euler31). % , time(euler31b).
+
+% 0.000s
+euler31 => 
+   Coins = [200,100,50,20,10,5,2,1],
+   T = coins(Coins, 200, 1),
+   println(T).
+
+% using cp: 0.076s
+euler31b => 
+   Coins = [200,100,50,20,10,5,2,1],
+   X = new_list(Coins.length),
+   X :: 0..200,
+   scalar_product(Coins, X, 200),
+   writeln(solve_all(X).length).
+
+
+% using cp with some stricter domains: 0.072s
+euler31c => 
+   Coins = [200,100,50,20,10,5,2,1],
+   X = new_list(Coins.length),
+   Max = max(Coins),
+   foreach(I in 1..Coins.length)
+     X[I] :: 0..Max div Coins[I]
+   end,
+   scalar_product(Coins, X, 200),
+   writeln(solve_all(X).length).
+
+% From http://picat-lang.org/euler/p31.pi
+% 0.038s
+euler31d => 
+   Vars = [A, B, C, D, E, F, G, H],
+   Vars :: 0 .. 200,
+   1 * A + 2 * B + 5 * C + 10 * D + 20 * E + 50 * F + 100 * G + 200 * H #= 200,
+   println(solve_all($[degree,updown],Vars).length).
+
+%
+% Recursive approach
+% 0.001s
+euler31e =>
+  println(coins2([200,100,50,20,10,5,2,1],200,1)).
+
+
+
+% without table: 0.048s
+% with table: 0.000s
+table
+coins(Coins, Money, M) = Sum =>
+    Sum1 = 0,
+    Len = Coins.length,
+    if M == Len then
+      Sum1 := 1
+    else 
+       foreach(I in M..Len)
+         if Money - Coins[I] == 0 then
+            Sum1 := Sum1 + 1
+         end,
+         if Money - Coins[I] > 0 then
+            Sum1 := Sum1 + coins(Coins, Money-Coins[I], I)
+         end
+       end
+    end,
+    Sum = Sum1.
+
+
+
+%
+% Recursive version of coin/3.
+% 0.001s with tabling
+% 0.027s w/o tabling
+%
+table
+coins2(Coins,Money,M) = Sum1 =>
+  if M == Coins.len then
+    Sum1 = 1
+  else
+    Sum1 = coins2_(M,Coins.len,Coins,Money,0)
+  end.
+
+%
+% S0 is the accumulated value of the loop
+%
+coins2_(I,Len,Coins,Money,M,S0) = S0 => I > Len. % base case
+coins2_(I,Len,Coins,Money,S0) = Sum =>
+  if Money - Coins[I] == 0 then
+    Sum1 = 1
+  else
+    Sum1 = 0
+  end,
+  if Money - Coins[I] > 0 then
+    Sum2 = Sum1 + coins2(Coins,Money-Coins[I],I)
+  else
+    Sum2 = Sum1
+  end,
+  if I < Len then
+    Sum = S0 + coins2_(I+1,Len,Coins,Money,Sum2)
+  else
+    Sum = S0 + Sum2
+  end.
+

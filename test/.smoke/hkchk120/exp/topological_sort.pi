@@ -1,0 +1,243 @@
+/* 
+
+  Topological sort in Picat.
+
+  The implementation is inspired by a SETL program I saw. See below.
+
+  Also: cycle detection to be able to solve the Rosetta Code task
+  http://rosettacode.org/wiki/Topological_sort
+
+  This Picat model was created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+
+% import util.
+% import cp.
+
+
+main => go.
+
+
+go =>
+  Prec = findall([X,Y], precedence(X,Y)), % .reverse(),
+  println(prec=Prec),
+  topological_sort(Prec,Sort),
+  println(tsort=Sort),
+  nl.
+
+
+%
+% Precedences: task1 must be done before task2.
+%
+index(-,-)
+precedence(masonry,carpentry).
+precedence(masonry,plumbing). 
+precedence(masonry,ceiling). 
+precedence(carpentry,roofing). 
+precedence(ceiling,painting). 
+precedence(roofing,windows). 
+precedence(roofing,facade). 
+precedence(plumbing,facade). 
+precedence(roofing,garden). 
+precedence(plumbing,garden). 
+precedence(windows,moving). 
+precedence(facade,moving). 
+precedence(garden,moving). 
+precedence(painting,moving).
+
+
+%
+% Example from 
+% https://en.wikipedia.org/wiki/Tsort_%28Unix%29
+% 
+go2 =>
+
+  Prec = [
+           [main,parse_options],
+           [main,tail_file],
+           [main,tail_forever],
+           [tail_file,pretty_name],
+           [tail_file,write_header],
+           [tail_file,tail],
+           [tail_forever,recheck],
+           [tail_forever,pretty_name],
+           [tail_forever,write_header],
+           [tail_forever,dump_remainder],
+           [tail,tail_lines],
+           [tail,tail_bytes],
+           [tail_lines,start_lines],
+           [tail_lines,dump_remainder],
+           [tail_lines,file_lines],
+           [tail_lines,pipe_lines],
+           [tail_bytes,xlseek],
+           [tail_bytes,start_bytes],
+           [tail_bytes,dump_remainder],
+           [tail_bytes,pipe_bytes],
+           [file_lines,dump_remainder],
+           [recheck,pretty_name]],
+
+  topological_sort(Prec,Sort),
+  println(tsort=Sort),
+  nl.
+
+% Another example from 
+% https://en.wikipedia.org/wiki/Tsort_%28Unix%29
+go3 => 
+  Prec = [
+           [3,8],
+           [3,10],
+           [5,11],
+           [7,8],
+           [7,11],
+           [8,9],
+           [11,2],
+           [11,9],
+           [11,10]],
+
+  topological_sort(Prec, Sort),
+  println(tsort=Sort),
+  nl.
+% 
+% This example is from the Rosetta Code task Topological sort
+% http://rosettacode.org/wiki/Topological_sort
+%
+go4 =>
+
+  % LIBRARY = LIBRARY DEPENDENCIES
+  % (without cycle)
+  Deps = [
+    des_system_lib=[std,synopsys,std_cell_lib,des_system_lib,dw02,dw01,ramlib,ieee],
+    dw01=[ieee,dw01,dware,gtech],
+    dw02=[ieee,dw02,dware],
+    dw03=[std,synopsys,dware,dw03,dw02,dw01,ieee,gtech],
+    dw04=[dw04,ieee,dw01,dware,gtech],
+    dw05=[dw05,ieee,dware],
+    dw06=[dw06,ieee,dware],
+    dw07=[ieee,dware],
+    dware=[ieee,dware],
+    gtech=[ieee,gtech],
+    ramlib=[std,ieee],
+    std_cell_lib=[ieee,std_cell_lib],
+    synopsys=[]
+    ],
+  Prec=[],
+  foreach(Lib=Dep in Deps)
+     % println([Lib,Dep]),
+     Prec := Prec ++ [[D,Lib] : D in Dep, D != Lib]
+  end,
+  % println(prec=Prec),
+  topological_sort(Prec,Sort),
+  println(tsort=Sort),
+  nl.
+
+% Same as go4 but with a cycle in dw01 (adding dw04)
+go4b =>
+
+  % LIBRARY = LIBRARY DEPENDENCIES
+  Deps = [
+    des_system_lib=[std,synopsys,std_cell_lib,des_system_lib,dw02,dw01,ramlib,ieee],
+    % dw01=[ieee,dw01,dware,gtech],
+    dw01=[ieee,dw01,dware,gtech,dw04], % make a cycle
+    dw02=[ieee,dw02,dware],
+    dw03=[std,synopsys,dware,dw03,dw02,dw01,ieee,gtech],
+    dw04=[dw04,ieee,dw01,dware,gtech],
+    dw05=[dw05,ieee,dware],
+    dw06=[dw06,ieee,dware],
+    dw07=[ieee,dware],
+    dware=[ieee,dware],
+    gtech=[ieee,gtech],
+    ramlib=[std,ieee],
+    std_cell_lib=[ieee,std_cell_lib],
+    synopsys=[]
+    ],
+  Prec=[],
+  foreach(Lib=Dep in Deps)
+     % println([Lib,Dep]),
+     Prec := Prec ++ [[D,Lib] : D in Dep, D != Lib]
+  end,
+  % println(prec=Prec),
+  topological_sort(Prec,Sort),
+  println(tsort=Sort),
+  nl.
+
+%
+% Example from Claudio Ceasar de Sa
+%
+go5 =>
+    Prec1 = [
+        {5,  [11]},
+        {7,  [11, 8]},
+        {3,  [8, 10]},
+        {11, [2, 9, 10]},
+        {8,  [9,10]},
+        {2,  []},
+        {9,  []},
+        {10, []}
+        % hakank: added to make a cycle
+        % , {11,[5]} % [without_cycle = [7,3,8],cycle = [5,11,10,2,9]]
+        % , {8,[3]} % [without_cycle = [5,7,11,2],cycle = [3,8,10,9]]
+   ],
+  Prec = [],
+  foreach({Node, Ps} in Prec1)
+    foreach(P in Ps)
+      Prec := Prec ++ [[Node,P]]
+    end
+  end,
+  println(precs=Prec),
+  topological_sort(Prec,Sort),
+  println(tsort=Sort),
+  nl.
+
+
+% domain are the keys in L
+domain(L) = [K : K=_V in L].
+
+% range are the values of L
+range(L) = [V : _K=V in L].
+
+% deletes all pairs in L where a value is X
+% (this is less on a multi-map in GNU SETL)
+delete_value(L,X) = [K=V : K=V in L, V!=X].
+
+% deletes all pairs in L where a key is X
+% (this is lessf on a multi-map in GNU SETL)
+delete_key(L,X) = [K=V : K=V in L, K!=X].
+
+
+%
+% Inspired by this SETL snippet:
+%   (while exists x in nodes | x notin range edges)
+%      print(x);
+%      nodes less:= x;
+%      edges lessf:= x;
+%   end;
+%
+topological_sort(Precedences, Sorted) =>
+
+  % Note: Picat don't support multi-maps so we work with a 
+  %       list of K=V (i.e. key=value)
+  Edges = [K=V : [K,V] in Precedences],
+  println(edges=Edges),
+  % Nodes = [[K,V] : K=V in Edges].flatten().remove_dups(),
+  Nodes = (domain(Edges) ++ range(Edges)).remove_dups(),
+  println(nodes=Nodes),
+
+  Sorted1 = [],
+  while (member(X,Nodes), not member(X,range(Edges))) 
+      Sorted1 := Sorted1 ++ [X],
+      Nodes := Nodes.delete(X),
+      Edges := Edges.delete_key(X)
+  end,
+  % detect a cycle
+  if Nodes.length > 0 then
+    println("\nThe graph is cyclic. Here's the detected cycle."),
+    println(nodes_in_cycle=Nodes),
+    println(edges_in_cycle=Edges),
+    Sorted = [without_cycle=Sorted1,cycle=Nodes]
+  else 
+    Sorted = Sorted1
+  end,
+  nl.
+

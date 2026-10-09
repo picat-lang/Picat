@@ -1,0 +1,108 @@
+/* 
+
+  Euler #34 in Picat.
+
+  Problem 34
+  """
+  145 is a curious number, as 1! + 4! + 5! = 1 + 24 + 120 = 145.
+  
+  Find the sum of all numbers which are equal to the sum of the 
+  factorial of their digits.
+
+  Note: as 1! = 1 and 2! = 2 are not sums they are not included.
+  """
+
+  This Picat model was created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+import cp.
+
+main => go.
+
+go => time(euler34d).
+
+% caching .to_integer().factorial()
+% 0.112s
+euler34 =>
+  Sum = 0,
+  foreach(N in 10..100_000)
+    if N = sum([I.tointfact() : I in N.to_string()]) then
+      println(n=N),
+      Sum := Sum + N
+    end
+  end,
+  println(Sum).
+
+% 0.168s
+euler34b =>
+  Sum = 0,
+  foreach(N in 10..100000)
+     % if N = sum([I.to_integer().factorial() : I in N.to_string()]) then
+     if N = sum([tointfact(I) : I in N.to_string()]) then
+        Sum := Sum + N
+     end
+  end,
+  println(Sum).
+
+% 0.172s
+euler34c => 
+  Sum = sum([ N : N in 10..100000, 
+              % N = sum([I.to_integer().factorial() : I in N.to_string()])]),
+              N = sum([I.tointfact() : I in N.to_string()])]),
+  println(Sum).
+
+% 0.036
+euler34d => 
+    Total = 0,
+    foreach(N in 2..5)
+       All = findall(Sum,find_fact(N, Sum, _Digits)),
+       if All != [] then
+          Total := Total + sum(All)
+       end
+    end,
+    println(total=Total),
+    nl.
+
+%
+% Simpler caching of factorial
+% 
+euler34e => 
+  Sum = sum([ N : N in 10..100000, 
+              N == sum([fact_c(I) : I in N.to_string()])]),
+  println(Sum).
+
+table
+fact_c('0') = 1.
+fact_c('1') = 1.
+fact_c('2') = 2.
+fact_c('3') = 6.
+fact_c('4') = 24.
+fact_c('5') = 120.
+fact_c('6') = 720.
+fact_c('7') = 5040.
+fact_c('8') = 40320.
+fact_c('9') = 362880.
+
+
+
+table
+tointfact(I) = I.to_integer().factorial().
+
+
+% plain cp, using element/3
+find_fact(N, Value, Digits) =>
+    Digits = new_list(N),
+    Digits :: 0..9,
+    Digits[N] #> 0,
+    Factorial = [factorial(I) : I in 0..9],
+    Value #= sum([Digits[I] * 10**(I-1) : I in 1..N]),
+    Fact = new_list(N),
+    Fact :: Factorial,
+    Value #= sum(Fact),
+    foreach(I in 1..N) 
+      D #= Digits[I]+1, % adjusting for 0
+      element(D, Factorial, Fact[I])
+    end,
+    solve([ffc,split], Fact ++ Digits ++ [Value]).

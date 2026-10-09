@@ -1,0 +1,203 @@
+/*
+
+  Combinatorial auction in Picat.
+
+  http://en.wikipedia.org/wiki/Combinatorial_auction
+  """
+  A combinatorial auction is an auction in which bidders can place 
+  bids on combinations of items, or "packages," rather than 
+  just individual items. Simple combinatorial auctions have been 
+  used for many years in estate auctions, where a common procedure 
+  is to auction the individual items and then at the end to accept 
+  bids for packages of items.
+  """
+
+  This simple example is from the lecture slides
+  Constraint Satisfaction Problems, Constraint Optimization
+  by Bernhard Nebel and Stefan Wölfl
+  http://www.informatik.uni-freiburg.de/~ki/teaching/ws0910/csp/csp10-handout4.pdf
+  """
+  In combinatorial auctions, bidders can give bids for set of items.
+  The auctioneer [then] has to generate an optimial selection, e.g.
+  one that maximizes revenue.
+  
+  Definition
+  The combinatorial auction problem  is specified as follows:
+    Given: A set of items Q = {q1,...,qn} and a set of bids
+           B = {b1,...,bm} such that each bid is bi = (Qi, ri),
+           where Qi (= Q and ri is a strictly positive real number.
+    Task: Find a subset of bids B'(= B such that any two bids in B'
+          do not share an item maximizing Sum(Qi,ri) (= Biri.
+
+  ...
+
+  Example Auction
+
+  Consider the following auction:
+    b1 = {1,2,3,4}, r1 = 8
+    b2 = {2,3,6},   r2 = 6
+    b3 = {1,4,5},   r3 = 5
+    b4 = {2,8},     r4 = 2
+    b5 = {5,6},     r5 = 2
+
+  What is the optimal assignment?
+  """ 
+
+
+  Model created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+import cp.
+
+
+main => go.
+
+go =>
+   
+   foreach(Problem in 1..4)
+      printf("\nProblem %d\n", Problem),
+      problem(Problem,NumItems,NumBids,Packages,Bids),
+
+      combinatorial_auction(NumItems,NumBids,Packages,Bids, X,Total),
+      println(total=Total),
+      println(x=X),
+      foreach(B in 1..NumBids)
+        if X[B] == 1 then
+          println([bid=B,Packages[B]])
+        end
+      end,
+      nl
+   end,
+   nl.
+
+%
+% random problem
+% 
+go2 =>
+   nolog,
+   MaxItems = 1000, % max number of items
+   MaxBids = 100, % max number of bids
+   MaxBid = 150, % max bid value
+   _ = random2(), % randomize
+   NumItems = 3+random() mod MaxItems,
+   NumBids = 3+random() mod MaxBids,
+   println([numItems=NumItems, numBids=NumBids]),
+   Packages = [],
+   Bids = [],
+   foreach(B in 1..NumBids)
+     Package = [],
+     foreach(I in 1..NumItems)
+       if random() mod (NumItems div 10) == 0 then
+          Package := Package ++ [I]
+       end
+     end,
+     if Package != [] then
+       Bid = 1 + random() mod MaxBid,
+       Bids := Bids ++ [Bid],
+       println([package=Package, bid=Bid]),
+       Packages := Packages ++ [Package.sort]
+     else
+       println(emptypackage)
+     end
+   end,
+   NumBids := Packages.len, % adjust if we got empty packages
+   println([numItems=NumItems, numBids=NumBids]),
+   println(num_distinct_items=Packages.flatten.remove_dups.len),
+   combinatorial_auction(NumItems,NumBids,Packages,Bids, X,Total),
+   println(total=Total),
+   println(x=X),
+   foreach(B in 1..NumBids)
+     if X[B] == 1 then
+       println([bid=B,Packages[B]])
+     end
+   end,
+   nl.   
+
+
+combinatorial_auction(NumItems,NumBids,Packages,Bids, X,Total) =>
+   X = new_list(NumBids),
+   X :: 0..1,
+
+   Total #= sum([X[I]*Bids[I] : I in 1..NumBids]),
+
+   % ensure that each item is selected atmost once
+   foreach(J in 1..NumItems)
+      sum([X[I] : I in 1..NumBids, member(J, Packages[I])]) #=< 1
+   end,
+
+   solve($[max(Total),ffc,split], X).
+
+
+%
+% The example cited above
+%
+problem(1,NumItems,NumBids,Packages,Bids) => 
+  NumItems = 7,
+  NumBids = 5,
+  Packages = 
+    [[1,2,3,4],
+     [2,3,6],
+     [1,4,5],
+     [2,7],
+     [5,6]],
+   Bids = [8,6,5,2,2].
+
+
+%%
+%% From Numberjack Tutorial, page 24 (slide 51/175)
+%%
+problem(2,NumItems,NumBids,Packages,Bids) => 
+  NumItems = 4,
+  NumBids = 5,
+  Packages = 
+      [[1,2],
+       [1,3],
+       [2,4],
+       [2,3,4],
+       [1]],
+   Bids = [8,6,5,2,2].
+
+
+%
+% From "A Faster Core Constraint Generation Algorithm for Combinatorial Auctions"
+% Benedikt Bunz, Sven Seuken, Benjamin Lubin
+% page 4
+%
+problem(3,NumItems,NumBids,Packages,Bids) => 
+  NumItems = 5,
+  NumBids = 7,
+  Packages = 
+      [[1],
+       [2],
+       [3],
+       [4],
+       [1,2,3,4,5],
+       [1,2,5],
+       [3,4,5]],
+   Bids = [10,10,10,10,12,8,8].
+
+
+%
+% From "Combinatorial Auctions:  Complexity and Algorithms"
+% Martin Bichler
+% page 4 (table 1)
+%
+% Line  Bids                       B1    B2   B3   B4
+%    1  1000t grain in Berlin      1     0    1    1
+%    2  800t grain in Munich       0     1    1    1
+%    3  800t grain in Vienna       1     1    1    0
+%    4  Bid price (in thousands) 150   125   300 125
+%
+problem(4,NumItems,NumBids,Packages,Bids) => 
+  NumItems = 4,
+  NumBids = 3,
+  Packages = 
+      [[1,3,4],
+       [2,3,4],
+       [1,2,3]],
+   Bids = [150,125,300,125].
+
+
+

@@ -1,0 +1,127 @@
+/* 
+
+  Text processing/1 (Rosetta code) in Picat.
+
+  http://rosettacode.org/wiki/Text_processing/1
+  """
+
+  """
+
+  Cf http://hakank.org/picat/text_processing_2.pi
+
+  This Picat model was created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+import util.
+
+main => go.
+
+go =>
+  File = "readings.txt",
+  Readings = [ [Rec[1]] ++ [to_float(Rec[I]) :  I in 2..49] : 
+               Rec in 
+                 [ split(Record) : Record in read_file_lines(File) ]
+            ],
+  TotalSum = 0,
+  TotalReadings = 0,
+  foreach({Rec,Id} in zip(Readings,1..Readings.length))
+    Len = Rec.len,     
+    RAll = Rec[2..Len], % [to_float(Rec[I]) :  I in 2..Len],
+    RVal = [RAll[I] : I in 1..2..Len-1],    
+    RFlag = [RAll[I] : I in 2..2..Len],
+    RGoodVal = [RVal[I] : I in 1..RVal.len, RFlag[I] == 1.0],
+    TotalReadings := TotalReadings + RGoodVal.len,
+    TotalSum := TotalSum + sum(RGoodVal),
+    if Id < 4 then
+      NumGood = sum(RFlag),
+      NumBad = 24 - NumGood,
+      SumTot = sum(RGoodVal),
+      SumAvg = SumTot / RGoodVal.len,
+      println([date=Rec[1],numGood=NumGood,numBad=NumBad,sumTot=SumTot,sumAvg=SumAvg])
+    end
+  end,
+  nl,
+  println(totalReadings=to_fstring("%d", TotalReadings)),
+  println(totalSum=to_fstring("%3.3f", TotalSum)),
+  println(totalAvg=to_fstring("%3.3f", TotalSum/TotalReadings)),
+  nl,
+
+  % Identify the longest bad runs
+  Quality = [[cond(Rec[I] >= 1, 1, 0) : I in 3..2..49] : Rec in Readings].flatten().to_array(),
+
+  % identify/separate 0 runs and 1 runs
+  ZeroPos = [ P : P in 2..Quality.length, 
+                 (Quality[P] = 0, Quality[P-1] = 1
+                  ; 
+                  Quality[P] = 1, Quality[P-1] = 0)  
+            ].to_array(),
+  Diff = [ ZeroPos[I]-ZeroPos[I-1] : I in 3..2..ZeroPos.length],
+  MaxIx = argmax(Diff).first(), % get the position of the longest run
+  MaxPosStart = ZeroPos[MaxIx*2],
+  MaxPosEnd = ZeroPos[MaxIx*2+1],
+
+  println(maxBadLen=Diff[MaxIx]),
+  println(maxBadRunStart=[Readings[1+MaxPosStart div 24,1], startHour=MaxPosStart mod 24]),
+  println(maxBadRunEnd=[Readings[1+MaxPosEnd div 24,1], endHour=(MaxPosEnd mod 24)-1]),
+
+  nl.
+
+% {{trans|Ruby}}
+
+go2  =>
+  File = "readings.txt",
+  Total = new_map([num_readings=0,num_good_readings=0,sum_readings=0.0]),
+  InvalidCount = 0,
+  MaxInvalidCount = 0,
+  InvalidRunEnd = "",
+
+  Id = 0,
+  foreach(Line in read_file_lines(File))
+    Id := Id + 1,
+    NumReadings = 0,
+    NumGoodReadings = 0,
+    SumReadings = 0,
+
+    Fields = Line.split,
+    Rec = Fields.tail.map(to_float),
+    foreach([Reading,Flag] in chunks_of(Rec,2))
+      NumReadings := NumReadings + 1,
+      if Flag > 0 then
+        NumGoodReadings := NumGoodReadings + 1,
+        SumReadings := SumReadings + Reading,
+        InvalidCount := 0
+      else
+        InvalidCount := InvalidCount + 1,
+        if InvalidCount > MaxInvalidCount then
+          MaxInvalidCount := InvalidCount,
+          InvalidRunEnd := Fields[1]
+        end
+      end
+    end,
+
+    Total.put(num_readings,Total.get(num_readings) + NumReadings),
+    Total.put(num_good_readings,Total.get(num_good_readings) + NumGoodReadings),
+    Total.put(sum_readings,Total.get(sum_readings) + SumReadings),
+    if Id <= 3 then
+      printf("date:%w accept:%w reject:%w sum:%w\n", Fields[1],NumGoodReadings,
+                                                     NumReadings-NumGoodReadings,
+                                                     SumReadings),
+    end
+  end,
+  nl,
+  printf("readings: %d good readings: %d sum: %0.3f avg: %0.3f\n",Total.get(num_readings),
+                                                       Total.get(num_good_readings),
+                                                       Total.get(sum_readings),
+                                                       Total.get(sum_readings) / Total.get(num_good_readings)),
+  nl,
+  println(maxInvalidCount=MaxInvalidCount),
+  println(invalidRunEnd=InvalidRunEnd),
+
+  nl.
+  
+
+argmax(L) = MaxIxs =>
+  Max = max(L),
+  MaxIxs = [I : I in 1..L.length, L[I] == Max].

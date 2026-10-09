@@ -1,0 +1,54 @@
+/* 
+
+  Sum and product of an array in Picat.
+
+  http://rosettacode.org/wiki/Sum_and_product_of_an_array
+  """
+  Compute the sum and product of an array of integers. 
+  """
+
+  This Picat model was created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+
+% import util.
+% import cp.
+
+
+main => go.
+
+
+go =>
+  L = 1..10,
+  println(sum=sum(L)),  
+  println(prod=prod(L)),  
+  nl,
+  println(sum_reduce=reduce(+,L)),  
+  println(prod_reduce=reduce(*,L)),  
+  println(sum_reduce=reduce(+,L,0)),  
+  println(prod_reduce=reduce(*,L,1)),  
+  nl,
+  println(sum_fold=fold(+,0,L)),  
+  println(prod_fold=fold(*,1,L)),  
+  nl,
+  println(sum2=sum2(L)),  
+  println(prod2=prod2(L)),
+
+  nl.
+
+% recursive variants
+sum2(List) = Sum =>
+  sum2(List,0,Sum).
+sum2([],Sum0,Sum) => 
+  Sum=Sum0.
+sum2([H|T], Sum0,Sum) =>
+  sum2(T, H+Sum0,Sum).
+
+prod2(List) = Prod =>
+  prod2(List,1,Prod).
+prod2([],Prod0,Prod) => 
+  Prod=Prod0.
+prod2([H|T], Prod0,Prod) =>
+  prod2(T, H*Prod0,Prod).

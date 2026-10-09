@@ -1,0 +1,133 @@
+/* 
+
+  A Digial difficulty puzzle in Picat.
+
+  Puzzle #118 from Dudeney "536 Puzzles and curious problems":
+  """
+  Arrange the ten digits, 1 2 3 4 5 6 7 8 9 0, in such order that they 
+  shall form a number that may be divided by every number from 2 to 18 
+  without in any case a remainder. As an example, if I arrange them thus, 
+  1,274,953,680, this number can be divided by 2, 3, 4, 5, and so on up 
+  to 16, without any remainder, but it breaks down at 17.
+  """
+
+  There are 4 solutions:
+
+    4753869120
+    4876391520
+    3785942160
+    2438195760
+
+  Earlier comments: When I originally wrote this model there was 
+  a problem in the mod/2 constraint. This is fixed, but I let
+  the comparison stand.
+
+  Comparison with two different constraints vs solver vs Picat version.
+
+  * Num mod I #= 0
+    Version   Solver    Time
+    -------------------------------------
+    3.3#3     CP        13.5s
+    3.4       CP        Stack overflow
+    3.4.1     CP        10.2s
+    3.3#3     SAT       338.8s
+    3.4       SAT       Stack overflow
+    3.4.1     SAT       280,45s
+
+  * (Num div I)*I #= Num 
+    Version    Solver   Time
+    ------------------------
+    3.3#3      CP       465.6s
+    3,4        CP       463.4s
+    3.3#3      SAT      258.5s
+    3.4        SAT      164.6s
+
+  Later, using v2.6, and testing in reverse order (18..2) and
+  the divisibility by 11 hint from Groza:
+  - CP: 0.76s
+
+  This model was created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+import util.
+
+import cp.
+% import sat.
+% import mip.
+
+
+go ?=>
+  nolog,
+  N = 10,
+
+  X = new_list(N),
+  X :: 0..9,
+
+  Num :: 10**9..10**10-1,
+
+  X[1] #!= 0,
+
+  % divisibility with 10
+  X[10] #= 0,
+
+  % divisibility by 11
+  % From Adrian Groza "Modelling Puzzles in First Order Logic"
+  abs(X[1] + X[3] + X[5] + X[7] + X[9] -X[2] - X[4] -X[6] - X[8] - X[10]) #= 11,
+  
+
+  % Testing in reverse order is faster 
+  foreach(I in 18..-1..2)
+    Num mod I #= 0
+    
+    % Note: This is based on the definition of X mod Y:
+    %    X - floor(X div Y)*Y -> X-(X div Y)*Y #= Mod
+    % (Num div I) * I #= Num % SAT is faster than CP on this (but slower than v3.3#3)
+    % my_mod(Num,I,0)
+  end,
+
+  to_num(X,10,Num),
+  all_different(X),
+
+  Vars = X ++ [Num],
+  solve($[],Vars),  
+  
+  println(Num),
+  fail,
+
+  nl.
+go => true.
+
+
+% X mod Y #= Z
+% This is based on the definition of X mod Y (see Picat Guide, section 3)
+%    X - floor(X div Y)*Y -> X-(X div Y)*Y #= Mod
+my_mod(X,Y,Z) =>
+  X-(X div Y)*Y #= Z.
+
+%
+% converts a number Num to/from a list of integer List given a base Base
+%
+to_num(List, Base, Num) =>
+   Len = length(List),
+   Num #= sum([List[I]*Base**(Len-I) : I in 1..Len]).
+
+
+/*
+  Let's play with permutations instead.: 10.5s
+
+*/
+go2 ?=>
+  permutation(0..9,Perm),
+  Perm[1] > 0,
+  Num = [P.to_string : P in Perm].join('').to_int,
+  OK = true,
+  foreach(I in 18..-1..2, break(OK == false))
+    if Num mod I > 0 then OK := false end
+  end,
+  OK == true,
+  println(Num),
+  fail,
+  nl.
+go2 => true.

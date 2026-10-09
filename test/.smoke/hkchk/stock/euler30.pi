@@ -1,0 +1,86 @@
+/* 
+
+  Euler #30 in Picat.
+
+  Problem 30  
+  """
+  Surprisingly there are only three numbers that can be written 
+  as the sum of fourth powers of their digits:
+
+     1634 = 1^(4) + 6^(4) + 3^(4) + 4^(4)
+     8208 = 8^(4) + 2^(4) + 0^(4) + 8^(4)
+     9474 = 9^(4) + 4^(4) + 7^(4) + 4^(4)
+
+  As 1 = 1^(4) is not a sum it is not included.
+
+  The sum of these numbers is 1634 + 8208 + 9474 = 19316.
+
+  Find the sum of all the numbers that can be written as the sum of 
+  fifth powers of their digits.
+  """
+
+  This Picat model was created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+main => go.
+
+go => time(euler30e). 
+
+% 0.584s
+euler30 =>
+   println(sum([N : N in 10..6*9**5,
+                N == sum([I**5 : I in [J.to_integer() : J in N.to_string()]])])).
+
+% 0.634s
+euler30b => 
+   T = 0,
+   M = 5,
+   foreach(N in 10..6*9**5)
+     println(n=N),
+     if N == sum([I**M : I in [J.to_integer() : J in N.to_string() ]]) then
+       println(xxxxx=N),
+       T := T + N
+     end
+   end,
+   println(T).
+
+
+% Caching .to_integer() it's slower: 0.674s
+euler30c =>
+   println(sum([N : N in 10..6*9**5,
+                N == sum([I**5 : I in [toint(J) : J in N.to_string()]])])).
+
+
+euler30d => 
+   Sum = 0,
+   N = 10,
+   while(N <= 6*9**5)
+     Sum := Sum + cond(N==sum([I**5 : I in [J.to_integer() : J in N.to_string()]]),N,0),
+     N := N+1
+   end,
+   println(Sum),
+   nl.
+
+% 0.167s
+euler30e =>
+  Total = 0,
+  Powers = [I**5 : I in 0..10],
+  foreach(N in 10..6*9**5)
+    Sum = 0,
+    Temp = N,
+    while (Temp > 0)
+      Digit = Temp mod 10,
+      Sum := Sum + Powers[Digit+1],
+      Temp := Temp div 10
+    end,
+    if (Sum == N)
+      Total := Total + N
+    end
+  end,
+  println(Total),
+  nl.
+
+table
+toint(J) = J.to_integer().

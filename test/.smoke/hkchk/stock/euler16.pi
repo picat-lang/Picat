@@ -1,0 +1,37 @@
+/* 
+
+  Euler #16 in Picat.
+
+  Problem 16
+  """
+  2^15 = 32768 and the sum of its digits is 3 + 2 + 7 + 6 + 8 = 26.
+  
+  What is the sum of the digits of the number 2^1000?
+  """
+
+  This Picat model was created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+
+main => time(go).
+
+go => euler16.
+
+% both these version are between 0s and 0.004s.
+
+euler16 => 
+  println(sum([I.to_integer() : I in (2**1000).to_string()])).
+
+euler16b =>
+  sum2((2**1000).to_string(), 0, Sum),
+  println(Sum).
+
+% recursive version
+sum2([],Sum0,Sum) =>
+  Sum = Sum0.
+
+sum2([H|T],Sum0,Sum) => 
+  Sum1 = H.to_integer()+Sum0,
+  sum2(T,Sum1,Sum).

@@ -1,0 +1,101 @@
+/* 
+
+  Euler #5 in Picat.
+
+  Problem 5
+  """
+  2520 is the smallest number that can be divided by each of the numbers 
+  from 1 to 10 without any remainder.
+
+  What is the smallest number that is evenly divisible by all of the numbers 
+  from 1 to 20?
+  """
+
+
+  This Picat model was created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+import util.
+import mip. % for euler5f/0
+% import cp.
+% import sat.
+
+main => go.
+
+go => time(euler5a).
+
+euler5a =>
+   A = 1,
+   foreach(E in 2..20) 
+      lcm(A,E,L),
+      A := L
+   end,
+   writeln(A).
+
+% alternative version
+euler5b =>
+   List = findall(E,between(2,20, E)),
+   A = fold(lcm, 1, List),
+   writeln(A).
+
+% using reduce
+euler5c => writeln(reduce(lcm, 2..20)).
+
+% plain recursion
+euler5d => 
+ e5d(2,1,LCM),
+ println(LCM). 
+
+e5d(20,S1,S2) =>
+  S1=S2.
+
+e5d(N,S1,S2) =>
+  e5d(N+1,lcm(N,S1),S2).
+
+%
+% Brute force: 79.875s
+%
+euler5e() =>
+  N = 1,
+  Found = false,
+  while (Found == false)
+    T = true,
+    foreach(I in 1..20, break(T==false))
+       if N mod I != 0 then
+         T := false
+       end
+    end,
+    if T then
+      Found := N
+    end,
+    N := N + 1
+  end,
+  println(Found),
+  nl.
+
+%
+% CP approach, just testing.
+% MIP (SCIP) solves this in 0s.
+% whereas CP, SAT and SMT are very slow.
+% There are many solutions to this problem,
+% and MIP/SCIP happens to give the correct solution,
+%
+euler5f() =>
+  nolog,
+  N :: 1..2**56, % 2**56 is the maximum upper limit for constraint models
+  foreach(I in 2..20)
+    N mod I #= 0
+  end,
+  solve([N]),
+  println(n=N),
+  % fail, % There are many solutions, but we want the first
+  nl.
+
+% lcm/2
+lcm(X,Y)=LCM => GCD=gcd(X,Y), LCM = X*Y//GCD.
+% lcm/3
+lcm(X,Y,LCM) => GCD=gcd(X,Y), LCM = X*Y//GCD.
+
+

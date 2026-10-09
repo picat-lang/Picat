@@ -1,0 +1,120 @@
+/* 
+
+  Euler #41 in Picat.
+
+  """
+  We shall say that an n-digit number is pandigital if it makes use of all 
+  the digits 1 to n exactly once. For example, 2143 is a 4-digit pandigital 
+  and is also prime.
+
+  What is the largest n-digit pandigital prime that exists?
+  """
+
+
+  This Picat model was created by Hakan Kjellerstrand, hakank@gmail.com
+  See also my Picat page: http://www.hakank.org/picat/
+
+*/
+
+import util.
+import cp.
+
+main => go.
+
+go => time(euler41).
+
+euler41 =>
+  % Simplification:
+  % n=9 is not possible since 1+2+3+4+5+6+7+8+9=45 is divisible by 3
+  % n=8 is not possible since 1+2+3+4+5+6+7+8=36 is divisible by 3
+  N = 7,
+  M = 0,
+  while (M == 0, N >= 4) 
+    P = (1..N).reverse(),
+    % note: it's reversed sorted so we stop at first prime
+    Perms = permutations(P).sort_down(),
+    V = 4, % dummy value for the foreach loop
+    foreach(PP in Perms, not prime_cached(V)) 
+      V := [J.to_string() : J in PP].flatten().to_integer(),
+      if prime_cached(V) then
+        M := V % found it
+      end
+    end,
+    N := N-1
+  end,
+  println(M).
+
+
+% Without the simplification (i.e. starting on N=7): 7.16s
+euler41b =>
+  % Simplification (from one of the answers)
+  N =9, % is not possible since 1+2+3+4+5+6+7+8+9=45 is divisible by 3
+  % N=8 is not possible since 1+2+3+4+5+6+7+8=36 is divisible by 3
+  % N = 7,
+  M = 0,
+  while (M == 0, N >= 4) 
+    P = (1..N).reverse(),
+    % note: it's reversed sorted so we stop at first prime
+    Perms = permutations(P).sort_down(),
+    V = 4, % dummy value for the foreach loop
+    foreach(PP in Perms, not prime_cached(V)) 
+      V := [J.to_string() : J in PP].flatten().to_integer(),
+      if prime_cached(V) then
+        M := V % found it
+      end
+    end,
+    N := N-1
+  end,
+  println(M).
+
+
+%
+% Using cp and maxof/2: 0.9s
+%
+euler41c ?=>
+
+  Max = 0,
+  foreach(N in 2..9)
+    if maxof($e41c(N,P),P) then
+      Max := P
+    end
+  end,
+  println(Max),
+  nl.
+
+%
+% cp and prime/1
+% 0.387s
+%
+euler41d :-
+    member(N,[9,8,7,6,5,4,3,2]),
+    writeln(n=N),
+    X = new_list(N),
+    X :: 1..N,
+    all_different(X),
+    to_num(X,10,P),    
+    solve([down],X),
+    prime(P),
+    writeln(P).
+
+
+
+%  alldifferent and a prime
+e41c(N,P) =>
+  L = new_list(N),
+  L :: 1..N,
+  all_different(L),
+  to_num(L,10,P),  
+  solve($[ffc],L),
+  prime(P).
+
+
+table
+prime_cached(N) => prime(N).
+
+table
+toint(I) = to_integer(I).
+
+to_num(List, Base, Num) =>
+   Len = length(List),
+   Num #= sum([List[I]*Base**(Len-I) : I in 1..Len]).
