@@ -279,7 +279,15 @@ repository cloned to CLINGO_EX (default
 
     python3 test/clingo_examples.py
 
-Last verified: 87 comparable programs - 11 matching, 2 differing (genuine
+The harness's transpile step takes the solver flow from ASPIC_FLOW
+(default "run", the sat backend; "cp" selects the cp backend, which
+regenerates the runtime with import cp so the solve calls resolve to the
+cp module's solver). FDN (and FDN=0, the fdn hook disable) only affect
+the cp flows: the fdn hook wraps every solve/1,2 of the cp module, while
+the sat module's own solver is not hooked (see exs/fd_native_mt/README.md).
+
+Last verified, sat flow: 87 comparable programs - 11 matching, 2 differing
+(genuine
 aspic limitations, both from non-numeric atom arguments: consequences/example
 uses arithmetic in atom arguments like p(X+1), whose variable aspic
 enumerates over the whole universe including the non-numeric constant q, so
@@ -304,6 +312,13 @@ example ({a;b;c}. - a multi-atom variable-free
 choice rule) matches since v0.3.15: the choice-rule enumeration path now
 wraps each element in the set functor, so the atoms become free choice
 variables instead of the card's bounds arguments.
+
+Last verified, cp flow with FDN=0 in the environment: 87 comparable
+programs - 11 matching (the IDENTICAL set to the sat flow), 6 differing
+(the 2 above plus the 4 planning instance files, which TERMINATE under cp
+in 0.4-0.9s but produce degenerate models: the compound-argument atoms
+collapse to fd-false, 12-14 true atoms instead of clingo's 256-657),
+36 not parseable, 0 other errors - the 4 sat-flow timeouts are gone.
 
 # Requirements
 

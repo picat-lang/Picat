@@ -19,6 +19,7 @@ ASPIC = os.path.expanduser("~/bin/picat")
 ASPIC_DIR = os.environ.get("ASPIC_DIR", "/home/jovyan/snapshotable/aspic/picat/aspic")
 CLINGO_EX = os.environ.get("CLINGO_EX", "/home/jovyan/snapshotable/aspic/scratch/clingo/clingo/examples/clingo")
 WORK = os.environ.get("WORK", "/tmp/aspic_clingo_cmp")
+FLOW = os.environ.get("ASPIC_FLOW", "run")  # "run" = sat backend, "cp" = cp backend
 
 os.makedirs(WORK, exist_ok=True)
 
@@ -102,12 +103,12 @@ def aspic_models(files, name):
     gen = os.path.join(WORK, name + ".gen.txt")
     with open(gen, "w") as f:
         try:
-            subprocess.run([ASPIC, "-log", "aspic_transpiler.pi", "run", combined],
+            subprocess.run([ASPIC, "-log", "aspic_transpiler.pi", FLOW, combined],
                            cwd=ASPIC_DIR, stdout=subprocess.PIPE, stderr=f, timeout=60)
         except subprocess.TimeoutExpired:
             return None, "timeout"
     err = open(gen).read()
-    out = subprocess.run([ASPIC, "-log", "aspic_transpiler.pi", "run", combined],
+    out = subprocess.run([ASPIC, "-log", "aspic_transpiler.pi", FLOW, combined],
                          cwd=ASPIC_DIR, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                          timeout=60).stdout.decode()
     if "notparsed = []" not in out:
