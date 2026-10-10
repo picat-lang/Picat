@@ -8685,6 +8685,9 @@ lab_table_produce:
     if ((BPLONG)answer_table & 0x1) {  // has one answer 
         answer = (BPLONG_PTR)UNTAGGED_ADDR(answer_table);
         if (opt_arg_index == 0) {
+            if (table_card == 1) {  /* the current tabled call is complete now */
+                BACKTRACK;
+            }
             CREATE_ANSWER_TABLE_ADD_ANSWER(stack_arg_ptr, answer, arity, subgoal_entry);
             BACKTRACK;
         } else {

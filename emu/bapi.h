@@ -207,35 +207,36 @@ extern BPLONG no_gcs;
 
 #define NUMBERED_TERM_BLOCK_SIZE 1000000
 
-#define ADD_NEW_NUMBERED_TERM_AREA_BLOCK(area_record_ptr, success) {    \
-        BPLONG_PTR tmp_ptr;                                             \
-        BP_MALLOC(tmp_ptr, NUMBERED_TERM_BLOCK_SIZE);                   \
-        if (tmp_ptr != NULL) {                                          \
-            success = 1;                                                \
-            FOLLOW(tmp_ptr) = (BPLONG)(area_record_ptr->low_addr);      \
-            area_record_ptr->low_addr = tmp_ptr;                        \
-            area_record_ptr->up_addr = tmp_ptr+NUMBERED_TERM_BLOCK_SIZE; \
-            area_record_ptr->top = tmp_ptr+1;                           \
-        } else {                                                        \
-            success = 0;                                                \
-        }                                                               \
-    }
+#define ADD_NEW_NUMBERED_TERM_AREA_BLOCK(area_record_ptr, size, success) { \
+    BPLONG_PTR tmp_ptr;                                                 \
+    BPLONG block_size = (NUMBERED_TERM_BLOCK_SIZE > size ? NUMBERED_TERM_BLOCK_SIZE : size+1); \
+    BP_MALLOC(tmp_ptr, block_size);            \
+    if (tmp_ptr != NULL) {                                              \
+      success = 1;                                                      \
+      FOLLOW(tmp_ptr) = (BPLONG)(area_record_ptr->low_addr);            \
+      area_record_ptr->low_addr = tmp_ptr;                              \
+      area_record_ptr->up_addr = tmp_ptr+NUMBERED_TERM_BLOCK_SIZE;      \
+      area_record_ptr->top = tmp_ptr+1;                                 \
+    } else {                                                            \
+      success = 0;                                                      \
+    }                                                                   \
+  }
 
 #define ALLOCATE_FROM_NUMBERED_TERM_AREA(area_record_ptr, ptr, size) {  \
-        if (area_record_ptr->top + size >= area_record_ptr->up_addr) {  \
-            int success;                                                \
-            ADD_NEW_NUMBERED_TERM_AREA_BLOCK(area_record_ptr, success); \
-            if (success == 0) {                                         \
-                ptr = NULL;                                             \
-            } else {                                                    \
-                area_record_ptr->num_expansions++;                      \
-                ptr = area_record_ptr->top;                             \
-                area_record_ptr->top += size;                           \
-            }                                                           \
-        } else {                                                        \
-            ptr = area_record_ptr->top;                                 \
-            area_record_ptr->top += size;                               \
-        }                                                               \
-    }
+    if (area_record_ptr->top + size >= area_record_ptr->up_addr) {      \
+      int success;                                                      \
+      ADD_NEW_NUMBERED_TERM_AREA_BLOCK(area_record_ptr, size, success); \
+      if (success == 0) {                                               \
+        ptr = NULL;                                                     \
+      } else {                                                          \
+        area_record_ptr->num_expansions++;                              \
+        ptr = area_record_ptr->top;                                     \
+        area_record_ptr->top += size;                                   \
+      }                                                                 \
+    } else {                                                            \
+      ptr = area_record_ptr->top;                                       \
+      area_record_ptr->top += size;                                     \
+    }                                                                   \
+  }
 
 

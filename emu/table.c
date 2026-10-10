@@ -79,7 +79,7 @@ void init_table_area() {
         FOLLOW(subgoalTable+i) = (BPLONG)NULL;
     }
     /* allocate the first block */
-    ADD_NEW_NUMBERED_TERM_AREA_BLOCK(ta_record_ptr, success);
+    ADD_NEW_NUMBERED_TERM_AREA_BLOCK(ta_record_ptr, NUMBERED_TERM_BLOCK_SIZE, success);
     if (!success) {
         myquit(OUT_OF_MEMORY, "tb");
     }
@@ -332,12 +332,49 @@ lab_match_term_tabledTerm:
 }
 
 /**
+ * Unnumber a list by iterating over its spine. Ground suffixes are shared.
+ * Handle numbered variables before treating the term as a list cell.
+ */
+BPLONG unnumberVarTabledList(BPLONG term) {
+    BPLONG result, varNo;
+    BPLONG_PTR tail_ptr = &result, term_ptr, ptr;
+
+beginning:
+    if (IsNumberedVar(term)) {
+        varNo = INTVAL(term);
+        if (varNo > global_unnumbervar_max) {
+            global_unnumbervar_max = varNo;
+            global_unnumbervar_watermark = global_unnumbervar_ptr-global_unnumbervar_max;
+            FOLLOW(global_unnumbervar_ptr-varNo) = (BPLONG)heap_top;
+            NEW_HEAP_FREE;
+        }
+        FOLLOW(tail_ptr) = FOLLOW(global_unnumbervar_ptr-varNo);
+        return result;
+    }
+    term_ptr = (BPLONG_PTR)UNTAGGED_ADDR(term);
+    if (FOLLOW(term_ptr-2) & TOP_BIT) {  /* is ground */
+        FOLLOW(tail_ptr) = term;
+        return result;
+    }
+    ptr = heap_top; heap_top += 2;
+    if (global_unnumbervar_watermark-heap_top <= LARGE_MARGIN) {
+        myquit(STACK_OVERFLOW, "uv");
+    }
+    FOLLOW(tail_ptr) = ADDTAG(ptr, LST);
+    FOLLOW(ptr) = unnumberVarTabledTerm(FOLLOW(term_ptr));
+    tail_ptr = ptr+1;
+    term = FOLLOW(term_ptr+1);
+    if (ISLIST(term)) goto beginning;
+    FOLLOW(tail_ptr) = unnumberVarTabledTerm(term);
+    return result;
+}
+
+/**
  * Convert a numbered table term into a usable runtime term.
- * make sure there is enough space on the heap befor calling this function 
+ * Make sure there is enough space on the heap before calling this function.
  */
 BPLONG unnumberVarTabledTerm(BPLONG term) {
     BPLONG_PTR ptr, term_ptr;
-    BPLONG varNo;
     BPLONG i, arity;
     SYM_REC_PTR sym_ptr;
 
@@ -347,31 +384,7 @@ BPLONG unnumberVarTabledTerm(BPLONG term) {
     case ATM: return term;
 
     case LST:
-        if (IsNumberedVar(term)) {
-            varNo = INTVAL(term);
-            if (varNo > global_unnumbervar_max) {
-                global_unnumbervar_max = varNo;
-                global_unnumbervar_watermark = global_unnumbervar_ptr-global_unnumbervar_max;
-                FOLLOW(global_unnumbervar_ptr-varNo) = (BPLONG)heap_top;
-                NEW_HEAP_FREE;
-                return FOLLOW(global_unnumbervar_ptr-varNo);
-            } else {
-                return FOLLOW(global_unnumbervar_ptr-varNo);
-            }
-        } else {
-            term_ptr = (BPLONG_PTR)UNTAGGED_ADDR(term);
-            if (FOLLOW(term_ptr-2) & TOP_BIT) {  /* is ground */
-                return term;
-            }
-            ptr = heap_top; heap_top += 2;
-
-            if (global_unnumbervar_watermark-heap_top <= LARGE_MARGIN) {
-                myquit(STACK_OVERFLOW, "uv");
-            }
-            FOLLOW(ptr) = unnumberVarTabledTerm(FOLLOW(term_ptr));
-            FOLLOW(ptr+1) = unnumberVarTabledTerm(FOLLOW(term_ptr+1));
-            return ADDTAG(ptr, LST);
-        }
+        return unnumberVarTabledList(term);
 
     case STR:
         term_ptr = (BPLONG_PTR)UNTAGGED_ADDR(term);

@@ -44,7 +44,7 @@ int c_findall_pre() {
     int success;
 
     if (faa_record_ptr->low_addr == NULL) {
-        ADD_NEW_NUMBERED_TERM_AREA_BLOCK(faa_record_ptr, success);
+        ADD_NEW_NUMBERED_TERM_AREA_BLOCK(faa_record_ptr, NUMBERED_TERM_BLOCK_SIZE, success);
         if (!success) {
             bp_exception = et_OUT_OF_MEMORY;
             return BP_ERROR;
@@ -192,7 +192,7 @@ int check_ground_using_faa(BPLONG term) {
     int success;
 
     if (faa_record_ptr->low_addr == NULL) {
-        ADD_NEW_NUMBERED_TERM_AREA_BLOCK(faa_record_ptr, success);
+        ADD_NEW_NUMBERED_TERM_AREA_BLOCK(faa_record_ptr, NUMBERED_TERM_BLOCK_SIZE, success);
         if (!success) {
             bp_exception = et_OUT_OF_MEMORY;
             return BP_ERROR;
