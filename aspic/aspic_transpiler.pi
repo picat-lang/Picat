@@ -155,6 +155,32 @@ V=getsetvars(T).compactvars
 ,d(r=R)
 ,d(rsmini_done_for=T)
 .
+% the aggregate op wraps the valset (aspic_agval(count,valset(...))) - the
+% op decides the aggregated value: the count aggregates 1 per true
+% condition (the elements can be non-numeric symbols, which the fd
+% constraint store rejects with invalid_constraint_exp), the others
+% aggregate the element itself
+replacesetmini(T)=R,functor(T,$aspic_agval,2)
+=>
+d(rsmini=T),
+T=..[_,Op,VALSET],
+V=getsetvars(VALSET).compactvars
+,T2=replacevars(V,[X[1]:X in V],T),T2=..[_,Op,VALSET2],VALSET2=..[_,L1,L2]
+,d({op=Op,l1=L1,l2=L2})
+,R="aspic_"++Op.to_string()++"([ASPIC_OPTCOND3:" ++ join([X[1].to_string()++" in "++cond(X[2]=[],"universe()",showrange(X[2])):X in V],',')
+++cond(V!=[],"","_ in 1..1")
+++",ASPIC_OPTCOND1="++L2.to_string()++",ASPIC_OPTCOND2#=ASPIC_OPTCOND1,ASPIC_AGVAL1= "++cond(Op.to_string()=="count","1",L1[1].to_string())++",ASPIC_AGVAL2#=ASPIC_AGVAL1,ASPIC_OPTCOND3#=cond(ASPIC_OPTCOND2,ASPIC_AGVAL2,0)])"
+,d(r=R)
+,d(rsmini_done_for=T)
+.
+
+% hoist the aggregate calls (aspic_agval) out of a rule head into
+% intermediate variables, so that the atom's map key is ground: the
+% aggregate value is labeled (solve) before the key is created (the sat
+% flow's constraint store does not propagate eagerly, so the key would
+% otherwise contain an unbound fd variable, which the heap map rejects).
+% The emitted assignment lines and the variable names are stored in the
+% seed-scoped map for the emission to write out
 %conditional literal l:w (clingo, in rule bodies): the conjunction over
 %the instances of (condition -> conclusion); the conclusion's variables
 %are local to it and iterate over the universe inside the comprehension.
@@ -175,6 +201,26 @@ V=getsetvars(T).compactvars
 .
 replacesetmini(T)=R,functor(T,_,0)=>R=T.
 replacesetmini(T)=R,T=..L=>R=..[replacesetmini(X):X in L].
+
+hoistaggs(T)=R,functor(T,$aspic_agval,2)
+=>
+M=get_heap_map(aspic_agghoist),
+N=M.get(n,0)+1,M.put(n,N),
+NAME="ASPIC_AGVAR"++N.to_string(),
+T=..[_,Op,VALSET],
+V=getsetvars(VALSET).compactvars,
+T2=replacevars(V,[X[1]:X in V],T),T2=..[_,Op,VALSET2],VALSET2=..[_,L1,L2],
+STR=NAME++"=aspic_"++Op.to_string()++"([ASPIC_OPTCOND3:" ++ join([X[1].to_string()++" in "++cond(X[2]=[],"universe()",showrange(X[2])):X in V],',')
+++cond(V!=[],"","_ in 1..1")
+++",ASPIC_OPTCOND1="++L2.to_string()++",ASPIC_OPTCOND2#=ASPIC_OPTCOND1,ASPIC_AGVAL1= "++cond(Op.to_string()=="count","1",L1[1].to_string())++",ASPIC_AGVAL2#=ASPIC_AGVAL1,ASPIC_OPTCOND3#=cond(ASPIC_OPTCOND2,ASPIC_AGVAL2,0)])",
+LS=cond(M.has_key(lines),M.get(lines),[]),
+M.put(lines,LS++[STR]),
+LBS=cond(M.has_key(labels),M.get(labels),[]),
+M.put(labels,LBS++[NAME]),
+R=NAME.
+hoistaggs(T)=R,functor(T,_,0)=>R=T.
+hoistaggs(T)=R=>T=..L,R=..[hoistaggs(X):X in L].
+
 
 % choice-rule enumeration {p(X);q(X)}: the cardobj+enum parse path wraps each
 % alternative in aspic_var([<atom>]) - the list key never matches the runtime
@@ -356,7 +402,14 @@ V=getvars(L2).compactvars
 %,V:=[V2:V2 in V,not(member(V2[1],DV))]
 ,if(V=[]) then
 %d(l2=L2),
-println(stderr,"aspic_holds("++replaceset(L2.replacesetmini.replaceaggregates).aspic_simplify.to_string()++")")
+L2R=hoistaggs(L2),
+HM=get_heap_map(aspic_agghoist),
+HLINES=cond(HM.has_key(lines),HM.get(lines),[]),
+HLABELS=cond(HM.has_key(labels),HM.get(labels),[]),
+d({l2r=L2R,hlines=HLINES,hlabels=HLABELS}),
+if(HLINES!=[]) then println(stderr,join(HLINES,',')++",") end,
+if(HLABELS!=[]) then println(stderr,"solve([rand],["++join(HLABELS,',')++"]),") end,
+println(stderr,"aspic_holds("++replaceset(L2R.replacesetmini.replaceaggregates).aspic_simplify.to_string()++")")
 ,println(stderr,",")
 else
 d(l2x=L2)

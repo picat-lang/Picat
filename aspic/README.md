@@ -286,7 +286,7 @@ cp module's solver). FDN (and FDN=0, the fdn hook disable) only affect
 the cp flows: the fdn hook wraps every solve/1,2 of the cp module, while
 the sat module's own solver is not hooked (see exs/fd_native_mt/README.md).
 
-Last verified since v0.3.20, BOTH solver flows: 87 comparable programs -
+Last verified since v0.3.21, BOTH solver flows: 87 comparable programs -
 16 matching, 1 differing (a genuine aspic limitation: consequences/example
 uses arithmetic in atom arguments like p(X+1), whose variable aspic
 enumerates over the whole universe including the non-numeric constant q, so
@@ -316,6 +316,33 @@ the card's bounds arguments.
 - so far only tested on Linux 
 
 # Version history
+
+v0.3.21:
+
+- Aggregators fixed for the sat flow: Picat's fd constraints cannot contain
+  the max/min/count calls (the constraint store rejects them with
+  invalid_constraint_exp), so the runtime's aggregate functions now compute
+  the value into a plain var first and bind the fd variable to it
+  (aspic_max/aspic_min/aspic_count in aspic_runtime_template.pi); the count
+  is the sum of the comprehension's 0/1 entries via the fd constraint chain
+  of aspic_sum, since Picat's sum/1 rejects fd variables with
+  number_expected. The count aggregates 1 per true condition now (the
+  elements can be non-numeric symbols, which the fd constraint store
+  rejects). Rule heads with aggregate arguments (q(S) :- S = #sum{...}.)
+  hoist the aggregate call into an intermediate variable and label it with
+  solve before the atom's map key is created (the new hoistaggs helper in
+  both parsers), because the sat flow's constraint store does not propagate
+  eagerly and the heap map rejects keys containing unbound fd variables.
+  The intermediate-variable emission skips the empty lines and labels
+  (Picat's println with an empty string prints [] and the empty solve list
+  broke the choice rules). Fixed a regression this introduced in the choice
+  rules with integrity constraints (constraint_p1: 1 {p(1..3)} 2. :- p(1).
+  now produces p(2),p(3) again). Verified: the extracted pwc corpus is 46
+  MATCH (was 44), 6 DIFFERING (ancestor's circular support, choice_no_bounds
+  and p6_2_bounded_choice's unbounded/bounded choice, listing12_subset_sum's
+  optimization, p6_8_howmany's count-0 atoms), 21 errors (was 29). No
+  regressions: the syntax suite is 87/87 and the clingo comparison is
+  unchanged (16 matching, 1 differing, 36 not parseable, 0 other errors).
 
 v0.3.20:
 

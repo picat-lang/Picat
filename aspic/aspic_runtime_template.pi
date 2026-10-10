@@ -106,9 +106,17 @@ L=[A : K in M.keys, K=..[FP|Args], FP==P, Args.len==N, A=Args[I]].remove_dups().
 aspic_sum([])=Y=>Y#=0.
 aspic_sum([H|T])=Y=>Y2=aspic_sum(T),Y#=H+Y2.
 
-aspic_max(L)=Y=>Y#=max(L).
-aspic_min(L)=Y=>Y#=min(L).
-aspic_count(L)=Y=>Y#=count(L).
+% the aggregate functions: the value is computed into a plain var first
+% (Picat's fd constraints cannot contain the max/min/count calls - the
+% constraint store rejects them with invalid_constraint_exp), then the fd
+% variable is bound to the value; the count is the sum of the
+% comprehension's 0/1 entries (the number of the true conditions)
+aspic_max(L)=Y=>Y2=max(L),Y#=Y2.
+aspic_min(L)=Y=>Y2=min(L),Y#=Y2.
+% the count is the sum of the comprehension's 0/1 entries (the number of
+% the true conditions) - via the fd constraint chain of aspic_sum, since
+% Picat's sum/1 rejects fd variables with number_expected
+aspic_count(L)=Y=>Y2=aspic_sum(L),Y#=Y2.
 
 
 aspic_member(V,[H|_]),V==H=>true.
