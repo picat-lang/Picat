@@ -411,6 +411,16 @@ print(stderr,P.to_string++"(")
 ,printxvars(N)
 ,println(stderr,")).")
 end
+,if(N>=1,not Native.has_key(P),not(get_heap_map(asp_predfunctors).has_key(P))) then
+% an argument-only symbol (never a rule or fact head): the function returns
+% the quoted term, so the call in argument position evaluates to the term
+% and the enclosing atom's map key is the whole compound term
+print(stderr,P.to_string++"(")
+,printxvars(N)
+,print(stderr,")=$"++P.to_string++"(")
+,printxvars(N)
+,println(stderr,").")
+end
 end
 end
 ,FN="main"

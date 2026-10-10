@@ -286,39 +286,22 @@ cp module's solver). FDN (and FDN=0, the fdn hook disable) only affect
 the cp flows: the fdn hook wraps every solve/1,2 of the cp module, while
 the sat module's own solver is not hooked (see exs/fd_native_mt/README.md).
 
-Last verified, sat flow: 87 comparable programs - 11 matching, 2 differing
-(genuine
-aspic limitations, both from non-numeric atom arguments: consequences/example
+Last verified since v0.3.17, BOTH solver flows: 87 comparable programs -
+16 matching, 1 differing (a genuine aspic limitation: consequences/example
 uses arithmetic in atom arguments like p(X+1), whose variable aspic
 enumerates over the whole universe including the non-numeric constant q, so
-the eager aspic_sum(X,1) fails; planning/uts01 is a pure-fact instance with
-compound atom arguments like cpa_started, for which the completion generates
-aspic_eq comparisons between non-numeric terms that the runtime cannot
-evaluate - both stop with unresolved_function_call), 36 not parseable by
+the eager aspic_sum(X,1) fails with unresolved_function_call - clingo
+grounds X only over the instances of atom(p(X))), 36 not parseable by
 aspic (scripting, #include <incmode>, #program, #external, #script, theory
 atoms - all correctly rejected with loud errors - this group includes the
 planning ENCODING combinations, since encoding.lp uses #program/#external),
-4 timeouts: the planning instance files ALONE (coins01, comm02, comm03,
-comm05 - pure-fact instances with compound atom arguments; the harness
-pairs each instance with its encoding only when the instance basename
-matches its instance pattern, so these four run as standalone programs).
-Their transpile is fast and clean, but the generated program's fd solve
-exceeds the harness's 60s limit (for coins01 the solve is reached with
-universe_size=18, 56 cp variables and 70 learned clauses and then hangs;
-the completion contributes hundreds of aspic_eq comparisons over compound
-arguments - the same non-numeric-atom-argument family as the two differing
-programs; clingo solves each instantly, 256-657 true atoms). The itersolve
-example ({a;b;c}. - a multi-atom variable-free
-choice rule) matches since v0.3.15: the choice-rule enumeration path now
-wraps each element in the set functor, so the atoms become free choice
-variables instead of the card's bounds arguments.
-
-Last verified, cp flow with FDN=0 in the environment: 87 comparable
-programs - 11 matching (the IDENTICAL set to the sat flow), 6 differing
-(the 2 above plus the 4 planning instance files, which TERMINATE under cp
-in 0.4-0.9s but produce degenerate models: the compound-argument atoms
-collapse to fd-false, 12-14 true atoms instead of clingo's 256-657),
-36 not parseable, 0 other errors - the 4 sat-flow timeouts are gone.
+0 other errors. The clingo planning instances coins01/comm02/comm03/
+comm05/uts01 (pure-fact instances with compound atom arguments) now produce
+EXACTLY clingo's models (139/179/239/371/37 true atoms) in both flows. The
+itersolve example ({a;b;c}. - a multi-atom variable-free choice rule)
+matches since v0.3.15: the choice-rule enumeration path wraps each element
+in the set functor, so the atoms become free choice variables instead of
+the card's bounds arguments.
 
 # Requirements
 
@@ -333,6 +316,46 @@ collapse to fd-false, 12-14 true atoms instead of clingo's 256-657),
 - so far only tested on Linux 
 
 # Version history
+
+v0.3.17:
+
+- The compound-argument collapse is fully fixed: the argument-only symbols
+  (the functors that never appear as a rule or fact head) now get functions
+  that return the QUOTED TERM (Name(X1,..)=$Name(X1,..)) instead of an fd
+  variable, so a compound atom argument in a fact head evaluates to the term
+  and the enclosing atom's map key is the whole compound term - combined with
+  the v0.3.16 atom-position filter this replaces both failure modes (the
+  nested-fd-variable collapse and the Undefined procedure). The Clark
+  completion's head-argument enumeration compares compound head arguments as
+  TERMS now (a new aspic_eq fallback: the equation holds when the terms are
+  equal, 0 otherwise - previously an unresolved function call). The clingo
+  planning instances coins01/comm02/comm03/comm05/uts01 (pure-fact instances
+  with compound atom arguments) now produce EXACTLY clingo's models
+  (139/179/239/371/37 true atoms) in both solver flows. The clingo
+  comparison is 16 matching, 1 differing (consequences/example, whose
+  arithmetic atom arguments p(X+1) enumerate the rule variable over the
+  whole universe including the non-numeric constant q - a separate
+  limitation), 36 not parseable, 0 other errors. 87 checks pass.
+
+v0.3.16:
+
+- The fd-variable functions are emitted only for functors in atom position:
+  the parse recorded EVERY functor symbol (predicate head or
+  compound-argument symbol alike) in the aspic_atoms map and the function
+  emission gave an fd-variable function to every recorded functor with
+  arity >= 1, so argument-only symbols like cpa_collect/3 or lit/2 (which
+  never appear as a rule or fact head) also became defined functions;
+  evaluating the fact head action(cpa_collect(cpa_c0,cpa_f0,cpa_p0)) then
+  evaluated the compound argument cpa_collect(...) as a function call in
+  argument position, which created a NESTED fd variable for the argument
+  and made the action atom's map key contain that variable - the key
+  degenerated to action(0) when the solver bound the nested variable, and
+  the model lost all real compound-argument atoms (the clingo planning
+  instances coins01/comm02/comm03/comm05 came out with 12-14 collapsed
+  atoms instead of 139-371 true facts). collectpredfunctors now walks the
+  parsed rule AST and collects the functors that occur in atom position
+  into the new asp_predfunctors heap map; the function emission is
+  filtered by it. Implemented in both parsers. 87 checks pass.
 
 v0.3.15:
 

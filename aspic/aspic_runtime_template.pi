@@ -129,6 +129,10 @@ aspic_le(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A#<=B).
 aspic_gt(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A#>B).
 aspic_ge(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A#>=B).
 aspic_eq(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A#=B).
+% non-numeric arguments (the Clark completion's head-argument enumeration
+% over compound terms): compare as terms, the equation holds when equal
+aspic_eq(A,B)=Y,A==B=>Y=1.
+aspic_eq(A,B)=0.
 aspic_ne(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A#!=B).
 aspic_sum(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A+B).
 aspic_mul(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A*B).
