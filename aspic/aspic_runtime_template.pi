@@ -90,11 +90,18 @@ end.
 logprod([])=Z=>Z=1.
 logprod([X])=Z=>Z=X.
 logprod([H|T])=Z=>if(H==0) Z=0 else if(H==1) Z=logprod(T) else T2=logprod(T),Z=(H#/\T2) end end.
-%logprod([H|T])=Z=>T2=logprod(T),Z=(H#/\T2).
 
 logsum([])=Z=>Z=0.
 logsum([X])=Z=>Z=X.
 logsum([H|T])=Z=>if(H==1) Z=1 else if(H==0) Z=logsum(T) else T2=logsum(T),Z=(H#\/T2) end end.
+
+% the instances of predicate P/N: the I-th arguments of the atoms of P/N in
+% the atom map (the atoms mentioned so far - a sound superset of the true
+% instances, since an atom is mentioned for every domain binding of every
+% rule that uses it; the fd constraints filter exactly)
+aspic_instances(P,N,I)=L=>
+M=get_heap_map(aspic_m(aspic_atoms)),
+L=[A : K in M.keys, K=..[FP|Args], FP==P, Args.len==N, A=Args[I]].remove_dups().
 
 aspic_sum([])=Y=>Y#=0.
 aspic_sum([H|T])=Y=>Y2=aspic_sum(T),Y#=H+Y2.

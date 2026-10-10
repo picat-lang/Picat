@@ -208,6 +208,41 @@ enumsetargs([A|Ls])=>A=$aspic_var(E),E=[_|_],enumsetargs(Ls).
 enumel(Z)=Y,functor(Z,_,0)=>Y=$aspic_var(Z).
 enumel(Z)=Z=>true.
 
+% the first body atom p(...,X,...) in the rule body: [P,N,I] or [] - the
+% enumeration domain for a variable with no explicit range comes from the
+% instances of the atom that binds it (aspic_instances at runtime) instead
+% of the whole universe
+bodyatominst(T,X)=R,T=$aspic_impl(B,_)=>R=bodyatominst(B,X).
+bodyatominst(T,X)=R,T=$aspic_conj(L)=>R=bodyatominst_l(L,X).
+bodyatominst(T,X)=R,T=..[P|Args],not(aspicfunctor(P)),Args!=[],member(I,1..Args.len),(Args[I]=..L2,L2=[var,N,_]->N==X;Args[I]==X)=>R=[P,Args.len,I].
+bodyatominst(T,X)=R,T=..L=>R=bodyatominst_l(tail(L),X).
+bodyatominst(_,_)=R=>R=[].
+bodyatominst_l([],_)=R=>R=[].
+bodyatominst_l([E|Ls],X)=R,E=..[P|Args],Args!=[],not(aspicfunctor(P)),member(I,1..Args.len),(Args[I]=..L2,L2=[var,N,_]->N==X;Args[I]==X)=>R=[P,Args.len,I].
+bodyatominst_l([_|Ls],X)=R=>R=bodyatominst_l(Ls,X).
+bodyatominst_l(_,_)=R=>R=[].
+
+% the iteration source for a variable with no explicit range: the instances
+% of the first body atom that binds it, else the universe fallback
+institer(L3,X)=S=>BA=bodyatominst(L3,X),(BA=[]->S="universe()";BA=[P,N,I]->S="aspic_instances("++P.to_string()++","++N.to_string()++","++I.to_string()++")").
+
+% the functors that are NOT atom predicates (the structural/comparison terms)
+aspicfunctor(P)=>member(P,[aspic_var,aspic_range,aspic_impl,aspic_equiv,aspic_not,aspic_conj,aspic_disj,aspic_card,aspic_eq,aspic_sum,aspic_mul,aspic_div,aspic_diff,aspic_lt,aspic_le,aspic_gt,aspic_ge,aspic_ne,valset,condlit,set,options,var,range]).
+
+% the binding shape h(S) :- S = expr. (e.g. q(S) :- S = #sum{...}.): the
+% head argument is the expression itself, so the head variable is NOT
+% enumerated (the aggregate's possible values are not constants and the
+% universe fallback would miss them) - the fd constraint propagates into
+% the atom's map key instead
+bindsub(T)=T2,T=$aspic_impl($aspic_eq($var(S,[]),EXPR),HEAD),headargvar(HEAD,S),H2=replace(HEAD,$var(S,[]),EXPR)=>T2=$aspic_impl(1,H2).
+bindsub(T)=T2,T=$aspic_impl($aspic_eq(EXPR,$var(S,[])),HEAD),headargvar(HEAD,S),H2=replace(HEAD,$var(S,[]),EXPR)=>T2=$aspic_impl(1,H2).
+bindsub(T)=T2=>T2=T.
+
+% the head has exactly one argument and it is the variable S (the parse
+% form wraps it in options, the allvariants-expanded form does not)
+headargvar(HEAD,S)=>functor(HEAD,P,1),arg(1,HEAD,ARG),ARG=..L2,(L2=[options,LL]->LL=[[$var(S,[])]];L2=[var,S,[]]).
+
+
 replacesetsym(T)=R,functor(T,$set,_)
 =>
 %d(replacesetsym_in=T),
@@ -301,10 +336,11 @@ NR:=NR+1
 ,if(Phase==1,not(functor(L2,$aspic_not,_)),not(functor(L2,$aspic_card,_));
     Phase==11,functor(L2,$aspic_card,_);
     Phase==2,functor(L2,$aspic_not,_))
-d(orig=Orig),
+ d(orig=Orig),
 println(stderr,"% {"++NR.to_string()++"}\t"++Orig),
 %println(stderr,"d(\""++Orig++"\"),"),
 println(stderr,"d(\""++"{"++NR.to_string()++"}\t"++L.to_string()++"\"),"),
+L2:=bindsub(L2),
 V=getvars(L2).compactvars
 ,d(v=V)
 ,DV=getdetvars(L2).remove_dups
@@ -331,10 +367,10 @@ d(l2x=L2)
 ,L4=replaceset(L3.replacesetmini.replaceaggregates)
 ,d(l4=L4)
 ,L4:=L4.to_string()
-,d({v=V,dv=DV})
-,println(stderr,"_=[aspic_fholds("++L4++"):")
-,println(stderr,[V2[1].to_string()++" in "++cond(V2[2]==[],"universe()",showrange(V2[2])):V2 in V].join(','))
-,println(stderr,"],")
+ ,d({v=V,dv=DV})
+ ,println(stderr,"_=[aspic_fholds("++L4++"):")
+ ,println(stderr,[V2[1].to_string()++" in "++cond(V2[2]==[],institer(L3,V2[1]),showrange(V2[2])):V2 in V].join(','))
+ ,println(stderr,"],")
 
 % foreach(V2 in V)
 % println(stderr,"foreach("++V2[1].to_string()++" in "++cond(V2[2]==[],"universe()",showrange(V2[2]))++")")
@@ -392,11 +428,12 @@ d(orig=L)
 ,if(L2!=$aspic_impl(_,_),L2!=$aspic_not(_))
 L2:=$aspic_impl(1,L2)
 end
-,if(L2=$aspic_impl(B,H)) then
-%println(stderr,"%completion "++Orig)
-d(l2=L2)
-,d(h=H)
-,L2:=$aspic_impl($set(B),H)
+ ,if(L2=$aspic_impl(B,H)) then
+ %println(stderr,"%completion "++Orig)
+ d(l2=L2)
+ ,d(h=H)
+ ,L2ORIG:=L2
+ ,L2:=$aspic_impl($set(B),H)
 ,d(l2=L2)
 ,V:=getvars(L2).compactvars
 ,d(v=V)
@@ -426,11 +463,11 @@ d(l2=L2)
 ,H3NLA=..[H3H|NLA]
 ,d(l4=L4)
 ,d(h3nla=H3NLA)
-,print(stderr,"++["++L4.aspic_simplify.to_string()++":_ in 1..1,ASPIC_ATOM=$"++H3NLA.to_string())
-,foreach(V2 in V4)
-print(stderr,","++V2[1].to_string()++" in "++cond(V2[2]==[],"universe()",showrange(V2[2])))
-end
-,println(stderr,"]")
+ ,print(stderr,"++["++L4.aspic_simplify.to_string()++":_ in 1..1,ASPIC_ATOM=$"++H3NLA.to_string())
+ ,foreach(V2 in V4)
+ print(stderr,","++V2[1].to_string()++" in "++cond(V2[2]==[],institer(L2ORIG,V2[1]),showrange(V2[2])))
+ end
+ ,println(stderr,"]")
 end
 end
 ,println(stderr,",L2=aspic_disj(L)")

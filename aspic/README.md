@@ -286,7 +286,7 @@ cp module's solver). FDN (and FDN=0, the fdn hook disable) only affect
 the cp flows: the fdn hook wraps every solve/1,2 of the cp module, while
 the sat module's own solver is not hooked (see exs/fd_native_mt/README.md).
 
-Last verified since v0.3.19, BOTH solver flows: 87 comparable programs -
+Last verified since v0.3.20, BOTH solver flows: 87 comparable programs -
 16 matching, 1 differing (a genuine aspic limitation: consequences/example
 uses arithmetic in atom arguments like p(X+1), whose variable aspic
 enumerates over the whole universe including the non-numeric constant q, so
@@ -316,6 +316,27 @@ the card's bounds arguments.
 - so far only tested on Linux 
 
 # Version history
+
+v0.3.20:
+
+- Enumeration-domain resolution chain for rule-body variables: a variable
+  with no explicit range no longer falls back to the whole universe - the
+  comprehension now enumerates over the INSTANCES OF THE FIRST BODY ATOM
+  THAT BINDS IT (a new runtime helper aspic_instances(P,N,I) returns the
+  I-th arguments of the atoms of P/N in the atom map - the atoms mentioned
+  so far, a sound superset of the true instances, since an atom is
+  mentioned for every domain binding of every rule that uses it; the fd
+  constraints filter exactly). Both the rule-body comprehensions and the
+  completion's support iterations use the new source (new helpers
+  bodyatominst/institer/aspicfunctor in both parsers). This tightens the
+  domains for rules whose variables would otherwise range over the whole
+  universe including non-numeric constants - the pwc corpus goes from 41
+  to 43 MATCH. Additionally, rules of the binding shape h(S) :- S = expr.
+  (e.g. q(S) :- S = #sum{...}.) no longer enumerate the head variable at
+  all: bindsub (both parsers) substitutes the expression into the head
+  atom (the fd constraint propagates into the atom's map key - the
+  aggregate's possible values are not constants and the universe fallback
+  would miss them).
 
 v0.3.19:
 
