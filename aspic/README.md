@@ -288,8 +288,19 @@ compound atom arguments like cpa_started, for which the completion generates
 aspic_eq comparisons between non-numeric terms that the runtime cannot
 evaluate - both stop with unresolved_function_call), 36 not parseable by
 aspic (scripting, #include <incmode>, #program, #external, #script, theory
-atoms - all correctly rejected with loud errors), 4 timeouts (the planning
-examples). The itersolve example ({a;b;c}. - a multi-atom variable-free
+atoms - all correctly rejected with loud errors - this group includes the
+planning ENCODING combinations, since encoding.lp uses #program/#external),
+4 timeouts: the planning instance files ALONE (coins01, comm02, comm03,
+comm05 - pure-fact instances with compound atom arguments; the harness
+pairs each instance with its encoding only when the instance basename
+matches its instance pattern, so these four run as standalone programs).
+Their transpile is fast and clean, but the generated program's fd solve
+exceeds the harness's 60s limit (for coins01 the solve is reached with
+universe_size=18, 56 cp variables and 70 learned clauses and then hangs;
+the completion contributes hundreds of aspic_eq comparisons over compound
+arguments - the same non-numeric-atom-argument family as the two differing
+programs; clingo solves each instantly, 256-657 true atoms). The itersolve
+example ({a;b;c}. - a multi-atom variable-free
 choice rule) matches since v0.3.15: the choice-rule enumeration path now
 wraps each element in the set functor, so the atoms become free choice
 variables instead of the card's bounds arguments.
