@@ -23,13 +23,14 @@ aspic_gen(ID,Constr,Lines)=Snippet=>
 genbuf_init()
 ,asparse(Lines,R,T,Mini,Dir)
 ,(R=[] -> true; println(stderr,"aspic_gen: ASP syntax error in the asp block: "++R.to_string()), abort)
+,collectpredfunctors(T)
 ,genprintln("var(X,_)=X.\nrange(_,_)=0.")
 ,H=get_heap_map(asp_atoms)
 ,Native=get_heap_map(native_atoms)
 ,foreach(P in H.keys())
 ,LN:=H.get(P).remove_dups
 ,foreach(N in LN)
-,if(N>=1,not Native.has_key(P)) then
+,if(N>=1,not Native.has_key(P),get_heap_map(asp_predfunctors).has_key(P)) then
 genprint(P.to_string++"(")
 ,printxvars_g(N)
 ,genprint(")=aspic_var($"++P.to_string++"(")
@@ -243,6 +244,21 @@ end
 end
 .
 learnranges(T,V)=>d(learnranges_warning=T).
+
+% collect the functors that occur in atom position (rule heads and facts,
+% body literals, choice sets, aggregate elements and conditions, conditional
+% literals); functors that occur only inside argument lists must stay plain
+% terms - giving them an fd-variable function makes Picat evaluate the call
+% in argument position, which creates a nested fd variable and destroys the
+% enclosing atom's identity (the compound-argument collapse)
+collectpredfunctors(T),var(T)=>true.
+collectpredfunctors([])=>true.
+collectpredfunctors([X|Xs])=>collectpredfunctors(X),collectpredfunctors(Xs).
+collectpredfunctors(T)=>T=..[F|Args],collectpredfunctors_f(F,Args).
+
+collectpredfunctors_f(F,_),member(F,[aspic_var,aspic_range])=>true.
+collectpredfunctors_f(F,Args),member(F,[aspic_impl,aspic_equiv,aspic_not,aspic_conj,aspic_disj,aspic_card,aspic_eq,aspic_sum,aspic_mul,aspic_div,aspic_diff,aspic_lt,aspic_le,aspic_gt,aspic_ge,aspic_ne,valset,condlit,set])=>foreach(A in Args) collectpredfunctors(A) end.
+collectpredfunctors_f(F,_)=>get_heap_map(asp_predfunctors).put(F,1).
 
 %+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 translate_rules(T,Phase)=>
