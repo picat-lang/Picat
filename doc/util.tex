@@ -47,11 +47,11 @@ An {\it array matrix} is a two-dimensional array. The first dimension gives the 
 
 \begin{itemize}
 \item \texttt{array\_matrix\_to\_list($AMatrix$) = $List$}\index{\texttt{array\_matrix\_to\_list/1}}: This function converts the array matrix $AMatrix$ to a flat list, row by row.
-\item \texttt{array\_matrix\_to\_list\_matrix($AMatrix$) = $LMatrix$}\index{\texttt{array\_matrix\_to\_list\_matrix/1}}: This function converts the array matrix $AMatrix$ to a list matrix.
+\item \texttt{array\_matrix\_to\_list\_matrix($AMatrix$)} \texttt{=} \texttt{$LMatrix$}\index{\texttt{array\_matrix\_to\_list\_matrix/1}}: This function converts the array matrix $AMatrix$ to a list matrix.
 \item \texttt{columns($Matrix$) = $List$}\index{\texttt{columns/1}}: This function returns the columns of the matrix $Matrix$ as a list.
 \item \texttt{diagonal1($Matrix$) = $List$}\index{\texttt{diagonal1/1}}: This function returns the primary diagonal of the matrix $Matrix$ as a list.
 \item \texttt{diagonal2($Matrix$) = $List$}\index{\texttt{diagonal2/1}}: This function returns the secondary diagonal of the matrix $Matrix$ as a list.
-\item \texttt{list\_matrix\_to\_array\_matrix($LMatrix$) = $AMatrix$}\index{\texttt{list\_matrix\_to\_array\_matrix/1}}: This function converts the list matrix $LMatrix$ to an array matrix.
+\item \texttt{list\_matrix\_to\_array\_matrix($LMatrix$)} \texttt{=} \texttt{$AMatrix$}\index{\texttt{list\_matrix\_to\_array\_matrix/1}}: This function converts the list matrix $LMatrix$ to an array matrix.
 \item \texttt{matrix\_multi($MatrixA$, $MatrixB$) = $MatrixC$}\index{\texttt{matrix\_multi/2}}: This function returns the product of matrices $MatrixA$ and $MatrixB$. Both $MatrixA$ and $MatrixB$ must be array matrices.
 \item \texttt{rows($Matrix$) = $List$}\index{\texttt{rows/1}}: This function returns the rows of the matrix $Matrix$ as a list.
 \item \texttt{transpose($Matrix$) = $Transposed$}\index{\texttt{transpose/1}}: This function returns the transpose of the matrix $Matrix$. $Matrix$ can be an array matrix or a list matrix. If $Matrix$ is an array matrix, then the returned transpose is also an array. If $Matrix$ is a list matrix, then the returned transpose is also a list.
@@ -59,9 +59,9 @@ An {\it array matrix} is a two-dimensional array. The first dimension gives the 
 
 \section{Utilities on Lists and Sets}
 \begin{itemize}
+\item \texttt{nextto($E1$, $E2$, $List$)}\index{\texttt{nextto/3}}: This predicate is true if \texttt{$E2$} follows \texttt{$E1$} in \texttt{$List$}. This predicate is nondeterministic.
 \item \texttt{permutation($List$, $Perm$)}\index{\texttt{permutation/2}}: This predicate generates a permutation $Perm$ of $List$. This predicate is nondeterministic. On backtracking, it generates the next permutation.
 \item \texttt{permutations($List$) = $ResLists$}\index{\texttt{permutations/1}}: This function returns all the permutations of $List$.
-\item \texttt{nextto($E1$, $E2$, $List$)}\index{\texttt{nextto/3}}: This predicate is true if \texttt{$E2$} follows \texttt{$E1$} in \texttt{$List$}. This predicate is nondeterministic.
 \end{itemize}
 
 \ignore{

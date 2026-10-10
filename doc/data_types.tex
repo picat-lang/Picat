@@ -382,8 +382,8 @@ A \emph{map}\index{map} is a hash-table that is represented as a structure\index
 \item \texttt{new\_map($N$, $PairsList$) = $Map$}\index{\texttt{new\_map/2}}: This function creates a map\index{map} with initial capacity $N$ and initial list of pairs $PairsList$, where each pair has the form \texttt{$Key$$=$$Val$}.
 \item \texttt{put($Map$, $Key$, $Val$)}\index{\texttt{put/3}}: This predicate attaches the pair \texttt{$Key$$=$$Val$} to \texttt{$Map$}, where \texttt{$Key$} is a non-variable term, and \texttt{$Val$} is any term. 
 \item \texttt{put($Map$, $Key$)}\index{\texttt{put/2}}: This predicate is the same as \texttt{put($Map$, $Key$, not\_a\_value)}.
-\item \texttt{values($Map$) = $List$}\index{\texttt{values/1}}: This function returns the list\index{list} of values of the pairs in $Map$.
 \item \texttt{size($Map$) = $Size$}\index{\texttt{size/1}}: This function returns the number of pairs in $Map$.
+\item \texttt{values($Map$) = $List$}\index{\texttt{values/1}}: This function returns the list\index{list} of values of the pairs in $Map$.
 \end{itemize}
 Most of the built-ins are overloaded for attributed variables\index{attributed variable}.
 

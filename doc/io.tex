@@ -113,8 +113,8 @@ The bulk-read functions, including \texttt{read\_byte($FD$, $N$)}\index{\texttt{
 The \texttt{io} module also has functions that peek at the next value in the file without changing the current file location.  This means that the next \texttt{read} or \texttt{peek} function will return the same value, unless the read/write pointer is repositioned or the file is modified.
 
 \begin{itemize}
-\item \texttt{peek\_char($FD$) = $Val$}\index{\texttt{peek\_char/1}}
 \item \texttt{peek\_byte($FD$) = $Int$}\index{\texttt{peek\_byte/1}}
+\item \texttt{peek\_char($FD$) = $Val$}\index{\texttt{peek\_char/1}}
 \end{itemize}
 
 \subsection{End of File}
@@ -155,10 +155,9 @@ The \texttt{write} and \texttt{print} predicates take a file descriptor\index{fi
 \item \texttt{write\_char($Chars$)}\index{\texttt{write\_char/1}}: This predicate is the same as \texttt{write\_char(stdout, $Chars$)}.
 \item \texttt{write\_char\_code($FD$, $Codes$)}\index{\texttt{write\_char\_code/2}}: This predicate writes a single character or a list of characters of the given code or list of codes to a file.
 \item \texttt{write\_char\_code($Codes$)}\index{\texttt{write\_char\_code/1}}: This predicate is the same as the above, except that it writes to \texttt{stdout}.
-
+\item \texttt{writef($FD$, $Format$, $Args\ldots$)}\index{\texttt{writef}}: This predicate is used for formatted writing, where the $Format$ parameter contains format characters that indicate how to print each of the arguments in the $Args$ parameter. The number of arguments in $Args\ldots$ cannot exceed 16.
 \item \texttt{writeln($FD$, $Term$)}\index{\texttt{writeln/2}}: This predicate writes $Term$ and a newline, meaning that the next write will begin on the next line.
 \item \texttt{writeln($Term$)}\index{\texttt{writeln/1}}: This predicate is the same as \texttt{writeln(stdout, $Term$)}.
-\item \texttt{writef($FD$, $Format$, $Args\ldots$)}\index{\texttt{writef}}: This predicate is used for formatted writing, where the $Format$ parameter contains format characters that indicate how to print each of the arguments in the $Args$ parameter. The number of arguments in $Args\ldots$ cannot exceed 16.
 \end{itemize}
 Note that these predicates write both primitive values and compound values.
 
@@ -177,15 +176,15 @@ formatted_print =>
     close(FD).
 \end{verbatim}
 
-This writes \texttt{Hello, Bob.  Happy birthday!  You are 7 years old today.  That is 16.67\% older than you were last year.}
+This writes \texttt{Hello,} \texttt{Bob.}  \texttt{Happy birthday!}  \texttt{You are 7 years old today. That is 16.67\% older than you were last year.}
     
-The \texttt{io} module also provides the \texttt{print}, \texttt{println}, and \texttt{printf} predicate families.
+The \texttt{io} module also provides the \texttt{print}, \texttt{printf}, and \texttt{println} predicate families.
 \begin{itemize}
 \item \texttt{print($FD$, $Term$)}\index{\texttt{print/2}}: This predicate prints $Term$ to a file.  Unlike the \texttt{write}\index{\texttt{write/2}} predicates, the \texttt{print}\index{\texttt{print/2}} predicates do not place quotes around strings and atoms. 
 \item \texttt{print($Term$)}\index{\texttt{print/1}}: This predicate is the same as \texttt{print(stdout, $Term$)}.
+\item \texttt{printf($FD$, $Format$, $Args\ldots$)}\index{\texttt{printf}}: This predicate is the same as \texttt{writef}\index{\texttt{writef}}, except that \texttt{printf}\index{\texttt{printf}} uses \texttt{print}\index{\texttt{print/2}} to display the arguments in the $Args$ parameter, while \texttt{writef}\index{\texttt{writef}} uses \texttt{write} to display the arguments in the $Args$ parameter. The number of arguments in $Args\ldots$ cannot exceed 16.
 \item \texttt{println($FD$, $Term$)}\index{\texttt{println/2}}: This predicate prints $Term$ and a newline.
 \item \texttt{println($Term$)}\index{\texttt{println/1}}: This predicate is the same as \texttt{println(stdout, $Term$)}.
-\item \texttt{printf($FD$, $Format$, $Args\ldots$)}\index{\texttt{printf}}: This predicate is the same as \texttt{writef}\index{\texttt{writef}}, except that \texttt{printf}\index{\texttt{printf}} uses \texttt{print}\index{\texttt{print/2}} to display the arguments in the $Args$ parameter, while \texttt{writef}\index{\texttt{writef}} uses \texttt{write} to display the arguments in the $Args$ parameter. The number of arguments in $Args\ldots$ cannot exceed 16.
 \end{itemize}
 
 The following example demonstrates the differences between the \texttt{write}\index{\texttt{write/1}} and \texttt{print}\index{\texttt{print/1}} predicates.  
