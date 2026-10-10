@@ -286,7 +286,7 @@ cp module's solver). FDN (and FDN=0, the fdn hook disable) only affect
 the cp flows: the fdn hook wraps every solve/1,2 of the cp module, while
 the sat module's own solver is not hooked (see exs/fd_native_mt/README.md).
 
-Last verified since v0.3.18, BOTH solver flows: 87 comparable programs -
+Last verified since v0.3.19, BOTH solver flows: 87 comparable programs -
 16 matching, 1 differing (a genuine aspic limitation: consequences/example
 uses arithmetic in atom arguments like p(X+1), whose variable aspic
 enumerates over the whole universe including the non-numeric constant q, so
@@ -316,6 +316,27 @@ the card's bounds arguments.
 - so far only tested on Linux 
 
 # Version history
+
+v0.3.19:
+
+- Choice-rule enumeration with variables ({p(X);q(X)} form): the
+  cardobj+enum parse path wrapped each alternative in aspic_var([<atom>]) -
+  the list key never matched the runtime atom map, so the choice created no
+  atoms and the cardinality constraint counted fresh 0/1 variables instead
+  (partition_n came out empty). replaceset (both parsers) now recognizes the
+  enumeration form (every set element an aspic_var wrapper around a list)
+  and emits the FLAT list of the atom functions as the card's element list
+  (one element per alternative, no conjunctive wrapper) - constants keep the
+  aspic_var wrapper (no transpiler-generated function exists for them),
+  atoms with arguments become the atom function calls. getaspcompletionhead
+  (both parsers) now unwraps the enumeration form: the completion head is
+  the ATOM itself (previously the list wrapper's =.. decomposition produced
+  a junk atom) and the other alternatives are NOT in the support (they are
+  alternatives, not conditions). Verified: partition_n produces a valid
+  model (p(1),p(2) for n=2). No regressions: the syntax suite is 87/87, the
+  clingo comparison is unchanged (16 matching, 1 differing, 36 not
+  parseable, 0 other errors) and the extracted pwc corpus goes from 39 to
+  41 MATCH.
 
 v0.3.18:
 

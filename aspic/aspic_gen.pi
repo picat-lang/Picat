@@ -221,6 +221,19 @@ V=getsetvars(T).compactvars
 replacesetmini(T)=R,functor(T,_,0)=>R=T.
 replacesetmini(T)=R,T=..L=>R=..[replacesetmini(X):X in L].
 
+% choice-rule enumeration {p(X);q(X)}: the cardobj+enum parse path wraps each
+% alternative in aspic_var([<atom>]) - the list key never matches the runtime
+% atom map, so the choice creates no atoms and the card counts fresh 0/1
+% variables instead. The card's element list must be the FLAT list of the
+% atom functions (one element per alternative, no conjunctive wrapper) so
+% that aspic_card sums the atom truth values themselves
+replaceset(T)=R,functor(T,$set,_),T=..[_|L],L!=[],enumsetargs(L)
+=>V=getsetvars(T).compactvars
+,d(setvars=V)
+,T2=replacevars(V,[X[1]:X in V],T),T2=..[_|L2]
+,FL0=[Z:A in L2,A=$aspic_var(E),Z in E]
+,FL=[enumel(Z):Z in FL0]
+,R="["++ join([Y.to_string():Y in FL],',') ++ cond(V!=[],":" ++ join([X[1].to_string()++" in "++cond(X[2]=[],"universe()",showrange(X[2])):X in V],','),"") ++ "]".
 replaceset(T)=R,functor(T,$set,_)
 =>V=getsetvars(T).compactvars
 ,d(setvars=V)
@@ -228,6 +241,17 @@ replaceset(T)=R,functor(T,$set,_)
 ,R="["++ (aspic_conj(L)).aspic_simplify.to_string() ++ cond(V!=[],":" ++ join([X[1].to_string()++" in "++cond(X[2]=[],"universe()",showrange(X[2])):X in V],','),"") ++ "]".
 replaceset(T)=R,functor(T,_,0)=>R=T.
 replaceset(T)=R,T=..L=>R=..[replaceset(X):X in L].
+
+% every element of a choice-rule enumeration set: an aspic_var wrapper around
+% a LIST of atoms (the cardobj+enum parse form)
+enumsetargs([])=>true.
+enumsetargs([A|Ls])=>A=$aspic_var(E),E=[_|_],enumsetargs(Ls).
+
+% a flat choice element: a constant atom keeps the aspic_var wrapper (the
+% runtime atom map lookup, no transpiler-generated function exists for it),
+% an atom with arguments becomes the atom function call
+enumel(Z)=Y,functor(Z,_,0)=>Y=$aspic_var(Z).
+enumel(Z)=Z=>true.
 
 replacesetsym(T)=R,functor(T,$set,_)
 =>
@@ -386,6 +410,12 @@ getaspcompletionhead(Y)=R,Y=$aspic_card(X)=>R=getaspcompletionhead(X).
 %getaspcompletionhead(Y)=R,Y=$aspic_card(X,_,_)=>R=[].
 getaspcompletionhead(Y)=R,Y=$aspic_card(X,_,_)=>R=getaspcompletionhead(X). 
 getaspcompletionhead(Y)=R,Y=$set(X)=>R=getaspcompletionhead(X).
+% choice-rule enumeration {p(X);q(X)}: the set's elements are the
+% aspic_var([<atom>]) wrappers - the completion head must be the ATOM itself
+% (not the list wrapper, whose =.. decomposition produced a junk atom) and
+% the other alternatives must NOT appear in the support (they are
+% alternatives, not conditions)
+getaspcompletionhead(Y)=R,Y=$set(X1,X2),X1=$aspic_var([A])=>R=[A,[]].
 getaspcompletionhead(Y)=R,Y=$set(X1,X2)=>[R1,L1]=getaspcompletionhead(X1),R=[R1,[X2|L1]].
 getaspcompletionhead(X)=R=>d(notdefined_getaspcompletionhead_for=X),R=[X,[]].
 
