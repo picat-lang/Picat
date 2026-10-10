@@ -286,7 +286,7 @@ cp module's solver). FDN (and FDN=0, the fdn hook disable) only affect
 the cp flows: the fdn hook wraps every solve/1,2 of the cp module, while
 the sat module's own solver is not hooked (see exs/fd_native_mt/README.md).
 
-Last verified since v0.3.17, BOTH solver flows: 87 comparable programs -
+Last verified since v0.3.18, BOTH solver flows: 87 comparable programs -
 16 matching, 1 differing (a genuine aspic limitation: consequences/example
 uses arithmetic in atom arguments like p(X+1), whose variable aspic
 enumerates over the whole universe including the non-numeric constant q, so
@@ -316,6 +316,26 @@ the card's bounds arguments.
 - so far only tested on Linux 
 
 # Version history
+
+v0.3.18:
+
+- Domain inference for variables whose domain comes from an arithmetic
+  comparison: getvars (both parsers) now shifts an interval that belongs to
+  an arithmetic term onto the variable (N+1=1..11 gives N in 0..10; C-N in
+  [A,B] gives N in [C-B,C-A]) and divides an interval by a positive
+  constant multiplied with the variable (N=2*M with N in [A,B] gives M in
+  [ceil(A/C),floor(B/C)]) - the original range pair is kept so that
+  variable stays enumerated, and the fd constraints filter exactly, so the
+  added domains are sound supersets. A multiplication by a constant in one
+  conjunct now also inherits the interval of the same variable from a
+  sibling conjunct (N=1..4, N=2*M gives M in 1..2), via a new conj-level
+  getvars clause that attaches the derived domain to the variable's $var
+  wrapper before the walk (muldom/sibrange helpers). Fixes the polynomial
+  with a shifted interval (P(N,N*N+N+41) :- N+1=1..11 - the full 11-atom
+  table, exactly clingo's model) and the even-numbers program (p(M,N) :-
+  N=1..4, N=2*M - p(1,2) p(2,4), exactly clingo's model). No regressions:
+  the syntax suite is 87/87 and the clingo comparison is unchanged (16
+  matching, 1 differing, 36 not parseable, 0 other errors).
 
 v0.3.17:
 

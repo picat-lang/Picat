@@ -80,10 +80,45 @@ getvars(T)=R,functor(T,$valset,_)=>R=[]. %stop at $valset
 getvars(T)=R,functor(T,$condlit,_)=>R=[]. %stop at $condlit (its variables are local to it)
 getvars(T)=R,functor(T,_,0)=>R=[].
 getvars(T)=R,T=$aspic_eq($var(X,[]),$var(_,$range(A,B)))=>R=[[X,$range(A,B)]].
+% the interval belongs to an arithmetic term: shift it onto the variable
+% (N+C in [A,B] gives N in [A-C,B-C]; C-N in [A,B] gives N in [C-B,C-A]);
+% the original range pair is kept so that variable stays enumerated
+getvars(T)=R,T=$aspic_eq($aspic_sum($var(X,[]),C),$var(Z,$range(A,B))),number(C)=>R=[[X,$range(A-C,B-C)],[Z,$range(A,B)]].
+getvars(T)=R,T=$aspic_eq($aspic_sum(C,$var(X,[])),$var(Z,$range(A,B))),number(C)=>R=[[X,$range(A-C,B-C)],[Z,$range(A,B)]].
+getvars(T)=R,T=$aspic_eq($aspic_diff($var(X,[]),C),$var(Z,$range(A,B))),number(C)=>R=[[X,$range(A+C,B+C)],[Z,$range(A,B)]].
+getvars(T)=R,T=$aspic_eq($var(Z,$range(A,B)),$aspic_sum($var(X,[]),C)),number(C)=>R=[[X,$range(A-C,B-C)],[Z,$range(A,B)]].
+getvars(T)=R,T=$aspic_eq($var(Z,$range(A,B)),$aspic_sum(C,$var(X,[]))),number(C)=>R=[[X,$range(A-C,B-C)],[Z,$range(A,B)]].
+getvars(T)=R,T=$aspic_eq($var(Z,$range(A,B)),$aspic_diff($var(X,[]),C)),number(C)=>R=[[X,$range(A+C,B+C)],[Z,$range(A,B)]].
+getvars(T)=R,T=$aspic_eq($var(Z,$range(A,B)),$aspic_diff(C,$var(X,[]))),number(C)=>R=[[X,$range(C-B,C-A)],[Z,$range(A,B)]].
+% a multiplication by a positive constant: the other side's interval divided
+% by the constant (a sound superset; the fd constraint filters exactly)
+getvars(T)=R,T=$aspic_eq($aspic_mul(C,$var(X,[])),$var(Z,$range(A,B))),number(C),C>0=>R=[[X,$range(ceiling(A/C),floor(B/C))],[Z,$range(A,B)]].
+getvars(T)=R,T=$aspic_eq($aspic_mul($var(X,[]),C),$var(Z,$range(A,B))),number(C),C>0=>R=[[X,$range(ceiling(A/C),floor(B/C))],[Z,$range(A,B)]].
+getvars(T)=R,T=$aspic_eq($var(Z,$range(A,B)),$aspic_mul(C,$var(X,[]))),number(C),C>0=>R=[[X,$range(ceiling(A/C),floor(B/C))],[Z,$range(A,B)]].
+getvars(T)=R,T=$aspic_eq($var(Z,$range(A,B)),$aspic_mul($var(X,[]),C)),number(C),C>0=>R=[[X,$range(ceiling(A/C),floor(B/C))],[Z,$range(A,B)]].
+% a multiplication by a constant in one conjunct inherits the interval of the
+% same variable from a sibling conjunct (N=C*M with N in [A,B] gives M in
+% [ceil(A/C),floor(B/C)]); the domain is attached to the variable's $var
+% wrapper before the walk
+getvars(T)=R,T=$aspic_conj(L)=>R=[Y:X in L,Y in getvars(muldom(X,L))].remove_dups.
 getvars(T)=R,T=$var(Z,D)=>R=[[Z,D]].
 getvars(T)=R,T=..L=>F=L[1],N=L.len-1,H=get_heap_map(aspic_ranges),R=[Y:I in 2..L.len,X=L[I],Y in getvars2(X,H.get((F,N,I-1),[]))].remove_dups.
 getvars2(T,P)=R,T=$var(Z,D)=>R=[[Z,joindomains(D,P)]].
 getvars2(T,_)=R=>R=getvars(T).
+
+% attach the domain a sibling conjunct's interval gives to a
+% multiplication-by-a-constant variable
+muldom(X,L)=Y,X=$aspic_eq($var(A,[]),$aspic_mul(C,$var(B,[]))),number(C),C>0,sibrange(L,A,D,E)=>Y=$aspic_eq($var(A,[]),$aspic_mul(C,$var(B,$range(ceiling(D/C),floor(E/C))))).
+muldom(X,L)=Y,X=$aspic_eq($var(A,[]),$aspic_mul($var(B,[]),C)),number(C),C>0,sibrange(L,A,D,E)=>Y=$aspic_eq($var(A,[]),$aspic_mul($var(B,$range(ceiling(D/C),floor(E/C))),C)).
+muldom(X,L)=Y,X=$aspic_eq($aspic_mul(C,$var(B,[])),$var(A,[])),number(C),C>0,sibrange(L,A,D,E)=>Y=$aspic_eq($aspic_mul(C,$var(B,$range(ceiling(D/C),floor(E/C)))),$var(A,[])).
+muldom(X,L)=Y,X=$aspic_eq($aspic_mul($var(B,[]),C),$var(A,[])),number(C),C>0,sibrange(L,A,D,E)=>Y=$aspic_eq($aspic_mul($var(B,$range(ceiling(D/C),floor(E/C))),C),$var(A,[])).
+muldom(X,L)=X.
+
+% the interval of variable A among the sibling conjuncts
+sibrange([],_,_,_)=>fail.
+sibrange([X|Xs],A,D,E),X=$aspic_eq($var(A,[]),$var(_,$range(D,E)))=>true.
+sibrange([X|Xs],A,D,E),X=$aspic_eq($var(_,$range(D,E)),$var(A,[]))=>true.
+sibrange([_|Xs],A,D,E)=>sibrange(Xs,A,D,E).
 
 %getsetvars(T)=R,functor(T,$set,_)=>T=..L,R=[Y:X in tail(L),Y in getvars(X)].remove_dups.compactvars.
 getsetvars(T)=R=>T=..L,R=[Y:X in tail(L),Y in getvars(X)].remove_dups.compactvars.
