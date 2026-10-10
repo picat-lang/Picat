@@ -72,7 +72,7 @@ removelast(L)=L.reverse.tail.reverse.
 show(X)=X.
 
 
-universe0=L=>M=get_heap_map(aspic_m(aspic_atoms)),L=[Z:K in M.keys,K=..[_|Y],Z in Y].remove_dups. % ,d(L).
+universe0=L=>M=get_heap_map(aspic_m(aspic_atoms)),L=[Z:K in M.keys,K=..[_|Y],Z in Y,not aspic_isaggrid(Z)].remove_dups. % ,d(L).
 universe=R=>
 M=get_heap_map(aspic_m(aspic_learning))
 ,if(M.get(now,0)==0) then % not learning
@@ -105,6 +105,22 @@ L=[A : K in M.keys, K=..[FP|Args], FP==P, Args.len==N, A=Args[I]].remove_dups().
 
 aspic_sum([])=Y=>Y#=0.
 aspic_sum([H|T])=Y=>Y2=aspic_sum(T),Y#=H+Y2.
+
+% the aggregate atoms: a rule head with a computed argument (q(S) :-
+% S = #sum{...}.) is keyed by the synthetic ground id aspic_aggr_<n> in
+% place of the computed argument, and the side map
+% aspic_m(aspic_aggrvars) records the id -> the fd variable of the
+% aggregate value; the solution report replaces every id argument of the
+% head atom with the bound variable
+aspic_isaggrid(A)=>atom(A),S=A.to_string(),S.length>11,S.slice(1,11)=="aspic_aggr_".
+aspic_hasaggrid([])=>fail.
+aspic_hasaggrid([A|ARGS])=>aspic_isaggrid(A);aspic_hasaggrid(ARGS).
+aspic_isaggratom(K)=>K=..[_|ARGS],aspic_hasaggrid(ARGS).
+aspic_showaggr(K)=Y=>
+K=..[P|ARGS],
+AGM=get_heap_map(aspic_m(aspic_aggrvars)),
+ARGS2=[cond(aspic_isaggrid(A),AGM.get(A,A),A):A in ARGS],
+Y=..[P|ARGS2].
 
 % the aggregate functions: the value is computed into a plain var first
 % (Picat's fd constraints cannot contain the max/min/count calls - the
@@ -139,19 +155,35 @@ aspic_equiv(A,B)=Y=>Y#=(A#<=>B).
 
 aspic_vn(X),var(X)=>true.
 aspic_vn(X),number(X)=>true.
+% resolve a hoisted aggregate's synthetic id (aspic_aggr_<n>) to its fd
+% variable wherever the id appears in an expression: the id replaces the
+% aggregate call in the emitted program (ground in the atom map keys),
+% the arithmetic and relational helpers substitute the bound fd variable
+aspic_aggrval(A)=Y,aspic_isaggrid(A)=>Y=get_heap_map(aspic_m(aspic_aggrvars)).get(A).
+aspic_aggrval(A)=Y=>Y=A.
+aspic_lt(A,B)=Y,(aspic_isaggrid(A);aspic_isaggrid(B))=>Y=aspic_lt(aspic_aggrval(A),aspic_aggrval(B)).
 aspic_lt(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A#<B).
+aspic_le(A,B)=Y,(aspic_isaggrid(A);aspic_isaggrid(B))=>Y=aspic_le(aspic_aggrval(A),aspic_aggrval(B)).
 aspic_le(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A#<=B).
+aspic_gt(A,B)=Y,(aspic_isaggrid(A);aspic_isaggrid(B))=>Y=aspic_gt(aspic_aggrval(A),aspic_aggrval(B)).
 aspic_gt(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A#>B).
+aspic_ge(A,B)=Y,(aspic_isaggrid(A);aspic_isaggrid(B))=>Y=aspic_ge(aspic_aggrval(A),aspic_aggrval(B)).
 aspic_ge(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A#>=B).
+aspic_eq(A,B)=Y,(aspic_isaggrid(A);aspic_isaggrid(B))=>Y=aspic_eq(aspic_aggrval(A),aspic_aggrval(B)).
 aspic_eq(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A#=B).
 % non-numeric arguments (the Clark completion's head-argument enumeration
 % over compound terms): compare as terms, the equation holds when equal
 aspic_eq(A,B)=Y,A==B=>Y=1.
 aspic_eq(A,B)=0.
+aspic_ne(A,B)=Y,(aspic_isaggrid(A);aspic_isaggrid(B))=>Y=aspic_ne(aspic_aggrval(A),aspic_aggrval(B)).
 aspic_ne(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A#!=B).
+aspic_sum(A,B)=Y,(aspic_isaggrid(A);aspic_isaggrid(B))=>Y=aspic_sum(aspic_aggrval(A),aspic_aggrval(B)).
 aspic_sum(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A+B).
+aspic_mul(A,B)=Y,(aspic_isaggrid(A);aspic_isaggrid(B))=>Y=aspic_mul(aspic_aggrval(A),aspic_aggrval(B)).
 aspic_mul(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A*B).
+aspic_div(A,B)=Y,(aspic_isaggrid(A);aspic_isaggrid(B))=>Y=aspic_div(aspic_aggrval(A),aspic_aggrval(B)).
 aspic_div(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A/B).
+aspic_diff(A,B)=Y,(aspic_isaggrid(A);aspic_isaggrid(B))=>Y=aspic_diff(aspic_aggrval(A),aspic_aggrval(B)).
 aspic_diff(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A-B).
 aspic_diff(A,B)=0.
 
@@ -188,7 +220,7 @@ aspic_solve_dir(D)=>M=get_heap_map(aspic_m(aspic_solvedir)),M.put(now,D).
 
 aspic_solve_gen(Mini,Dir)=>
 M=get_heap_map(aspic_m(aspic_atoms))
-,MV=M.values()
+,MV=M.values()++get_heap_map(aspic_m(aspic_aggrvars)).values()
 %,S::0..MV.len
 %,S#=sum(MV)
 ,d("starting to solve")
@@ -203,14 +235,17 @@ d(universe_size=universe().len)
 ,d(cpvars=MV.len)
 ,d(cprules=get_heap_map(aspic_m(aspic_learning)).get(clauses,0))
 ,if Mini==0 then solve([rand],MV)
-,d(solution=[K.show:K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K)]
+,d(solution=[aspic_showaggr(K):K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K),aspic_isaggratom(K)]
+++[K.show:K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K),not aspic_isaggratom(K)]
 ++[X=X.showfd:X in [F:K in M.keys,aspic_isfdvariable(K),K=..L,L2=L.removelast,F=..L2].remove_dups.sort])
 elseif Dir==max then solve([$max(Mini),rand],[Mini|MV])
-,d(solution=[$maximization(Mini)|[K.show:K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K)]
-++[X=X.showfd:X in [F:K in M.keys,aspic_isfdvariable(K),K=..L,L2=L.removelast,F=..L2].remove_dups.sort]])
+,d(solution=[$maximization(Mini)]++[aspic_showaggr(K):K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K),aspic_isaggratom(K)]
+++[K.show:K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K),not aspic_isaggratom(K)]
+++[X=X.showfd:X in [F:K in M.keys,aspic_isfdvariable(K),K=..L,L2=L.removelast,F=..L2].remove_dups.sort])
 else solve([$min(Mini),rand],[Mini|MV])
-,d(solution=[$optimization(Mini)|[K.show:K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K)]
-++[X=X.showfd:X in [F:K in M.keys,aspic_isfdvariable(K),K=..L,L2=L.removelast,F=..L2].remove_dups.sort]])
+,d(solution=[$optimization(Mini)]++[aspic_showaggr(K):K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K),aspic_isaggratom(K)]
+++[K.show:K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K),not aspic_isaggratom(K)]
+++[X=X.showfd:X in [F:K in M.keys,aspic_isfdvariable(K),K=..L,L2=L.removelast,F=..L2].remove_dups.sort])
 end
 % ,d([K.show:K in M.keys.sort,V=M.get(K),V=0])
 %,d(s=S)
@@ -232,7 +267,7 @@ aspic_solve(sat,Mini)=>aspic_solve_gen(Mini,min).
 aspic_solve_sub(Mini)=>
 D=get_heap_map(aspic_m(aspic_solvedir)).get(now,min)
 ,M=get_heap_map(aspic_m(aspic_atoms))
-,MV=M.values()
+,MV=M.values()++get_heap_map(aspic_m(aspic_aggrvars)).values()
 ,d("starting to solve")
 ,(aspic_showsatstats(MV),fail
 ;(

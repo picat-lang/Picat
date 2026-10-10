@@ -134,6 +134,7 @@ joindomains(X,Y)=R=>d(joindomains=(X,Y)),R=X.
 
 getdetvars(T)=R,functor(T,$set,_)=>R=[]. %stop at $set
 getdetvars(T)=R,functor(T,$valset,_)=>R=[]. %stop at $valset
+getdetvars(T)=R,functor(T,$condlit,_)=>R=[]. %stop at $condlit (its variables are local to it)
 getdetvars(T)=R,functor(T,_,0)=>R=[].
 getdetvars(T)=R,T=$aspic_eq($var(X,_),_)=>R=[X].
 getdetvars(T)=R,T=$var(Z,D)=>R=[].
@@ -141,6 +142,7 @@ getdetvars(T)=R,T=..L=>R=[Z:X in L,Y=getdetvars(X),Z in Y].
 
 getvars(T)=R,functor(T,$set,_)=>R=[]. %stop at $set
 getvars(T)=R,functor(T,$valset,_)=>R=[]. %stop at $valset
+getvars(T)=R,functor(T,$condlit,_)=>R=[]. %stop at $condlit (its variables are local to it)
 getvars(T)=R,functor(T,_,0)=>R=[].
 getvars(T)=R,T=$aspic_eq($var(X,[]),$var(_,$range(A,B)))=>R=[[X,$range(A,B)]].
 % the interval belongs to an arithmetic term: shift it onto the variable
@@ -218,8 +220,70 @@ V=getsetvars(T).compactvars
 ,d(r=R)
 ,d(rsmini_done_for=T)
 .
+% the aggregate op wraps the valset (aspic_agval(count,valset(...))) - the
+% op decides the aggregated value: the count aggregates 1 per true
+% condition (the elements can be non-numeric symbols, which the fd
+% constraint store rejects with invalid_constraint_exp), the others
+% aggregate the element itself
+replacesetmini(T)=R,functor(T,$aspic_agval,2)
+=>
+d(rsmini=T),
+T=..[_,Op,VALSET],
+V=getsetvars(VALSET).compactvars
+,T2=replacevars(V,[X[1]:X in V],T),T2=..[_,Op,VALSET2],VALSET2=..[_,L1,L2]
+,d({op=Op,l1=L1,l2=L2})
+,R="aspic_"++Op.to_string()++"([ASPIC_OPTCOND3:" ++ join([X[1].to_string()++" in "++cond(X[2]=[],"universe()",showrange(X[2])):X in V],',')
+++cond(V!=[],"","_ in 1..1")
+++",ASPIC_OPTCOND1="++L2.to_string()++",ASPIC_OPTCOND2#=ASPIC_OPTCOND1,ASPIC_AGVAL1= "++cond(Op.to_string()=="count","1",L1[1].to_string())++",ASPIC_AGVAL2#=ASPIC_AGVAL1,ASPIC_OPTCOND3#=cond(ASPIC_OPTCOND2,ASPIC_AGVAL2,0)])"
+,d(r=R)
+,d(rsmini_done_for=T)
+.
+
+% hoist the aggregate calls (aspic_agval) out of a rule head: the head's
+% computed argument is replaced by a synthetic ground id (aspic_aggr_<n>),
+% so the atom's map key is ground; the aggregate value is a named fd
+% variable declared and constrained by the emitted lines (stored in the
+% seed-scoped map for the emission to write out) and registered in the
+% seed-scoped map aspic_m(aspic_aggrvars) (id -> fd variable), which the
+% main solve labels and the solution report reads to print the head with
+% the bound value
+%conditional literal l:w (clingo, in rule bodies): the conjunction over
+%the instances of (condition -> conclusion); the conclusion's variables
+%are local to it and iterate over the universe inside the comprehension.
+%Per instance: 1 if the condition is false (the implication is vacuously
+%true), the conclusion's fd value otherwise; aspic_conj combines them
+%with #/\ (all instances must hold). Picat renders the resulting string
+%verbatim when nested in the surrounding AST terms (same as valsets).
+%Must come BEFORE the generic recursion clause below (that clause has no
+%functor guard and would match the condlit term first, recursing into it
+%instead of translating it).
+replacesetmini(T)=R,functor(T,$condlit,2)
+=>
+V=getsetvars(T).compactvars
+,T2=replacevars(V,[X[1]:X in V],T),T2=..[_|L]
+,R="aspic_conj([ASPIC_CL3:" ++ join([X[1].to_string()++" in "++cond(X[2]=[],"universe()",showrange(X[2])):X in V],',')
+++cond(V!=[],"","_ in 1..1")
+++",ASPIC_CL1="++L[2].to_string()++",ASPIC_CL2#=ASPIC_CL1,ASPIC_CL4="++L[1].to_string()++",ASPIC_CL5#=ASPIC_CL4,ASPIC_CL3#=cond(ASPIC_CL2,ASPIC_CL5,1)])"
+.
 replacesetmini(T)=R,functor(T,_,0)=>R=T.
 replacesetmini(T)=R,T=..L=>R=..[replacesetmini(X):X in L].
+
+hoistaggs(T)=R,functor(T,$aspic_agval,2)
+=>
+M=get_heap_map(aspic_agghoist),
+N=M.get(n,0)+1,M.put(n,N),
+NAME="ASPIC_AGVAR"++N.to_string(),
+T=..[_,Op,VALSET],
+V=getsetvars(VALSET).compactvars,
+T2=replacevars(V,[X[1]:X in V],T),T2=..[_,Op,VALSET2],VALSET2=..[_,L1,L2],
+COMPR="aspic_"++Op.to_string()++"([ASPIC_OPTCOND3:" ++ join([X[1].to_string()++" in "++cond(X[2]=[],"universe()",showrange(X[2])):X in V],',')
+++cond(V!=[],"","_ in 1..1")
+++",ASPIC_OPTCOND1="++L2.to_string()++",ASPIC_OPTCOND2#=ASPIC_OPTCOND1,ASPIC_AGVAL1= "++cond(Op.to_string()=="count","1",L1[1].to_string())++",ASPIC_AGVAL2#=ASPIC_AGVAL1,ASPIC_OPTCOND3#=cond(ASPIC_OPTCOND2,ASPIC_AGVAL2,0)])",
+LS=cond(M.has_key(lines),M.get(lines),[]),
+M.put(lines,LS++[NAME++":: -100000..100000",NAME++"="++COMPR,"get_heap_map(aspic_m(aspic_aggrvars)).put(aspic_aggr_"++N.to_string()++","++NAME++")"]),
+R=to_atom("aspic_aggr_"++N.to_string()).
+hoistaggs(T)=R,functor(T,_,0)=>R=T.
+hoistaggs(T)=R=>T=..L,R=..[hoistaggs(X):X in L].
 
 % choice-rule enumeration {p(X);q(X)}: the cardobj+enum parse path wraps each
 % alternative in aspic_var([<atom>]) - the list key never matches the runtime
@@ -400,7 +464,12 @@ V=getvars(L2).compactvars
 %,V:=[V2:V2 in V,not(member(V2[1],DV))]
 ,if(V=[]) then
 %d(l2=L2),
-genprintln("aspic_holds("++replaceset(L2.replacesetmini.replaceaggregates).aspic_simplify.to_string()++")")
+L2R=hoistaggs(L2),
+HM=get_heap_map(aspic_agghoist),
+HLINES=cond(HM.has_key(lines),HM.get(lines),[]),
+if(HLINES!=[]) then genprintln(join(HLINES,',')++",") end,
+HM.put(lines,[]),
+genprintln("aspic_holds("++replaceset(L2R.replacesetmini.replaceaggregates).aspic_simplify.to_string()++")")
 ,genprintln(",")
 else
 d(l2x=L2)
@@ -476,6 +545,7 @@ end
 %genprintln("%completion "++Orig)
 d(l2=L2)
 ,d(h=H)
+,L2ORIG:=L2
 ,L2:=$aspic_impl($set(B),H)
 ,d(l2=L2)
 ,V:=getvars(L2).compactvars
@@ -502,13 +572,14 @@ d(l2=L2)
 ,H3=..[H3H|LA]
 ,NLA=[cond(NF>0,uniquevarname(),CA):CA in LA,functor(CA,_,NF)]
 ,NLAS=[$aspic_eq(NLA[IXV],LA[IXV]):IXV in 1..LA.len,NLA[IXV]!==LA[IXV]]
-,L4:=aspic_disj([aspic_conj(NLAS++[B2]++C3)])
+,if(functor(B2,$aspic_eq,2)) then BODY=1 else BODY=B2 end
+,L4:=aspic_disj([aspic_conj(NLAS++[BODY]++C3)])
 ,H3NLA=..[H3H|NLA]
 ,d(l4=L4)
 ,d(h3nla=H3NLA)
 ,genprint("++["++L4.aspic_simplify.to_string()++":_ in 1..1,ASPIC_ATOM=$"++H3NLA.to_string())
 ,foreach(V2 in V4)
-genprint(","++V2[1].to_string()++" in "++cond(V2[2]==[],"universe()",showrange(V2[2])))
+genprint(","++V2[1].to_string()++" in "++cond(V2[2]==[],institer(L2ORIG,V2[1]),showrange(V2[2])))
 end
 ,genprintln("]")
 end
@@ -789,8 +860,11 @@ p(t0,S,R,T),(p(f,S,R,T);p(range,S,R,T);p(term,S,R,T);p(num,S,R,T);p(var,S,R,T))=
 %atom
 p(atom,S,R,T2),(p(f,S,R,T),T2=T;p(term,S,R,T),T2=$aspic_var(T))=>true.
 
-%num or var or expr in parentheses
-p(nv,S,R,T),(p(num,S,R,T);p(var,S,R,T);paren(ae,"(",")",S,R,T))=>true.
+%num or var or expr in parentheses; atoms are accepted as aggregate
+%elements (aggregates over atoms): the element evaluates to the atom's
+%0/1 truth value (the transpiler-generated atom function, or aspic_var
+%for a ground atom), so the aggregate sums/counts the atoms themselves
+p(nv,S,R,T),(p(num,S,R,T);p(var,S,R,T);paren(ae,"(",")",S,R,T);p(atom,S,R,T))=>true.
 p(factor,S,R,T),(p(num,S,R,T);p(var,S,R,T);paren(ae,"(",")",S,R,T);p(agval,S,R,T))=>true.
 
 p(prod,S,R,T),p(factor,S,[H|S2],T1),op1(H)=>p(prod,S2,R,T2),T=aspic_muldiv(H,T1,T2).
@@ -815,6 +889,11 @@ p(notampersand,S,R,T),S=['&'|_]=>T="",R=S.
 
 p(logic,S,R,T2),paren(notampersand,"&","&",S,R,T)=>T2=T. 
 p(logic,S,R,T),member(Op,[eq,ne,gt,lt,le,ge,not]),p(Op,S,R,T)=>true.
+%conditional literal in a rule body (clingo): l : w - the conclusion must
+%hold for every grounding whose condition holds (each instance is an
+%implication). The condition is comma-separated (a conj); separate the
+%conditional literal from other body elements with ';'
+p(logic,S,R,T2),p(atom,S,":"++S2,T1),p(conj,S2,R,T2c)=>T2=$condlit(T1,T2c).
 p(logic,S,R,T),p(atom,S,R,T)=>true.
 p(logic,S,R,T),p(card,S,R,T)=>true.
 p(logic,S,R,T2),paren(disj,"(",")",S,R,T)=>T2=T. % parenthesized body expression: ~(X), not(p;q), (p;q),r

@@ -174,6 +174,11 @@ the first choice rule's comprehension is enumerated).
 
 The aggregates #sum, #max, #min and #count ARE supported in rule bodies and
 constraints over numeric terms (e.g. `#sum { X : p(X) }`), since v0.3.
+Rule heads with computed aggregate arguments are supported too (since
+v0.3.21, cleanly since v0.3.22): `q(S) :- S = #sum{...}.` — the head atom is
+keyed by a synthetic ground id, the aggregate value is a named fd variable
+constrained by a plain constraint and bound by the main solve, and the
+solution prints the head atom with the bound value (e.g. q(30)).
 Aggregates over ATOMS are supported too (v0.3.10): the element before the
 colon may be a predicate literal, e.g. `q :- #sum { p(X) : dom(X) } >= 1.`
 means q holds iff at least one p(X) is true — the element contributes the
@@ -193,7 +198,10 @@ comma-group becomes part of the condition). The negated form works too
 (`s :- not p(X) : dom(X).` — some instance is violated). NOT supported:
 conditional elements in head disjunctions (`p(X) : d(X).` as a head) and
 head aggregates with the extra literal between tuple and condition
-(`#count { X: p(X,Y): X=1..3 } = 1`).
+(`#count { X: p(X,Y): X=1..3 } = 1`); condition-local variables in
+aggregate conditions (`#count { X : p(A,X) }` — the local A makes aspic
+count the (A,X) pairs instead of the distinct X values, so the aggregate
+would need existential quantification over the condition locals).
 #minimize and #maximize ARE supported (v0.3.7); since v0.3.13 several
 directives are allowed and they may be freely MIXED with weak constraints:
 all of them unify into ONE signed objective, minimized with
@@ -286,7 +294,7 @@ cp module's solver). FDN (and FDN=0, the fdn hook disable) only affect
 the cp flows: the fdn hook wraps every solve/1,2 of the cp module, while
 the sat module's own solver is not hooked (see exs/fd_native_mt/README.md).
 
-Last verified since v0.3.21, BOTH solver flows: 87 comparable programs -
+Last verified since v0.3.22, BOTH solver flows: 87 comparable programs -
 16 matching, 1 differing (a genuine aspic limitation: consequences/example
 uses arithmetic in atom arguments like p(X+1), whose variable aspic
 enumerates over the whole universe including the non-numeric constant q, so
@@ -316,6 +324,51 @@ the card's bounds arguments.
 - so far only tested on Linux 
 
 # Version history
+
+v0.3.22:
+
+- Aggregators WITHOUT any solve before the main solve (the v0.3.21
+  intermediate solve is removed): a rule head with a computed argument
+  (q(S) :- S = #sum{...}.) is keyed by a synthetic ground id
+  (aspic_aggr_<n>) in place of the computed argument, so the atom's map key
+  is ground; the aggregate value is a named fd variable (ASPIC_AGVARn)
+  declared with a wide symmetric domain (-100000..100000, so negative sums
+  work; note X::-5..5 without a space is a syntax error, the emitted domain
+  has a space) and constrained by a PLAIN constraint (ASPIC_AGVARn =
+  aspic_sum([...]), the flattened linear sum each element weighed by its
+  atom's truth) emitted before the rule. The main solve labels the
+  aggregate variables together with the atom variables (hoistaggs registers
+  each id -> fd variable in the seed-scoped map aspic_m(aspic_aggrvars);
+  aspic_solve_gen/aspic_solve_sub append the map's values to the solve
+  list), and the solution report prints the head atom with the bound value
+  (aspic_showaggr rebuilds the head atom from the atom map key and the side
+  map). The synthetic ids appearing in EXPRESSION positions (comparisons
+  and arithmetic over the aggregate value in rule bodies, e.g.
+  q :- #sum{...} >= 1.) are resolved to their fd variables at runtime
+  (aspic_aggrval plus one resolution clause per arithmetic/relational
+  helper in aspic_runtime_template.pi; clause contiguity kept). The
+  synthetic ids are excluded from the enumeration universe (universe0
+  filters them - they are internal artifacts, not ASP ground terms; the
+  aggregate comprehension would otherwise iterate them and fail with
+  invalid_constraint_exp on the non-numeric id). Verified: p6_6_total
+  produces total(8), sum_tuples q(3),r(30), ex_p6_1 q(3),r(3), the
+  run_aggregate_* cases are green again. The extracted pwc corpus is 49
+  MATCH (was 46), 3 DIFFERING (ancestor's circular support, ex_p6_1's
+  condition-local variable #count{X : p(A,X)} counts the (A,X) pairs
+  instead of the distinct X values - the condition locals would need
+  existential quantification, clingo says s(2), aspic says s(3)),
+  p6_8_howmany's count-0 atoms), 21 errors. No regressions: the syntax
+  suite is 87/87 and the clingo comparison is unchanged (16 matching,
+  1 differing, 36 not parseable, 0 other errors).
+
+- aspic_gen.pi synced (the "full copy" contract was broken since v0.3.21):
+  hoistaggs, the replacesetmini aspic_agval and condlit clauses, the
+  hoistaggs emission form, the completion's support alternative 1 for
+  bindsub-form bodies (if(functor(B2,$aspic_eq,2)) then BODY=1), the
+  completion's institer enumeration, aggregates over atoms in p(nv,...)
+  and the conditional-literal parse clause p(logic,...,":"++...).
+  aspic_solve_sub includes the aggregate variables in the solve list like
+  aspic_solve_gen.
 
 v0.3.21:
 
