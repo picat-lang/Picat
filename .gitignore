@@ -30,6 +30,7 @@ webasm/headless/results.csv
 aspic/t.pi
 aspic/t2.pi
 aspic/aspic_runtime.pi
+aspic_runtime.pi
 aspic/out.pi
 aspic/test/tmp_*
 
