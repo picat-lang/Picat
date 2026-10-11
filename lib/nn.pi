@@ -56,7 +56,8 @@ nn_train(NN@fann(_), File,Opts), string(File) =>
 nn_train(NN@fann(_), Data,Opts),
     check_data(NN,Data,NumInput,NumOutput,Len)
  =>
-    File = "__tmp.data",
+    getpid(Pid),
+    File = "__tmp" ++ to_string(Pid) ++ ".data",
     train_data_save_aux(Data,File,NumInput,NumOutput,Len),
     nn_train(NN,File,Opts).
 nn_train(NN,FileData,_Opts) =>

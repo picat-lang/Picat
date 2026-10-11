@@ -262,7 +262,13 @@ smt_call_smt(Solver,TmpFileStr,SolFileStr,Logic,Vars) =>
 %    (bp.test_constrs(Constrs) -> true; println('FAILED')).
 
 %%
-smt_check_file(File,DefaultFileStr,FileStr), var(File) => FileStr = DefaultFileStr.
+smt_check_file(File,DefaultFileStr,FileStr), var(File) =>
+    % PID-suffixed default (see the mip_check_file note):  independent
+    % programs in parallel in the same directory each get their own
+    % __tmp<PID>.smt2,  else they race on the fixed __tmp.smt2 pair.
+    getpid(Pid),
+    (append(Base,".smt2",DefaultFileStr) -> true; Base = DefaultFileStr),
+    FileStr = Base ++ to_string(Pid) ++ ".smt2".
 smt_check_file(File,_DefaultFileStr,FileStr), atom(File) => FileStr = to_string(File).
 smt_check_file(File,_DefaultFileStr,FileStr), string(File) => FileStr = File.
 smt_check_file(File,_DefaultFileStr, _FileStr) => handle_exception($file_name_expected(File), solve).

@@ -190,7 +190,17 @@ mip_retrive_res(Solver,SolFileStr,Vars),
         retrieve_glpk_res(SolFileStr,Vars)
     ).
 
-mip_check_file(File,DefaultFileStr,FileStr), var(File) => FileStr = DefaultFileStr.
+mip_check_file(File,DefaultFileStr,FileStr), var(File) =>
+    % the default temp file is PID-suffixed:  independent programs run
+    % in parallel in the same directory each get their own __tmp<PID>.lp
+    % (and the derived <base><PID>.sol),  else they race on the fixed
+    % __tmp.lp/__tmp.sol pair - the second program's dump overwrites the
+    % first's model while cbc/glpk reads it,  and the first reads the
+    % second's solution.  The SAT external solvers already do this
+    % (satext-cnf-<PID>-<hash>.cnf in /dev/shm).
+    getpid(Pid),
+    (append(Base,".lp",DefaultFileStr) -> true; Base = DefaultFileStr),
+    FileStr = Base ++ to_string(Pid) ++ ".lp".
 mip_check_file(File,_DefaultFileStr,FileStr), atom(File) => FileStr = to_string(File).
 mip_check_file(File,_DefaultFileStr,FileStr), string(File) => FileStr = File.
 mip_check_file(File,_DefaultFileStr, _FileStr) => handle_exception($file_name_expected(File), solve).
