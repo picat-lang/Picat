@@ -147,6 +147,7 @@
 #define SATEXT_PRT_MAX         8      /* max solvers raced per solve */
 #define SATEXT_PRT_BUDGET_MS   60000  /* default wall budget per solve */
 #define SATEXT_PRT_MIN_BYTES   (64L << 10) /* race only above this size */
+#define SATEXT_PRT_GRACE_MS    100    /* built-in racers get this head start */
 /* reserved solver name: race the built-in (embedded kissat) solver as one
    of the portfolio members instead of exec'ing an external binary. */
 #define SATEXT_BUILTIN_TOKEN   "builtin"
@@ -1624,6 +1625,17 @@ static int prt_stats(void)
     return (e != NULL && *e != 0) ? 1 : 0;
 }
 
+static long long prt_grace_ms(void)
+{
+    const char *e = getenv("SATEXT_PRT_GRACE_MS");
+    long long v = SATEXT_PRT_GRACE_MS;
+    if (e && *e) {
+        v = strtoll(e, NULL, 10);
+        if (v < 0) v = 0;
+    }
+    return v;
+}
+
 static void prt_solver_name(spec_t *s, char *buf, size_t cap)
 {
     int i;
@@ -1828,6 +1840,69 @@ static pid_t prt_fork_runner(spec_list_t *sl, int i, const int *rfd)
     return pid;
 }
 
+/* Read racer i's result from its pipe; the caller has established
+   readability (via poll).  Returns 1 when a decisive answer was read
+   and stored (win_kind/win_i/have updated), 0 when the racer produced
+   nothing decisive.  Shared by the incremental first-wins check and
+   the main poll loop. */
+static int read_racer_result(int i, int *rfd, int *done, int *alive,
+                             int *have, int *win_kind, int *win_i,
+                             int32_t **model, int32_t maxvar)
+{
+    uint8_t hdr[8];             /* kind i32, nvar i32 */
+    int32_t kind, nv;
+    size_t got = 0;
+
+    while (got < 8) {
+        ssize_t r = read(rfd[2 * i], hdr + got, 8 - got);
+        if (r < 0) {
+            if (errno == EINTR) continue;
+            r = 0;
+        }
+        if (r == 0) break;      /* runner died, no result */
+        got += (size_t)r;
+    }
+    if (got < 8) {
+        done[i] = 1; (*alive)--;
+        return 0;
+    }
+    memcpy(&kind, hdr, 4);
+    memcpy(&nv, hdr + 4, 4);
+    if (kind == 3) {
+        *model = (int32_t *)malloc((size_t)nv * sizeof(int32_t));
+        got = 0;
+        while (*model != NULL && got < (size_t)nv * sizeof(int32_t)) {
+            ssize_t r = read(rfd[2 * i], (char *)(*model) + got,
+                             (size_t)nv * sizeof(int32_t) - got);
+            if (r < 0) {
+                if (errno == EINTR) continue;
+                r = 0;
+            }
+            if (r == 0) { *model = NULL; break; }
+            got += (size_t)r;
+        }
+        if (*model != NULL && (uint64_t)nv == (uint64_t)maxvar) {
+            *win_kind = 3;
+            *win_i = i;
+            *have = 1;
+            done[i] = 1;
+            return 1;
+        }
+        if (*model != NULL) free(*model);
+        *model = NULL;
+        done[i] = 1; (*alive)--;
+        return 0;
+    } else if (kind == 2) {
+        *win_kind = 2;
+        *win_i = i;
+        *have = 1;
+        done[i] = 1;
+        return 1;
+    }
+    done[i] = 1; (*alive)--;
+    return 0;
+}
+
 /* First-wins portfolio: race sl->specs[0..n-1] on the mirrored g_cnf.
    Stores the winner's result in ext_res_*; if no decisive answer
    arrives within the wall budget, leaves ext_res_status = 0 so the
@@ -1845,6 +1920,8 @@ static int run_portfolio(spec_list_t *sl)
     int i, alive;
     long long budget = prt_budget_ms();
     int stats = prt_stats();
+    long long grace = prt_grace_ms();
+    int builtin_posted = 0, grace_done = 0;
     int32_t *model = NULL;
     int win_kind = 0, win_i = -1;
     int have = 0, rc = 0;
@@ -1853,6 +1930,8 @@ static int run_portfolio(spec_list_t *sl)
        sees rfd entries beyond its own pipe; those must be -1, never
        stale stack garbage (prt_fork_runner guards the closes). */
     for (i = 0; i < 2 * SATEXT_PRT_MAX; i++) rfd[i] = -1;
+    memset(done, 0, sizeof(done));
+    alive = n;
 
     for (i = 0; i < n; i++) {
         if (pipe(&rfd[2 * i]) != 0) { rc = -1; break; }
@@ -1888,7 +1967,57 @@ static int run_portfolio(spec_list_t *sl)
                 rc = -1;
                 break;
             }
+            builtin_posted = 1;
         } else {
+            /* Grace window: with a built-in racer already racing, give
+               it a head start before any external is posted (the user's
+               invariant: with the built-in racing in parallel the
+               portfolio need never be slower than the plain built-in
+               flow).  A decisive built-in answer within the window ends
+               the race with NO external forked at all -- no fork/exec,
+               no reap.  SATEXT_PRT_GRACE_MS, default 100ms. */
+            if (builtin_posted && !grace_done && !have) {
+                grace_done = 1;
+                if (grace > 0) {
+                    struct pollfd pf1[SATEXT_PRT_MAX];
+                    int n1 = 0, pr1, to1, j1;
+                    for (j1 = 0; j1 < n; j1++) {
+                        if (sl->specs[j1].kind != 1 || done[j1]) continue;
+                        pf1[n1].fd = rfd[2 * j1];
+                        pf1[n1].events = POLLIN;
+                        pf1[n1].revents = 0;
+                        n1++;
+                    }
+                    to1 = (grace > 1000000000LL) ? 1000000000 : (int)grace;
+                    if (budget > 0) {
+                        long long b = (long long)(t0[0] + budget - now_ms());
+                        if (b < to1) to1 = (b > 0) ? (int)b : 0;
+                    }
+                    pr1 = (n1 > 0) ? poll(pf1, n1, to1) : 0;
+                    if (pr1 > 0) {
+                        for (j1 = 0; j1 < n && !have; j1++) {
+                            int prf = -1, k;
+                            if (sl->specs[j1].kind != 1 || done[j1]) continue;
+                            for (k = 0; k < n1; k++)
+                                if (pf1[k].fd == rfd[2 * j1]) prf = k;
+                            if (prf < 0 ||
+                                (pf1[prf].revents & (POLLIN | POLLHUP)) == 0)
+                                continue;
+                            (void)read_racer_result(j1, rfd, done, &alive,
+                                                    &have, &win_kind,
+                                                    &win_i, &model,
+                                                    g_cnf.maxvar);
+                        }
+                    }
+                    if (have) {
+                        /* decided by a built-in racer: the external
+                           racers are never posted */
+                        for (j1 = 0; j1 < n; j1++)
+                            if (sl->specs[j1].kind != 1) done[j1] = 1;
+                        break;
+                    }
+                }
+            }
             pid[i] = prt_fork_runner(sl, i, rfd);
             t0[i] = now_ms();
             close(rfd[2 * i + 1]);
@@ -1896,6 +2025,46 @@ static int run_portfolio(spec_list_t *sl)
                 close(rfd[2 * i]);
                 rc = -1;
                 break;
+            }
+        }
+        if (i + 1 < n && rc == 0) {
+            /* Incremental first-wins check: a decisive answer from the
+               racers posted SO FAR ends the creation loop.  The built-in
+               racer (specs[0], in-process) may win while the slower
+               external forks are still being posted -- the old code
+               started ALL racers before the first poll, so every solve
+               paid the full fork+exec time (~8-13ms per racer, ~65ms
+               per solve on a many-solve loop) even when the built-in
+               won instantly.  Post-and-check: with the built-in racing
+               in parallel the portfolio can never need to be slower
+               than the plain built-in flow. */
+            struct pollfd pf2[SATEXT_PRT_MAX];
+            int n2 = 0, j, pr2;
+            for (j = 0; j <= i; j++) {
+                if (done[j]) continue;
+                pf2[n2].fd = rfd[2 * j];
+                pf2[n2].events = POLLIN;
+                pf2[n2].revents = 0;
+                n2++;
+            }
+            pr2 = (n2 > 0) ? poll(pf2, n2, 0) : 0;
+            if (pr2 > 0) {
+                for (j = 0; j <= i && !have; j++) {
+                    int prf = -1, k;
+                    for (k = 0; k < n2; k++)
+                        if (pf2[k].fd == rfd[2 * j]) prf = k;
+                    if (prf < 0 || (pf2[prf].revents & (POLLIN | POLLHUP)) == 0)
+                        continue;
+                    (void)read_racer_result(j, rfd, done, &alive, &have,
+                                            &win_kind, &win_i, &model,
+                                            g_cnf.maxvar);
+                }
+                if (have) {
+                    /* decided: mark the never-posted racers done so the
+                       main poll loop skips them (their pipes are -1) */
+                    for (j = i + 1; j < n; j++) done[j] = 1;
+                    break;
+                }
             }
         }
     }
@@ -1912,8 +2081,6 @@ static int run_portfolio(spec_list_t *sl)
         return -1;
     }
 
-    memset(done, 0, sizeof(done));
-    alive = n;
     for (;;) {
         struct pollfd pf[SATEXT_PRT_MAX];
         int nrf = 0, pr;
@@ -1944,60 +2111,9 @@ static int run_portfolio(spec_list_t *sl)
                 if (pf[k].fd == rfd[2 * i]) prf = k;
             if (prf < 0 || (pf[prf].revents & (POLLIN | POLLHUP)) == 0)
                 continue;
-            {
-                uint8_t hdr[8];             /* kind i32, nvar i32 */
-                int32_t kind, nv;
-                size_t got = 0;
-
-                while (got < 8) {
-                    ssize_t r = read(rfd[2 * i], hdr + got, 8 - got);
-                    if (r < 0) {
-                        if (errno == EINTR) continue;
-                        r = 0;
-                    }
-                    if (r == 0) break;      /* runner died, no result */
-                    got += (size_t)r;
-                }
-                if (got < 8) {
-                    done[i] = 1; alive--;
-                    continue;
-                }
-                memcpy(&kind, hdr, 4);
-                memcpy(&nv, hdr + 4, 4);
-                if (kind == 3) {
-                    model = (int32_t *)malloc((size_t)nv * sizeof(int32_t));
-                    got = 0;
-                    while (model != NULL &&
-                           got < (size_t)nv * sizeof(int32_t)) {
-                        ssize_t r = read(rfd[2 * i],
-                                          model + got / sizeof(int32_t),
-                                          (size_t)nv * sizeof(int32_t) - got);
-                        if (r < 0) {
-                            if (errno == EINTR) continue;
-                            r = 0;
-                        }
-                        if (r == 0) { model = NULL; break; }
-                        got += (size_t)r;
-                    }
-                    if (model != NULL && (uint64_t)nv == g_cnf.maxvar) {
-                        win_kind = 3;
-                        win_i = i;
-                        have = 1;
-                        done[i] = 1;
-                    } else {
-                        if (model != NULL) free(model);
-                        model = NULL;
-                        done[i] = 1; alive--;
-                    }
-                } else if (kind == 2) {
-                    win_kind = 2;
-                    win_i = i;
-                    have = 1;
-                    done[i] = 1;
-                } else {
-                    done[i] = 1; alive--;
-                }
-            }
+            (void)read_racer_result(i, rfd, done, &alive, &have,
+                                    &win_kind, &win_i, &model,
+                                    g_cnf.maxvar);
         }
         if (have || alive == 0) break;
     }
