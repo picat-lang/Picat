@@ -237,13 +237,12 @@ with a diagnostic that names the offending line.
   head aggregates with the extra literal (`#count { X: p(X,Y): X=1..3 } = 1`)
 - a #minimize/#maximize whose { ... } set spans several lines (must be on
   one line)
-- disjunctive heads (`a ; b :- c.`)
-- strong negation (`-p(X)`)
-- conditional literals (`H : B`) outside aggregates/cardinality constraints
-- reals/floats; strings; quoted atoms
-- mod, **, abs and other arithmetic functions; the <> comparison operator
-- block comments `/* ... */` (only `%` line comments)
-- #if/#ifdef/#include/#program/#external/#heuristic/#project/#script/#base
+- disjunctive heads (`a ; b :- c.`); the <> comparison operator; strong
+  negation (`-p(X)`); conditional literals (`H : B`) outside
+  aggregates/cardinality constraints; reals/floats; strings; quoted atoms;
+  arithmetic inside AGGREGATE ELEMENTS (N*N) and in some head args
+  (quadratic's a*N*N+b*N+c); block comments `/* ... */` (only `%` line
+  comments); #if/#ifdef/#include/#program/#external/#heuristic/#project/#script/#base
 
 #show is also not implemented, but it is TOLERATED: the line is ignored and
 a `% aspic: WARNING: ...` comment is emitted, and the script "show" (see
@@ -253,8 +252,9 @@ above) can be used to filter the printed solutions instead.
 
 - a `#` directive other than #const, #minimize, #maximize, #show, #hide
   stops the transpilation with "unsupported ASP directive: <line>"
-- a #const value that is not an integer, or an unparseable or multi-line
-  #minimize/#maximize each stop with a named diagnostic
+- a #const value that is unparseable (e.g. a missing `=`; integer AND
+  symbol values are accepted since v0.3.23), or an unparseable or
+  multi-line #minimize/#maximize each stop with a named diagnostic
 - a weak constraint that does not parse (missing bracket, non-integer
   level) stops with "invalid weak constraint (expected :~ Body.
   [Weight@Level,Terms].): <line>"
@@ -294,7 +294,7 @@ cp module's solver). FDN (and FDN=0, the fdn hook disable) only affect
 the cp flows: the fdn hook wraps every solve/1,2 of the cp module, while
 the sat module's own solver is not hooked (see exs/fd_native_mt/README.md).
 
-Last verified since v0.3.22, BOTH solver flows: 87 comparable programs -
+Last verified since v0.3.24, BOTH solver flows: 87 comparable programs -
 16 matching, 1 differing (a genuine aspic limitation: consequences/example
 uses arithmetic in atom arguments like p(X+1), whose variable aspic
 enumerates over the whole universe including the non-numeric constant q, so
@@ -324,6 +324,60 @@ the card's bounds arguments.
 - so far only tested on Linux 
 
 # Version history
+
+v0.3.24:
+
+- comparison heads (clingo `R1=R2 :- body.`, `(A-B)**2 <= 2 :- body.`):
+  the rule head may be a comparison (eq/ne/gt/lt/ge/le) — a constraint,
+  not an atom; the fholds path asserts the implication body => (the
+  comparison) and the comparison head needs no completion (aspic_eq/... are
+  never atom map keys, so the pattern never matches and the rule
+  contributes nothing to the support). Fixes listing04_seating,
+  listing08_number_snake, listing10_magic_squares, seating_count_rewrite.
+  Gotcha: the head clause must NOT require the ":-" separator — the rule's
+  own ":-" pattern separates the head from the body (requiring it would
+  double-consume the separator and the clause would never fire).
+- arithmetic arguments with a lowercase #const (e.g. num(R,n+1-R,X), the
+  listing10 magic row/column rules): p(t) now tries p(ae) BEFORE p(term) —
+  the plain-term interpretation would otherwise swallow `n` as the term and
+  the partial parse commits before the arithmetic interpretation is tried.
+  The flip broke the variable-free choice sets ({a;b;c}.): p(ae)'s
+  p(num) fallback wrapped ANY lowercase identifier as $const, so the
+  choice-set element `a` became $const(a) instead of the atom. The p(num)
+  fallback is now const-name-aware: only KNOWN #const names (collected
+  into the heap map asp_consts before the program parse) are wrapped.
+- Corpus: 58 MATCH (was 54), 6 DIFF, 9 errors (was 14). listing15_borda
+  moved ERR -> DIFF (it now parses; the posScore head args X*N work, the
+  answer differs — a pre-existing class). The syntax suite is 88/88.
+
+v0.3.23:
+
+- clingo arithmetic operators in expressions (fixes 1-4 of the corpus
+  diagnosis):
+  - `#const c = <symbol>.` is accepted (the value is substituted as a
+    term, e.g. `#const c=austin.`) — only integer values were accepted
+    before
+  - `\` (clingo's MODULO, not integer division: `N\I=0` in the Listing 1
+    primes program means N mod I = 0) parses as a prod-level operator and
+    maps to the new runtime helper aspic_mod
+  - `|A-B|` absolute value parses (the inner expression is a full arith
+    expr) and maps to the new runtime helper aspic_abs; at enumeration the
+    args are ground so abs computes plainly (fixes the queens diagonal
+    constraint, the seating/listing14 referee workload differences)
+  - `**` power parses as a right-associative power level (binding tighter
+    than * and /) and maps to the new runtime helper aspic_pow (fixes
+    p(2**N,2**(N+1)) and the number snake/listing08 distance rule)
+  - the completion's support for a head whose args are ALL computed
+    expressions (e.g. p(2**N,2**(N+1))) now gets its own iterators for the
+    rule's variables (the atom pattern binds only the result names ARANGEk,
+    so the support's variables were unbound before)
+  - the Listing 1 atom prime/1 clashes with Picat's built-in predicate
+    prime/1 (predicate_used_as_function); the corpus copy is renamed
+    prime -> primenum by make_aspic_copies.sh (the same mechanism as the
+    in -> inset and d -> dsum renames)
+- Corpus after the fixes: 54 MATCH (was 49), 5 DIFF, 14 errors (was 21).
+  The syntax suite is 88/88 (the non-integer #const case is now a valid
+  case, the genuinely invalid `#const n.` is a new error case).
 
 v0.3.22:
 

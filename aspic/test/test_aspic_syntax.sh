@@ -139,7 +139,7 @@ for f in test/cases/err_*.lp; do
             bad "$name: expected 'unsupported ASP directive' in the diagnostic"
             continue
         fi ;;
-    err_const_string.lp)
+    err_const_missing.lp)
         if ! grep -q 'invalid #const' "$TMP/out.txt"; then
             bad "$name: expected 'invalid #const' in the diagnostic"
             continue

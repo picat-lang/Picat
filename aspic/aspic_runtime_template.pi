@@ -183,9 +183,15 @@ aspic_mul(A,B)=Y,(aspic_isaggrid(A);aspic_isaggrid(B))=>Y=aspic_mul(aspic_aggrva
 aspic_mul(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A*B).
 aspic_div(A,B)=Y,(aspic_isaggrid(A);aspic_isaggrid(B))=>Y=aspic_div(aspic_aggrval(A),aspic_aggrval(B)).
 aspic_div(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A/B).
+aspic_mod(A,B)=Y,(aspic_isaggrid(A);aspic_isaggrid(B))=>Y=aspic_mod(aspic_aggrval(A),aspic_aggrval(B)).
+aspic_mod(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A mod B).
 aspic_diff(A,B)=Y,(aspic_isaggrid(A);aspic_isaggrid(B))=>Y=aspic_diff(aspic_aggrval(A),aspic_aggrval(B)).
 aspic_diff(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A-B).
 aspic_diff(A,B)=0.
+aspic_abs(A)=Y,aspic_isaggrid(A)=>Y=aspic_abs(aspic_aggrval(A)).
+aspic_abs(A)=Y,aspic_vn(A)=>Y#=(abs(A)).
+aspic_pow(A,B)=Y,(aspic_isaggrid(A);aspic_isaggrid(B))=>Y=aspic_pow(aspic_aggrval(A),aspic_aggrval(B)).
+aspic_pow(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A**B).
 
 aspic_card(_)=1.
 

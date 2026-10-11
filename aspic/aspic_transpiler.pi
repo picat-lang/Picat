@@ -517,6 +517,13 @@ end
  ,foreach(V2 in V4)
  print(stderr,","++V2[1].to_string()++" in "++cond(V2[2]==[],institer(L2ORIG,V2[1]),showrange(V2[2])))
  end
+ % the vars of the support that are NOT bound by the atom pattern (the head
+ % args are all computed expressions, so the pattern binds only the result
+ % names ARANGEk): each needs its own iterator, e.g. p(2**N,2**(N+1))
+ ,PATV=[CA:CA in LA,atom(CA)]
+ ,foreach([VN,RN] in V,not(member(VN,PATV)))
+ print(stderr,","++VN.to_string()++" in "++cond(RN==[],institer(L2ORIG,VN),showrange(RN)))
+ end
  ,println(stderr,"]")
 end
 end
@@ -643,7 +650,9 @@ L2:=L[8..L.len].split("=").map(strip)
 (catch(VI=V[1..V.len-1].to_int,_,fail);
  catch(VI=V.to_int,_,fail)) ->
 C:=[(L2[1].to_atom,VI)|C]
-;Dr:=[("invalid #const (an integer value is required): "++L)|Dr])
+; L2.len>=2,(catch(VS=V[1..V.len-1].to_atom,_,fail);VS=V) ->
+C:=[(L2[1].to_atom,VS)|C]
+;Dr:=[("invalid #const: "++L)|Dr])
 ; L[1..9]=="#minimize" ->
 (L.len>=10 ->
 MiniText:=[X:X in L[10..L.len],X!=' ',ord(X)>32],
@@ -696,6 +705,7 @@ B:=[L|B]
 end
 end
 ,d("ready to parse")
+,NC=get_heap_map(asp_consts),foreach((N2,_) in C) NC.put(N2,1) end
 ,p(program,join(B.reverse,''),R0,T)
 ,R = Dr.reverse ++ R0
 ,d("after parsing")
@@ -796,6 +806,12 @@ aspic_mul(A,B)=R,number(A),number(B)=>R=A*B.
 aspic_mul(A,B)=R=>R=$aspic_mul(A,B).
 aspic_div(A,B)=R,number(A),number(B)=>R=A/B.
 aspic_div(A,B)=R=>R=$aspic_div(A,B).
+aspic_mod(A,B)=R,number(A),number(B)=>R=A mod B.
+aspic_mod(A,B)=R=>R=$aspic_mod(A,B).
+aspic_abs(A)=R,number(A)=>R=abs(A).
+aspic_abs(A)=R=>R=$aspic_abs(A).
+aspic_pow(A,B)=R,number(A),number(B)=>R=A**B.
+aspic_pow(A,B)=R=>R=$aspic_pow(A,B).
 
 aspic_member(V,[H|_]),V==H=>true.
 aspic_member(V,[_|T])=>aspic_member(V,T).
@@ -833,9 +849,11 @@ paren(L,PO,PC,S,R,T),S=PO++S2,p(L,S2,PC++R,T1)=>T=T1.
 % p(ab,S,R),S="a"++X,p(ab,X,"b"++R)=>d(b2).
 % p(ab,S,R),S="a"++X,p(ab,X,"c"++R)=>d(c2).
 
-op1(X)=>member(X,"*/").
+%the backslash (clingo's integer division N\M) parses as a prod-level op
+op1(X)=>member(X,"*/\\").
 aspic_muldiv('*',A,B)=aspic_mul(A,B).
 aspic_muldiv('/',A,B)=aspic_div(A,B).
+aspic_muldiv('\\',A,B)=aspic_mod(A,B).
 
 op2(X)=>member(X,"+-").
 aspic_sumsub('+',A,B)=aspic_sum(A,B).
@@ -854,7 +872,7 @@ p(num,S,R,T),S=[A|S2],(ascii_digit(A);A='-'),p(restnum,S2,R,T2)=>catch(T=[A|T2].
 % p(num,S,R,T),S=[A|R],ascii_digit(A)=>T=[A].
 p(restnum,S,R,T),S=[A|S2],(ascii_digit(A);member(A,"_")),p(restnum,S2,R,T2)=>T=[A|T2].
 p(restnum,S,R,T),S=R=>T=[].
-p(num,S,R,T)=>p(term,S,R,T1),T=$const(T1). % for constants
+p(num,S,R,T)=>p(term,S,R,T1),get_heap_map(asp_consts).has_key(T1),T=$const(T1). % for constants: only the KNOWN #const names are wrapped - the fallback would otherwise swallow a choice-set element as $const before the atom interpretation is tried
 
 p(var,S,R,T),S=[A|S2],(ascii_uppercase(A);A='_'),p(restvar,S2,R,T2)=>T=$var(noanon([cond(X=='\'','Q',X):X in [A|T2]]).to_atom,[]). %todo reduce clash probability by substituting single quotes with a longer string
 p(restvar,S,R,T),S=[A|S2],(ascii_alpha_digit(A);member(A,"_'")),p(restvar,S2,R,T2)=>T=[A|T2].
@@ -875,7 +893,10 @@ p(listargs,S,R,T),p(enum,S,R,T)=>true.
 
 
 %argument
-p(t,S,R,T),(p(f,S,R,T);p(range,S,R,T);p(term,S,R,T);p(ae,S,R,T);paren(enum,"(",")",S,R,T);paren(t,"(",")",S,R,T))=>true.
+%argument; p(ae) BEFORE p(term): a lowercase #const in an arithmetic arg
+%(n+1-R) would otherwise be swallowed as the plain term n by p(term), and
+%the partial parse commits before the arithmetic interpretation is tried
+p(t,S,R,T),(p(f,S,R,T);p(range,S,R,T);p(ae,S,R,T);p(term,S,R,T);paren(enum,"(",")",S,R,T);paren(t,"(",")",S,R,T))=>true.
 %p(t,S,R,T),(p(f,S,R,T);p(range,S,R,T);p(term,S,R,T);p(ae,S,R,T);p(enum,S,R,T);paren(t,"(",")",S,R,T))=>true.
 %restricted term
 p(t0,S,R,T),(p(f,S,R,T);p(range,S,R,T);p(term,S,R,T);p(num,S,R,T);p(var,S,R,T))=>true.
@@ -888,10 +909,17 @@ p(atom,S,R,T2),(p(f,S,R,T),T2=T;p(term,S,R,T),T2=$aspic_var(T))=>true.
 %0/1 truth value (the transpiler-generated atom function, or aspic_var
 %for a ground atom), so the aggregate sums/counts the atoms themselves
 p(nv,S,R,T),(p(num,S,R,T);p(var,S,R,T);paren(ae,"(",")",S,R,T);p(atom,S,R,T))=>true.
+%absolute value |A| (clingo): the inner expression is a full arith expr;
+%at enumeration the args are ground, so abs computes plainly
+p(factor,S,R,T),S="|"++S2=>p(ae,S2,"|"++R,T1),T=aspic_abs(T1).
 p(factor,S,R,T),(p(num,S,R,T);p(var,S,R,T);paren(ae,"(",")",S,R,T);p(agval,S,R,T))=>true.
 
-p(prod,S,R,T),p(factor,S,[H|S2],T1),op1(H)=>p(prod,S2,R,T2),T=aspic_muldiv(H,T1,T2).
-p(prod,S,R,T),p(factor,S,R,T)=>true.
+%power (clingo's **): right-associative, binds tighter than * and /;
+%a power level between the factors and the products
+p(pw,S,R,T),p(factor,S,"**"++S2,T1),p(pw,S2,R,T2)=>T=aspic_pow(T1,T2).
+p(pw,S,R,T)=>p(factor,S,R,T).
+p(prod,S,R,T),p(pw,S,[H|S2],T1),op1(H)=>p(prod,S2,R,T2),T=aspic_muldiv(H,T1,T2).
+p(prod,S,R,T),p(pw,S,R,T)=>true.
 
 p(sum,S,R,T),p(prod,S,[H|S2],T1),op2(H)=>p(sum,S2,R,T2),T=aspic_sumsub(H,T1,T2).
 p(sum,S,R,T2),p(prod,S,R,T)=>T2=T.
@@ -978,6 +1006,14 @@ p(range,S,R,T),p(ae,S,".."++S2,T1),p(ae,S2,R,T2)=>X=uniquevarname(),T=$var(X,$ra
 
 p(head,S,R,T),p(atom,S,R,T)=>true.
 p(head,S,R,T),p(card,S,R,T)=>true.
+%comparison head (clingo): R1=R2 :- body., (A-B)**2<=2 :- body. - the head is
+%a constraint, not an atom; the fholds path asserts the implication
+%body => (the comparison) and the comparison head needs no completion
+%(aspic_eq/aspic_le/... are never atom map keys, so the pattern never
+%matches and the rule contributes nothing to the support); the comparison
+%must consume only the head (the t grammar stops at :-) - the rule's own
+%":- " pattern separates it from the body
+p(head,S,R,T),member(Op,[eq,ne,gt,lt,ge,le]),p(Op,S,R,T)=>true.
 p(body,S,R,T)=>p(disj,S,"."++R,T).
 
 p(rule,S,R,T),S=":-"++S2=>p(body,S2,R,T2),T=$aspic_not(T2),d(T).
