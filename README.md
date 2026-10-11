@@ -81,6 +81,15 @@ Environment variables (all read by the satext layer):
   `satext: WARNING:` line to stderr whenever this happens.
 - `SATEXT_PRT_STATS` — non-empty: print a per-solve line to stderr
   with each racer's wall time and the winner.
+- `SATEXT_PRT_GRACE_MS` — head start, in ms, given to a `builtin`
+  racer before any external racer is forked (default 100; `0` = post
+  all racers immediately). With the built-in racing in parallel the
+  portfolio need never be slower than the plain built-in flow: a
+  decisive built-in answer within the window ends the solve with no
+  external forked at all (no fork/exec, no reap — measured: a
+  618-solve loop goes from 71x to 6.7x slower, and the geomean over
+  `test/satext_speedup.sh` from 1.30 to 0.88), while hard problems
+  (each solve longer than the window) still get the full portfolio.
 - `SATEXT_SHIM` — path of the `satshim` helper, used to hand a large
   formula to a solver via a file descriptor; default: next to the
   `picat` binary.
