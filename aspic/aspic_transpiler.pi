@@ -384,7 +384,7 @@ NR:=NR+1
  d(orig=Orig),
 println(stderr,"% {"++NR.to_string()++"}\t"++Orig),
 %println(stderr,"d(\""++Orig++"\"),"),
-println(stderr,"d(\""++"{"++NR.to_string()++"}\t"++L.to_string()++"\"),"),
+println(stderr,"aspic_debug(\""++"{"++NR.to_string()++"}\t"++L.to_string()++"\"),"),
 L2:=bindsub(L2),
 V=getvars(L2).compactvars
 ,d(v=V)

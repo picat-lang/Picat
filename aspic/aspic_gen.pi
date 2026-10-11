@@ -447,7 +447,7 @@ NR:=NR+1
 d(orig=Orig),
 genprintln("% {"++NR.to_string()++"}\t"++Orig),
 %genprintln("d(\""++Orig++"\"),"),
-genprintln("d(\""++"{"++NR.to_string()++"}\t"++L.to_string()++"\"),"),
+genprintln("aspic_debug(\""++"{"++NR.to_string()++"}\t"++L.to_string()++"\"),"),
 L2:=bindsub(L2),
 V=getvars(L2).compactvars
 ,d(v=V)

@@ -20,7 +20,7 @@ aspic_m(B)=N=>N=to_atom(B.to_string()++"_"++aspic_seedctr_get().to_string()).
 ismember(X,L)=T,member(X,L)=>T=1.
 ismember(_,_)=T=>T=0.
 
-d(X)=>println(stderr,X).
+aspic_debug(X)=>println(stderr,X).
 
 uniquevarname()=Y=>
 H=get_heap_map(asp_counter),
@@ -39,8 +39,8 @@ KF=..L0
 ,MV=get_heap_map(aspic_m(aspic_atoms))
 ,Y=sum([2**(I-1):K in M.keys,MV.get(K)==1,K=..L,L.removelast==L0,I=L.last]).
 
-aspic_startlearning()=>M=get_heap_map(aspic_m(aspic_learning)),M.put(now,1),d(started_learning).
-aspic_stoplearning()=>M=get_heap_map(aspic_m(aspic_learning)),M.put(now,0),M.del(universe),d(stopped_learning).
+aspic_startlearning()=>M=get_heap_map(aspic_m(aspic_learning)),M.put(now,1),aspic_debug(started_learning).
+aspic_stoplearning()=>M=get_heap_map(aspic_m(aspic_learning)),M.put(now,0),M.del(universe),aspic_debug(stopped_learning).
 aspic_islearning()=>M=get_heap_map(aspic_m(aspic_learning)),Y=M.get(now,0),Y==1.
 
 
@@ -237,27 +237,27 @@ M=get_heap_map(aspic_m(aspic_atoms))
 ,MV=M.values()++get_heap_map(aspic_m(aspic_aggrvars)).values()
 %,S::0..MV.len
 %,S#=sum(MV)
-,d("starting to solve")
+,aspic_debug("starting to solve")
 ,(aspic_showsatstats(MV),fail
 %;solve([dump],MV),fail
 %;(solve([$min(S)],[S|MV])
 ;(
 %d(presolution=[K.show=V:K in M.keys.sort,V=M.get(K)]),
 %d(universe=universe().sort),
-d(universe_size=universe().len)
+aspic_debug(universe_size=universe().len)
 %,d(cpvars=M.keys.sort.map(show))
-,d(cpvars=MV.len)
-,d(cprules=get_heap_map(aspic_m(aspic_learning)).get(clauses,0))
+,aspic_debug(cpvars=MV.len)
+,aspic_debug(cprules=get_heap_map(aspic_m(aspic_learning)).get(clauses,0))
 ,if Mini==0 then solve([rand],MV)
-,d(solution=[aspic_showaggr(K):K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K),aspic_isaggratom(K)]
+,aspic_debug(solution=[aspic_showaggr(K):K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K),aspic_isaggratom(K)]
 ++[K.show:K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K),not aspic_isaggratom(K)]
 ++[X=X.showfd:X in [F:K in M.keys,aspic_isfdvariable(K),K=..L,L2=L.removelast,F=..L2].remove_dups.sort])
 elseif Dir==max then solve([$max(Mini),rand],[Mini|MV])
-,d(solution=[$maximization(Mini)]++[aspic_showaggr(K):K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K),aspic_isaggratom(K)]
+,aspic_debug(solution=[$maximization(Mini)]++[aspic_showaggr(K):K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K),aspic_isaggratom(K)]
 ++[K.show:K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K),not aspic_isaggratom(K)]
 ++[X=X.showfd:X in [F:K in M.keys,aspic_isfdvariable(K),K=..L,L2=L.removelast,F=..L2].remove_dups.sort])
 else solve([$min(Mini),rand],[Mini|MV])
-,d(solution=[$optimization(Mini)]++[aspic_showaggr(K):K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K),aspic_isaggratom(K)]
+,aspic_debug(solution=[$optimization(Mini)]++[aspic_showaggr(K):K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K),aspic_isaggratom(K)]
 ++[K.show:K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K),not aspic_isaggratom(K)]
 ++[X=X.showfd:X in [F:K in M.keys,aspic_isfdvariable(K),K=..L,L2=L.removelast,F=..L2].remove_dups.sort])
 end
@@ -266,9 +266,9 @@ end
 % ,d([K.show:K in M.keys()])
 )
 ;
-d("UNSAT")
+aspic_debug("UNSAT")
 )
-,current_datetime().d
+,current_datetime().aspic_debug
 .
 
 aspic_solve(sat,Mini,Dir)=>aspic_solve_gen(Mini,Dir).
@@ -282,23 +282,23 @@ aspic_solve_sub(Mini)=>
 D=get_heap_map(aspic_m(aspic_solvedir)).get(now,min)
 ,M=get_heap_map(aspic_m(aspic_atoms))
 ,MV=M.values()++get_heap_map(aspic_m(aspic_aggrvars)).values()
-,d("starting to solve")
+,aspic_debug("starting to solve")
 ,(aspic_showsatstats(MV),fail
 ;(
 %d(presolution=[K.show=V:K in M.keys.sort,V=M.get(K)]),
 %d(universe=universe().sort),
-d(universe_size=universe().len)
+aspic_debug(universe_size=universe().len)
 %,d(cpvars=M.keys.sort.map(show))
-,d(cpvars=MV.len)
-,d(cprules=get_heap_map(aspic_m(aspic_learning)).get(clauses,0))
+,aspic_debug(cpvars=MV.len)
+,aspic_debug(cprules=get_heap_map(aspic_m(aspic_learning)).get(clauses,0))
 ,if Mini==0 then solve([rand],MV)
-%,d(solution=[K.show:K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K)]
+%,aspic_debug(solution=[K.show:K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K)]
 %++[X=X.showfd:X in [F:K in M.keys,aspic_isfdvariable(K),K=..L,L2=L.removelast,F=..L2].remove_dups.sort])
 elseif D==max then solve([$max(Mini),rand],[Mini|MV])
-%,d(solution=[$maximization(Mini)|[K.show:K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K)]
+%,aspic_debug(solution=[$maximization(Mini)|[K.show:K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K)]
 %++[X=X.showfd:X in [F:K in M.keys,aspic_isfdvariable(K),K=..L,L2=L.removelast,F=..L2].remove_dups.sort]])
 else solve([$min(Mini),rand],[Mini|MV])
-%,d(solution=[$optimization(Mini)|[K.show:K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K)]
+%,aspic_debug(solution=[$optimization(Mini)|[K.show:K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K)]
 %++[X=X.showfd:X in [F:K in M.keys,aspic_isfdvariable(K),K=..L,L2=L.removelast,F=..L2].remove_dups.sort]])
 end
 % ,d([K.show:K in M.keys.sort,V=M.get(K),V=0])
@@ -306,7 +306,7 @@ end
 % ,d([K.show:K in M.keys()])
 )
 ;
-d("UNSAT"),!,fail
+aspic_debug("UNSAT"),!,fail
 )
 %,current_datetime().d
 .
