@@ -294,7 +294,7 @@ cp module's solver). FDN (and FDN=0, the fdn hook disable) only affect
 the cp flows: the fdn hook wraps every solve/1,2 of the cp module, while
 the sat module's own solver is not hooked (see exs/fd_native_mt/README.md).
 
-Last verified since v0.3.24, BOTH solver flows: 87 comparable programs -
+Last verified since v0.3.25, BOTH solver flows: 87 comparable programs -
 16 matching, 1 differing (a genuine aspic limitation: consequences/example
 uses arithmetic in atom arguments like p(X+1), whose variable aspic
 enumerates over the whole universe including the non-numeric constant q, so
@@ -324,6 +324,25 @@ the card's bounds arguments.
 - so far only tested on Linux 
 
 # Version history
+
+v0.3.25:
+
+- arithmetic in aggregate elements (`#sum{N*N,N : N=-2..2}.`, the ex_p6_4/
+  ex_p6_5 shape): the element grammar accepts the full expression grammar —
+  the element term prints verbatim (`ASPIC_AGVAL1= aspic_mul(N,N)`) into
+  the AGVAL1 binding inside the aggregate comprehension, where the runtime's
+  binary aspic_sum/mul/div helpers resolve it to an fd var (no runtime or
+  emitter change). The expression alternative comes FIRST: for an atom
+  element it fails cleanly and the atom interpretation is tried next.
+  Both programs now transpile and their un-collapsed atoms match clingo
+  (ex_p6_4 p(10); ex_p6_5 a(9), e(36)). Known limitation: clingo aggregates
+  over the DISTINCT groundings of the element tuple — a single-element
+  element list collapses distinct values (`#sum{N*N : N=-2..2}.` = 5, the
+  squares of {-2,-1,0,1,2} = {4,1,0}), while aspic's fd chain aggregates
+  per binding (= 10) — ex_p6_4's q and ex_p6_5's b/c/dsum differ for that
+  reason (the same distinct-value class as ex_p6_1's condition-local
+  count); matching it would need a set-of-achieved-values construct the fd
+  store has no equivalent of. The pwc corpus: 58 MATCH / 8 DIFF / 7 errors.
 
 v0.3.24:
 
