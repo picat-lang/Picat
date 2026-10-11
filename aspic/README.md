@@ -12,13 +12,17 @@ picat picasp.pi examples/asp_embedded_in_picat.pi #using sat(default)
 
 or
 
-picat cp picasp.pi examples/asp_embedded_in_picat.pi #using cp
+picat picasp.pi cp examples/asp_embedded_in_picat.pi #using cp
 
 # Pure-Picat embedded-ASP flow (no external programs)
 
-`picasp.pi` shells out to `cpp`, a python preprocessor, `sed` and a
-second `picat` process.  The same flow is also available with no
-external programs at all, in two ordinary `picat` runs:
+`picasp.pi` (v0.2) is a thin pure-Picat driver: it calls
+`aspic_prep` in-process (the in-process transpiler `aspic_gen.pi`),
+writes `t.pi` (the final program) and `aspic_runtime.pi` (generated
+from the template, with the chosen backend) into the working
+directory, and runs `t.pi`.  No `cpp`, python, `sed` or forked
+`picat` is involved.  The same flow is also available in two
+explicit `picat` runs:
 
     picat aspic_prep.pi pre SRC.pi LIBDIR OUT.pi aspic_runtime_template.pi sat
     (cd LIBDIR and) picat OUT.pi

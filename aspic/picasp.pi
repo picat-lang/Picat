@@ -1,9 +1,30 @@
 import sys.
 import util.
-main([H|T]),H.reverse()="ip." ++ _ =>main(["sat",H|T]).
+import aspic_prep.
+
+% picasp: run a Picat program with embedded "asp ... end" blocks.
+%
+%   picat picasp.pi FILE.pi          (the constraint library defaults to sat)
+%   picat picasp.pi sat|cp FILE.pi   (explicit backend; the argument order is
+%                                     free - the .pi file and the backend
+%                                     keyword are located wherever they are)
+%
+% Pure Picat: the islands are pre-translated in-process by aspic_prep
+% (the in-process transpiler aspic_gen.pi) - no cpp, python, sed or
+% forked picat.  aspic_prep writes t.pi (the final program) and
+% aspic_runtime.pi (generated from aspic_runtime_template.pi, with
+% ASPIC_CONSTRAINTS_LIB set to the chosen backend) into the working
+% directory; the final program then runs on any Picat build.
+
 main(ARGS)=>
-println("picasp v0.1")
-,_=command("cpp -P -x assembler-with-cpp -undef "++ARGS.tail.join()++" >t0.pi")
-,_=command("./picasp_preprocessor.py "++ARGS.head++" t0.pi >t.pi")
-,_=command("picat -log -s 1234567890 t.pi 2>&1")
-.
+println("picasp v0.2 (pure-Picat aspic_prep flow)"),
+Sols=[S:S in ARGS,(S=="sat";S=="cp")],
+Solver=cond(Sols==[],"sat",Sols.head),
+Srcs=[F:F in ARGS,ispi(F)],
+(Srcs==[] -> println("picasp: no .pi file given"),halt; true),
+Src=Srcs.head,
+aspic_prep(Src,".","t.pi","aspic_runtime_template.pi",Solver),
+_=command("picat -log -s 1234567890 t.pi 2>&1").
+
+ispi(A),A.reverse()="ip."++_ =>true.
+ispi(A) =>fail.

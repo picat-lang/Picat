@@ -36,3 +36,5 @@ aspic/test/tmp_*
 
 # local PDF rendering of the pvm README (personal, not to be committed)
 exs/parallel/pvm/README.pdf
+
+__pycache__/
