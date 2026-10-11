@@ -39,8 +39,31 @@ KF=..L0
 ,MV=get_heap_map(aspic_m(aspic_atoms))
 ,Y=sum([2**(I-1):K in M.keys,MV.get(K)==1,K=..L,L.removelast==L0,I=L.last]).
 
-aspic_startlearning()=>M=get_heap_map(aspic_m(aspic_learning)),M.put(now,1),aspic_debug(started_learning).
-aspic_stoplearning()=>M=get_heap_map(aspic_m(aspic_learning)),M.put(now,0),M.del(universe),aspic_debug(stopped_learning).
+% aspic_startlearning(): opens the learning bracket. The runtime-map seed
+% is bumped LAZILY here - exactly once per run, when the previous run is
+% closed - so all islands and all aspic_holds injections of one enclosing
+% computation share the same seed-scoped maps (aspic_m appends the seed
+% counter). A run is closed by aspic_stoplearning(); on the web build
+% re-running main, the next startlearning bumps again and every map below
+% becomes fresh, so stale asserted rules or constrained fd variables from
+% the previous run are never replayed.
+aspic_startlearning()=>S=get_heap_map(aspic_state),
+(S.get(open,0)==0 -> N=S.get(seedctr,0),S.put(seedctr,N+1),S.put(open,1);true),
+M=get_heap_map(aspic_m(aspic_learning)),M.put(now,1),aspic_debug(started_learning).
+aspic_stoplearning()=>S=get_heap_map(aspic_state),S.put(open,0),
+M=get_heap_map(aspic_m(aspic_learning)),M.put(now,0),M.del(universe),aspic_debug(stopped_learning).
+
+% aspic_register_completion(T): the generated block predicates defer their
+% completion (the support clauses) to solve time: each block registers its
+% zero-argument aspic_completion_N predicate here, and aspic_solve_sub
+% applies all of them against the FINAL universe (all the atoms created by
+% every block plus everything injected with aspic_holds) before solving.
+% The set is keyed by the predicate term, so a re-registration is a no-op;
+% aspic_run_completions clears it after applying, so a repeated solve does
+% not duplicate the support constraints.
+aspic_register_completion(T)=>M=get_heap_map(aspic_completions),M.put(T,1).
+aspic_run_completions()=>M=get_heap_map(aspic_completions),
+foreach(T in M.keys()) aspic_debug(cc=T),call(T),aspic_debug(cc_done=T) end,M.clear().
 aspic_islearning()=>M=get_heap_map(aspic_m(aspic_learning)),Y=M.get(now,0),Y==1.
 
 
@@ -277,9 +300,16 @@ aspic_solve(sat,Mini,Dir)=>aspic_solve_gen(Mini,Dir).
 aspic_solve(sat,Mini)=>aspic_solve_gen(Mini,min).
 
 %used when embedding ASP islands in Picat; the optimization direction
-%(min or max) is read from the map written by aspic_solve_dir (default min)
+%(min or max) is read from the map written by aspic_solve_dir (default min).
+%The learning bracket is still open here (the block predicates leave it
+%open): it is closed FIRST, so the deferred completions run with learning
+%off exactly as they did when they were inline (aspic_var returns 0 for
+%atoms not in the map - creating fd variables here would change the
+%support evaluation), then the solve runs.
 aspic_solve_sub(Mini)=>
 D=get_heap_map(aspic_m(aspic_solvedir)).get(now,min)
+,aspic_stoplearning()
+,aspic_run_completions()
 ,M=get_heap_map(aspic_m(aspic_atoms))
 ,MV=M.values()++get_heap_map(aspic_m(aspic_aggrvars)).values()
 ,aspic_debug("starting to solve")
