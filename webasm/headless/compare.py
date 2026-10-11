@@ -107,7 +107,9 @@ def make_native_cwd():
 
 def native_once(path):
     """One native run: returns (rc, ms)."""
-    env = dict(os.environ, PICATPATH=os.path.join(ROOT, 'lib2'))
+    # lib2:lib -- the udf modules live in lib2/, cp2/sat2 in lib/ (their
+    # example headers document PICATPATH=lib from the repo root).
+    env = dict(os.environ, PICATPATH=os.path.join(ROOT, 'lib2') + ':' + os.path.join(ROOT, 'lib'))
     t0 = time.monotonic()
     p = subprocess.run([NATIVE, path], stdout=subprocess.DEVNULL,
                        stderr=subprocess.DEVNULL, env=env, cwd=NATIVE_CWD)

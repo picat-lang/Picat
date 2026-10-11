@@ -540,8 +540,34 @@ static int picatpath_read_fallback(void)
                 return 0;
             strcpy(suffix, sl + 1);
             goto walk;
-        } else
-            return 0;                 /* absolute name:  leave as is */
+        } else {
+            /* absolute include shape:  with the top-level file passed by
+               an ABSOLUTE path the bytecode prefixes include names with
+               its directory,  giving an absolute candidate that misses
+               whenever the included file lives in a PICATPATH dir.  The
+               old policy left it untouched,  so the include failed,  the
+               compiler finished the module WITHOUT the included file's
+               definitions,  and the partial .qi written on the normal
+               told/0 finish shadowed the real source forever (the
+               302-byte cp2.qi stub incident).  Retry the basename in
+               each PICATPATH dir,  restricted to module sources (.pi)
+               and compiled modules (.qc) so a missing absolute DATA file
+               is never silently substituted. */
+            size_t flen2;
+            const char *sl;
+            if (sys_access(full_file_name, F_OK) == 0)
+                return 0;              /* found as asked */
+            flen2 = strlen(full_file_name);
+            if (flen2 <= 3 ||
+                (strcmp(full_file_name + flen2 - 3, ".pi") != 0 &&
+                 strcmp(full_file_name + flen2 - 3, ".qc") != 0))
+                return 0;              /* not a module name:  leave as is */
+            sl = strrchr(full_file_name, '/');
+            if (sl == full_file_name || *(sl + 1) == '\0')
+                return 0;
+            strcpy(suffix, sl + 1);
+            goto walk;
+        }
         if (sys_access(full_file_name, F_OK) == 0)
             return 0;              /* found as asked */
         rest = full_file_name + prefix_len + 1;
