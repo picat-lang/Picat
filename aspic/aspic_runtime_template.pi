@@ -177,6 +177,14 @@ aspic_eq(A,B)=Y,A==B=>Y=1.
 aspic_eq(A,B)=0.
 aspic_ne(A,B)=Y,(aspic_isaggrid(A);aspic_isaggrid(B))=>Y=aspic_ne(aspic_aggrval(A),aspic_aggrval(B)).
 aspic_ne(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A#!=B).
+%ne over SYMBOL values (X!=Y with X,Y enumerated over the universe, e.g.
+%the sibling rule): the fd constraint A#!=B rejects non-numeric terms, and
+%with both sides bound the truth is decided at call time (the conj's
+%element list evaluates the call to 1/0). The clauses end with =>true. -
+%Picat function clauses with comma-guards cannot end with a period
+%(unlike predicate facts, the => or ?=> token is required)
+aspic_ne(A,B)=1,atom(A),atom(B),A!=B=>true.
+aspic_ne(A,B)=0,atom(A),atom(B)=>true.
 aspic_sum(A,B)=Y,(aspic_isaggrid(A);aspic_isaggrid(B))=>Y=aspic_sum(aspic_aggrval(A),aspic_aggrval(B)).
 aspic_sum(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A+B).
 aspic_mul(A,B)=Y,(aspic_isaggrid(A);aspic_isaggrid(B))=>Y=aspic_mul(aspic_aggrval(A),aspic_aggrval(B)).

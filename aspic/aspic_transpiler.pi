@@ -631,9 +631,26 @@ W:=to_atom(W)
 .
 % main(_)=>true.
 
+%clingo allows several directives on ONE line (#const a=1. #const b=1.) -
+%each ends with a period; the asparse's #const handler takes everything
+%after the first = as the value, so the 2nd+ directives on a line are
+%swallowed (the quadratic corpus file has four #const on one line and the
+%consts b, c, n were never registered). Split a line into its
+%sub-directives ONLY when every #-piece is a #const directive - a mixed
+%line (#const n=4. p(X) :- q(X).) is left untouched. The % comment is
+%stripped first (a comment can mention #const)
+constline_parts(L)=R,L2=nocomment(L),L2.len>=7,L2[1..7]=="#const ",Ps=[P.strip():P in L2.split("#"),P.strip()!=""],allconst(Ps)=>R=["#"++P:P in Ps].
+constline_parts(L)=[L].
+
+nocomment(L)=R,member('%',L)=>I=[J:J in 1..L.length,L[J]='%'],R=L[1..I[1]-1].
+nocomment(L)=L.
+
+allconst([P|Ps]),P.len>=5,P[1..5]=="const"=>allconst(Ps).
+allconst([_])=>true.
+allconst([])=>true.
+
 %parse ASP from list of lines
-asparse(A,R,T,ObjMin,ObjDir)=>
-B=[]
+asparse(A0,R,T,ObjMin,ObjDir)=>A=[L2:L in A0,L2 in constline_parts(L)],B=[]
 ,C=[]
 ,Terms=[]
 ,Dr=[]
@@ -869,7 +886,6 @@ p(restterm,S,R,T),S=[A|S2],(ascii_alpha_digit(A);member(A,"_")),p(restterm,S2,R,
 p(restterm,S,R,T),S=R=>T=[].
 
 p(num,S,R,T),S=[A|S2],(ascii_digit(A);A='-'),p(restnum,S2,R,T2)=>catch(T=[A|T2].to_int(),_,fail). % a lone "-" or a non-numeric token must fail cleanly, not crash in to_int
-% p(num,S,R,T),S=[A|R],ascii_digit(A)=>T=[A].
 p(restnum,S,R,T),S=[A|S2],(ascii_digit(A);member(A,"_")),p(restnum,S2,R,T2)=>T=[A|T2].
 p(restnum,S,R,T),S=R=>T=[].
 p(num,S,R,T)=>p(term,S,R,T1),get_heap_map(asp_consts).has_key(T1),T=$const(T1). % for constants: only the KNOWN #const names are wrapped - the fallback would otherwise swallow a choice-set element as $const before the atom interpretation is tried
@@ -897,7 +913,6 @@ p(listargs,S,R,T),p(enum,S,R,T)=>true.
 %(n+1-R) would otherwise be swallowed as the plain term n by p(term), and
 %the partial parse commits before the arithmetic interpretation is tried
 p(t,S,R,T),(p(f,S,R,T);p(range,S,R,T);p(ae,S,R,T);p(term,S,R,T);paren(enum,"(",")",S,R,T);paren(t,"(",")",S,R,T))=>true.
-%p(t,S,R,T),(p(f,S,R,T);p(range,S,R,T);p(term,S,R,T);p(ae,S,R,T);p(enum,S,R,T);paren(t,"(",")",S,R,T))=>true.
 %restricted term
 p(t0,S,R,T),(p(f,S,R,T);p(range,S,R,T);p(term,S,R,T);p(num,S,R,T);p(var,S,R,T))=>true.
 

@@ -294,7 +294,7 @@ cp module's solver). FDN (and FDN=0, the fdn hook disable) only affect
 the cp flows: the fdn hook wraps every solve/1,2 of the cp module, while
 the sat module's own solver is not hooked (see exs/fd_native_mt/README.md).
 
-Last verified since v0.3.25, BOTH solver flows: 87 comparable programs -
+Last verified since v0.3.27, BOTH solver flows: 87 comparable programs -
 16 matching, 1 differing (a genuine aspic limitation: consequences/example
 uses arithmetic in atom arguments like p(X+1), whose variable aspic
 enumerates over the whole universe including the non-numeric constant q, so
@@ -324,6 +324,48 @@ the card's bounds arguments.
 - so far only tested on Linux 
 
 # Version history
+
+v0.3.27:
+
+- several directives on ONE line (clingo allows `#const a=1. #const b=1.` —
+  each ends with a period): the asparse's #const handler took everything
+  after the first `=` as the value, so the 2nd+ directives on a line were
+  swallowed — the quadratic corpus file has four #const on one line and the
+  consts b, c, n were never registered, so the arithmetic head arg
+  `a*N*N+b*N+c` failed to parse (the const names are only wrapped in
+  arithmetic when known). A preprocessing step now splits a line into its
+  sub-directives (the `#` pieces, re-prefixed) BEFORE the asparse loop —
+  only when EVERY piece is a `#const` directive (a mixed line
+  `#const n=4. p(X) :- q(X).` is left untouched) and only after the `%`
+  comment is stripped (a comment can mention #const — the listing10 file's
+  comment did, and the first version of the splitter turned it into a
+  bogus directive). The split lines are then handled by the existing
+  #const logic unchanged. Fixes quadratic (p(0,41)..p(10,151) — the
+  N*N+41 primes, exactly clingo's model). The pwc corpus: 61 MATCH / 8
+  DIFF / 4 errors. The transpiler line that carries the preprocessing
+  runs before the comment-stripping loop of the asparse, so the loop's
+  own stripping is redundant for split lines but harmless.
+- arithmetic head args with known #const names parse (the machinery was
+  already in place since v0.3.24 — the blocker for quadratic was purely
+  the swallowed directives).
+
+v0.3.26:
+
+- `ne` over symbol values in rule bodies (`X != Y` with X, Y enumerated
+  over the universe, e.g. the sibling rule `sibling(X,Y) :- parent(Z,X),
+  parent(Z,Y), X!=Y.`): the runtime's aspic_ne had clauses only for the
+  aggregate-id resolution and the fd constraint `A#!=B` (vars/numbers) —
+  with both sides bound to symbols (the body variables enumerate over the
+  universe's constants) neither matched and the conj evaluation died with
+  unresolved_function_call. Two clauses were added: the truth is decided
+  at call time (1 when the terms differ, 0 when equal). Gotcha: Picat
+  function clauses with comma-guards MUST end with the `=>` token —
+  `aspic_ne(A,B)=1,atom(A),atom(B),A!=B.` is a syntax error (the parser
+  requires `=>` or `?=>` after a guard list; unlike predicate facts, a
+  function clause cannot end with a period after guards) — the clauses end
+  with `=>true.`. Fixes p3_2_sibling (sibling(carol,dan), sibling(dan,carol)
+  — exactly clingo's model) and p5_8_cliques (the clique constraint with
+  the inset choice rule). The pwc corpus: 60 MATCH / 8 DIFF / 5 errors.
 
 v0.3.25:
 

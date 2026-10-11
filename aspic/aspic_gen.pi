@@ -607,9 +607,26 @@ end
 % debug parsing
 % main(_)=>true.
 
+%clingo allows several directives on ONE line (#const a=1. #const b=1.) -
+%each ends with a period; the asparse's #const handler takes everything
+%after the first = as the value, so the 2nd+ directives on a line are
+%swallowed (the quadratic corpus file has four #const on one line and the
+%consts b, c, n were never registered). Split a line into its
+%sub-directives ONLY when every #-piece is a #const directive - a mixed
+%line (#const n=4. p(X) :- q(X).) is left untouched. The % comment is
+%stripped first (a comment can mention #const)
+constline_parts(L)=R,L2=nocomment(L),L2.len>=7,L2[1..7]=="#const ",Ps=[P.strip():P in L2.split("#"),P.strip()!=""],allconst(Ps)=>R=["#"++P:P in Ps].
+constline_parts(L)=[L].
+
+nocomment(L)=R,member('%',L)=>I=[J:J in 1..L.length,L[J]='%'],R=L[1..I[1]-1].
+nocomment(L)=L.
+
+allconst([P|Ps]),P.len>=5,P[1..5]=="const"=>allconst(Ps).
+allconst([_])=>true.
+allconst([])=>true.
+
 %parse ASP from list of lines
-asparse(A,R,T,ObjMin,ObjDir)=>
-B=[]
+asparse(A0,R,T,ObjMin,ObjDir)=>A=[L2:L in A0,L2 in constline_parts(L)],B=[]
 ,C=[]
 ,Terms=[]
 ,Dr=[]
