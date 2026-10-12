@@ -2249,12 +2249,34 @@ int b_PICAT_TABLE_MAP_LIST_cf(BPLONG map_num, BPLONG pairs) {
     return unify(lst, pairs);
 }
 
+int resetPlannerSubgoals(){
+  BPLONG i;
+  BPLONG_PTR subgoal_entry,ptr;
+  SYM_REC_PTR sym_ptr;
+
+  if (subgoalTable == NULL) return BP_TRUE;      
+  for (i = 0; i < subgoalTableBucketSize; i++){
+    subgoal_entry = (BPLONG_PTR)FOLLOW(subgoalTable+i);
+    while (subgoal_entry != NULL) {
+      sym_ptr = (SYM_REC_PTR)GT_SYM(subgoal_entry);
+      if (sym_ptr == plan_psc){
+        GT_TOP_AR(subgoal_entry) = (BPLONG)NULL;
+        GT_SCC_ROOT(subgoal_entry) = (BPLONG)subgoal_entry;
+        GT_SCC_ELMS(subgoal_entry) = (BPLONG)NULL;
+        SUBGOAL_START_NORMAL(subgoal_entry);
+      }
+      subgoal_entry = (BPLONG_PTR)GT_NEXT(subgoal_entry);
+    }    
+  }
+  return BP_TRUE;    
+}
+
 /* for debugging */
 /*
-  void myWriteTerm();
-  void myWriteList();
+void myWriteTerm();
+void myWriteList();
 
-  void printTable(){
+void printTable(){
   void printSubgoalTableEntry(BPLONG_PTR);
   
   BPLONG i,count,subgoal_count,total_ans_count,max_ans_count,zero_ans_count,total_ans_access_count,max_ans_access_count,total_its_count,max_its_count,scc_nodes_count;
@@ -2270,17 +2292,17 @@ int b_PICAT_TABLE_MAP_LIST_cf(BPLONG map_num, BPLONG pairs) {
   scc_nodes_count = 0;
   
   for (i=0;i<subgoalTableBucketSize;i++){
-  subgoal_entry = (BPLONG_PTR)FOLLOW(subgoalTable+i);
-  while (subgoal_entry != NULL) {
-  printSubgoalTableEntry(subgoal_entry);
-  subgoal_entry = (BPLONG_PTR)GT_NEXT(subgoal_entry);
+    subgoal_entry = (BPLONG_PTR)FOLLOW(subgoalTable+i);
+    while (subgoal_entry != NULL) {
+      printSubgoalTableEntry(subgoal_entry);
+      subgoal_entry = (BPLONG_PTR)GT_NEXT(subgoal_entry);
+    }
   }
-  }
-  }
+}
 
-  void printSubgoalTableEntry(ptr)
-  BPLONG_PTR ptr;
-  {
+void printSubgoalTableEntry(ptr)
+     BPLONG_PTR ptr;
+{
   BPLONG arity;
   BPLONG_PTR answer,answerTable;
   SYM_REC_PTR sym_ptr;
@@ -2297,72 +2319,72 @@ int b_PICAT_TABLE_MAP_LIST_cf(BPLONG map_num, BPLONG pairs) {
   answerTable = (BPLONG_PTR)GT_ANSWER_TABLE(ptr);
   if (answerTable==NULL) return;
   if ((BPLONG)answerTable & 0x1) {  
-  answer = (BPLONG_PTR)UNTAGGED_ADDR((BPLONG)answerTable);
-  fprintf(curr_out,"%x     (",answer);printAnswer(ANSWER_ARG_ADDR(answer),arity);
+    answer = (BPLONG_PTR)UNTAGGED_ADDR((BPLONG)answerTable);
+    fprintf(curr_out,"%x     (",answer);printAnswer(ANSWER_ARG_ADDR(answer),arity);
   } else {
-  answer = (BPLONG_PTR)ANSWERTABLE_FIRST(answerTable);
-  fprintf(curr_out,"OLD\n");
-  answer = (BPLONG_PTR)ANSWER_NEXT_IN_TABLE(answer);
-  while (answer!=NULL){
-  fprintf(curr_out,"%x     (",answer);printAnswer(ANSWER_ARG_ADDR(answer),arity);
-  answer = (BPLONG_PTR)ANSWER_NEXT_IN_TABLE(answer); 
-  }
-  }
-
+    answer = (BPLONG_PTR)ANSWERTABLE_FIRST(answerTable);
+    fprintf(curr_out,"OLD\n");
+    answer = (BPLONG_PTR)ANSWER_NEXT_IN_TABLE(answer);
+    while (answer!=NULL){
+      fprintf(curr_out,"%x     (",answer);printAnswer(ANSWER_ARG_ADDR(answer),arity);
+      answer = (BPLONG_PTR)ANSWER_NEXT_IN_TABLE(answer); 
+    }
   }
 
-  void printAnswer(ptr,arity)
-  BPLONG_PTR ptr;
-  BPLONG arity;
-  {
+}
+
+void printAnswer(ptr,arity)
+     BPLONG_PTR ptr;
+     BPLONG arity;
+{
   BPLONG i;
   BPLONG term;
 
   for (i=0; i<arity; i++){
-  term = FOLLOW(ptr+i);
-  myWriteTerm(term);
-  if (i!=arity-1) fprintf(curr_out,",");
+    term = FOLLOW(ptr+i);
+    myWriteTerm(term);
+    if (i!=arity-1) fprintf(curr_out,",");
   }
   fprintf(curr_out,"). ");
-  }
+}
 
-  void myWriteTerm(term)
-  BPLONG term;
-  {
+void myWriteTerm(term)
+     BPLONG term;
+{
   BPLONG_PTR top;
   DEREF(term);
 
   if (ISREF(term)) fprintf(curr_out,"_%x",term); 
   else if (TAG(term)==ATM) write_term(term);
   else if (TAG(term)==LST) {
-  if (IsNumberedVar(term)) fprintf(curr_out,"n%x ",term);
-  else {
-  fprintf(curr_out,"[");
-  myWriteList(term);
-  fprintf(curr_out,"]");
-  }
+    if (IsNumberedVar(term)) fprintf(curr_out,"n%x ",term);
+    else {
+      fprintf(curr_out,"[");
+      myWriteList(term);
+      fprintf(curr_out,"]");
+    }
   } else {
-  SYM_REC_PTR sym_ptr;
-  BPLONG arity,i;
-  UNTAG_ADDR(term);
-  sym_ptr = (SYM_REC_PTR)FOLLOW(term);
-  bp_write_pname(GET_NAME(sym_ptr));
-  if (GET_ARITY(sym_ptr)>0) {
-  fprintf(curr_out,"(");
-  arity = GET_ARITY(sym_ptr);
-  for (i=1;i<=arity;i++) {
-  myWriteTerm(*((BPLONG_PTR)term+i));
-  if (i<arity)
-  fprintf(curr_out,",");
+    SYM_REC_PTR sym_ptr;
+    BPLONG arity,i;
+    UNTAG_ADDR(term);
+    sym_ptr = (SYM_REC_PTR)FOLLOW(term);
+    bp_write_pname(GET_NAME(sym_ptr));
+    if (GET_ARITY(sym_ptr)>0) {
+      fprintf(curr_out,"(");
+      arity = GET_ARITY(sym_ptr);
+      for (i=1;i<=arity;i++) {
+        myWriteTerm(*((BPLONG_PTR)term+i));
+        if (i<arity)
+          fprintf(curr_out,",");
+      }
+      fprintf(curr_out,")");
+    }
   }
-  fprintf(curr_out,")");
-  }
-  }
-  }
+}
 
-  void myWriteList(term)
-  BPLONG term;
-  {
+void myWriteList(term)
+     BPLONG term;
+{
   BPLONG car,cdr;
   BPLONG_PTR top;
 
@@ -2371,8 +2393,8 @@ int b_PICAT_TABLE_MAP_LIST_cf(BPLONG map_num, BPLONG pairs) {
   cdr = FOLLOW((BPLONG_PTR)term+1);DEREF(cdr);
   myWriteTerm(car);
   if (ISLIST(cdr)){
-  fprintf(curr_out,",");
-  myWriteList(cdr);
+    fprintf(curr_out,",");
+    myWriteList(cdr);
   }
-  }
+}
 */

@@ -1312,6 +1312,7 @@ extern int b_PICAT_TABLE_MAP_KEYS_cf(BPLONG map_num, BPLONG keys);
 extern int b_PICAT_TABLE_MAP_VALS_cf(BPLONG map_num, BPLONG vals);
 extern int b_PICAT_TABLE_MAP_LIST_cf(BPLONG map_num, BPLONG pairs);
 extern BPLONG table_maps_buckets_size();
+extern int resetPlannerSubgoals();
 //[]
 //      toam.c prototypes
 //[]

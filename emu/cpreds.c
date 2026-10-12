@@ -1174,6 +1174,7 @@ void Cboot() {
     insert_cpred("c_call_espresso", 5, c_call_espresso);
     insert_cpred("c_call_espresso_pb", 6, c_call_espresso_pb);
 #endif
+    insert_cpred("c_RESET_PLANNER_SUBGOALS", 0, resetPlannerSubgoals);
 
 #ifdef SCIPSUITE
     Cboot_scip();

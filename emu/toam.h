@@ -810,16 +810,16 @@ extern BPLONG no_gcs;
     }
 
 #define RESET_TABLED_SUBGOAL_AR(f) {                                    \
-    if (IS_TABLE_FRAME(f)) {                                            \
-      BPLONG_PTR subgoal_entry = (BPLONG_PTR)GET_AR_SUBGOAL_TABLE(f);   \
-      if (subgoal_entry != NULL){                                       \
-        GT_TOP_AR(subgoal_entry) = (BPLONG)NULL;                        \
-        GT_SCC_ROOT(subgoal_entry) = (BPLONG)subgoal_entry;             \
-        GT_SCC_ELMS(subgoal_entry) = (BPLONG)NULL;                      \
-        SUBGOAL_START_NORMAL(subgoal_entry);                            \
-      }                                                                 \
-    }                                                                   \
-  }
+        if (IS_TABLE_FRAME(f)) {                                        \
+            BPLONG_PTR subgoal_entry = (BPLONG_PTR)GET_AR_SUBGOAL_TABLE(f); \
+            if (subgoal_entry != NULL && GT_TOP_AR(subgoal_entry) != SUBGOAL_COMPLETE) { \
+                GT_TOP_AR(subgoal_entry) = (BPLONG)NULL;                \
+                GT_SCC_ROOT(subgoal_entry) = (BPLONG)subgoal_entry;     \
+                GT_SCC_ELMS(subgoal_entry) = (BPLONG)NULL;              \
+                SUBGOAL_START_NORMAL(subgoal_entry);                    \
+            }                                                           \
+        }                                                               \
+    }
 
 /* create an answer table to store 'answer' and the new answer on the stack if it is not a variant of 'answer'. */
 #define CREATE_ANSWER_TABLE_ADD_ANSWER(stack_arg_ptr, answer, arity, subgoal_entry){ \

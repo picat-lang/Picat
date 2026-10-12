@@ -6662,6 +6662,7 @@ lab_throw_ball:
                     catch_all_flag = FOLLOW(btm_ptr);
                     except = FOLLOW(btm_ptr-3);
                     if ((catch_all_flag == BP_ONE || b == af) && is_UNIFIABLE(op1, except)) {  /* this catcher catches the exception */
+//                        resetPlanSubgoal();
                         FOLLOW(op2) = ADDTAG((BPULONG)stack_up_addr-(BPULONG)b, INT_TAG);
                         CONTCASE;
                     }
