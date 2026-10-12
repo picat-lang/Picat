@@ -318,7 +318,8 @@ come back in exactly Picat 3.9#12's own order (including the exact
 unchanged.  A bare cp `solve` inside `count_all` is counted natively, in
 parallel.  Programs run unchanged.
 
-Environment variables: `FDN=0` hook off (exactly Picat 3.9#12),
+Environment variables: `FDN` unset or `0` hook off (exactly Picat
+3.9#12, the default), `FDN=1` opt in to the native fd solver,
 `FDN_COUNT=0` no native `count_all`, `FDN_THREADS=n` threads per search,
 `FDN_VERBOSE=1` per-solve report on stderr, `FDN_SPAWN=n` pool after n nodes.
 

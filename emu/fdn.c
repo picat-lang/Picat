@@ -1547,7 +1547,7 @@ static void repoint(const char *name, const char *orig, const char *hook) {
 
 void fdn_init(void) {
     char path[4096]; const char *e = getenv("FDN");
-    if (e && !strcmp(e, "0")) return;
+    if (!(e && strcmp(e, "0"))) return;
     if ((e = getenv("FDN_HOOK"))) snprintf(path, sizeof path, "%s", e);
     else {
         ssize_t n = readlink("/proc/self/exe", path, sizeof path - 32);
