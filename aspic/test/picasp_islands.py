@@ -103,7 +103,7 @@ def island_solve(name, asp_lines, timeout=180):
                 "not aspic_isfdvariable(K),not aspic_isaggratom(K)]\n"
                 "++[X=X.showfd:X in [F:K in M.keys,aspic_isfdvariable(K),K=..L,"
                 "L2=L.removelast,F=..L2].remove_dups.sort]),\n"
-                "println(cost=ASPIC_OPT).\n")
+                "true.\n")
     prep = subprocess.run(
         [ASPIC, "-log", os.path.join(ASPIC_DIR, "aspic_prep.pi"), "pre", src, wd,
          os.path.join(wd, "final.pi"),
@@ -125,12 +125,13 @@ def island_solve(name, asp_lines, timeout=180):
         return None, None, bad.strip()[:90]
     sol = cost = None
     for line in text.splitlines():
+        mm2 = re.search(r"(maximization|optimization)\((-?\d+)\)", line)
+        if mm2:
+            cost = int(mm2.group(2))
+            continue
         mm = re.search(r"solution\s*=\s*\[(.*)\]", line)
         if mm:
             sol = split_atoms(mm.group(1))
-        mc = re.search(r"cost\s*=\s*(-?\d+)", line)
-        if mc:
-            cost = int(mc.group(1))
     if sol is None:
         return None, None, "no solution line"
     return sorted(a for a in sol if ATOM_RE.match(a)), cost, None

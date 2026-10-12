@@ -196,7 +196,7 @@ replacesetmini(T)=R,functor(T,$condlit,2)
 =>
 V=getsetvars(T).compactvars
 ,T2=replacevars(V,[X[1]:X in V],T),T2=..[_|L]
-,R="aspic_conj([ASPIC_CL3:" ++ join([X[1].to_string()++" in "++cond(X[2]=[],"universe()",showrange(X[2])):X in V],',')
+,R="aspic_conj([ASPIC_CL3:" ++ join([X[1].to_string()++" in "++cond(X[2]=[],institer(L[2],X[1]),showrange(X[2])):X in V],',')
 ++cond(V!=[],"","_ in 1..1")
 ++",ASPIC_CL1="++L[2].to_string()++",ASPIC_CL2#=ASPIC_CL1,ASPIC_CL4="++L[1].to_string()++",ASPIC_CL5#=ASPIC_CL4,ASPIC_CL3#=cond(ASPIC_CL2,ASPIC_CL5,1)])"
 .
