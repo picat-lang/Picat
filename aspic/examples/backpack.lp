@@ -5,5 +5,4 @@ item(3,2,14).
 capacity(5).
 {sel(I)}:-item(I,_,_).
 :-capacity(C),#sum{W:sel(I),item(I,W,_)}>C.
-%maximization using minimization
-#minimize{0-V:sel(I),item(I,_,V)}.
+#maximize{V,I:sel(I),item(I,_,V)}.

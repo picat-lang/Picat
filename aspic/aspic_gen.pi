@@ -55,14 +55,13 @@ end
 % seed is bumped lazily inside aspic_startlearning, once per run), so
 % surrounding aspic_holds injections and further islands share the same
 % seed-scoped maps. The completion (the support clauses) is DEFERRED: it
-% is generated as the zero-argument aspic_completion_N and registered;
-% aspic_solve_sub applies all registered completions against the final
-% universe, then closes the bracket and solves.
+% is generated as the zero-argument aspic_completion_1; aspic_solve_sub
+% turns learning off and calls it directly against the final universe,
+% then solves.
 ,genprintln("aspic_"++ID++"(ASPIC_OPT)=>ASPIC_SEARCH:="++Constr.to_string()++",")
 ,genprintln("aspic_startlearning(),")
 ,translate_rules(T,1) %facts, definite rules, equivalences
 ,translate_rules(T,11) %choice rules, after the atom-creating rules
-,genprintln("aspic_register_completion(aspic_completion_"++ID++"),")
 ,translate_rules(T,2) %integrity constraints
 ,ObjStr=cond(Mini==[],"0",Mini)
 ,genprintln("ASPIC_OPT#="++ObjStr++cond(Dir==max,",aspic_solve_dir(max)","")++",")
@@ -605,7 +604,7 @@ end
 end
 ,genprintln(",L2=aspic_disj(L)")
 ,HEADS2=join(reverse(HEADS),",")
-,genprintln(",if(not(L2==1),member(HH,["++HEADS2++"]),ASPIC_ATOM=HH) then")
+,genprintln(",if(not(L2==1)) then")
 ,genprintln("aspic_holds(aspic_impl(H.get(ASPIC_ATOM),aspic_disj(L))),")
 %,genprintln("d({atom=ASPIC_ATOM,l=L,l2=L2}),")
 ,genprintln("end")

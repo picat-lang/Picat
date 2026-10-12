@@ -53,17 +53,16 @@ M=get_heap_map(aspic_m(aspic_learning)),M.put(now,1),aspic_debug(started_learnin
 aspic_stoplearning()=>S=get_heap_map(aspic_state),S.put(open,0),
 M=get_heap_map(aspic_m(aspic_learning)),M.put(now,0),M.del(universe),aspic_debug(stopped_learning).
 
-% aspic_register_completion(T): the generated block predicates defer their
-% completion (the support clauses) to solve time: each block registers its
-% zero-argument aspic_completion_N predicate here, and aspic_solve_sub
-% applies all of them against the FINAL universe (all the atoms created by
-% every block plus everything injected with aspic_holds) before solving.
-% The set is keyed by the predicate term, so a re-registration is a no-op;
-% aspic_run_completions clears it after applying, so a repeated solve does
-% not duplicate the support constraints.
-aspic_register_completion(T)=>M=get_heap_map(aspic_completions),M.put(T,1).
-aspic_run_completions()=>M=get_heap_map(aspic_completions),
-foreach(T in M.keys()) aspic_debug(cc=T),call(T),aspic_debug(cc_done=T) end,M.clear().
+% The islands' completions (the support clauses) are generated as the ONE
+% zero-argument aspic_completion_1 (all islands' texts joined into a
+% single island); aspic_solve_sub turns learning off and calls it directly
+% against the FINAL universe (all the atoms created by the island plus
+% everything injected with aspic_holds) before solving - there is no
+% completion registration mechanism.
+
+% the joined island runs at the FIRST asp block's position (the prep
+% replaces that block with aspic_startlearning(), aspic_1(ASPIC_OPT)),
+% so no solve-time island registration or application is needed
 aspic_islearning()=>M=get_heap_map(aspic_m(aspic_learning)),Y=M.get(now,0),Y==1.
 
 
@@ -301,15 +300,18 @@ aspic_solve(sat,Mini)=>aspic_solve_gen(Mini,min).
 
 %used when embedding ASP islands in Picat; the optimization direction
 %(min or max) is read from the map written by aspic_solve_dir (default min).
-%The learning bracket is still open here (the block predicates leave it
-%open): it is closed FIRST, so the deferred completions run with learning
-%off exactly as they did when they were inline (aspic_var returns 0 for
-%atoms not in the map - creating fd variables here would change the
-%support evaluation), then the solve runs.
-aspic_solve_sub(Mini)=>
-D=get_heap_map(aspic_m(aspic_solvedir)).get(now,min)
+%The first asp block is replaced by aspic_startlearning() - the learning
+%bracket opens at that position and stays open while the surrounding
+%Picat code injects facts with aspic_holds. aspic_solve_sub is the first
+%and only place the asp text is considered: it runs the joined island
+%aspic_1(ASPIC_OPT) (its rules create the atoms over the accumulated
+%universe), turns learning off, calls the one aspic_completion_1 directly
+%against the final universe, and solves.
+aspic_solve_sub=>
+aspic_1(ASPIC_OPT)
+,D=get_heap_map(aspic_m(aspic_solvedir)).get(now,min)
 ,aspic_stoplearning()
-,aspic_run_completions()
+,aspic_completion_1()
 ,M=get_heap_map(aspic_m(aspic_atoms))
 ,MV=M.values()++get_heap_map(aspic_m(aspic_aggrvars)).values()
 ,aspic_debug("starting to solve")
@@ -321,15 +323,13 @@ aspic_debug(universe_size=universe().len)
 %,d(cpvars=M.keys.sort.map(show))
 ,aspic_debug(cpvars=MV.len)
 ,aspic_debug(cprules=get_heap_map(aspic_m(aspic_learning)).get(clauses,0))
-,if Mini==0 then solve([rand],MV)
+,if ASPIC_OPT==0 then solve([rand],MV)
 %,aspic_debug(solution=[K.show:K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K)]
 %++[X=X.showfd:X in [F:K in M.keys,aspic_isfdvariable(K),K=..L,L2=L.removelast,F=..L2].remove_dups.sort])
-elseif D==max then solve([$max(Mini),rand],[Mini|MV])
-%,aspic_debug(solution=[$maximization(Mini)|[K.show:K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K)]
-%++[X=X.showfd:X in [F:K in M.keys,aspic_isfdvariable(K),K=..L,L2=L.removelast,F=..L2].remove_dups.sort]])
-else solve([$min(Mini),rand],[Mini|MV])
-%,aspic_debug(solution=[$optimization(Mini)|[K.show:K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K)]
-%++[X=X.showfd:X in [F:K in M.keys,aspic_isfdvariable(K),K=..L,L2=L.removelast,F=..L2].remove_dups.sort]])
+elseif D==max then solve([$max(ASPIC_OPT),rand],[ASPIC_OPT|MV])
+,aspic_debug(solution=[$maximization(ASPIC_OPT)])
+else solve([$min(ASPIC_OPT),rand],[ASPIC_OPT|MV])
+,aspic_debug(solution=[$optimization(ASPIC_OPT)])
 end
 % ,d([K.show:K in M.keys.sort,V=M.get(K),V=0])
 %,d(s=S)

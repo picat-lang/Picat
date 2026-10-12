@@ -5,7 +5,7 @@ p(1).
 q :- p(1).
 s :- q, p(2).
 end,
-aspic_solve_sub(ASPIC_OPT_1),
+aspic_solve_sub,
 println(s=aspic_var($s)),
 println(p2=aspic_var($p(2))),
 println(q=aspic_var($q)),fail;true.

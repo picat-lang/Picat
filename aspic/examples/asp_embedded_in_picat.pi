@@ -7,6 +7,6 @@ main=>println("testing ASP embedded in Picat!"),asp
 {a(X):X=1..n}=1.
 end,
 Y=a(3),Y#=0, % a constraint enforced in Picat
-aspic_solve_sub(ASPIC_OPT_1),
+aspic_solve_sub,
 println([a(X):X in 1.. DIM]),fail;true.
 

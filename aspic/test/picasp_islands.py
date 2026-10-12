@@ -7,10 +7,10 @@ equal to clingo's optimum) is embedded as an "asp ... end" island in a
 Picat driver and solved through the picasp pure-Picat flow:
 
   1. aspic_prep.pi ("pre") transpiles the driver: the island's content
-     becomes the predicate aspic_1(ASPIC_OPT_1) (the rules, the
+     becomes the predicate aspic_1(ASPIC_OPT) (the rules, the
      completion and the objective), and aspic_runtime.pi is generated
      from the template into the same directory.
-  2. The driver calls aspic_solve_sub(ASPIC_OPT_1) (the island's
+  2. The driver calls aspic_solve_sub (the island's
      optimization direction comes from the #maximize of the block) and
      prints the island's model and cost.
 
@@ -95,7 +95,7 @@ def island_solve(name, asp_lines, timeout=180):
                 "main=>\n"
                 "asp\n" + "\n".join(asp_lines) + "\nend\n"
                 ",\n"
-                "aspic_solve_sub(ASPIC_OPT_1),\n"
+                "aspic_solve_sub,\n"
                 "M=get_heap_map(aspic_m(aspic_atoms)),\n"
                 "println(solution=[aspic_showaggr(K):K in M.keys.sort,V=M.get(K),V==1,"
                 "not aspic_isfdvariable(K),aspic_isaggratom(K)]\n"
@@ -103,7 +103,7 @@ def island_solve(name, asp_lines, timeout=180):
                 "not aspic_isfdvariable(K),not aspic_isaggratom(K)]\n"
                 "++[X=X.showfd:X in [F:K in M.keys,aspic_isfdvariable(K),K=..L,"
                 "L2=L.removelast,F=..L2].remove_dups.sort]),\n"
-                "println(cost=ASPIC_OPT_1).\n")
+                "println(cost=ASPIC_OPT).\n")
     prep = subprocess.run(
         [ASPIC, "-log", os.path.join(ASPIC_DIR, "aspic_prep.pi"), "pre", src, wd,
          os.path.join(wd, "final.pi"),

@@ -54,20 +54,31 @@ main(["pre",Src,LibDir,Out]) =>
   S=L1.join("\n"),
   blocks(S,[S1,Bl]),
   N=Bl.len,
-  Snips=[Sp: B in Bl,
+  % ALL the islands contribute to ONE asp text: their contents are JOINED
+  % and transpiled as a SINGLE island (the one predicate aspic_1). The
+  % FIRST block in source order is replaced by aspic_startlearning() - the
+  % learning bracket opens at that position and stays open while the
+  % surrounding Picat code injects facts with aspic_holds; every other
+  % block is replaced by true. aspic_solve_sub runs the joined island
+  % aspic_1(ASPIC_OPT) at solve time. The blocks may sit at different
+  % positions in the enclosing computation; the join makes the position
+  % irrelevant, which is semantically safe because rule order does not
+  % matter in ASP.
+  Joined=[Ln: B in Bl,
   Ct=content_of(S,B[1],B[2]),
-  Ct2=Ct.split("\n"),
-  Sp=aspic_gen(B[3].to_string(),C0,Ct2)],
-  L2=S1.split("\n"),
+  Ln in Ct.split("\n")],
+  Snip=aspic_gen("1",C0,Joined),
+  ar0(S,[[B[1],B[2],B[3]] : B in Bl],S1a),
+  L2=S1a.split("\n"),
   P=inspos(L2,C0),
-  Insl=inslines(C0,Snips,L2),
+  Insl=inslines(C0,[Snip],L2),
   OutL=take(L2,P)++Insl++drop(L2,P),
   writetext(Out,OutL.join("\n")),
   T0=read_file_lines(Tmpl),
   T0s=T0.join("\n"),
   sub1(T0s,"ASPIC_CONSTRAINTS_LIB",C0,T1),
   writetext(LibDir++"/aspic_runtime.pi",T1),
-  N2=cond(N==1," ASP block"," ASP blocks"),
+  N2=cond(N==1," ASP block"," ASP blocks (joined into one)"),
   O2="aspic_prep: "++N.to_string()++N2++" on "++C0++" -> "++Out,
   println(O2)
   .
@@ -227,13 +238,20 @@ numbl(Pr,Bl) =>
 numbl0([],K,Acc,Bl)=>Bl=Acc.
 numbl0([P|T],K,Acc,Bl)=>numbl0(T,K+1,[[P[1],P[2],K]|Acc],Bl).
 
-repltext(K)=S=>
-  S="aspic_"++K.to_string()++"(ASPIC_OPT_"++K.to_string()++")".
+repltext(1)=S=>S="aspic_startlearning()".
+repltext(_K)=S=>S="true".
+  % the first asp block (block 1) is replaced by the learning-bracket opener
+  % plus the joined-island call, so the island runs at that position with
+  % learning on; the remaining blocks are replaced by true, nothing more
 
 ar0(C,[],R)=>R=C.
 ar0(C,[P|T],R)=>
-  ar0(C,T,R2),
-  R=take(R2,P[1]-1)++repltext(P[3])++drop(R2,P[2])
+  % the head block is replaced FIRST: its offsets are valid on C, and the
+  % remaining (earlier-source) blocks' offsets are unaffected by a
+  % replacement that lies entirely after them - replacing the tail first
+  % would shift the head block's offsets and lose the string's tail
+  R2=take(C,P[1]-1)++repltext(P[3])++drop(C,P[2]),
+  ar0(R2,T,R)
   .
 
 % The extracted content starts AFTER the marker line's trailing blanks
@@ -323,7 +341,9 @@ isimport(L,C) =>
 inslines(Constr,Snips,Ls)=R=>
   Has=[1:X in Ls,isimport(X,Constr)],
   Ifs=cond(Has=[],["import "++Constr++"."],[]),
-  R=Ifs++[L: Sp in Snips, L in Sp.split("\n")]
+  Has2=[1:X in Ls,isimport(X,"aspic_runtime")],
+  Ifs2=cond(Has2=[],["import aspic_runtime."],[]),
+  R=Ifs++Ifs2++[L: Sp in Snips, L in Sp.split("\n")]
   .
 
 lastimp([],I,Acc,P)=>P=Acc.

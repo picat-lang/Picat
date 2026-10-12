@@ -319,13 +319,13 @@ for f in test/cases/run_*.pi; do
     ( cd "$TMP/embcase" && picat -log -s 1234567890 out.pi >run_out.txt 2>&1 )
     case "$name" in
     run_emb_maximize.pi)
-        if grep -q '^10$' "$TMP/embcase/run_out.txt"; then
+        if grep -q 'maximization(10)' "$TMP/embcase/run_out.txt"; then
             ok
         else
             bad "$name: expected the maximized objective 10 on stdout, got: $(tail -1 "$TMP/embcase/run_out.txt")"
         fi ;;
     run_emb_weak.pi)
-        if grep -q '^1$' "$TMP/embcase/run_out.txt"; then
+        if grep -q 'optimization(1)' "$TMP/embcase/run_out.txt"; then
             ok
         else
             bad "$name: expected the soft weighted optimum 1 on stdout, got: $(tail -1 "$TMP/embcase/run_out.txt")"
