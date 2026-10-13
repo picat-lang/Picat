@@ -132,36 +132,425 @@ int table_area_num_expansions() {
     return ta_record_ptr->num_expansions;
 }
 
+/******************************************************************************
+ * Keeping in-use ground terms alive when the table area is reset
+ *
+ * Ground terms in the table area are hash-consed (registered in
+ * ta_gterms_htable) and shared, not copied, when answers or table-map values
+ * are brought back to the heap (see unnumberVarTabledTerm). Therefore, heap
+ * cells, stack frame slots and value-trail entries may point directly to
+ * ground terms in the table area. When the table is initialized, such ground
+ * terms (with all of their subterms) are copied into a NEW table area before
+ * the old one is freed, and every reference to them is redirected to the
+ * copies. Because the copies live in the table area, not on the heap,
+ * backtracking cannot reclaim them, and nothing else needs to be adjusted.
+ * The copies are registered in the (reset) hash-consing table, so they remain
+ * ordinary hash-consed ground terms of the new table area.
+ *
+ *  1. Collect: scan the heap, the stack and the value trail. A cell is a root
+ *     if its value is exactly a term registered in ta_gterms_htable (this
+ *     exact-match test makes it safe to scan the areas linearly, as done in
+ *     "expand_bp.c"). All roots and their subterms in the table area are
+ *     recorded in a forwarding map. No recursion is used, so deep or long
+ *     terms are fine. Nothing is modified in this pass.
+ *
+ *  2. Copy: start a new chain of table blocks, lay out one copy per recorded
+ *     term (with the same two header cells, so the stored hash code and
+ *     ground flag are kept), and copy the cells while translating pointers
+ *     to old terms through the forwarding map (sharing is preserved, so DAGs
+ *     do not blow up). The old area is still intact; if memory runs out,
+ *     the new blocks are freed and the table is left as it was.
+ *
+ *  3. After the old area has been released and the hash-consing table has
+ *     been cleared, register the copies and redirect all roots to them. The
+ *     redirections are not trailed, since the old values would be dangling.
+ ******************************************************************************/
+typedef struct {
+    BPLONG key;  /* a tagged term in the old table area (LST or STR); 0 means empty */
+    BPLONG val;  /* its tagged copy in the new table area; 0 until it is copied */
+} TA_FWD_ENTRY;
+
+static TA_FWD_ENTRY *ta_fwd_tab = NULL;
+static BPULONG ta_fwd_cap = 0;  /* a power of 2 */
+static BPULONG ta_fwd_count = 0;
+
+static BPLONG *ta_work = NULL;  /* worklist of table terms whose subterms are to be visited */
+static BPULONG ta_work_cap = 0;
+static BPULONG ta_work_count = 0;
+
+static BPULONG ta_fwd_hash(BPLONG key) {
+    BPULONG h = ((BPULONG)key) >> 2;
+    h ^= h >> 16;
+    h *= 0x45d9f3bUL;
+    h ^= h >> 16;
+    return h;
+}
+
+static void ta_rescue_free() {
+    if (ta_fwd_tab != NULL) free(ta_fwd_tab);
+    if (ta_work != NULL) free(ta_work);
+    ta_fwd_tab = NULL; ta_fwd_cap = ta_fwd_count = 0;
+    ta_work = NULL; ta_work_cap = ta_work_count = 0;
+}
+
+static int ta_fwd_alloc(BPULONG cap) {
+    ta_fwd_tab = (TA_FWD_ENTRY *)calloc(cap, sizeof(TA_FWD_ENTRY));
+    if (ta_fwd_tab == NULL) return 0;
+    ta_fwd_cap = cap;
+    ta_fwd_count = 0;
+    return 1;
+}
+
+static TA_FWD_ENTRY *ta_fwd_lookup(BPLONG key) {
+    BPULONG i, mask;
+
+    if (ta_fwd_count == 0) return NULL;
+    mask = ta_fwd_cap-1;
+    i = ta_fwd_hash(key) & mask;
+    while (ta_fwd_tab[i].key != 0) {
+        if (ta_fwd_tab[i].key == key) return &ta_fwd_tab[i];
+        i = (i+1) & mask;
+    }
+    return NULL;
+}
+
+/* insert key without checking the load factor; key must not be in the table */
+static void ta_fwd_put(BPLONG key) {
+    BPULONG i, mask;
+
+    mask = ta_fwd_cap-1;
+    i = ta_fwd_hash(key) & mask;
+    while (ta_fwd_tab[i].key != 0) i = (i+1) & mask;
+    ta_fwd_tab[i].key = key;
+    ta_fwd_tab[i].val = 0;
+    ta_fwd_count++;
+}
+
+/* Return 1 if key was newly inserted, 0 if it was already present, -1 if out of memory. */
+static int ta_fwd_insert(BPLONG key) {
+    if (ta_fwd_lookup(key) != NULL) return 0;
+    if (2*(ta_fwd_count+1) > ta_fwd_cap) {  /* keep the load factor <= 1/2 */
+        TA_FWD_ENTRY *old_tab = ta_fwd_tab;
+        BPULONG i, old_cap = ta_fwd_cap;
+        if (!ta_fwd_alloc(2*old_cap)) {
+            ta_fwd_tab = old_tab; ta_fwd_cap = old_cap;
+            return -1;
+        }
+        for (i = 0; i < old_cap; i++) {
+            if (old_tab[i].key != 0) ta_fwd_put(old_tab[i].key);
+        }
+        free(old_tab);
+    }
+    ta_fwd_put(key);
+    return 1;
+}
+
+static int ta_work_push(BPLONG term) {
+    if (ta_work_count == ta_work_cap) {
+        BPULONG new_cap = (ta_work_cap == 0) ? 1024 : 2*ta_work_cap;
+        BPLONG *new_work = (BPLONG *)realloc(ta_work, new_cap*sizeof(BPLONG));
+        if (new_work == NULL) return 0;
+        ta_work = new_work;
+        ta_work_cap = new_cap;
+    }
+    ta_work[ta_work_count++] = term;
+    return 1;
+}
+
+/* A pointer to a compound term that does not reside in the stack or the heap. */
+#define TA_IS_NONLOCAL_COMPOUND(v) ((ISLIST(v) || ISSTRUCT(v)) && !IS_STACK_OR_HEAP_REFERENCE(UNTAGGED_ADDR(v)))
+
+/* the number of cells occupied by a compound term (not counting the two header cells) */
+#define TA_COMPOUND_SIZE(v) (ISLIST(v) ? 2 : GET_ARITY((SYM_REC_PTR)FOLLOW(UNTAGGED_ADDR(v)))+1)
+
 /**
- * Reset table storage for a new computation.
+ * Test whether v is exactly a ground term registered in the table area's
+ * hash-consing table. The hash code stored in the header cell (ptr-2) gives
+ * the bucket, and the bucket chain (linked through ptr-1) is searched for v.
+ */
+static int is_registered_table_gterm(BPLONG v) {
+    BPLONG_PTR ptr;
+    BPLONG hcode, term_in_table;
+    GTERMS_HTABLE_PTR gterms_htable_ptr = ta_gterms_htable_ptr;
+
+    if (!TA_IS_NONLOCAL_COMPOUND(v)) return 0;
+    ptr = (BPLONG_PTR)UNTAGGED_ADDR(v);
+    hcode = FOLLOW(ptr-2);
+    if ((hcode & TOP_BIT) == 0) return 0;  /* not marked as ground */
+    hcode &= HASH_BITS;
+    term_in_table = FOLLOW(gterms_htable_ptr->htable + hcode%gterms_htable_ptr->size);
+    while (term_in_table != (BPLONG)NULL) {
+        if (term_in_table == v) return 1;
+        term_in_table = FOLLOW((BPLONG_PTR)UNTAGGED_ADDR(term_in_table)-1);
+    }
+    return 0;
+}
+
+/**
+ * Record a root and all of its subterms in the table area in the forwarding
+ * map. Return BP_TRUE, or BP_ERROR if out of memory.
+ */
+static int ta_collect_root(BPLONG v) {
+    BPLONG term, cell;
+    BPLONG_PTR ptr;
+    BPLONG i, n;
+    int res;
+
+    if (!TA_IS_NONLOCAL_COMPOUND(v)) return BP_TRUE;
+    if (ta_fwd_lookup(v) != NULL) return BP_TRUE;  /* collected already */
+    if (!is_registered_table_gterm(v)) return BP_TRUE;
+
+    if (ta_fwd_insert(v) < 0 || !ta_work_push(v)) return BP_ERROR;
+    while (ta_work_count > 0) {
+        term = ta_work[--ta_work_count];
+        ptr = (BPLONG_PTR)UNTAGGED_ADDR(term);
+        n = TA_COMPOUND_SIZE(term);
+        for (i = (ISLIST(term) ? 0 : 1); i < n; i++) {
+            cell = FOLLOW(ptr+i);
+            if (TA_IS_NONLOCAL_COMPOUND(cell)) {  /* a subterm in the table area */
+                res = ta_fwd_insert(cell);
+                if (res < 0) return BP_ERROR;
+                if (res == 1 && !ta_work_push(cell)) return BP_ERROR;
+            }
+        }
+    }
+    return BP_TRUE;
+}
+
+/**
+ * The lower bound (exclusive) of the stack area to scan. A C predicate is
+ * called with LOCAL_TOP set 256 cells below its frame (see C_PRED in
+ * "emu_inst.h"); that gap is unused, so it is not scanned.
+ */
+static BPLONG_PTR ta_stack_scan_low() {
+    BPLONG_PTR low = arreg-FLAT_FRAME_SIZE;
+
+    if (arreg != NULL && arreg <= stack_up_addr && low > local_top &&
+        IS_FLAT_FRAME(arreg) && (BPLONG_PTR)AR_TOP(arreg) == local_top) {
+        return low;
+    }
+    return local_top;
+}
+
+/**
+ * Pass 1: collect the ground terms in the table area that are referenced from
+ * the heap, the stack, or the value trail.
+ */
+static int ta_collect_referenced_gterms() {
+    BPLONG_PTR ptr, curr_t, stack_low;
+
+    for (ptr = stack_low_addr; ptr < heap_top; ptr++) {
+        if (ta_collect_root(FOLLOW(ptr)) == BP_ERROR) return BP_ERROR;
+    }
+    stack_low = ta_stack_scan_low();
+    for (ptr = stack_up_addr; ptr > stack_low; ptr--) {
+        if (ta_collect_root(FOLLOW(ptr)) == BP_ERROR) return BP_ERROR;
+    }
+    for (curr_t = trail_top+1; curr_t < trail_up_addr; curr_t += 2) {
+        if (TAG(FOLLOW(curr_t)) == TRAIL_VAL_NONATOMIC) {
+            if (ta_collect_root(FOLLOW(curr_t+1)) == BP_ERROR) return BP_ERROR;
+        }
+    }
+    return BP_TRUE;
+}
+
+/* Redirect *cell if it holds a recorded (old) table term. */
+static void ta_redirect_cell(BPLONG_PTR cell) {
+    BPLONG v = FOLLOW(cell);
+    TA_FWD_ENTRY *entry;
+
+    if ((ISLIST(v) || ISSTRUCT(v)) && (entry = ta_fwd_lookup(v)) != NULL) {
+        FOLLOW(cell) = entry->val;
+    }
+}
+
+static BPLONG ta_forward(BPLONG v) {
+    TA_FWD_ENTRY *entry;
+
+    if ((ISLIST(v) || ISSTRUCT(v)) && (entry = ta_fwd_lookup(v)) != NULL) {
+        return entry->val;
+    }
+    return v;
+}
+
+/* Free a chain of numbered-term blocks (linked through the first cell of each block). */
+static void ta_free_block_chain(BPLONG_PTR low_addr) {
+    BPLONG_PTR next;
+
+    while (low_addr != NULL) {
+        next = (BPLONG_PTR)FOLLOW(low_addr);
+        free(low_addr);
+        low_addr = next;
+    }
+}
+
+/**
+ * Pass 2: start a new table area and copy the collected terms into it. The old
+ * area is saved in *old_rec_ptr and is not modified. Return BP_TRUE, or
+ * BP_ERROR if out of memory, in which case the new blocks are freed and the
+ * old area is restored.
+ */
+static int ta_copy_to_new_area(NUMBERED_TERM_AREA_RECORD_PTR old_rec_ptr) {
+    BPLONG_PTR src, des;
+    BPULONG i;
+    BPLONG j, n, key;
+    int success;
+
+    *old_rec_ptr = *ta_record_ptr;
+    ta_record_ptr->low_addr = NULL;
+    ADD_NEW_NUMBERED_TERM_AREA_BLOCK(ta_record_ptr, NUMBERED_TERM_BLOCK_SIZE, success);
+    if (!success) goto out_of_memory;
+    ta_record_ptr->num_expansions = 0;
+
+    /* lay out the copies, each preceded by the two header cells */
+    for (i = 0; i < ta_fwd_cap; i++) {
+        key = ta_fwd_tab[i].key;
+        if (key == 0) continue;
+        n = TA_COMPOUND_SIZE(key);
+        ALLOCATE_FROM_NUMBERED_TERM_AREA(ta_record_ptr, des, n+2);
+        if (des == NULL) goto out_of_memory;
+        des += 2;
+        FOLLOW(des-2) = FOLLOW((BPLONG_PTR)UNTAGGED_ADDR(key)-2);  /* ground flag and hash code */
+        FOLLOW(des-1) = (BPLONG)NULL;  /* hash chain, set when registered */
+        ta_fwd_tab[i].val = ADDTAG(des, (ISLIST(key) ? LST : STR));
+    }
+
+    /* fill in the copies, translating pointers to old table terms */
+    for (i = 0; i < ta_fwd_cap; i++) {
+        key = ta_fwd_tab[i].key;
+        if (key == 0) continue;
+        src = (BPLONG_PTR)UNTAGGED_ADDR(key);
+        des = (BPLONG_PTR)UNTAGGED_ADDR(ta_fwd_tab[i].val);
+        n = TA_COMPOUND_SIZE(key);
+        j = 0;
+        if (ISSTRUCT(key)) {
+            FOLLOW(des) = FOLLOW(src);  /* functor */
+            j = 1;
+        }
+        for (; j < n; j++) {
+            FOLLOW(des+j) = ta_forward(FOLLOW(src+j));
+        }
+    }
+    return BP_TRUE;
+
+out_of_memory:
+    ta_free_block_chain(ta_record_ptr->low_addr);
+    *ta_record_ptr = *old_rec_ptr;
+    return BP_ERROR;
+}
+
+/**
+ * Pass 3: register the copies in the (cleared) hash-consing table, and
+ * redirect the references in the heap, the stack and the value trail.
+ */
+static void ta_register_copies_and_redirect() {
+    BPLONG_PTR ptr, curr_t, stack_low, des;
+    BPLONG term, hcode;
+    BPULONG i;
+
+    for (i = 0; i < ta_fwd_cap; i++) {
+        if (ta_fwd_tab[i].key == 0) continue;
+        term = ta_fwd_tab[i].val;
+        des = (BPLONG_PTR)UNTAGGED_ADDR(term);
+        hcode = FOLLOW(des-2);
+        if (hcode & TOP_BIT) {
+            /* The old table had no duplicates, so this normally returns term itself. */
+            ta_fwd_tab[i].val = register_gterms_htable(ta_gterms_htable_ptr, term, hcode & HASH_BITS);
+        }
+    }
+
+    for (ptr = stack_low_addr; ptr < heap_top; ptr++) {
+        ta_redirect_cell(ptr);
+    }
+    stack_low = ta_stack_scan_low();
+    for (ptr = stack_up_addr; ptr > stack_low; ptr--) {
+        ta_redirect_cell(ptr);
+    }
+    for (curr_t = trail_top+1; curr_t < trail_up_addr; curr_t += 2) {
+        if (TAG(FOLLOW(curr_t)) == TRAIL_VAL_NONATOMIC) {
+            ta_redirect_cell(curr_t+1);
+        }
+    }
+}
+
+/**
+ * Reset table storage for a new computation. Ground terms in the table area
+ * that are still referenced from the heap, the stack or the trail are copied
+ * into the new table area first (see the comment above).
  */
 int c_INITIALIZE_TABLE() {
     BPLONG_PTR low_addr, prev_low_addr;
-    void init_picat_table_maps();
+    NUMBERED_TERM_AREA_RECORD old_rec;
+    int new_area = 0;
+    void release_picat_table_maps();
 
     bp_exception = (BPLONG)NULL;
     in_critical_region = 0;
 
 #ifdef NOTABLE
 #else
-    init_subgoal_table();
-    /* release the table blocks except the first one */
-    low_addr = ta_record_ptr->low_addr;
-    prev_low_addr = (BPLONG_PTR)FOLLOW(low_addr);
-    while (prev_low_addr != NULL) {
-        free(low_addr);
-        low_addr = prev_low_addr;
-        prev_low_addr = (BPLONG_PTR)FOLLOW(low_addr);
+    /* Find the ground terms still in use, and copy them into a new table
+       area. This must be done while the old table area is still intact. */
+    if (ta_record_ptr != NULL && ta_gterms_htable_ptr->count != 0) {
+        if (!ta_fwd_alloc(1024) || ta_collect_referenced_gterms() == BP_ERROR) {
+            ta_rescue_free();
+            bp_exception = et_OUT_OF_MEMORY;
+            return BP_ERROR;  /* the table is left intact */
+        }
+        if (ta_fwd_count > 0) {
+            if (ta_copy_to_new_area(&old_rec) == BP_ERROR) {
+                ta_rescue_free();
+                bp_exception = et_OUT_OF_MEMORY;
+                return BP_ERROR;  /* the table is left intact */
+            }
+            new_area = 1;
+        }
     }
-    ta_record_ptr->low_addr = low_addr;
-    ta_record_ptr->top = ta_record_ptr->low_addr+1;
-    ta_record_ptr->up_addr = ta_record_ptr->low_addr+NUMBERED_TERM_BLOCK_SIZE;
-    ta_record_ptr->num_expansions = 0;
 
-    init_gterms_htable(ta_gterms_htable_ptr);
+    /* Free the malloc'ed answer tables and their bucket arrays. */
+    init_subgoal_table();
+
+    /* Free the malloc'ed bucket arrays of the table maps. This must be done
+       before the table blocks are released, because the MAP_RECORDs that
+       point to the bucket arrays live in the table area. */
+    release_picat_table_maps();
+
+    if (new_area) {
+        /* release all the blocks of the old area; the new area holds the copies */
+        ta_free_block_chain(old_rec.low_addr);
+    } else {
+        /* release the table blocks except the first one */
+        low_addr = ta_record_ptr->low_addr;
+        if (low_addr != NULL) {
+            prev_low_addr = (BPLONG_PTR)FOLLOW(low_addr);
+            while (prev_low_addr != NULL) {
+                free(low_addr);
+                low_addr = prev_low_addr;
+                prev_low_addr = (BPLONG_PTR)FOLLOW(low_addr);
+            }
+            ta_record_ptr->low_addr = low_addr;
+            ta_record_ptr->top = ta_record_ptr->low_addr+1;
+            ta_record_ptr->up_addr = ta_record_ptr->low_addr+NUMBERED_TERM_BLOCK_SIZE;
+        }
+        ta_record_ptr->num_expansions = 0;
+    }
+
+    /* Shrink the ground-term hash table back to its initial size if it was
+       expanded, so that a large table from a previous run is not retained. */
+    if (ta_gterms_htable_ptr->size > 7919) {
+        free(ta_gterms_htable_ptr->htable);
+        ta_gterms_htable_ptr->htable = NULL;
+        allocate_gterms_htable(ta_gterms_htable_ptr, 7919);   /* also clears it */
+    } else {
+        init_gterms_htable(ta_gterms_htable_ptr);
+    }
     table_free_cells_ptr = NULL;
 
-    init_picat_table_maps();
+    if (new_area) {
+        ta_register_copies_and_redirect();
+    }
+    ta_rescue_free();
+
     subgoalTableEntriesCount = 0;
 #endif
     return BP_TRUE;
@@ -1872,6 +2261,26 @@ void init_picat_table_maps() {
 
     for (i = 0; i < NUM_PICAT_TABLE_MAPS; i++) {
         picat_table_maps[i] = NULL;
+    }
+}
+
+/**
+ * Free the malloc'ed bucket array of every registered table map and clear
+ * the registry. The MAP_RECORDs themselves are in the table area and are
+ * reclaimed together with the table blocks.
+ */
+void release_picat_table_maps() {
+    BPLONG i;
+    MAP_RECORD_PTR map_ptr;
+
+    for (i = 0; i < NUM_PICAT_TABLE_MAPS; i++) {
+        map_ptr = (MAP_RECORD_PTR)picat_table_maps[i];
+        if (map_ptr != NULL && map_ptr->htable != NULL) {
+            free(map_ptr->htable);
+            map_ptr->htable = NULL;
+        }
+        picat_table_maps[i] = NULL;
+        picat_table_map_ids[i] = 0;
     }
 }
 
