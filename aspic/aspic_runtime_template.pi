@@ -89,6 +89,15 @@ end
 %,d(vals=M)
 .
 
+% register a ground fact atom in the atoms map with the constant value 1
+% (no fd variable): the atom stays in the universe (the choice-rule
+% enumeration sets and the objective sums iterate it) and in
+% aspic_instances (the completion's instance-based enumerations), while
+% the fact functions provide its truth value - emitted for the fact
+% assertions of fact-only predicates in place of aspic_holds, which would
+% evaluate the fact function to 1 and assert nothing
+aspic_markfact(A) => M=get_heap_map(aspic_m(aspic_atoms)), M.put(A,1).
+
 removelast(L)=L.reverse.tail.reverse.
 
 show(X)=X.

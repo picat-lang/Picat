@@ -24,6 +24,7 @@ genbuf_init()
 ,asparse(Lines,R,T,Mini,Dir)
 ,(R=[] -> true; println(stderr,"aspic_gen: ASP syntax error in the asp block: "++R.to_string()), abort)
 ,collectpredfunctors(T)
+,collectheadall(T)
 ,genprintln("var(X,_)=X.\nrange(_,_)=0.")
 ,H=get_heap_map(asp_atoms)
 ,Native=get_heap_map(native_atoms)
@@ -31,12 +32,27 @@ genbuf_init()
 ,LN:=H.get(P).remove_dups
 ,foreach(N in LN)
 ,if(N>=1,not Native.has_key(P),get_heap_map(asp_predfunctors).has_key(P)) then
+FM=get_heap_map(asp_facts),
+if (FM.has_key(P),not(get_heap_map(asp_genheads).has_key(P)),allfactsafe(FM.get(P))) then
+% a fact-only predicate (its only head occurrences are ground facts):
+% compile to the fact functions plus the arity catch-all instead of fd
+% variables - the fact functions capture the same semantics with no fd
+% variables created, and the atom map is never keyed so universe()
+% shrinks too
+foreach(FA in FM.get(P),FA.length()==N)
+genprint(P.to_string++"("++join([AG.to_string():AG in FA],",")++")=1.")
+,genprint("\n")
+end,
+genprint(P.to_string++"("++join(["_":I in 1..N],",")++")=0.")
+,genprint("\n")
+else
 genprint(P.to_string++"(")
 ,printxvars_g(N)
 ,genprint(")=aspic_var($"++P.to_string++"(")
 ,printxvars_g(N)
 ,genprint(")).")
 ,genprint("\n")
+end
 end
 ,if(N>=1,not Native.has_key(P),not(get_heap_map(asp_predfunctors).has_key(P))) then
 % an argument-only symbol (never a rule or fact head): the function returns
@@ -433,6 +449,65 @@ collectpredfunctors_f(F,_),member(F,[aspic_var,aspic_range])=>true.
 collectpredfunctors_f(F,Args),member(F,[aspic_impl,aspic_equiv,aspic_not,aspic_conj,aspic_disj,aspic_card,aspic_eq,aspic_sum,aspic_mul,aspic_div,aspic_diff,aspic_lt,aspic_le,aspic_gt,aspic_ge,aspic_ne,valset,condlit,set])=>foreach(A in Args) collectpredfunctors(A) end.
 collectpredfunctors_f(F,_)=>get_heap_map(asp_predfunctors).put(F,1).
 
+% fact-only classification (kept in sync with aspic_transpiler.pi):
+% asp_facts maps the predicate functor to the list of the ground fact
+% arg tuples, asp_genheads records the predicates that have ANY
+% atom-generating head occurrence (a rule head - ground or not - or a
+% choice-rule enumeration element).  A predicate that appears in heads
+% ONLY as ground facts can be compiled to the fact functions
+% P(3,6)=1. P(_,_)=0. instead of fd variables, since nothing can ever
+% derive a different truth value for its atoms.
+collecthead(L),var(L)=>true.
+% aspic_impl(Body,Head): the head is the SECOND argument, possibly wrapped
+% in aspic_var; aspic_equiv(Head,Body) - the head is the FIRST argument
+collecthead(L),L=..[F|Args],F==aspic_impl=>collecthead_gen(Args[2]).
+collecthead(L),L=..[F|Args],F==aspic_equiv=>collecthead_gen(Args[1]).
+collecthead(L),L=..[F|Args],F==aspic_card=>collecthead_choice(Args[1]).
+collecthead(L),L=..[F|_],F==aspic_not=>true.
+collecthead(L),L=..[F|Args],groundargs(Args),not aspicfunctor(F)=>
+  FM=get_heap_map(asp_facts),FM.put(F,FM.get(F,[])++[Args]).
+collecthead(L)=>true.
+
+collecthead_gen(L),var(L)=>true.
+collecthead_gen(L),L=..[F|Args],F==aspic_var=>collecthead_gen(Args[1]).
+% a definite rule's head cardinality (R :-  1 {a} 1.): dispatch to the
+% enumeration - the term's functor is aspic_card, marking it would poison
+% the set atoms inside (they would look fact-only)
+collecthead_gen(L),L=..[F|Args],F==aspic_card=>collecthead_choice(Args[1]).
+collecthead_gen(L),L=..[F|_]=>get_heap_map(asp_genheads).put(F,1).
+
+collecthead_choice(S),var(S)=>true.
+collecthead_choice(S),S=..[_|Es]=>foreach(E in Es) collecthead_gen(E) end.
+
+groundargs([])=>true.
+groundargs([A|Args])=>groundterm(A),groundargs(Args).
+groundterm(A),var(A)=>fail.
+groundterm(A),A=..[_|Subs],Subs=[]=>true.
+groundterm(A),A=..[_|Subs]=>groundargs(Subs).
+groundterm(_)=>true.
+
+% a fact tuple is safe to compile to a fact-function clause iff none of its
+% arguments is a runtime-helper compound (an iterator var(X,range(A,B)) or an
+% arithmetic aspic_sum(...) wrapper): the clause head is a PATTERN and cannot
+% match the ground terms the runtime calls evaluate to - such predicates keep
+% the baseline fd-variable function (kept in sync with aspic_transpiler.pi)
+factsafe([])=>true.
+factsafe([A|Args]),var(A)=>fail.
+factsafe([A|Args]),A=..[F|_],aspicfunctor(F)=>fail.
+factsafe([A|Args])=>factsafe(Args).
+allfactsafe([])=>true.
+allfactsafe([FA|FAs])=>factsafe(FA),allfactsafe(FAs).
+
+% the classification must happen BEFORE the predicate-function emission
+% (the emission loop runs before translate_rules in both flows), so walk
+% the parsed rules here - the same allvariants expansion translate_rules
+% applies, and the double collection in translate_rules is avoided
+collectheadall(T),var(T)=>true.
+collectheadall([])=>true.
+collectheadall([L0|Xs]),L0=[L,_]=>collectheadall_l(L),collectheadall(Xs).
+collectheadall([_|Xs])=>collectheadall(Xs).
+collectheadall_l(L)=>foreach(L2 in allvariants(L)) collecthead(L2) end.
+
 %+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 translate_rules(T,Phase)=>
 NR:=0
@@ -473,9 +548,18 @@ L2R=hoistaggs(L2),
 HM=get_heap_map(aspic_agghoist),
 HLINES=cond(HM.has_key(lines),HM.get(lines),[]),
 if(HLINES!=[]) then genprintln(join(HLINES,',')++",") end,
-HM.put(lines,[]),
+HM.put(lines,[])
+% a fact-only predicate's ground fact: register the atom in the atoms map
+% (the constant value 1, no fd variable) instead of aspic_holds, which
+% would evaluate the fact function to 1 and assert nothing - the
+% registration keeps the atom in the universe and in aspic_instances
+,if(L2=..[PA|Args2],Args2!=[],factsafe(Args2),not aspicfunctor(PA),get_heap_map(asp_facts).has_key(PA),not(get_heap_map(asp_genheads).has_key(PA)),not(get_heap_map(native_atoms).has_key(PA)),get_heap_map(asp_predfunctors).has_key(PA)) then
+genprintln("aspic_markfact($"++L2.to_string()++")")
+,genprintln(",")
+else
 genprintln("aspic_holds("++replaceset(L2R.replacesetmini.replaceaggregates).aspic_simplify.to_string()++")")
 ,genprintln(",")
+end
 else
 d(l2x=L2)
 ,L3=replacevars(V,[X[1]:X in V],L2).aspic_simplify
