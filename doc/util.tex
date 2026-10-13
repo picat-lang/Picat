@@ -30,10 +30,10 @@ The \texttt{util} module provides useful utility functions and predicates. This 
 \item \texttt{find\_ignore\_case($String$, $SubString$, $From$, $To$)}\index{\texttt{find\_ignore\_case/4}}: This predicate is the same as \texttt{find($String$, $SubString$, $From$, $To$)}, except that it is case insensitive.
 \item \texttt{join($Tokens$) = $String$}\index{\texttt{join/1}}: This function is the same as \texttt{join($Tokens$, " ")}.
 \item \texttt{join($Tokens$, $Separator$) = $String$}\index{\texttt{join/2}}: This function concatenates the tokens $Tokens$ into a string, adding $Separator$, which is a string or an atom, between adjacent tokens.
-\item \texttt{lstrip($List$) = $ResList$}\index{\texttt{lstrip/1}}: This function is the same as \texttt{lstrip($List$, }\verb+" \t\n\r")+. 
+\item \texttt{lstrip($List$)} \texttt{=} \texttt{$ResList$}\index{\texttt{lstrip/1}}: This function is the same as \texttt{lstrip($List$, }\verb+" \t\n\r")+. 
 \item \texttt{lstrip($List$, $Elms$) = $ResList$}\index{\texttt{lstrip/2}}: This function returns a copy of $List$ with leading  elements in $Elms$ removed.
 \item \texttt{power\_set($List$) = $ResLists$}\index{\texttt{power\_set/1}}: This function returns the power set, i.e., a list of all subsets of a set represented as a list.
-\item \texttt{rstrip($List$) = $ResList$}\index{\texttt{rstrip/1}}: This function is the same as \texttt{rstrip($List$, }\verb+" \t\n\r")+.
+\item \texttt{rstrip($List$)} \texttt{=} \texttt{$ResList$}\index{\texttt{rstrip/1}}: This function is the same as \texttt{rstrip($List$, }\verb+" \t\n\r")+.
 \item \texttt{rstrip($List$, $Elms$) = $ResList$}\index{\texttt{rstrip/2}}: This function returns a copy of $List$ with trailing elements in $Elms$ removed.
 \item \texttt{split($String$) = $Tokens$}\index{\texttt{split/1}}: This function uses whitespace characters as split characters.  It is the same as is the same as \texttt{split($String$, }\verb+" \t\n\r")+.
 \item \texttt{split($String$, $Separators$) = $Tokens$}\index{\texttt{split/2}}: This function splits $String$ into a list of tokens, using characters in the string $Separators$ as split characters. Recall that a string is a list of characters. A token is a string, so the return value is a list of lists of characters.

@@ -531,12 +531,12 @@ import cp.
 go => 
     Vars = [S,E,N,D,M,O,R,Y],  % generate variables
     Vars :: 0..9,
-    all_different(Vars),     % generate constraints
+    all_different(Vars),       % generate constraints
     S #!= 0,
     M #!= 0,
     1000*S+100*E+10*N+D+1000*M+100*O+10*R+E 
          #= 10000*M+1000*O+100*N+10*E+Y,
-    solve(Vars),             %  search
+    solve(Vars),               % search
     writeln(Vars).
 \end{verbatim}
 In arithmetic constraints\index{constraint}, expressions are treated as data, and it is unnecessary to enclose them with dollar-signs.
@@ -589,7 +589,7 @@ The call \texttt{call\_cleanup($Goal$, $Cleanup$)} is equivalent to {\tt call($G
 
 
 \section{Higher-order Calls}
-A predicate or function is said to be \emph{higher-order}\index{higher-order call} if it takes calls as arguments. The built-ins \texttt{call}\index{\texttt{call}}, \texttt{apply}\index{\texttt{apply}}, and \texttt{find\_all}\index{\texttt{find\_all/2}} are higher-order\index{higher-order call}. The predicate \texttt{call($S$, $Arg_1$, $\ldots$, $Arg_n$)}\index{\texttt{call}}, where $S$ is an atom\index{atom} or a structure, calls the predicate named by $S$ with the arguments that are specified in $S$ together with extra arguments $Arg_1$, $\ldots$, $Arg_n$. The function \texttt{apply($S$, $Arg_1$, $\ldots$, $Arg_n$)}\index{\texttt{apply}} is similar to \texttt{call}\index{\texttt{call}}, except that \texttt{apply}\index{\texttt{apply}} returns a value. The function \texttt{findall($Template$, $S$)}\index{\texttt{findall/2}} returns a list of all possible solutions of \texttt{call($S$)}\index{\texttt{call}} in the form of $Template$. Other higher-order predicates and functions include:
+A predicate or function is said to be \emph{higher-order}\index{higher-order call} if it takes calls as arguments. The built-ins \texttt{call}\index{\texttt{call}}, \texttt{apply}\index{\texttt{apply}}, and \texttt{find\_all}\index{\texttt{find\_all/2}} are higher-order\index{higher-order call}. The predicate \texttt{call($S$, $Arg_1$, $\ldots$, $Arg_n$)}\index{\texttt{call}}, where $S$ is an atom\index{atom} or a structure, calls the predicate named by $S$ with the arguments that are specified in $S$ together with extra arguments $Arg_1$, $\ldots$, $Arg_n$. The function \texttt{apply($S$,} \texttt{$Arg_1$,} \texttt{$\ldots$,} \texttt{$Arg_n$)}\index{\texttt{apply}} is similar to \texttt{call}\index{\texttt{call}}, except that \texttt{apply}\index{\texttt{apply}} returns a value. The function \texttt{findall($Template$, $S$)}\index{\texttt{findall/2}} returns a list of all possible solutions of \texttt{call($S$)}\index{\texttt{call}} in the form of $Template$. Other higher-order predicates and functions include:
 \begin{multicols}{2}
 \begin{itemize}
 \item \verb-\+/1-\index{{\verb-\+/1-}} (not)

@@ -152,7 +152,7 @@ The \texttt{write} and \texttt{print} predicates take a file descriptor\index{fi
 \item \texttt{write\_byte($FD$, $Bytes$)}\index{\texttt{write\_byte/2}}: This predicate writes a single byte or a list of bytes to a file.
 \item \texttt{write\_byte($Bytes$)}\index{\texttt{write\_byte/1}}: This predicate is the same as \texttt{write\_byte(stdout, $Bytes$)}.
 \item \texttt{write\_char($FD$, $Chars$)}\index{\texttt{write\_char/2}}: This predicate writes a single character or a list of characters to a file. The characters are not quoted. When writing a single-character atom $Char$, \texttt{write\_char($FD$, $Char$)} is the same as \texttt{print($FD$, $Char$)}, but \texttt{write\_char} is faster than \texttt{print}.
-\item \texttt{write\_char($Chars$)}\index{\texttt{write\_char/1}}: This predicate is the same as \texttt{write\_char(stdout, $Chars$)}.
+\item \texttt{write\_char($Chars$)}\index{\texttt{write\_char/1}}: This predicate is the same as \texttt{write\_char(stdout,} \texttt{$Chars$)}.
 \item \texttt{write\_char\_code($FD$, $Codes$)}\index{\texttt{write\_char\_code/2}}: This predicate writes a single character or a list of characters of the given code or list of codes to a file.
 \item \texttt{write\_char\_code($Codes$)}\index{\texttt{write\_char\_code/1}}: This predicate is the same as the above, except that it writes to \texttt{stdout}.
 \item \texttt{writef($FD$, $Format$, $Args\ldots$)}\index{\texttt{writef}}: This predicate is used for formatted writing, where the $Format$ parameter contains format characters that indicate how to print each of the arguments in the $Args$ parameter. The number of arguments in $Args\ldots$ cannot exceed 16.

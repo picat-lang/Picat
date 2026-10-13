@@ -489,7 +489,7 @@ The \texttt{cp} module also accepts the following options:
 \item \texttt{cbc}: \index{\texttt{cbc}}Instruct Picat to use the Cbc MIP solver. Picat uses the following command to call the Cbc solver:
 \begin{tabbing}
 aa \= aaa \= aaa \= aaa \= aaa \= aaa \= aaa \kill
-\> \texttt{cbc $TmpFile$ solve -solu $SolFile$ }
+\> \texttt{cbc $TmpFile$ -solve -solution $SolFile$ }
 \end{tabbing}
 where $SolFile$ is a file for the solution, and $TmpFile$ is a file that stores the CPLEX-format constraints. Picat throws \texttt{existence\_error} if the command \texttt{cbc} is not available.
 \item \texttt{dump}: Dump the constraints in CPLEX format to \texttt{stdout}.
@@ -507,7 +507,13 @@ aa \= aaa \= aaa \= aaa \= aaa \= aaa \= aaa \kill
 \end{tabbing}
 where $SolFile$ is a file for the solution, and $TmpFile$ is a file that stores the CPLEX-format constraints. Picat throws \texttt{existence\_error} if the command \texttt{gurobi\_cl} is not available.
 % \item \texttt{sol($File$)}: Instruct the mip solver to save the solution into $File$ rather than the default file ``\_\_tmp.sol''.
-\item \texttt{scip}: \index{\texttt{scip}}Instruct Picat to use the SCIP MIP solver. Picat provides an internal interface to the SCIP solver through the C language.\footnote{The SCIP interface is not included in the pre-made binary executables, and users must build an executable from the source code following the installation instructions.} Note that, unlike other linear programming solvers, SCIP only returns integer solutions although it allows real coefficients and continuous-domain variables.
+\item \texttt{scip}: \index{\texttt{scip}}Instruct Picat to use the SCIP MIP solver. Picat uses the following command to call the Gurobi solver:
+\begin{tabbing}
+aa \= aaa \= aaa \= aaa \= aaa \= aaa \= aaa \kill
+\> \texttt{scip -q -c "read $TmpFile$ set limits solutions 1} \verb+\+ \\
+\> \> \texttt{set write printzeros TRUE optimize write solution $SolFile$"}
+\end{tabbing}
+where $SolFile$ is a file for the solution, and $TmpFile$ is a file that stores the CPLEX-format constraints. Picat throws \texttt{existence\_error} if the command \texttt{gurobi\_cl} is not available. Note that, unlike other linear programming solvers, SCIP only returns integer solutions although it allows real coefficients and continuous-domain variables.
 \end{itemize}
 
 \subsection{Solving Options for \texttt{smt}}
