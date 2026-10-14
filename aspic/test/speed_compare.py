@@ -353,9 +353,11 @@ def clingo_cli_time(combined, opt, timeout=SCALED_TIMEOUT):
 
 
 def aspic_scaled_times(combined, name, timeout=SCALED_TIMEOUT):
-    """(transpile_ms, solve_ms, clingo_value, aspic_value, err), one run
-    per side, hard timeout.  clingo_value/aspic_value: the optimization
-    costs for the opt programs (None otherwise), compared for validity."""
+    """(transpile_ms, solve_ms, portfolio_ms, cp_ms, cp_err, aspic_value,
+    err), one run per side, hard timeout.  aspic_value: the optimization
+    cost for the opt programs (None otherwise), compared for validity.
+    cp_ms: the WHOLE cp pipeline (transpile in cp mode + run the generated
+    program with FDN=1 FDN_MAXVAR=500000), or (None, cp_err)."""
     gen = os.path.join(WORK, "scaled_" + name + ".gen.txt")
 
     def transpile():
@@ -368,7 +370,7 @@ def aspic_scaled_times(combined, name, timeout=SCALED_TIMEOUT):
     try:
         transpile()
     except subprocess.TimeoutExpired:
-        return None, None, None, None, f"transpile >{timeout}s"
+        return None, None, None, None, None, None, f"transpile >{timeout}s"
     t1 = time.perf_counter()
     tr = (t1 - t0) * 1000.0
     err = open(gen).read()
@@ -377,12 +379,12 @@ def aspic_scaled_times(combined, name, timeout=SCALED_TIMEOUT):
                          stderr=subprocess.DEVNULL, timeout=timeout,
                          env=ENV).stdout.decode()
     if "notparsed = []" not in out:
-        return None, None, None, None, "not parseable"
+        return None, None, None, None, None, None, "not parseable"
     if "error(" in err:
-        return None, None, None, None, "aspic error"
+        return None, None, None, None, None, None, "aspic error"
     m = re.search(r"(?m)^import (sat|cp)\.", err)
     if not m:
-        return None, None, None, None, "no generated program"
+        return None, None, None, None, None, None, "no generated program"
     pi = os.path.join(WORK, "scaled_" + name + ".pi")
     with open(pi, "w") as f:
         f.write(err[m.start():])
@@ -414,15 +416,45 @@ def aspic_scaled_times(combined, name, timeout=SCALED_TIMEOUT):
     so = solve_run(run_txt, ENV)          # internal sat solver (portfolio off)
     sop = solve_run(run_txt_p, None)      # the satext portfolio (inherited env)
     aval = opt_val(run_txt)
-    if so is None and sop is None:
-        return tr, None, None, None, f"both solves >{timeout}s"
-    return tr, so, sop, aval, None
+
+    # the cp backend with the native fd solver: transpile in cp mode
+    # (import cp.), run with FDN=1 FDN_MAXVAR=500000
+    cpgen = os.path.join(WORK, "scaled_" + name + ".cpgen.txt")
+    cppi = os.path.join(WORK, "scaled_" + name + ".cp.pi")
+    cp_txt = os.path.join(WORK, "scaled_" + name + ".cp.run.txt")
+    CPENV = dict(os.environ, SATEXT_SOLVER="", FDN="1", FDN_MAXVAR="500000")
+    t0 = time.perf_counter()
+    cperr = None
+    try:
+        with open(cpgen, "w") as g:
+            subprocess.run([ASPIC, "-log", "aspic_transpiler.pi", "cp", combined],
+                           cwd=ASPIC_DIR, stdout=subprocess.PIPE, stderr=g,
+                           timeout=timeout, env=ENV)
+        mcp = re.search(r"(?m)^import cp\.", open(cpgen).read())
+        if not mcp:
+            cperr = "cp: no generated program"
+        else:
+            with open(cppi, "w") as f:
+                f.write(open(cpgen).read()[mcp.start():])
+            with open(cp_txt, "w") as f:
+                subprocess.run([ASPIC, "-log", "-s", "1234567890", cppi],
+                               cwd=ASPIC_DIR, stdout=f,
+                               stderr=subprocess.STDOUT,
+                               timeout=timeout, env=CPENV)
+            if "error(" in open(cp_txt).read():
+                cperr = "cp run error"
+    except subprocess.TimeoutExpired:
+        cperr = f"cp >{timeout}s"
+    t1 = time.perf_counter()
+    cptime = None if cperr else (t1 - t0) * 1000.0
+    return tr, so, sop, cptime, cperr, aval, None
 
 
 def run_scaled():
     print(f"\n== scaled instances (one run per side, {SCALED_TIMEOUT}s cap) ==")
     print(f"{'instance':22s} {'clingo':>9s} {'transp':>9s} {'solve':>9s} "
-          f"{'aspic':>9s} {'ratio':>7s} {'portf':>9s} {'r.portf':>8s}  check")
+          f"{'aspic':>9s} {'ratio':>7s} {'portf':>9s} {'r.portf':>8s} "
+          f"{'cp+fdn':>9s} {'r.cp':>8s}  check")
     stopped = set()
     rows = []
     for family, name, parts, consts, opt in scaled_entries():
@@ -436,10 +468,10 @@ def run_scaled():
             if ">" in cerr:
                 stopped.add(family)
             continue
-        tr, so, sop, aval, aerr = aspic_scaled_times(combined, name)
+        tr, so, sop, cptime, cperr, aval, aerr = aspic_scaled_times(combined, name)
         if aerr:
             print(f"{name:22s} {ct:9.1f} {'-':>9s} {'-':>9s} {'-':>9s} "
-                  f"{'-':>7s} {'-':>9s} {'-':>8s}  ({aerr})")
+                  f"{'-':>7s} {'-':>9s} {'-':>8s} {'-':>9s} {'-':>8s}  ({aerr})")
             if aerr.startswith(">"):
                 stopped.add(family)
             continue
@@ -455,9 +487,12 @@ def run_scaled():
         sop_s = f"{sop:9.1f}" if sop is not None else f"{'>'+str(SCALED_TIMEOUT)+'s':>9s}"
         at_s = f"{at / ct:6.1f}x" if so is not None else f"{'-':>7s}"
         apt_s = f"{apt / ct:6.1f}x" if sop is not None else f"{'-':>8s}"
+        cp_s = f"{cptime:9.1f}" if cptime is not None else f"{'-':>9s}"
+        cpr_s = f"{cptime / ct:6.1f}x" if cptime is not None else f"{'-':>8s}"
+        cp_tag = f"  ({cperr})" if cperr else ""
         rows.append((family, name, ct, at, apt))
         print(f"{name:22s} {ct:9.1f} {tr:9.1f} {so_s} {at:9.1f} "
-              f"{at_s} {sop_s} {apt_s}  {check}")
+              f"{at_s} {sop_s} {apt_s} {cp_s} {cpr_s}  {check}{cp_tag}")
         if at > CAP:
             stopped.add(family)
     if rows:
