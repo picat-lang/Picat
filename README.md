@@ -320,8 +320,11 @@ parallel.  Programs run unchanged.
 
 Environment variables: `FDN` unset or `0` hook off (exactly Picat
 3.9#12, the default), `FDN=1` opt in to the native fd solver,
-`FDN_COUNT=0` no native `count_all`, `FDN_THREADS=n` threads per search,
-`FDN_VERBOSE=1` per-solve report on stderr, `FDN_SPAWN=n` pool after n nodes.
+`FDN_MAXVAR=n` cap on the network's variables and frames above which
+the native path is refused and Picat's own labeling runs (default
+200000; `0` = no cap), `FDN_COUNT=0` no native `count_all`,
+`FDN_THREADS=n` threads per search, `FDN_VERBOSE=1` per-solve report
+on stderr, `FDN_SPAWN=n` pool after n nodes.
 
 Top speedups (vs Picat 3.9#12): queens-15 with `count_all` **71x**,
 kakuro solved 1000 times **33x** (single-threaded — posting cost),

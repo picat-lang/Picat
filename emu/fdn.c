@@ -714,11 +714,20 @@ static fdn_net *extract(BPLONG VS, BPLONG US, BPLONG Vars, ext *e, int *nout) {
     if (us == US_SPLIT || us == US_REVERSE_SPLIT)
         for (int q = 0; q < nlab; q++) if (DV_first(e->dvs.a[q]) < 0) { unsupported("split on negative values"); return NULL; }
     if (!ext_collect(e)) return NULL;
-    if (e->frames.n > 200000 || e->dvs.n > 200000) {
-        char dbg[128];
-        snprintf(dbg, sizeof dbg, "network too large (%d vars, %d frames, the cap is 200000)", e->dvs.n, e->frames.n);
-        unsupported("%s", dbg);
-        return NULL;
+    {
+        /* variable/frame cap, FDN_MAXVAR, default 200000; 0 = no cap */
+        const char *e_ = getenv("FDN_MAXVAR");
+        int cap = 200000;
+        if (e_ && *e_) {
+            long v = strtol(e_, NULL, 10);
+            if (v >= 0) cap = (v > 2000000000L) ? 2000000000L : v;
+        }
+        if (cap > 0 && (e->frames.n > cap || e->dvs.n > cap)) {
+            char dbg[160];
+            snprintf(dbg, sizeof dbg, "network too large (%d vars, %d frames, the cap is %d; FDN_MAXVAR, 0 = no cap)", e->dvs.n, e->frames.n, cap);
+            unsupported("%s", dbg);
+            return NULL;
+        }
     }
     fdn_net *net = fdn_net_new((int)e->glo, (int)e->ghi);
     {
