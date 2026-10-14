@@ -20,10 +20,10 @@ without handing solutions to Picat; only the number goes back
 
 ```sh
 cd emu && make -f Makefile.linux64 -j8 picat FDN_ARCH=-mpopcnt
-cd .. && emu/picat exs/fd_native_mt/mixed.pi        # transparency test
-emu/picat exs/cp/queens.pi                          # any cp program
-FDN=0 emu/picat exs/cp/queens.pi                    # hook off: the experimental build's own interpreted path
-FDN_EXTSOLVER=cp-sat emu/picat exs/fd_native_mt/ext_models.pi
+cd .. && emu/picat exs/fd_native_mt/mixed.pi        # transparency test (hook off - the default)
+emu/picat exs/cp/queens.pi                          # any cp program (hook off - the default)
+FDN=1 emu/picat exs/cp/queens.pi                    # opt in to the native fd solver
+FDN_EXTSOLVER=cp-sat FDN=1 emu/picat exs/fd_native_mt/ext_models.pi
                                                     # the same models through the external CP-SAT server
 sh exs/fd_native_mt/run_bench.sh                    # the benchmark suite
 sh exs/fd_native_mt/ext_check.sh                    # the ext correctness checks
@@ -38,7 +38,9 @@ Environment variables:
 
 | variable | effect |
 |---|---|
-| `FDN=0` | do not install the hook (the experimental build's own interpreted CLP(FD) path) |
+| `FDN` unset or `0` | do not install the hook — the plain Picat path (this is the default; the experimental build's own interpreted CLP(FD) path) |
+| `FDN=1` | install the hook: opt in to the native fd solver |
+| `FDN_MAXVAR=n` | cap on the network's variables and frames above which the native path is refused and Picat's own labeling runs (default 200000; `0` = no cap; the fallback line reports it) |
 | `FDN_COUNT=0` | do not repoint `count_all/2` (solutions through Picat again) |
 | `FDN_THREADS=n` | threads per search (default: `min(cores, 64)`; explicit values uncapped; see the tuning note below) |
 | `FDN_VERBOSE=1` | report each `solve` on stderr: native search (size) or the fallback reason |
