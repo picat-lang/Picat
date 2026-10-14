@@ -56,10 +56,10 @@ check() {   # fam name args...
     d=$(prep "$fam" "$name")
     out_e="$WORK/$fam.$name.exp.out"; out_s="$WORK/$fam.$name.stock.out"
     t0=$(date +%s.%N)
-    ( cd "$d" && run_on_group "$GROUP" timeout "$TIMEOUT" "$BIN" "$name" "$@" ) > "$out_e" 2>&1
+    ( cd "$d" && FDN=1 run_on_group "$GROUP" timeout "$TIMEOUT" "$BIN" "$name" "$@" ) > "$out_e" 2>&1
     erc=$?
     t1=$(date +%s.%N); te=$(awk -v a=$t0 -v b=$t1 'BEGIN{printf "%.2f", b-a}')
-    ( cd "$d" && run_on_group "$GROUP" timeout "$TIMEOUT" "$STOCK_PICAT" "$name" "$@" ) > "$out_s" 2>&1
+    ( cd "$d" && FDN=0 run_on_group "$GROUP" timeout "$TIMEOUT" "$STOCK_PICAT" "$name" "$@" ) > "$out_s" 2>&1
     src=$?
     ts=$(awk -v a=$t1 -v b=$(date +%s.%N) 'BEGIN{printf "%.2f", b-a}')
     nrun=$((nrun + 1))
@@ -88,6 +88,7 @@ get_args() {
         pigeon.pi) echo "10" ;;
         qall.pi) echo "8" ;;
         qff.pi) echo "12" ;;
+        qopt.pi) echo "13 ff" ;;
         *) echo "" ;;
     esac
 }

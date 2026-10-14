@@ -87,7 +87,7 @@ run_job() {  # tag sub name dir
         env_pre=(env PICATPATH="$(dirname "$bin")/../lib2")
         cwd_on="$JOBS_SRC"; cwd_off="$JOBS_SRC"; relname="exs/$d/$name"
     fi
-    ( cd "$cwd_on" && "${env_pre[@]}" timeout "$tmo" "$bin" "$relname" $args ) > "$out/$tag.on.out" 2>&1
+    ( cd "$cwd_on" && "${env_pre[@]}" FDN=1 timeout "$tmo" "$bin" "$relname" $args ) > "$out/$tag.on.out" 2>&1
     local erc=$?
     ( cd "$cwd_off" && "${env_pre[@]}" FDN=0 timeout "$tmo" "$bin" "$relname" $args ) > "$out/$tag.off.out" 2>&1
     local orc=$?

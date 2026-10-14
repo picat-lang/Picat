@@ -184,7 +184,7 @@ enum { F_NEQ, F_OUTOF, F_ADOUT, F_PD, F_DP, F_MAPCV, F_MAPVC, F_IGN, F_BCV, F_BV
        F_ABS, F_MUL, F_DIV, F_MOD, F_MIN, F_MAX,
        F_VEQC, F_VNEQC, F_REIF_EQ, F_REIF_NEQ, F_REIF_GE,
        F_ENT_VEQC, F_ENT_VNEQC, F_ENT_VEQV, F_ENT_VNEQV,
-       F_ELDELAY, F_ELFAST, F_ELFC, F_LEX_LT, F_LEX_LE };
+       F_ELDELAY, F_ELFAST, F_ELFC, F_LEX_LT, F_LEX_LE, F_EIZ };
 typedef struct {
     vmap ids; pvec dvs;           /* FD variables, in discovery order */
     vmap fseen; pvec frames; ivec fkind;
@@ -194,7 +194,7 @@ typedef struct {
 static SYM_REC_PTR S_neq, S_outof, S_adout, S_pdeq, S_pdneq, S_dpeq, S_dpneq, S_cvdom, S_vcdom, S_cvint, S_vcint;
 static SYM_REC_PTR S_abs, S_mul, S_div, S_mod;
 static SYM_REC_PTR S_veqc, S_vneqc, S_req, S_rneq, S_rge, S_entc1, S_entc2, S_entv1, S_entv2;
-static SYM_REC_PTR S_eldelay, S_eli, S_elv, S_eliv, S_elvi;
+static SYM_REC_PTR S_eldelay, S_eli, S_elv, S_eliv, S_elvi, S_eiz;
 static void init_syms(void) {
     if (S_neq) return;
     S_neq = BP_NEW_SYM("$combined_neq", 2); S_outof = BP_NEW_SYM("outof", 3);
@@ -215,6 +215,7 @@ static void init_syms(void) {
     S_eldelay = BP_NEW_SYM("$element_delay", 3); S_eli = BP_NEW_SYM("$element_ins_I", 3);
     S_elv = BP_NEW_SYM("$element_ins_V", 4);
     S_eliv = BP_NEW_SYM("$element_I_to_V", 4); S_elvi = BP_NEW_SYM("$element_V_to_I", 3);
+    S_eiz = BP_NEW_SYM("$either_is_zero", 2);
 }
 static int frame_kind(SYM_REC_PTR s) {
     if (s == S_neq) return F_NEQ;
@@ -242,6 +243,7 @@ static int frame_kind(SYM_REC_PTR s) {
     if (s == S_eldelay || s == S_eli) return F_ELDELAY;
     if (s == S_elv) return F_ELFAST;
     if (s == S_eliv || s == S_elvi) return F_ELFC;
+    if (s == S_eiz) return F_EIZ;
     const char *n = GET_NAME(s); int len = GET_LENGTH(s), ar = GET_ARITY(s);
     if (ar >= 4 && ar % 2 == 0) {
         if (len == 25 && !strncmp(n, "$linear_constr_eq_INT_aux", 25)) return F_LIN_EQ;
@@ -532,6 +534,22 @@ static int build(ext *e, fdn_net *net) {
             int oy = IS_SUSP_VAR(y) ? vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(y)) : -1;
             if (ob < 0 || oxx < 0 || oy < 0) { ok = unsupported("entail frame"); break; }
             fdn_entail(net, kind == F_ENT_VEQV ? 2 : 3, ob, oxx, oy);
+            break;
+        }
+        case F_EIZ: {                 /* $either_is_zero: NOT(X=1 AND Y=1) - the
+                                         AND reification's suspension once the
+                                         result is fixed to 0; an integer arg
+                                         means Picat's eager ins already
+                                         resolved it - skip */
+            BPLONG x = frame_arg(f, 1), y = frame_arg(f, 2); DEREF(x); DEREF(y);
+            if (ISINT(x) || ISINT(y)) break;
+            int ox = IS_SUSP_VAR(x) ? vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(x)) : -1;
+            int oy = IS_SUSP_VAR(y) ? vm_get(&e->ids, (BPLONG_PTR)UNTAGGED_TOPON_ADDR(y)) : -1;
+            if (ox < 0 || oy < 0) { ok = unsupported("eiz frame"); break; }
+            /* entail mode 1 (B => X #!= C) with b=X, x=Y, C=1 covers both
+               directions: X fixed to 1 prunes 1 from Y, Y fixed to 1
+               assigns X to 0; bound events on both fire it */
+            fdn_entail(net, 1, ox, oy, 1);
             break;
         }
         case F_ELDELAY: {                         /* element(I, Tuple, V): I fixed -> V = Tuple[I] */

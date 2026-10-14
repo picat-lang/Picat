@@ -65,9 +65,9 @@ run_one() {  # family file
     local envs=""
     [ -n "$p" ] && envs="PICATPATH=$p"
     (cd $ROOT; taskset -c 0-89 env $envs \
-        timeout 300 $EXP "exs/$fam/$name" > "$OUT/$fam.$base.exp.out" 2>&1)
+        FDN=0 timeout 300 $EXP "exs/$fam/$name" > "$OUT/$fam.$base.exp.out" 2>&1)
     (cd $ROOT; taskset -c 0-89 env $envs \
-        timeout 300 $STOCK_PICAT "exs/$fam/$name" > "$OUT/$fam.$base.old.out" 2>&1)
+        FDN=0 timeout 300 $STOCK_PICAT "exs/$fam/$name" > "$OUT/$fam.$base.old.out" 2>&1)
     local e o tag
     e=$(grep -cE '^\*\*\* (Error|error|Undefined|SYNTAX)|^\*\* Error' "$OUT/$fam.$base.exp.out" 2>/dev/null)
     o=$(grep -cE '^\*\*\* (Error|error|Undefined|SYNTAX)|^\*\* Error' "$OUT/$fam.$base.old.out" 2>/dev/null)

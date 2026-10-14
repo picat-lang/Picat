@@ -1,7 +1,7 @@
 #!/bin/sh
 # run_bench.sh -- the scaled exs/cp benchmark suite for picat-fdn.
 # Prints runtime/backtracks per benchmark on the stock path (FDN=0) and
-# with the picat-fdn native solver (default). With PROFILE=1 also a perf
+# with the picat-fdn native solver (FDN=1). With PROFILE=1 also a perf
 # flat profile (needs perf, kernel.perf_event_paranoid <= 1).
 # Usage: exs/fd_native_mt/run_bench.sh [PICAT_BIN]   (build Picat-src/emu/picat first)
 cd "$(dirname "$0")" || exit 1
@@ -9,7 +9,7 @@ P=${1:-../../emu/picat}
 T=${TIMEOUT:-300}
 run() {
   echo "=== $* (picat-fdn)"
-  /usr/bin/time -f "  wall=%es" timeout "$T" $P "$@" 2>&1 | grep -E 'STAT|sols=|^(un)?sat|wall|rror'
+  /usr/bin/time -f "  wall=%es" FDN=1 timeout "$T" $P "$@" 2>&1 | grep -E 'STAT|sols=|^(un)?sat|wall|rror'
   echo "=== $* (stock)"
   /usr/bin/time -f "  wall=%es" FDN=0 timeout "$T" $P "$@" 2>&1 | grep -E 'STAT|sols=|^(un)?sat|wall|rror'
 }

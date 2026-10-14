@@ -83,7 +83,7 @@ run_job() {  # lab dir name
         ARGS=""
         case "$name" in php.pi|php_matrix.pi) ARGS="8 9" ;; esac
         ( cd "$out/pb" && PICATPATH="$(dirname "$exp")/../lib2" PBSOL="$pbsol" \
-          timeout "$tmo" "$exp" "$name" $ARGS ) > "$out/$lab.$base.exp.out" 2>&1
+          FDN=1 timeout "$tmo" "$exp" "$name" $ARGS ) > "$out/$lab.$base.exp.out" 2>&1
         erc=$?
         if [ "$erc" -eq 0 ]; then tag="PASS"
         elif [ "$erc" -eq 124 ]; then tag="FAIL (timeout)"
@@ -92,10 +92,10 @@ run_job() {  # lab dir name
         return
     fi
     ( cd "$out/exp/$d" && taskset -c 0-89 env -u PICATPATH \
-        timeout "$tmo" "$exp" "$name" ) > "$out/$lab.$base.exp.out" 2>&1
+        FDN=1 timeout "$tmo" "$exp" "$name" ) > "$out/$lab.$base.exp.out" 2>&1
     erc=$?
     ( cd "$out/stock/$d" && taskset -c 0-89 env -u PICATPATH \
-        timeout "$tmo" "$stock" "$name" ) > "$out/$lab.$base.old.out" 2>&1
+        FDN=0 timeout "$tmo" "$stock" "$name" ) > "$out/$lab.$base.old.out" 2>&1
     orc=$?
     if [ "$erc" -eq 124 ] && [ "$orc" -eq 124 ]; then
         tag="same (both timeout)"

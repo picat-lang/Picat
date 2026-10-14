@@ -15,16 +15,16 @@ run() {   # masklevel: plain (byte-identical) | sorted
   ml=$1; shift
   case $ml in
   plain)  a=$(timeout "$T" $P "$@" 2>/dev/null | mask)
-          b=$(FDN_EXTSOLVER=cp-sat timeout "$T" $P "$@" 2>/dev/null | mask) ;;
+          b=$(FDN=1 FDN_EXTSOLVER=cp-sat timeout "$T" $P "$@" 2>/dev/null | mask) ;;
   sorted) a=$(timeout "$T" $P "$@" 2>/dev/null | mask | sort)
-          b=$(FDN_EXTSOLVER=cp-sat timeout "$T" $P "$@" 2>/dev/null | mask | sort) ;;
+          b=$(FDN=1 FDN_EXTSOLVER=cp-sat timeout "$T" $P "$@" 2>/dev/null | mask | sort) ;;
   esac
   n=$((n+1))
   if [ "$a" = "$b" ]; then echo "same  $*"
   else echo "DIFF  $*"; fail=$((fail+1)); fi
 }
 runext() {  # the ext side only; the output must contain unsat
-  b=$(FDN_EXTSOLVER=cp-sat timeout "$T" $P "$@" 2>/dev/null)
+  b=$(FDN=1 FDN_EXTSOLVER=cp-sat timeout "$T" $P "$@" 2>/dev/null)
   n=$((n+1))
   case "$b" in *unsat*) echo "ok    $* (ext proves unsat)" ;;
   *) echo "DIFF  $* (ext: no unsat proof)"; fail=$((fail+1));; esac

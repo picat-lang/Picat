@@ -95,10 +95,10 @@ run_one() {  # label reldir name
         return
     fi
     ( cd "$COPY_EXP/$d" && taskset -c 0-89 env -u PICATPATH \
-        timeout "$TIMEOUT" "$EXP" "$name" ) > "$OUT/$lab.$base.exp.out" 2>&1
+        FDN=1 timeout "$TIMEOUT" "$EXP" "$name" ) > "$OUT/$lab.$base.exp.out" 2>&1
     erc=$?
     ( cd "$COPY_STOCK/$d" && taskset -c 0-89 env -u PICATPATH \
-        timeout "$TIMEOUT" "$STOCK_PICAT" "$name" ) > "$OUT/$lab.$base.old.out" 2>&1
+        FDN=0 timeout "$TIMEOUT" "$STOCK_PICAT" "$name" ) > "$OUT/$lab.$base.old.out" 2>&1
     orc=$?
     if [ "$erc" -eq 124 ] && [ "$orc" -eq 124 ]; then
         tag="same (both timeout)"

@@ -26,16 +26,16 @@ bench() {   # env file args...
     echo "$f $* | $e | median ${med}ms ($ts)"
   fi
 }
-for spec in "FDN_THREADS=64|qall.pi 14" "FDN_EXTSOLVER=cp-sat FDN_EXTTHREADS=1|qall.pi 14" \
-            "FDN_EXTSOLVER=cp-sat FDN_EXTTHREADS=64|qall.pi 14" \
-            "FDN_THREADS=64|pigeon.pi 11" "FDN_EXTSOLVER=cp-sat FDN_EXTTHREADS=1|pigeon.pi 11" \
-            "FDN_EXTSOLVER=cp-sat FDN_EXTTHREADS=64|pigeon.pi 11" \
-            "FDN_THREADS=64|qopt.pi 13 ff" "FDN_EXTSOLVER=cp-sat FDN_EXTTHREADS=1|qopt.pi 13 ff" \
-            "FDN_EXTSOLVER=cp-sat FDN_EXTTHREADS=64|qopt.pi 13 ff" \
-            "FDN_THREADS=64|kakuroN.pi 1000" "FDN_EXTSOLVER=cp-sat FDN_EXTTHREADS=1|kakuroN.pi 1000" \
-            "FDN_EXTSOLVER=cp-sat FDN_EXTTHREADS=64|kakuroN.pi 1000" \
-            "FDN_THREADS=64|qff.pi 600" "FDN_EXTSOLVER=cp-sat FDN_EXTTHREADS=1|qff.pi 600" \
-            "FDN_EXTSOLVER=cp-sat FDN_EXTTHREADS=64|qff.pi 600" \
+for spec in "FDN_THREADS=64|qall.pi 14" "FDN=1 FDN_EXTSOLVER=cp-sat FDN_EXTTHREADS=1|qall.pi 14" \
+            "FDN=1 FDN_EXTSOLVER=cp-sat FDN_EXTTHREADS=64|qall.pi 14" \
+            "FDN_THREADS=64|pigeon.pi 11" "FDN=1 FDN_EXTSOLVER=cp-sat FDN_EXTTHREADS=1|pigeon.pi 11" \
+            "FDN=1 FDN_EXTSOLVER=cp-sat FDN_EXTTHREADS=64|pigeon.pi 11" \
+            "FDN_THREADS=64|qopt.pi 13 ff" "FDN=1 FDN_EXTSOLVER=cp-sat FDN_EXTTHREADS=1|qopt.pi 13 ff" \
+            "FDN=1 FDN_EXTSOLVER=cp-sat FDN_EXTTHREADS=64|qopt.pi 13 ff" \
+            "FDN_THREADS=64|kakuroN.pi 1000" "FDN=1 FDN_EXTSOLVER=cp-sat FDN_EXTTHREADS=1|kakuroN.pi 1000" \
+            "FDN=1 FDN_EXTSOLVER=cp-sat FDN_EXTTHREADS=64|kakuroN.pi 1000" \
+            "FDN_THREADS=64|qff.pi 600" "FDN=1 FDN_EXTSOLVER=cp-sat FDN_EXTTHREADS=1|qff.pi 600" \
+            "FDN=1 FDN_EXTSOLVER=cp-sat FDN_EXTTHREADS=64|qff.pi 600" \
             "FDN=0|qall.pi 14" "FDN=0|pigeon.pi 11" "FDN=0|qopt.pi 13 ff" \
             "FDN=0|kakuroN.pi 1000" "FDN=0|qff.pi 600"; do
   e=${spec%%|*}; a=${spec#*|}; f=${a%% *}; args=${a#* }

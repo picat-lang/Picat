@@ -57,12 +57,12 @@ run_job() {  # lab dir name
         tmo=$tp
         envp=(env -u PICATPATH PICATPATH="$(dirname "$bin")/../lib2" PBSOL="$pbsol")
         case "$name" in php.pi|php_matrix.pi) args="8 9" ;; esac
-        ( cd "$out/pb" && "${envp[@]}" timeout "$tmo" "$bin" "$name" $args ) > "$out/$lab.$name.on.out" 2>&1
+        ( cd "$out/pb" && "${envp[@]}" FDN=1 timeout "$tmo" "$bin" "$name" $args ) > "$out/$lab.$name.on.out" 2>&1
         erc=$?
         ( cd "$out/pb" && "${envp[@]}" FDN=0 timeout "$tmo" "$bin" "$name" $args ) > "$out/$lab.$name.off.out" 2>&1
         orc=$?
     else
-        ( cd "$out/on/$d" && taskset -c 0-89 "${envp[@]}" timeout "$tmo" "$bin" "$name" ) > "$out/$lab.$name.on.out" 2>&1
+        ( cd "$out/on/$d" && taskset -c 0-89 "${envp[@]}" FDN=1 timeout "$tmo" "$bin" "$name" ) > "$out/$lab.$name.on.out" 2>&1
         erc=$?
         ( cd "$out/off/$d" && taskset -c 0-89 "${envp[@]}" FDN=0 timeout "$tmo" "$bin" "$name" ) > "$out/$lab.$name.off.out" 2>&1
         orc=$?

@@ -70,10 +70,10 @@ check() {   # fam name args...
     local out_c="$WORK/$fam.$name.cur.out" out_b="$WORK/$fam.$name.base.out"
     d=$(prep "$fam" "$name")
     t0=$(date +%s.%N)
-    ( cd "$d" && run_on_group "$GROUP" timeout "$TIMEOUT" "$BIN" "$name" "$@" ) > "$out_c" 2>&1
+    ( cd "$d" && FDN=1 run_on_group "$GROUP" timeout "$TIMEOUT" "$BIN" "$name" "$@" ) > "$out_c" 2>&1
     erc=$?
     t1=$(date +%s.%N); tc=$(awk -v a=$t0 -v b=$t1 'BEGIN{printf "%.2f", b-a}')
-    ( cd "$d" && run_on_group "$GROUP" timeout "$TIMEOUT" "$BASEBIN" "$name" "$@" ) > "$out_b" 2>&1
+    ( cd "$d" && FDN=0 run_on_group "$GROUP" timeout "$TIMEOUT" "$BASEBIN" "$name" "$@" ) > "$out_b" 2>&1
     brc=$?
     tb=$(awk -v a=$t1 -v b=$(date +%s.%N) 'BEGIN{printf "%.2f", b-a}')
     nrun=$((nrun + 1))
