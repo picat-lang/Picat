@@ -150,7 +150,7 @@ The following predicates display the amount of CPU time that it takes to perform
 \begin{itemize}
 \item \texttt{command($String$) = $Int$}\index{\texttt{command/1}}: This function sends the command $String$ to the OS and returns the status that is returned from the OS.
 \item \texttt{help}\index{\texttt{help/0}}: This predicate shows how to use the commands that the system accepts.
-\item \texttt{loaded\_modules() = $List$}:\index{\texttt{loaded\_modules/0}} This function returns a list of the modules that are currently loaded in the Picat system.  This list includes library modules and user-defined modules.  By default, this function returns \texttt{[basic,sys,io,math]}.
+\item \texttt{loaded\_modules() = $List$}:\index{\texttt{loaded\_modules/0}} This function returns a list of the modules that are currently loaded in the Picat system.  This list includes library modules and user-defined modules.  By default, this function returns \texttt{[basic,math,io,sys]}.
 \item \texttt{nolog}\index{\texttt{nolog/0}}: This predicate turns off the logging flag.
 \item \texttt{picat\_path() = $String$}\index{\texttt{picat\_path/0}}: This function returns the directories that are stored in the environment variable \texttt{PICATPATH}.  If the environment variable \texttt{PICATPATH} does not exist, then this function throws an error.
 \end{itemize}

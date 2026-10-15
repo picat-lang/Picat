@@ -155,7 +155,7 @@ but it does not create the list.
 \item \texttt{min($X$, $Y$) = $Val$}\index{\texttt{min/2}}: This function returns the minimum of $X$ and $Y$, where $X$ and $Y$ are terms.
 \item \texttt{minint\_small() = $Int$}\index{\texttt{minint\_small/0}}: This function returns the minimum integer that is represented in one word. All integers that are smaller than this integer are represented as \textit{big integers}.
 \item \texttt{number($Term$)}\index{\texttt{number/1}}: This predicate is true if $Term$ is a number\index{number}.
-\item \texttt{number\_chars($Num$) = $String$}\index{\texttt{number\_chars/1}}: This function returns a list\index{list} of characters of $Num$. This function is the same as \texttt{to\_fstring("\%d", $Num$)}\index{\texttt{to\_fstring}} if $Num$ is an integer\index{integer}, and the same as \texttt{to\_fstring("\%f", $Num$)}\index{\texttt{to\_fstring}} if $Num$ is a real number\index{number}.
+\item \texttt{number\_chars($Num$) = $String$}\index{\texttt{number\_chars/1}}: This function returns a list\index{list} of characters of $Num$. This function is the same as \texttt{to\_fstring("\%d", $Num$)}\index{\texttt{to\_fstring}} if $Num$ is an integer\index{integer}, and the same as \texttt{to\_fstring("\%g", $Num$)}\index{\texttt{to\_fstring}} if $Num$ is a real number\index{number}.
 \item \texttt{number\_codes($Num$) = $List$}\index{\texttt{number\_codes/1}}: This function returns a list\index{list} of codes of the characters of $Num$. It is the same as \texttt{number\_chars($Num$).to\_codes()}\index{\texttt{number\_chars/1}}\index{\texttt{to\_codes/1}}.
 \item \texttt{real($Term$)}\index{\texttt{real/1}}: This predicate is the same as \texttt{float($Term$)}\index{\texttt{float/1}}.
 \item \texttt{to\_binary\_string($Int$) = $String$}\index{\texttt{to\_binary\_string/1}}: This function returns the binary representation of the integer\index{integer} $Int$ as a string\index{string}.
@@ -385,7 +385,6 @@ A \emph{map}\index{map} is a hash-table that is represented as a structure\index
 \item \texttt{size($Map$) = $Size$}\index{\texttt{size/1}}: This function returns the number of pairs in $Map$.
 \item \texttt{values($Map$) = $List$}\index{\texttt{values/1}}: This function returns the list\index{list} of values of the pairs in $Map$.
 \end{itemize}
-Most of the built-ins are overloaded for attributed variables\index{attributed variable}.
 
 \subsection{Sets}
 A set\index{set} is a map where every key is associated with the atom \texttt{not\_a\_value}. All of the built-ins for maps can be applied to sets. For example, the built-in predicate \texttt{has\_key($Set$, $Elm$)} tests if $Elm$ is in $Set$. In addition to the built-ins on maps, the following built-ins are provided for sets:
