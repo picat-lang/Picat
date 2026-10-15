@@ -3,10 +3,6 @@
  *   Author : Neng-Fa ZHOU
  *   Updated: Last updated Aug. 2026
  *   Purpose: Arithmetic on big integers with 28-bit limbs 
- *            Based on the  C++ Big Integer Library
- *            http://mattmccutchen.net/bigint/
- *            Matt McCutchen <matt@mattmccutchen.net>
-
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. 
