@@ -53,6 +53,10 @@
 %                                  under import cp and import sat
 %   String = pb.to_opb()           the current store's OPB text
 % The solver: env PBSOL (default "roundingsat", PATH-resolved), run
+% through satext.  check_solver verifies the solver is resolvable
+% before any solve -- a missing one would fail the solve silently,
+% which the (solve -> SAT ; UNSAT) pattern reads as UNSAT; instead
+% pb complains (pb_no_solver) and picat exits rc=1.
 % with --print-sol=1 through satext's raw-file runner (one spec, no
 % portfolio: the first-wins race hands the same formula to every
 % racer, and CNF racers would need a clausal re-encoding).
@@ -281,6 +285,7 @@ solve_store(B) = Model =>
     ( S = [sat, Model] -> true ; throw($pb_unsat) ).
 
 solve_res({N, Cs}) = S =>
+    check_solver(),
     Path = opb_path(),
     call_cleanup(go_res(N, Cs, Path, S), rm_path(Path)).
 
@@ -293,8 +298,30 @@ solve() = Model =>
 
 solve_res() = S =>
     store_or_fresh(N, Cs),
+    check_solver(),
     Path = opb_path(),
     call_cleanup(go_res(N, Cs, Path, S), rm_path(Path)).
+
+% the external solver must be resolvable before the call: a value
+% containing '/' must exist as a file, a bare name must be found on
+% PATH (the resolution execvp would do).  A missing solver would
+% otherwise make the solve FAIL silently -- which the familiar
+% (solve -> SAT ; UNSAT) pattern reads as UNSAT, a wrong answer.
+% Complain and exit with rc=1 instead (handle_exception is the
+% interpreter's error exit; halt/1 does not exist and an uncaught
+% throw exits 0).
+check_solver =>
+    ( os.env_exists("PBSOL") -> Sol = os.getenv("PBSOL") ; Sol = "roundingsat" ),
+    ( solver_resolvable(Sol) -> true
+    ;   printf("*** pb_no_solver: cannot resolve the external solver %w (env PBSOL or the default); set PBSOL to the solver binary%n", Sol),
+        handle_exception(pb_no_solver, 'pb.check_solver') ).
+
+solver_resolvable(Sol), member('/', Sol) => os.exists(Sol.to_atom()).
+solver_resolvable(Sol) =>
+    bp.picat_split_string(os.getenv("PATH"), ":", Ds),
+    member(Dir, Ds),
+    Dir != "",
+    os.exists((Dir ++ "/" ++ Sol).to_atom()).
 
 % the uniform solve: a goal over an ARRAY of declared vars.  Each
 % element is overwritten with its value (mutable slots) -- a 0/1 var

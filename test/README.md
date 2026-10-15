@@ -32,6 +32,15 @@ tree* is a directory of `.pi` example programs, expected layout:
   same output with and without the external server; the comparison is
   semantic (lines sorted, times and backtracks masked). Repo-only, no
   Hakan tree needed.
+- `pb_families_bench.sh` — the five pb-advantage families
+  (`exs/pb/php_card`, `pmodd`, `mchess`, `evencol`, `subsetcard`),
+  each under all three solvers (import pb / cp / sat, swapped into
+  temp copies): expects UNSAT everywhere, reports the wall time per
+  run. Env: `PBSOL` (the roundingsat binary), `BOOST_LIB` (its boost
+  runtime dir, exported as `LD_LIBRARY_PATH`), `FDN`, `TIMEOUT`
+  (default 60 s), `PICAT`, `WORK` (the scratch dir for the swapped
+  copies, default `scratch/pbfam`). See `exs/pb/README.md` for the
+  finding.
 
 ## 2. The Hakan tree sweeps (this folder)
 
@@ -96,5 +105,6 @@ or the comparison tests a stale `dist/`.
 | fdn C code (`emu/fdn.c`, `fdn.h`) | `exs/fd_native_mt/dev_check_312.sh`, `test/fdn_sweep.sh`, `test/fdn_exs.sh`, `exs/fd_native_mt/ext_check.sh` |
 | external-solver code (`fdn_solver.cpp`, `fdn_cpsat.py`, `fdn_hook.pi`) | `exs/fd_native_mt/ext_check.sh`, `test/fdn_exs.sh` |
 | the reified library (`lib/global_reif.pi`) | `test/reif_globals_check.sh` (the truth-value equivalence + faithfulness of the reified globals), the 4 `exs/*/reif_*` examples; the wasm preload needs a relink (`webasm/dist` carries a copy) |
+| the pb library (`lib2/pb.pi`, `emu/satext.c`) | `test/pb_families_bench.sh` (the five families under pb/cp/sat), `exs/pb/pb_test.pi` (the battery), `exs/pb/php_bench.pi` + `exs/pb/parity.pi` (the head-to-heads) |
 | any other C change (`emu/*.c`) | `exs/deviation_check.sh`, `webasm/headless/compare.py` (after rebuilding `dist/`) |
 | shell tools (`tools/`) | `tools/test_picat_run.sh` |
