@@ -169,6 +169,13 @@ UDF_PRELOADS := \
   --preload-file ../lib2/udf.pi@/udf.pi \
   --preload-file ../lib2/udf_ops.pi@/udf_ops.pi
 
+# the file preloads (besides the lib2 directory):  they are link
+# dependencies, so editing one of them refreshes dist/picat.data
+LIB_PRELOAD_FILES := ../lib2/udf.pi ../lib2/udf_ops.pi \
+                     ../lib/cp2.pi ../lib/common_constr.pi \
+                     ../lib/cp_sat_mip_smt.pi ../lib/global_reif.pi \
+                     ../lib/global_reif_graph.pi ../lib/sat2.pi
+
 # cp2 (lib/cp2.pi, a disk-compiled clone of cp with built-in udf
 # expansion) and its source dependencies, for the  x_cp2_udf_native.pi
 # example.  As with the udf files these land at the filesystem root: the
@@ -265,7 +272,8 @@ $(STAGE)/kissat/kis_%.o: $(STAGE)/kissat/src/%.c
 
 # ---- link -------------------------------------------------------------
 $(DIST)/picat.js: $(STAGE)/stamp $(OBJS) browser/index.html \
-                  $(wildcard examples/*) $(DATA_SRC) $(ASPICTOOLS) $(GIT_STAMP)
+                  $(wildcard examples/*) $(DATA_SRC) $(ASPICTOOLS) \
+                  $(LIB_PRELOAD_FILES) $(GIT_STAMP)
 	mkdir -p $(DIST)
 	$(EMCC) $(CFLAGS) $(OBJS) $(EMFLAGS) -o $@
 	sed 's/__PICAT_BUILD_ID__/$(BUILD_ID)/g' browser/index.html > $(DIST)/index.html

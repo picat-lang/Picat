@@ -17,12 +17,18 @@
 %   lex_le (equal lengths), lex_lt (equal lengths),
 %   scalar_product, element, element0,
 %   table_in (rows may be lists or tuples), table_notin,
-%   count(V,FDVars,Rel,N,.).
+%   count(V,FDVars,Rel,N,.),
+%   global_cardinality (V-N pairs), assignment (inverse permutations),
+%   neqs (a list of X #!= Y), notin (vars outside a ground domain),
+%   matrix_element (M[I,J] = MIJ), regular (a DFA/NFA over a ground
+%   transition matrix M[state,symbol]; the NFA is determinized at
+%   posting time).
 %
 % The procedural globals (hcp, scc/_d/_grid, tree, acyclic/_d, circuit,
-% subcircuit/_grid, regular, cumulative, diffn, serialized,
-% disjunctive_tasks, assignment) would reify only at the C propagator
-% level and are NOT provided by this file.
+% subcircuit/_grid, cumulative, diffn, serialized,
+% disjunctive_tasks) would reify only at the C propagator
+% level and are NOT provided by this file (circuit and subcircuit are
+% provided by global_reif_graph.pi).
 
 % ---------- helpers ----------
 
@@ -380,3 +386,315 @@ count_reif(V, FDVars, '#<=',   N, B) =>
     cnt_sum(len(Ls), V, Ls, D),
     B #<=> (D #<= N).
 count_test(V, FDVars, Rel, N, B) => count_reif(V, FDVars, Rel, N, B).
+
+% ---------- global_cardinality ----------
+
+% global_cardinality_reif(List,Pairs,B):  B #<=> global_cardinality(List,Pairs).
+% Pairs is a list of  V-N  pairs (as in the un-reified global):  the
+% value V occurs exactly N times in List.  As in the un-reified global
+% (bp.global_cardinality), every var of List must take one of the keys
+% mentioned in Pairs when the constraint holds;  the count and the
+% key conditions fold into B as conjuncts, so both boolean directions
+% propagate (each count and each key condition reifies individually).
+global_cardinality_reif(List, Pairs, B) =>
+    as_list(List) = Ls,
+    ( Pairs == [] -> B #= 1
+    ; Ps = as_list(Pairs),
+      Ks = [],
+      foreach (P in Ps)
+          gcc_key(P, K),
+          Ks := Ks ++ [K]
+      end,
+      Ks2 = sort(Ks),
+      gcc_all(Ps, Ks2, Ls, B)
+    ).
+global_cardinality_test(List, Pairs, B) => global_cardinality_reif(List, Pairs, B).
+
+% gcc_key(P, Key):  the value (key) of a V-N pair.
+gcc_key(Key-_, Key).
+
+% gcc_all:  B #<=> (every pair's count holds AND every var of Ls takes
+% one of the keys).
+gcc_all(Ps, Ks, Ls, B) =>
+    Z0 :: 0..1,
+    Z0 #= 1,
+    gcc_acc(Ps, Ls, Z0, Bc),
+    gcc_keys(Ls, Ks, Z0, Bk),
+    B #<=> (Bc #/\ Bk).
+
+% gcc_acc:  fold the per-pair count reifications with AND.
+gcc_acc([], _Ls, Acc, B) =>
+    B #= Acc.
+gcc_acc([V-N|Ps], Ls, Acc, B) =>
+    Bk :: 0..1,
+    count_reif(V, Ls, '#=', N, Bk),
+    Acc2 :: 0..1,
+    Acc2 #<=> (Acc #/\ Bk),
+    gcc_acc(Ps, Ls, Acc2, B).
+
+% gcc_keys:  Bk #<=> every var of Ls takes one of the keys Ks.
+gcc_keys([], _Ks, Acc, B) => B #= Acc.
+gcc_keys([V|Vs], Ks, Acc, B) =>
+    Ok :: 0..1,
+    gcc_keymax(V, Ks, Ok),
+    Acc2 :: 0..1,
+    Acc2 #<=> (Acc #/\ Ok),
+    gcc_keys(Vs, Ks, Acc2, B).
+
+% gcc_keymax(V, Ks, Ok):  Ok #<=> V equals one of the keys Ks (a
+% max-fold of reified equalities).
+gcc_keymax(_V, [], Ok) => Ok #= 0.
+gcc_keymax(V, Ks, Ok) =>
+    gcc_keymax2(Ks, V, [], Bs),
+    max(Bs) #= Ok.
+gcc_keymax2([], _V, Acc, Bs) => Bs = Acc.
+gcc_keymax2([K|Rest], V, Acc, Bs) =>
+    Bk :: 0..1,
+    Bk #<=> (V #= K),
+    gcc_keymax2(Rest, V, Acc++[Bk], Bs).
+
+% ---------- assignment (inverse permutations) ----------
+
+% asg_acc:  fold the per-position element reifications with AND.
+asg_acc(0, _L1, _L2, Acc, B) =>
+    B #= Acc.
+asg_acc(I, L1, L2, Acc, B) =>
+    Bik :: 0..1,
+    element_reif(L1[I], L2, I, Bik),
+    Acc2 :: 0..1,
+    Acc2 #<=> (Acc #/\ Bik),
+    asg_acc(I-1, L1, L2, Acc2, B).
+
+% assignment_reif(List1,List2,B):  B #<=> assignment(List1,List2):  the
+% two lists (of the same length N) are inverse permutations,
+% List2[List1[i]] = i for every i.  Decomposed into element_reif per
+% position (the inverse channeling;  element keeps each index in
+% 1..N), so every position propagates in both boolean directions.
+assignment_reif(List1, List2, B) =>
+    as_list(List1) = L1,
+    as_list(List2) = L2,
+    len(L1) == len(L2),
+    len(L1) = N,
+    ( N == 0 -> B #= 1
+    ; Z0 :: 0..1,
+      Z0 #= 1,
+      asg_acc(N, L1, L2, Z0, B)
+    ).
+assignment_test(List1, List2, B) => assignment_reif(List1, List2, B).
+
+% ---------- neqs ----------
+
+% neqs_acc:  fold the per-pair disequality reifications with AND.
+neqs_acc([], Acc, B) =>
+    B #= Acc.
+neqs_acc([X #!= Y|Neqs], Acc, B) =>
+    Kk :: 0..1,
+    Kk #<=> (X #!= Y),
+    Acc2 :: 0..1,
+    Acc2 #<=> (Acc #/\ Kk),
+    neqs_acc(Neqs, Acc2, B).
+
+% neqs_reif(Neqs,B):  B #<=> every  X #!= Y  in the list Neqs holds.
+% Neqs has the same form the un-reified neqs takes:  a list of
+% X #!= Y constraint terms.  Each pair reifies at the propagator
+% level (dvar #!= dvar), so every pair propagates in both boolean
+% directions.
+neqs_reif(Neqs, B) =>
+    ( Neqs == [] -> B #= 1
+    ; Z0 :: 0..1,
+      Z0 #= 1,
+      neqs_acc(Neqs, Z0, B)
+    ).
+neqs_test(Neqs, B) => neqs_reif(Neqs, B).
+
+% ---------- notin ----------
+
+% notin_one(V,Domain,Bk):  Bk #<=> V is outside Domain.  The membership
+% side reifies (In = 1 iff V is inside the domain) and Bk = 1 - In:
+% Bk = 1 excludes the domain from V,  Bk = 0 forces V inside it.  Both
+% directions propagate.  Domain is a ground domain:  a range  Lo..Hi,
+% a list of integers,  or a single integer.
+notin_one(V, Domain, Bk) =>
+    Bk :: 0..1,
+    notin_in(V, Domain, In),
+    Bk #= 1 - In.
+
+% notin_in(V,Domain,In):  In #<=> V is inside Domain.  A range is
+% decomposed by argument access (arg/3):  a range pattern in a guard
+% gets evaluated arithmetically by cp2's udf expansion.
+notin_in(V, Domain, In), list(Domain) =>
+    ( Domain == [] -> In #= 0
+    ; notin_vals(V, Domain, [], Bs),
+      max(Bs) #= In
+    ).
+notin_in(V, Domain, In) =>
+    ( integer(Domain) -> Lo = Domain, Hi = Domain
+    ; arg(1, Domain, Lo),
+      arg(2, Domain, Hi)
+    ),
+    In :: 0..1,
+    In1 :: 0..1,
+    In1 #<=> (V #>= Lo),
+    In2 :: 0..1,
+    In2 #<=> (V #=< Hi),
+    In #<=> (In1 #/\ In2).
+
+% notin_vals:  a max-fold of reified equalities over the values.
+notin_vals(_V, [], Acc, Bs) => Bs = Acc.
+notin_vals(V, [D|Rest], Acc, Bs) =>
+    Bk :: 0..1,
+    Bk #<=> (V #= D),
+    notin_vals(V, Rest, Acc++[Bk], Bs).
+
+% notin_acc:  fold the per-var exclusions with AND.
+notin_acc([], _Dom, Acc, B) =>
+    B #= Acc.
+notin_acc([V|Vs], Domain, Acc, B) =>
+    Bk :: 0..1,
+    notin_one(V, Domain, Bk),
+    Acc2 :: 0..1,
+    Acc2 #<=> (Acc #/\ Bk),
+    notin_acc(Vs, Domain, Acc2, B).
+
+% notin_reif(Vars,Domain,B):  B #<=> every var of Vars is outside
+% Domain.  Domain must be a ground domain (a list or a range of
+% integers), as the un-reified notin takes.
+notin_reif(Vars, Domain, B) =>
+    as_list(Vars) = Vs,
+    ( Vs == [] -> B #= 1
+    ; Z0 :: 0..1,
+      Z0 #= 1,
+      notin_acc(Vs, Domain, Z0, B)
+    ).
+notin_test(Vars, Domain, B) => notin_reif(Vars, Domain, B).
+
+% ---------- matrix_element ----------
+
+% matrix_element_reif(M,I,J,MIJ,B):  B #<=> M[I,J] = MIJ.  The matrix
+% (a 2D array or a list of lists) is flattened row-major into a 1D
+% array F with  F[(i-1)*C+j] = M[i,j]  (C = the number of columns);
+% the flat index is posted as an ordinary linear constraint and pinned
+% by the ordinary element constraint (which keeps it in range), so
+% only  MIJ #= W  is reified.
+matrix_element_reif(M, I, J, MIJ, B) =>
+    F = [],
+    foreach (R in 1..M.length, E in M[R])
+        F := F ++ [E]
+    end,
+    NCols = M[1].length,
+    Idx :: 1..F.length,
+    Idx #= (I-1)*NCols + J,
+    Wlo = min([fd_min(E) : E in F]),
+    Whi = max([fd_max(E) : E in F]),
+    W :: Wlo..Whi,
+    element(Idx, F, W),
+    B #<=> (MIJ #= W).
+matrix_element_test(M, I, J, MIJ, B) => matrix_element_reif(M, I, J, MIJ, B).
+
+% ---------- regular ----------
+
+% reg_trans(J,T,Set,M):  the set of next states from state J on symbol
+% T (the ground NFA entry, normalized: a list entry is taken as is
+% (0 dropped), an integer entry is a singleton, 0 is the empty set).
+reg_trans(J, T, Set, M) =>
+    E = M[J,T],
+    ( list(E) -> Set = [X : X in E, X >= 1]
+    ; E >= 1 -> Set = [E]
+    ; Set = []
+    ).
+
+% det_syms:  one subset state's transitions on all symbols;  newly
+% discovered successors are returned in New (in discovery order).
+det_syms(S, T, _Sub, _K, _Tset, _Subsets, _Dfa, New), T > S => New = [].
+det_syms(S, T, Sub, K, Tset, Subsets, Dfa, New) =>
+    U = [Y : J in Sub, Y in Tset[J,T]],
+    Next = U.remove_dups().sort(),
+    ( member(Next, Subsets.keys()) -> Nk = Subsets.get(Next), New = NewR
+    ; Nk = Subsets.keys().length + 1,
+      Subsets.put(Next, Nk),
+      New = [Next|NewR]
+    ),
+    Dfa.put((K,T), Nk),
+    det_syms(S, T+1, Sub, K, Tset, Subsets, Dfa, NewR).
+
+% det_bfs:  the subset construction (BFS over canonical sorted state
+% sets).  Subsets maps each discovered set to its index (1-based, in
+% discovery order;  the start set {Q0} is index 1),  Dfa maps (K,T) to
+% the successor's index.  The construction is complete:  the empty set
+% (the dead state) is discovered like any other set.
+det_bfs([], _S, _Tset, _Subsets, _Dfa) => true.
+det_bfs([Sub|Rest], S, Tset, Subsets, Dfa) =>
+    K = Subsets.get(Sub),
+    det_syms(S, 1, Sub, K, Tset, Subsets, Dfa, New),
+    det_bfs(Rest ++ New, S, Tset, Subsets, Dfa).
+
+% reg_accept(N1, A, Visited, B):  B #<=> the final state Visited[N1]
+% is one of the accepting subset indices A (a max-fold, as in
+% table_in_reif).
+reg_accept(_N1, A, _Visited, B), A == [] => B #= 0.
+reg_accept(N1, A, Visited, B) =>
+    reg_accept2(A, Visited[N1], [], Bs),
+    max(Bs) #= B.
+reg_accept2([], _V, Acc, Bs) => Bs = Acc.
+reg_accept2([K|Rest], V, Acc, Bs) =>
+    Bk :: 0..1,
+    Bk #<=> (V #= K),
+    reg_accept2(Rest, V, Acc++[Bk], Bs).
+
+% regular_reif(L,Q,S,M,Q0,Fs,B):  B #<=> regular(L,Q,S,M,Q0,Fs).  The
+% ground NFA in M (M[state,symbol]:  Q rows, S columns;  each entry a
+% list of next states, a single state, or 0 for none) is determinized
+% at posting time (the subset construction), then the run is
+% decomposed into a state chain  Visited[i] = the DFA state after
+% L[1..i],  linked by element constraints over the flattened
+% transition table, with the acceptance reified on the final state.
+% Both boolean directions propagate:  B = 1 forces the run to accept,
+% B = 0 forces it to reject.
+regular_reif(L, Q, S, M, Q0, Fs, B) =>
+    ( integer(Q0), Q0 >= 1, Q0 =< Q -> true
+    ; throw($positive_integer_expected(Q0))
+    ),
+    ( ground(M), M.length == Q, M[1].length == S -> true
+    ; throw($invalid_matrix(M))
+    ),
+    Tset = new_array(Q, S),
+    foreach(J in 1..Q, T in 1..S)
+        reg_trans(J, T, Tset[J,T], M)
+    end,
+    FsLst = sort(as_list(Fs)),
+    Subsets = new_map(),
+    Subsets.put([Q0], 1),
+    Dfa = new_map(),
+    det_bfs([[Q0]], S, Tset, Subsets, Dfa),
+    K = Subsets.keys().length,
+    % the accepting subset indices: those intersecting FsLst
+    A = [],
+    foreach (Sub in Subsets.keys())
+        ( accept_set(Sub, FsLst) -> A := A ++ [Subsets.get(Sub)] ; true )
+    end,
+    % the flattened DFA table:  F[(k-1)*S+t] = the successor index
+    Ft = new_array(K*S),
+    foreach(Ki in 1..K, T in 1..S)
+        Ft[(Ki-1)*S+T] = Dfa.get((Ki,T))
+    end,
+    FL = to_list(Ft),
+    N = len(L),
+    N1 = N+1,
+    Visited = new_array(N1),
+    foreach(I in 1..N1)
+        Visited[I] :: 1..K
+    end,
+    Visited[1] = 1,                 % the start subset {Q0} has index 1
+    foreach(I in 1..N)
+        Idx :: 1..K*S,
+        Idx #= (Visited[I]-1)*S + L[I],
+        element(Idx, FL, Visited[I+1])
+    end,
+    reg_accept(N1, A, Visited, B).
+regular_test(L, Q, S, M, Q0, Fs, B) => regular_reif(L, Q, S, M, Q0, Fs, B).
+
+% accept_set(Sub, FsLst):  the subset state Sub is accepting iff it
+% contains one of the NFA's accepting states.
+accept_set(Sub, FsLst) =>
+    member(F, FsLst),
+    member(F, Sub).

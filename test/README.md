@@ -95,5 +95,6 @@ or the comparison tests a stale `dist/`.
 |---|---|
 | fdn C code (`emu/fdn.c`, `fdn.h`) | `exs/fd_native_mt/dev_check_312.sh`, `test/fdn_sweep.sh`, `test/fdn_exs.sh`, `exs/fd_native_mt/ext_check.sh` |
 | external-solver code (`fdn_solver.cpp`, `fdn_cpsat.py`, `fdn_hook.pi`) | `exs/fd_native_mt/ext_check.sh`, `test/fdn_exs.sh` |
+| the reified library (`lib/global_reif.pi`) | `test/reif_globals_check.sh` (the truth-value equivalence + faithfulness of the reified globals), the 4 `exs/*/reif_*` examples; the wasm preload needs a relink (`webasm/dist` carries a copy) |
 | any other C change (`emu/*.c`) | `exs/deviation_check.sh`, `webasm/headless/compare.py` (after rebuilding `dist/`) |
 | shell tools (`tools/`) | `tools/test_picat_run.sh` |
