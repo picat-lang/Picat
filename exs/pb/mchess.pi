@@ -1,0 +1,66 @@
+% mchess: the mutilated chessboard.  An even N x N board, the two
+% opposite corners (1,1) and (N,N) removed, tiled with 1x2 dominoes
+% (no overlap, no gap) -- impossible: the removed corners have the
+% same colour, so the remaining board has N^2/2 black and N^2/2 - 2
+% white cells while every domino covers exactly one of each.  One
+% 0/1 var per domino placement (a pair of adjacent cells); for
+% every remaining cell the equation sum of the dominoes covering it
+% = 1.  UNSAT for every even N.  The counting uses additions only:
+% summing the black-cell equations and the white-cell equations
+% gives D = N^2/2 and D = N^2/2 - 2, so the instance is
+% LP-infeasible and resolution proofs are exponential (Alekhnovich
+% 2004; Dantchev & Riis 2001) -- the addition-only subclass of the
+% pb advantage.  Caveat: the built-in sat and cp paths answer in ms
+% too (their lowering of the equations carries the counting in
+% auxiliary structure or in propagation), so the exponential
+% separation shows against direct clausal encodings, not against
+% the built-in solvers.
+% Sized by the command line:
+%   picat mchess.pi <n>      (n even)
+% The same program body runs unchanged under import pb, import cp
+% and import sat; only the import line decides the solver.  pb sends
+% the linear form to an external pseudo-Boolean solver (env PBSOL);
+% cp and sat are built in.  No timing here -- the sweep script
+% test/pb_families_bench.sh measures all three solvers.
+%
+% With pb:  PBSOL=<solver> PICATPATH=<picat>/lib2 emu/picat mchess.pi 10
+% With cp:  emu/picat mchess.pi 10            (after the import swap)
+
+import pb, os.
+
+main([NS]) =>
+    N = NS.to_int,
+    NH = N * (N - 1),               % horizontal dominoes
+    NV = 2 * NH,                    % horizontals then verticals
+    X = new_array(NV),
+    X :: 0..1,
+    % dominoes touching a removed corner cannot be used
+    X[h(1, 1, N)] #= 0,
+    X[v(1, 1, N)] #= 0,
+    X[h(N, N - 1, N)] #= 0,
+    X[v(N - 1, N, N)] #= 0,
+    foreach (R in 1..N, C in 1..N, (R, C) != (1, 1), (R, C) != (N, N))
+        sum([X[K] : K in cover(R, C, N)]) #= 1
+    end,
+    bp.c_wall_ms(T0),
+    ( solve(X) ->
+        bp.c_wall_ms(T1),
+        printf("SAT: the %dx%d board with two corners removed can be tiled (%d ms)%n", N, N, T1 - T0)
+    ;
+        bp.c_wall_ms(T1),
+        printf("UNSAT: the %dx%d board with two corners removed cannot be tiled (%d ms)%n", N, N, T1 - T0)
+    ).
+
+% h(R,C): the domino on cells (R,C)-(R,C+1), var (R-1)*(N-1)+C
+% v(R,C): the domino on cells (R,C)-(R+1,C), var NH+(R-1)*N+C
+h(R, C, N) = (R - 1) * (N - 1) + C.
+v(R, C, N) = N * (N - 1) + (R - 1) * N + C.
+
+% the dominoes covering cell (R,C): the pair to the left (C > 1),
+% to the right (C < N), above (R > 1) and below (R < N).  The pool
+% holds all adjacent pairs; the four touching the removed corners
+% are forced to 0, and only the remaining cells keep their
+% constraint.
+cover(R, C, N) =
+    cond(C > 1, [h(R, C - 1, N)], []) ++ cond(C < N, [h(R, C, N)], []) ++
+    cond(R > 1, [v(R - 1, C, N)], []) ++ cond(R < N, [v(R, C, N)], []).

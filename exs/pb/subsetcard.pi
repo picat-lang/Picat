@@ -1,0 +1,77 @@
+% subsetcard: the subset-cardinality UNSAT class (Spence; Van
+% Gelder & Spence 2010; Mikša & Nordström 2014).  Take an N x N 0/1
+% matrix pattern with exactly 4 ones per row and column -- built
+% here as one seeded random permutation PI and its cyclic shifts:
+% row I has ones at the columns (PI[I]+k) mod N for k = 0..3, which
+% are distinct, and each shifted permutation contributes one 1 per
+% column, so the superposition has exactly 4 ones per row and
+% column -- plus one extra one at a zero position (row 1 and column
+% (PI[1]+4) mod N now have 5 ones).  One 0/1 var per one-position.
+% Each row requires at least half of its vars, rounded up (2 of 4,
+% or 3 of 5); each column allows at most half, rounded down (2 of
+% 4, 2 of 5).  UNSAT: the rows ask for 2(N-1)+3 = 2N+1 ones in
+% total, the columns allow 2N over the same variables.  The
+% counting uses additions only, so the instance is LP-infeasible;
+% on expander patterns, which random ones are with high
+% probability, resolution proofs are exponential.  Caveat: the
+% built-in sat and cp paths answer in ms too (their lowering of the
+% cardinality constraints carries the counting in auxiliary
+% structure or in propagation), so the exponential separation shows
+% against direct clausal encodings, not against the built-in
+% solvers.
+% Sized by the command line:
+%   picat subsetcard.pi <n>      (n >= 5)
+% The same program body runs unchanged under import pb, import cp
+% and import sat; only the import line decides the solver.  pb sends
+% the cardinality form to an external pseudo-Boolean solver (env
+% PBSOL); cp and sat are built in.  No timing here -- the sweep
+% script test/pb_families_bench.sh measures all three solvers.
+%
+% With pb:  PBSOL=<solver> PICATPATH=<picat>/lib2 emu/picat subsetcard.pi 10
+% With cp:  emu/picat subsetcard.pi 10        (after the import swap)
+
+import pb, os.
+
+main([NS]) =>
+    N = NS.to_int,
+    (PI, _S) = fisher_yates(N, 20260501),
+    Ones = [[I, J] : I in 1..N, J in 1..N,
+            (J - PI[I] + N) mod N in 0..3],
+    Jx = cond(PI[1] + 4 =< N, PI[1] + 4, PI[1] + 4 - N),
+    Ones2 = Ones ++ [[1, Jx]],
+    M = Ones2.length,
+    X = new_array(M),
+    X :: 0..1,
+    foreach (I in 1..N)
+        Idx = [K : K in 1..M, Ones2[K, 1] == I],
+        LB = (Idx.length + 1) // 2,
+        sum([X[K] : K in Idx]) #>= LB
+    end,
+    foreach (J in 1..N)
+        Idx = [K : K in 1..M, Ones2[K, 2] == J],
+        UB = Idx.length // 2,
+        sum([X[K] : K in Idx]) #<= UB
+    end,
+    bp.c_wall_ms(T0),
+    ( solve(X) ->
+        bp.c_wall_ms(T1),
+        printf("SAT: the pattern is satisfiable (%d ones, %d ms)%n", M, T1 - T0)
+    ;
+        bp.c_wall_ms(T1),
+        printf("UNSAT: the pattern is not satisfiable (%d ones, %d ms)%n", M, T1 - T0)
+    ).
+
+lcg(S) = (6364136223846793005 * S + 1442695040888963407) mod 18446744073709551616.
+
+% Fisher-Yates shuffle of 1..N with the LCG; returns (array, state)
+fisher_yates(N, S0) = (A, S) =>
+    A = new_array(N),
+    foreach (I in 1..N)
+        A[I] := I
+    end,
+    S := S0,
+    foreach (I in N..-1..2)
+        S := lcg(S),
+        J = 1 + S mod I,
+        T = A[I], A[I] := A[J], A[J] := T
+    end.
