@@ -350,11 +350,17 @@ tests: [tools/picat-run.md](tools/picat-run.md).
 `import pb.` lets a solver see pseudo-Boolean constraints in their
 native form: the OPB text is emitted directly from the store, so an
 external pseudo-Boolean solver (roundingsat, env `PBSOL`) sees the
-linear structure. So far this accelerates a single problem class:
-the pigeon-hole principle, where clausal encodings are exponential
-for CDCL solvers — PHP(10) falls in ~17 ms where the clausal
-encoding takes ~1.6 s, and at N=12 the clausal path takes >300 s
-where the OPB form stays ~10 ms. Requirements, usage and examples:
+linear structure. The acceleration class is counting arguments: five
+measured families — pigeon hole, perfect matching on an odd vertex
+count, the mutilated chessboard, even colouring, subset cardinality —
+where the OPB form IS the UNSAT proof and the direct clausal encoding
+is exponential for CDCL solvers (PHP(10): ~17 ms vs ~1.6 s for kissat
+on the raw clause set; at N=12 the clausal path takes >300 s where
+the OPB form stays ~10 ms). Caveat: the built-in sat and cp paths do
+NOT use the direct encoding — their lowering of the cardinality
+constraints carries the counting in auxiliary structure, so they
+answer in milliseconds too; the exponential separation shows only
+against direct clausal encodings. Requirements, usage and examples:
 [exs/pb/README.md](exs/pb/README.md).
 
 
