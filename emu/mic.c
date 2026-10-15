@@ -378,6 +378,8 @@ compare_struct_struct: {
         ptr2 = (BPLONG_PTR)UNTAGGED_ADDR(val2);
         sym_ptr1 = (SYM_REC_PTR)(FOLLOW(ptr1));
         sym_ptr2 = (SYM_REC_PTR)(FOLLOW(ptr2));
+        c = comalpha(sym_ptr1, sym_ptr2);
+        if (c) return c;
         a = GET_ARITY(sym_ptr1);
         b = GET_ARITY(sym_ptr2);
         if (a != b) {
@@ -391,8 +393,6 @@ compare_struct_struct: {
             }
             return BP_COMPARE_VALS(a, b);
         }
-        c = comalpha(sym_ptr1, sym_ptr2);
-        if (c) return c;
         for (b = 1; b <= a; b++) {
             c = bp_compare(FOLLOW(ptr1+b), FOLLOW(ptr2+b));
             if (c) break;
