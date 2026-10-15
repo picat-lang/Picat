@@ -124,7 +124,7 @@ Table \ref{tab:arithdef} gives the meaning of each of the numeric operators in P
  \texttt{$X$ rem $Y$} &  remainder ($X$ - ($X$ // $Y$) * $Y$) \\ \hline 
  \texttt{$X$ + $Y$} & addition \\ \hline 
  \texttt{$X$ - $Y$} &   subtraction \\ \hline 
- \texttt{$X$ $>$$>$ $Y$}  &  right shift \\ \hline 
+ \texttt{$X$ $>$$>$ $Y$}\footnote{As in the C language, oversized right shift, meaning that $Y$ is negative or larger than $X$'s bit length, is undefined.}   &  right shift \\ \hline 
  \texttt{$X$ $<$$<$ $Y$}  &  left shift \\ \hline 
  {\tt $X$ \verb+/\+ $Y$}  &   bitwise and \\ \hline 
  {\tt $X$ \verb+^+ $Y$} &   bitwise xor \\ \hline
@@ -155,7 +155,7 @@ but it does not create the list.
 \item \texttt{min($X$, $Y$) = $Val$}\index{\texttt{min/2}}: This function returns the minimum of $X$ and $Y$, where $X$ and $Y$ are terms.
 \item \texttt{minint\_small() = $Int$}\index{\texttt{minint\_small/0}}: This function returns the minimum integer that is represented in one word. All integers that are smaller than this integer are represented as \textit{big integers}.
 \item \texttt{number($Term$)}\index{\texttt{number/1}}: This predicate is true if $Term$ is a number\index{number}.
-\item \texttt{number\_chars($Num$) = $String$}\index{\texttt{number\_chars/1}}: This function returns a list\index{list} of characters of $Num$. This function is the same as \texttt{to\_fstring("\%d", $Num$)}\index{\texttt{to\_fstring}} if $Num$ is an integer\index{integer}, and the same as \texttt{to\_fstring("\%g", $Num$)}\index{\texttt{to\_fstring}} if $Num$ is a real number\index{number}.
+\item \texttt{number\_chars($Num$) = $String$}\index{\texttt{number\_chars/1}}: This function returns a list\index{list} of characters of $Num$. This function is the same as \texttt{to\_fstring("\%d", $Num$)}\index{\texttt{to\_fstring}} if $Num$ is an integer\index{integer}, and is similar to \texttt{to\_fstring("\%g", $Num$)}\index{\texttt{to\_fstring}} if $Num$ is a real number\index{number}.
 \item \texttt{number\_codes($Num$) = $List$}\index{\texttt{number\_codes/1}}: This function returns a list\index{list} of codes of the characters of $Num$. It is the same as \texttt{number\_chars($Num$).to\_codes()}\index{\texttt{number\_chars/1}}\index{\texttt{to\_codes/1}}.
 \item \texttt{real($Term$)}\index{\texttt{real/1}}: This predicate is the same as \texttt{float($Term$)}\index{\texttt{float/1}}.
 \item \texttt{to\_binary\_string($Int$) = $String$}\index{\texttt{to\_binary\_string/1}}: This function returns the binary representation of the integer\index{integer} $Int$ as a string\index{string}.
