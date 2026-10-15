@@ -59,14 +59,18 @@ Notes:
 
 - examples that open data files by bare name (`nn_*`, some `euler_*`)
   preload those files at the wasm FS root; for the native side the harness
-  symlinks the same basenames into `headless/native_cwd/` and runs the
+  COPIES the same basenames into `headless/native_cwd/` and runs the
   binary there (paths are generated from `DATA_SRC` in `webasm/Makefile`).
+  Copies, never symlinks: some nn examples save their trained nets over
+  the data files (`nn_xor_train_file` writes `xor.net`), and a symlink
+  would corrupt the repo copies (this has happened).
+- each native run further runs in a fresh private copy of
+  `headless/native_cwd/` (a temp dir): with concurrent workers, one
+  example writing a data file would race with another reading it (this
+  made `nn_xor_test` flaky under `--workers 32` before the private cwd).
 - the native binary exits non-zero (and in some FANN error paths segfaults)
   when a data file is missing; the wasm side reports a normal picat error.
   That asymmetry only bites outside the harness setup above.
-- `*` marks an example where at least one measured run (either side)
-  failed; such rows are excluded from the statistics. Under 32-way
-  parallelism an occasional transient failure is normal (see below).
 
 ## Results (2026-08-21, x86_64, 384 cores, 32 workers, median of 3 runs)
 

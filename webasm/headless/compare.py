@@ -32,9 +32,11 @@ import csv
 import math
 import os
 import re
+import shutil
 import statistics
 import subprocess
 import sys
+import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -92,28 +94,42 @@ def make_native_cwd():
     The wasm runtime preloads every DATA_SRC file at the root of its
     emulated filesystem and the wasm CWD is "/", so the examples open
     their data files by bare name.  A native run must therefore happen
-    in a directory containing those same files; symlinks keep it
-    updated with the Makefile."""
+    in a directory containing those same files.  The files are COPIES,
+    never symlinks: some nn examples save their trained nets over the
+    data files (nn_xor_train_file writes xor.net), and a symlink would
+    corrupt the repo copy."""
     d = os.path.join(HERE, 'native_cwd')
     webasm = os.path.abspath(os.path.join(HERE, os.pardir))
     os.makedirs(d, exist_ok=True)
     for s in preload_sources():
         target = os.path.join(webasm, s)
         link = os.path.join(d, os.path.basename(s))
-        if os.path.exists(target) and not os.path.lexists(link):
-            os.symlink(target, link)
+        if os.path.exists(target):
+            if os.path.lexists(link):
+                os.unlink(link)
+            shutil.copyfile(target, link)
     return d
 
 
 def native_once(path):
-    """One native run: returns (rc, ms)."""
+    """One native run: returns (rc, ms).
+
+    Runs in a fresh private copy of NATIVE_CWD: some nn examples save
+    their trained nets over the data files (nn_xor_train_file writes
+    xor.net), so a shared cwd would corrupt data for concurrent runs
+    and fail the readers (this is what made nn_xor_test flaky)."""
     # lib2:lib -- the udf modules live in lib2/, cp2/sat2 in lib/ (their
     # example headers document PICATPATH=lib from the repo root).
     env = dict(os.environ, PICATPATH=os.path.join(ROOT, 'lib2') + ':' + os.path.join(ROOT, 'lib'))
-    t0 = time.monotonic()
-    p = subprocess.run([NATIVE, path], stdout=subprocess.DEVNULL,
-                       stderr=subprocess.DEVNULL, env=env, cwd=NATIVE_CWD)
-    ms = int((time.monotonic() - t0) * 1000)
+    cwd = tempfile.mkdtemp(prefix='nativecwd.')
+    shutil.copytree(NATIVE_CWD, cwd, dirs_exist_ok=True)
+    try:
+        t0 = time.monotonic()
+        p = subprocess.run([NATIVE, path], stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, env=env, cwd=cwd)
+        ms = int((time.monotonic() - t0) * 1000)
+    finally:
+        shutil.rmtree(cwd, ignore_errors=True)
     return p.returncode, max(ms, 1)
 
 
