@@ -345,6 +345,19 @@ and `${PICAT:-picat}` as the interpreter. Design, installation and
 tests: [tools/picat-run.md](tools/picat-run.md).
 
 
+## 8. Pseudo-Boolean constraints — new module `pb` (not preloaded)
+
+`import pb.` lets a solver see pseudo-Boolean constraints in their
+native form: the OPB text is emitted directly from the store, so an
+external pseudo-Boolean solver (roundingsat, env `PBSOL`) sees the
+linear structure. So far this accelerates a single problem class:
+the pigeon-hole principle, where clausal encodings are exponential
+for CDCL solvers — PHP(10) falls in ~17 ms where the clausal
+encoding takes ~1.6 s, and at N=12 the clausal path takes >300 s
+where the OPB form stays ~10 ms. Requirements, usage and examples:
+[exs/pb/README.md](exs/pb/README.md).
+
+
 __Current version 3.9#12.__
 
 Picat is a simple, and yet powerful, logic-based
