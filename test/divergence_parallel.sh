@@ -82,7 +82,8 @@ run_job() {  # lab dir name
     if [ "$lab" = pb ]; then
         ARGS=""
         case "$name" in php.pi|php_matrix.pi) ARGS="8 9" ;; esac
-        ( cd "$out/pb" && PICATPATH="$(dirname "$exp")/../lib2" PBSOL="$pbsol" \
+        ( cd "$out/pb" && LD_LIBRARY_PATH="${BOOST185:-/home/jovyan/snapshotable/q38fokus/scratch/boost185}" \
+          PICATPATH="$(dirname "$exp")/../lib2" PBSOL="$pbsol" \
           FDN=1 timeout "$tmo" "$exp" "$name" $ARGS ) > "$out/$lab.$base.exp.out" 2>&1
         erc=$?
         if [ "$erc" -eq 0 ]; then tag="PASS"
