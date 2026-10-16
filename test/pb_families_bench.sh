@@ -38,8 +38,10 @@ TIMEOUT=${TIMEOUT:-60}
 WORK=${WORK:-scratch/pbfam}
 
 # the stale-.qi guard: a compiled lib2/pb.qi shadows an edited
-# lib2/pb.pi (the loader does not refresh it), so start clean
-rm -f lib2/pb.qi
+# lib2/pb.pi (the loader does not refresh it), so start clean; the
+# same-second edit+run race in the swap loop also leaves work-dir
+# .qi files, so remove those too
+rm -f lib2/pb.qi "$WORK"/*.qi
 
 mkdir -p "$WORK"
 
