@@ -313,22 +313,24 @@ executable and is loaded at start-up.
 
 Every cp `solve/1,2` checks the live constraint network: if it is fully
 supported, the whole search runs natively on all cores and the solutions
-come back in exactly Picat 3.9#12's own order (including the exact
+come back in exactly the base interpreter's own order (including the exact
 `backtracks` count); anything else falls back to Picat's own labeling,
 unchanged.  A bare cp `solve` inside `count_all` is counted natively, in
 parallel.  Programs run unchanged.
 
-Environment variables: `FDN` unset or `0` hook off (exactly Picat
-3.9#12, the default), `FDN=1` opt in to the native fd solver,
+Environment variables: `FDN` unset or `0` hook off (exactly the base
+interpreter, the default), `FDN=1` opt in to the native fd solver,
 `FDN_MAXVAR=n` cap on the network's variables and frames above which
 the native path is refused and Picat's own labeling runs (default
 200000; `0` = no cap), `FDN_COUNT=0` no native `count_all`,
 `FDN_THREADS=n` threads per search, `FDN_VERBOSE=1` per-solve report
 on stderr, `FDN_SPAWN=n` pool after n nodes.
 
-Top speedups (vs Picat 3.9#12): queens-15 with `count_all` **71x**,
+Top speedups (measured against the stock Picat 3.9#12 binary when the
+base was 3.9#13; re-verify against the stock 4.0 binary for current
+figures): queens-15 with `count_all` **71x**,
 kakuro solved 1000 times **33x** (single-threaded — posting cost),
-pigeon 13/12 **>28x** (Picat 3.9#12 does not finish in 300 s),
+pigeon 13/12 **>28x** (the stock binary does not finish in 300 s),
 weighted 14-queens branch and bound **9.5x** (native B&B; the option lists
 `$min(O)`, `updown`, `split`, `ffc` all went native).
 
@@ -364,7 +366,9 @@ against direct clausal encodings. Requirements, usage and examples:
 [exs/pb/README.md](exs/pb/README.md).
 
 
-__Current version 3.9#12.__
+__Current version 4.0b8__ (the experimental branch carries the upstream 4.0b8
+standard-library blob and the 4.0 C sources, merged from `main`; the interpreter
+banner reports the build commit and the base version).
 
 Picat is a simple, and yet powerful, logic-based
 multi-paradigm programming language aimed for
