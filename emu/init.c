@@ -122,7 +122,7 @@ void init_toam(int argc, char *argv[])
                     exit(0);
                 } else if (*(str+2) == 'v' || strcmp(str+2, "version") == 0) {
                     printf("Picat experimental, built on %s (commit %s), "
-                           "based on Picat 3.9#13\n", PICAT_BUILD_DATE,
+                           "based on Picat 4.0b8\n", PICAT_BUILD_DATE,
                            PICAT_BUILD_COMMIT);
                     exit(0);
                 }
@@ -259,9 +259,9 @@ void init_toam(int argc, char *argv[])
     init_picat_global_maps();
 
 #ifdef WIN32
-        picat_terminal = fopen("CON", "r");
+    picat_terminal = fopen("CON", "r");
 #else
-        picat_terminal = fopen("/dev/tty", "r");
+    picat_terminal = fopen("/dev/tty", "r");
 #endif
 
     inst_begin = 0;

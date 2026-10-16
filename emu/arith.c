@@ -621,6 +621,14 @@ BPLONG bp_math_idiv_div(BPLONG op1, BPLONG op2)
     }
 }
 
+/* y != 0 */
+static INLINE BPLONG python_mod(BPLONG x, BPLONG y) {
+    BPLONG r = x%y;
+    if (r != 0 && ((r < 0) != (y < 0)))
+        r += y;
+    return MAKEINT(r);
+}
+
 BPLONG bp_math_mod(BPLONG op1, BPLONG op2)
 {
     BPLONG_PTR top;
@@ -645,7 +653,7 @@ BPLONG bp_math_mod(BPLONG op1, BPLONG op2)
                 bp_exception = et_ZERO_DIVISOR; return BP_ERROR;
             }
             if (op1 > 0 && op2 > 0) {
-                return MAKEINT(op1%op2);
+                return python_mod(op1, op2);
             }
             if (BP_IN_28B_INT_RANGE(op1) && BP_IN_28B_INT_RANGE(op2)) {
                 f = (double)op1/(double)op2;
@@ -671,7 +679,7 @@ BPLONG bp_math_mod(BPLONG op1, BPLONG op2)
             }
 #ifdef M64BITS
             i = bp_bigint_to_native_long(op1);
-            if (i != 0) return MAKEINT(i%op2);
+            if (i != 0) return python_mod(i, op2);
 #endif
             return bp_mod_bigint_bigint(op1, bp_int_to_bigint(op2));
         } else if (IS_BIGINT(op2)) {
@@ -1731,7 +1739,9 @@ BPLONG bp_math_pow(BPLONG op1, BPLONG op2)
         op1 = INTVAL(op1);
         if (ISINT(op2)) {
             op2 = INTVAL(op2);
-            if (op2 >= 0) {
+            if (op2 == 0) {
+                return BP_ONE;
+            } else if (op2 > 0) {
                 BPLONG res = bp_pow_int_int(op1, op2);
                 if (res == BP_ERROR) res = bp_pow_bigint_int(bp_int_to_bigint(op1), op2);
                 return res;
@@ -1758,7 +1768,9 @@ BPLONG bp_math_pow(BPLONG op1, BPLONG op2)
     } else {
         if (ISINT(op2)) {
             op2 = INTVAL(op2);
-            if (op2 >= 0) {
+            if (op2 == 0) {
+                return BP_ONE;
+            } else if (op2 > 0) {
                 return bp_pow_bigint_int(op1, op2);
             } else {
                 f1 = bp_bigint_to_double(op1);

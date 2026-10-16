@@ -1440,7 +1440,7 @@ START:
     case LISQT:
         /* check for potential heap overflow */
         list_head = newpair = heap_top;
-         while ((d = read_utf8_character(card, c)) >= 0) {
+        while ((d = read_utf8_character(card, c)) >= 0) {
             if (local_top-heap_top <= LARGE_MARGIN) {
                 myquit(STACK_OVERFLOW, "tk");
             }
@@ -2149,9 +2149,9 @@ int c_report_syntax_error() {
 
     NTokensBefore = ARG(1, 1); DEREF(NTokensBefore); NTokensBefore = INTVAL(NTokensBefore);
 /*
-      printf("report_syntax_error %d\n", NTokensBefore);
-      printf("term_start_pool_index = %ld\n", term_start_pool_index);
-      printf("chars_pool_index = %ld\n",  chars_pool_index);
+  printf("report_syntax_error %d\n", NTokensBefore);
+  printf("term_start_pool_index = %ld\n", term_start_pool_index);
+  printf("chars_pool_index = %ld\n",  chars_pool_index);
 */
     if (NTokensBefore > MAX_TOKENS_IN_TERM){
         NTokensBefore = 0;
@@ -2171,7 +2171,7 @@ int c_report_syntax_error() {
         }
         fputc(chars_pool[i], stderr);
         if (chars_pool[i] == '\n'){
-             char_no = 0; 
+            char_no = 0; 
             if (here_out == 1) line_count++;
         } else char_no++;
     }

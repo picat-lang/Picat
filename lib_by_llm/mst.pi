@@ -1,0 +1,56 @@
+/*
+by ChatGPT with the following prompt:
+
+Implement a predicate  in Picat named mst(Vs,  Es, TreeEs, Cost), where  Vs is a
+set of vertices represented as a list of ground terms, Es is a set of edges each
+of which has the form {V1,V2,Weight}, TreeEs is a variable to be bound to a list
+of edges in a minimum spanning tree of  the weighted graph G = (Vs, Es) and Cost
+is bound to the cost of the minimum spanning tree.
+
+Picat> mst([a,b,c], [{a,b,4},{a,c,1},{b,c,2}], TreeEs, Cost).
+*/
+
+mst(Vs, Es, TreeEs, Cost) =>
+    Parent = new_map(),
+    Size = new_map(),
+    foreach (V in Vs)
+        Parent.put(V, V),
+        Size.put(V, 1)
+    end,
+
+    Chosen = [],
+    Total = 0,
+    Components = Parent.size(),
+
+    foreach (E in sort(Es, 3))
+        {U, V, W} = E,
+        RU = mst_root(Parent, U),
+        RV = mst_root(Parent, V),
+
+        if RU != RV then
+            % Attach the smaller component to the larger one.
+            SU = Size.get(RU),
+            SV = Size.get(RV),
+            if SU < SV then
+                Parent.put(RU, RV),
+                Size.put(RV, SU + SV)
+            else
+                Parent.put(RV, RU),
+                Size.put(RU, SU + SV)
+            end,
+            Chosen := [E | Chosen],
+            Total := Total + W,
+            Components := Components - 1
+        end
+    end,
+
+    % Fail if the graph is disconnected.
+    Components =< 1,
+    TreeEs = reverse(Chosen),
+    Cost = Total.
+
+mst_root(Parent, V) = Root =>
+    Root = V,
+    while (Parent.get(Root) != Root)
+        Root := Parent.get(Root)
+    end.

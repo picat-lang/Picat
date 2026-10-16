@@ -11,7 +11,7 @@
 }
 \chapter{How to Use the Picat System}
 \section{How to Use the Picat Interpreter}
-The Picat system is written in both C and Picat. The Picat interpreter is provided as a single standalone executable file, named \texttt{picat.exe} for Windows and \texttt{picat} for Unix. The Picat interpreter provides an interactive programming environment for users to compile, load, debug, and execute programs. In order to start the Picat interpreter, users first need to open an OS terminal. In Windows, this can be done by selecting \verb+Start -> Run+ and typing \verb+cmd+ or selecting \verb+Start -> Programs -> Accessories -> Command Prompt+.  In order to start the Picat interpreter in any working directory, the environment variable \texttt{path} must be properly set to contain the directory where the executable is located.
+The Picat system is written in both C and Picat. The Picat interpreter is provided as a single standalone executable file, named \texttt{picat.exe} for Windows and \texttt{picat} for Unix. The Picat interpreter provides an interactive programming environment for users to compile, load, debug, and execute programs. In order to start the Picat interpreter, users first need to open an OS terminal. In Windows, this can be done by selecting \verb+Start -> Run+ and typing \verb+cmd+ or selecting \verb+Start -> Programs -> Accessories -> Command Prompt+.  In order to start the Picat interpreter in any working directory, the environment variable \texttt{PATH} must be properly set to contain the directory where the executable is located.
 
 \subsection{How to Enter and Quit the Picat Interpreter}
 The Picat interpreter is started with the OS command \texttt{picat}\index{\texttt{picat}}. 
@@ -26,13 +26,13 @@ In general, the \texttt{picat} command takes the following form:
 aa \= aaa \= aaa \= aaa \= aaa \= aaa \= aaa \kill
 \> \texttt{picat $Opts$ $PicatMainFileName$ $A_1$ $A_2$ $\ldots$ $A_n$}
 \end{tabbing}
-where $PicatMainFileName$ can have the extension \texttt{.pi} and can contain a path of directories, and $Opts$ is a sequence of options of the following:
+where $PicatMainFileName$ can have the extension \texttt{.pi} and can contain a path of directories, and $Opts$ is a sequence of the following options:
 \begin{itemize}
 \item \texttt{-d}: This option puts Picat in debug mode after Picat is started. In debug mode, execution can be traced, and the stack trace is printed once an error occurs.
 
 \item \texttt{-g $InitGoal$}: This option makes Picat execute a specified initial query $InitGoal$ rather than the default \texttt{main} predicate.
 
-\item \texttt{--help}: Print out the help info.
+\item \texttt{--help}: Display help info.
 
 \item \texttt{-log}: The option \texttt{-log} makes the system print log information and warning messages. 
 
@@ -40,8 +40,8 @@ where $PicatMainFileName$ can have the extension \texttt{.pi} and can contain a 
 
 \item \texttt{-s $Size$}: This option reserves $Size$ words for the stack and the heap when the system is started.
 
-\item \texttt{--v}:
-\item \texttt{--version}: This option makes Picat print the version number.
+\item \texttt{--v}: This option makes Picat print the version number.
+\item \texttt{--version}: This option is the same as \texttt{--v}.
 \end{itemize}
 
 Once the interpreter is started, users can type a query after the prompt. For example,
@@ -56,7 +56,7 @@ Users can change the prompt by using the query \texttt{prompt($NewPrompt$)}\inde
 \begin{verbatim}
       prompt("?-")
 \end{verbatim}
-changes the prompt to \verb+?-+. The \texttt{help}\index{\texttt{help/0}} predicate shows the usages of the main commands.
+changes the prompt to \verb+?-+. The \texttt{help}\index{\texttt{help/0}} predicate shows how to use the main commands.
 }
 
 The \texttt{halt}\index{\texttt{halt/0}} predicate, or the \texttt{exit}\index{\texttt{exit/0}} predicate, terminates the Picat interpreter. An alternative way to terminate the interpreter is to enter \verb+ctrl-d+ (control-d) when the cursor is located at the beginning of an empty line.
@@ -71,7 +71,7 @@ The \texttt{picat} command can also be used to run a program directly. Consider 
     main(Args) =>
         printf("hello picat"),
         foreach (Arg in Args)
-            printf(" %s",Arg)
+            printf(" %s", Arg)
         end,
         nl.
 \end{verbatim}
@@ -109,10 +109,10 @@ The Picat interpreter uses the \texttt{getline} program written by Chris Thewalt
 \end{tabular}
 
 \noindent
-Note that the command \verb+ctrl-d+ terminates the interpreter if the line is empty and the cursor is located in the beginning of the line.
+Note that the command \verb+ctrl-d+ terminates the interpreter if the line is empty and the cursor is located at the beginning of the line.
 
 \subsection{How to Compile and Load Programs}
-A Picat program is stored in one or more text files with the extension name \texttt{pi}. A file name\index{file name} is a string of characters. Picat treats both  \verb+'/'+ and \verb+'\'+ as file name\index{file name} separators. Nevertheless, since \verb+'\'+ is used as the escape character in quoted strings, two consecutive backslashes must be used, as in \verb+"c:\\work\\myfile.pi"+, if \verb+'\'+ is used as the separator.
+A Picat program is stored in one or more text files with the extension name \texttt{pi}. A file name is a string of characters. Picat treats both  \verb+'/'+ and \verb+'\'+ as path separators. Nevertheless, since \verb+'\'+ is used as the escape character in quoted strings, two consecutive backslashes must be used, as in \verb+"c:\\work\\myfile.pi"+, if \verb+'\'+ is used as the separator.
 
 A program file can contain \texttt{include} directives of the form:\index{\texttt{include} directive}
 \begin{tabbing}
@@ -134,7 +134,7 @@ For the sake of demonstration we assume the existence of a file named \texttt{we
 \end{verbatim}
 
 \begin{itemize}
-\item \texttt{cl($FileName$)}: A program first needs to be compiled and loaded into the system before it can be executed. The built-in predicate \texttt{cl($FileName$)}\index{\texttt{cl/1}} compiles and loads the source file named \texttt{$FileName$.pi}. Note that if the full path of the file name\index{file name} is not given, then the file is assumed to be in the current working directory. Also note that users do not need to give the extension name. The system compiles and loads not only the source file \texttt{$FileName$.pi}, but also all of the module files\index{module file} that are either directly imported or indirectly imported by the source file. The system searches for such dependent files in the directory in which \texttt{$FileName$.pi} resides or the directories that are stored in the environment variable\index{environment variable} \texttt{PICATPATH}. For \texttt{$FileName$.pi}, the \texttt{cl} command loads the generated byte-codes without creating a byte-code file. For example,
+\item \texttt{cl($FileName$)}: A program first needs to be compiled and loaded into the system before it can be executed. The built-in predicate \texttt{cl($FileName$)}\index{\texttt{cl/1}} compiles and loads the source file named \texttt{$FileName$.pi}. Note that if the full path of the file name\index{file name} is not given, then the file is assumed to be in the current working directory. Also note that users do not need to give the extension name. The system compiles and loads not only the source file \texttt{$FileName$.pi}, but also all of the module files\index{module file} that are either directly imported or indirectly imported by the source file. The system searches for such dependent files in the directory in which \texttt{$FileName$.pi} resides or the directories that are stored in the environment variable\index{environment variable} \texttt{PICATPATH}. For \texttt{$FileName$.pi}, the \texttt{cl} command loads the generated bytecodes without creating a bytecode file. For example,
 \begin{verbatim}
 Picat> cl("welcome")
 Compiling:: welcome.pi
@@ -143,7 +143,7 @@ welcome.pi compiled in 4 milliseconds
 
 \item \texttt{cl}: The built-in predicate \texttt{cl}\index{\texttt{cl/0}} (with no argument) compiles and loads a program from the console, ending when the end-of-file character ({\tt ctrl-z} for Windows and {\tt ctrl-d} for Unix) is typed.
 
-\item \texttt{compile($FileName$)}: The built-in predicate \texttt{compile($FileName$)}\index{\texttt{compile/1}} compiles the file \texttt{$FileName$.pi} and all of its dependent module files\index{module file} without loading the generated byte-code files. The destination directory for the byte-code file is the same as the source file's directory. If the Picat interpreter does not have permission to write into the directory in which a source file resides, then this built-in throws an exception. For example,
+\item \texttt{compile($FileName$)}: The built-in predicate \texttt{compile($FileName$)}\index{\texttt{compile/1}} compiles the file \texttt{$FileName$.pi} and all of its dependent module files\index{module file} without loading the generated bytecode files. The destination directory for the bytecode file is the same as the source file's directory. If the Picat interpreter does not have permission to write into the directory in which a source file resides, then this built-in throws an exception. For example,
 
 \begin{verbatim}
 Picat> compile("welcome")
@@ -151,7 +151,7 @@ Compiling::welcome.pi
 welcome.pi compiled in 4 milliseconds
 \end{verbatim}
 
-\item \texttt{load($FileName$)}: The built-in predicate \texttt{load($FileName$)}\index{\texttt{load/1}} loads the byte-code file \texttt{$FileName$.qi} and all of its dependent byte-code files. For $FileName$ and its dependent file names\index{file name},  the system searches for a byte-code file in the directory in which \texttt{$FileName$.qi} resides or the directories that are stored in the environment variable\index{environment variable} \texttt{PICATPATH}. If the byte-code file \texttt{$FileName$.qi} does not exist but the source file \texttt{$FileName$.pi} exists, then this built-in compiles the source file and loads the byte codes without creating a {\tt qi} file.
+\item \texttt{load($FileName$)}: The built-in predicate \texttt{load($FileName$)}\index{\texttt{load/1}} loads the bytecode file \texttt{$FileName$.qi} and all of its dependent bytecode files. For $FileName$ and its dependent file names\index{file name},  the system searches for a bytecode file in the directory in which \texttt{$FileName$.qi} resides or the directories that are stored in the environment variable\index{environment variable} \texttt{PICATPATH}. If the bytecode file \texttt{$FileName$.qi} does not exist but the source file \texttt{$FileName$.pi} exists, then this built-in compiles the source file and loads the bytecodes without creating a {\tt qi} file.
 
 \begin{verbatim}
 Picat> load("welcome")
@@ -178,7 +178,7 @@ yes
 
 Users can ask the system to find the next solution by typing \texttt{';'} after a solution if the query has multiple solutions. For example,
 \begin{verbatim}
-    Picat> member(X,[1,2,3])
+    Picat> member(X, [1,2,3])
     X = 1;
     X = 2;
     X = 3;
@@ -187,7 +187,7 @@ Users can ask the system to find the next solution by typing \texttt{';'} after 
 Users can force a program to terminate by typing \texttt{ctrl-c}, or by letting it execute the built-in predicate \texttt{abort}\index{\texttt{abort/0}}. Note that when the system is engaged in certain tasks, such as garbage collection, users may need to wait for a while in order to see the termination after they type \texttt{ctrl-c}.
 
 \subsection{How to Run Programs Directly}
-Programs that define the \texttt{main/0} predicate or the \texttt{main/1} predicate can be run directly as a OS command. For example,
+Programs that define the \texttt{main/0} predicate or the \texttt{main/1} predicate can be run directly as an OS command. For example,
 \begin{verbatim}
 $ picat welcome
  Welcome to PICAT's world!
@@ -208,7 +208,7 @@ It is possible to create a script that can be run as a standalone executable.\in
 picat welcome.pi
 echo " Finished!"
 \end{verbatim}
-Once the environment variables \texttt{PATH} and \texttt{PICATPATH} are set properly, and the script is set to have the execution permission, it can be executed as follows:
+Once the environment variables \texttt{PATH} and \texttt{PICATPATH} are set properly, and the script has execute permission, it can be executed as follows:
 
 \begin{verbatim}
 $ welcome.exe 
@@ -260,7 +260,7 @@ Assume the program is stored in a file named \texttt{myprog.pi}. The following s
  no
 \end{verbatim}
 
-In trace mode\index{trace mode}, the debugger displays every call in every possible stage. Users can set \emph{spy points}\index{spy point} so that the debugger only shows information about calls of the symbols that users are spying. Users can use the predicate 
+In trace mode\index{trace mode}, the debugger displays every call in every possible stage. Users can set \emph{spy points}\index{spy point} so that the debugger only shows information about calls of the symbols on which users have set spy points. Users can use the predicate 
 \begin{tabbing}
 aa \= aaa \= aaa \= aaa \= aaa \= aaa \= aaa \kill
 \> \texttt{spy \$$Name$/$N$}\index{\texttt{spy/1}} 
@@ -277,14 +277,14 @@ The script file \texttt{picate}\index{\texttt{picate}} executes a Picat program 
 aa \= aaa \= aaa \= aaa \= aaa \= aaa \= aaa \kill
 \> \texttt{picate -path $Path_1$;$\ldots$;$Path_n$  -debug $FileName$ $Arg_1$ $\ldots$ $Arg_m$ }\index{\texttt{picate}}
 \end{tabbing}
-where the option \texttt{path} specifies the paths where byte code files are searched, and the option \texttt{debug} tells the system to load \texttt{dbpi} byte code files rather than optimized \texttt{pi} files. Although users cannot use the debugger when running a standalone application in debug mode\index{debug mode}, users can view the stack trace in case an uncaught exception occurs during the execution. The command takes exactly one file name\index{file name} $FileName$. The $FileName$'s byte code file and all of its dependent byte code files will be loaded. The system will search for the byte code files in the paths that are specified in the command. If no path is given, then the system searches the paths that are included in the environment variable\index{environment variable} \texttt{\$PICATPATH}. The command can also take several arguments after the file name\index{file name}. The file of $FileName$ must contain a predicate named \texttt{main($Args$)}, where $Args$ is a list. All of the command arguments $Arg_1$ $\ldots$ $Arg_m$ will be passed to the \texttt{main} predicate as a list of strings.
+where the option \texttt{path} specifies the paths where bytecode files are searched, and the option \texttt{debug} tells the system to load \texttt{dbpi} bytecode files rather than optimized \texttt{pi} files. Although users cannot use the debugger when running a standalone application in debug mode\index{debug mode}, users can view the stack trace in case an uncaught exception occurs during the execution. The command takes exactly one file name\index{file name} $FileName$. The $FileName$'s bytecode file and all of its dependent bytecode files will be loaded. The system will search for the bytecode files in the paths that are specified in the command. If no path is given, then the system searches the paths that are included in the environment variable\index{environment variable} \texttt{\$PICATPATH}. The command can also take several arguments after the file name\index{file name}. The file of $FileName$ must contain a predicate named \texttt{main($Args$)}, where $Args$ is a list. All of the command arguments $Arg_1$ $\ldots$ $Arg_m$ will be passed to the \texttt{main} predicate as a list of strings.
 
 The script file \texttt{picatc}\index{\texttt{picatc}} compiles Picat source files. The command is used in the following way:
 \begin{tabbing}
 aa \= aaa \= aaa \= aaa \= aaa \= aaa \= aaa \kill
 \> \texttt{picatc -path $Path_1$;$\ldots$;$Path_n$ -debug $FileName_1$ $\ldots$ $FileName_n$}\index{\texttt{picatc}}
 \end{tabbing}
-where the options are the same as in the command \texttt{picate}\index{\texttt{picatc}}. The command compiles all of the source files $FileName_1$ $\ldots$ $FileName_n$ and all of their dependent files into byte code files. If the option \texttt{debug} is given, then the debuggable byte code files with the extension name \texttt{dbqi} are generated; otherwise, the optimized byte code files with the extension name \texttt{qi} are generated.
+where the options are the same as in the command \texttt{picate}\index{\texttt{picatc}}. The command compiles all of the source files $FileName_1$ $\ldots$ $FileName_n$ and all of their dependent files into bytecode files. If the option \texttt{debug} is given, then the debuggable bytecode files with the extension name \texttt{dbqi} are generated; otherwise, the optimized bytecode files with the extension name \texttt{qi} are generated.
 
 \section{How to Use the Profiler}
 The built-in predicate \texttt{profile\_src($FileName$)}\index{\texttt{profile\_src/1}}, where $FileNames$ is the main name of a source file, reports the following information about the source file and all of its dependent files:

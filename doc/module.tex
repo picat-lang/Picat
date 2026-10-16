@@ -10,7 +10,7 @@
 \begin{document}
 }
 \chapter{Modules}
-A module is a bundle of predicate and function definitions that are stored in one file. A module forms a name space.  Two definitions can have the same name if they reside in different modules. Because modules avoid name clashes, they are very useful for managing source files of large programs.
+A module is a bundle of predicate and function definitions that are stored in one file. A module forms a namespace.  Two definitions can have the same name if they reside in different modules. Because modules avoid name clashes, they are very useful for managing source files of large programs.
 
 \section{Module and Import Declarations}
 In Picat, source files must have the extension name \texttt{".pi"}.  A module is a source file that begins with a module name declaration in the form:
@@ -25,7 +25,7 @@ In order to use symbols that are defined in another module, users must explicitl
 aa \= aaa \= aaa \= aaa \= aaa \= aaa \= aaa \kill
 \> \texttt{import $Name_1$, $\ldots$, $Name_n$}\index{\texttt{import}}.
 \end{tabbing}
-where each imported $Name_i$ is a module name. For each imported module, the compiler first searches for it in the search path that is specified by the environment variable PICATPATH. If no module is found, the compiler gives an error message. Several modules are imported by default, including  \texttt{basic}, \texttt{io}, \texttt{math},  and \texttt{sys}.
+where each imported $Name_i$ is a module name. For each imported module, the compiler searches for it first in the importing source file’s directory and then in the search path that is specified by the environment variable PICATPATH. If no module is found, the compiler gives an error message. Several modules are imported by default, including  \texttt{basic}, \texttt{io}, \texttt{math},  and \texttt{sys}.
 
 The import relation is not transitive. Suppose that there are three modules: $A$, $B$, and $C$. If $A$ imports $B$ and $B$ imports $C$, then $A$ still needs to import $C$ in order to reference $C$'s symbols.
 
@@ -41,7 +41,7 @@ where $Name$ is a string indicating a file name relative to the program file. Th
 \section{Binding Calls to Definitions}
 The Picat system has a global symbol table\index{symbol table} for atoms, a global symbol table\index{symbol table} for structure names, and a global symbol table\index{symbol table} for modules. For each module, Picat maintains a symbol table\index{symbol table} for the public predicate and function symbols defined in the module. Private symbols that are defined in a module are compiled away, and are never stored in the symbol table\index{symbol table}. While predicate and function symbols can be local to a module, atoms and structures are always global.
 
-The Picat module system is static, meaning that the binding of normal (or non-higher-order) calls to their definitions takes place at compile time. For each call, the compiler first searches the default modules for a definition that has the same name as the call. If no definition is found, then the compiler searches for a definition in the enclosing module. If no definition is found, the compiler searches the imported modules in the order that they were imported. If no definition is found in any of these modules, then the compiler will issue an warning\footnote{A warning is issued instead of an error.  This allows users to test incomplete programs with missing definitions.}, assuming the symbol is defined in  the global module.
+The Picat module system is static, meaning that the binding of normal (or non-higher-order) calls to their definitions takes place at compile time. For each call, the compiler first searches the default modules for a definition that has the same name as the call. If no definition is found, then the compiler searches for a definition in the enclosing module. If no definition is found, the compiler searches the imported modules in the order that they were imported. If no definition is found in any of these modules, then the compiler will issue a warning\footnote{A warning is issued instead of an error.  This allows users to test incomplete programs with missing definitions.}, assuming the symbol is defined in  the global module.
 
 It is possible for two imported modules to contain different definitions that have the same name. When multiple names match a call, the order of the imported items determines which definition is used. Picat allows users to use qualified names to explicitly select a definition. A module-qualified call is a call preceded by a module name and '.' without intervening whitespace. 
 
@@ -52,47 +52,49 @@ module qsort.
 
 sort([]) = [].
 sort([H|T]) = 
-    sort([E : E in T, E =< H]) ++ [H] ++ sort([E : E in T, E > H]).
+  sort([E : E in T, E =< H]) ++ [H] ++ sort([E : E in T, E > H]).
 
 % isort.pi
 module isort.
 
 sort([]) = [].
-sort([H|T]) = insert(H,sort(T)).
+sort([H|T]) = insert(H, sort(T)).
 
 private
-insert(X,[]) = [X].
-insert(X,Ys@[Y|_]) = Zs, X =< Y => Zs = [X|Ys].
-insert(X,[Y|Ys]) = [Y|insert(X,Ys)].
+insert(X, []) = [X].
+insert(X, Ys@[Y|_]) = Zs, X =< Y => Zs = [X|Ys].
+insert(X, [Y|Ys]) = [Y|insert(X,Ys)].
 \end{verbatim}
-The module \texttt{qsort.pi} defines a function named \texttt{sort} using quick sort, and the module \texttt{isort} defines a function of the same name using insertion sort. In the following session, both modules are used.
+The module \texttt{qsort} defines a function named \texttt{sort} using quick sort, and the module \texttt{isort} defines a function of the same name using insertion sort. In the following session, both modules are used.
 \begin{verbatim}
-picat> load("qsort")
-picat> load("isort")
-picat> L = sort([2,1,3])
+Picat> load("qsort")
+Picat> load("isort")
+Picat> L = sort([2,1,3])
 L = [1,2,3]
-picat> L = qsort.sort([2,1,3])
+Picat> L = qsort.sort([2,1,3])
 L = [1,2,3]
-picat> L = isort.sort([2,1,3])
+Picat> L = isort.sort([2,1,3])
 L = [1,2,3]
 \end{verbatim}
 As \texttt{sort} is also defined in the \texttt{basic} module, which is preloaded, that function is used for the command \texttt{L = sort([2,1,3])}.
 
 Module names are just atoms. Consequently, it is possible to bind a variable to a module name. Nevertheless, in a module-qualified call $M.C$, the module name can never be a variable. Recall that the dot notation is also used to access attributes and to call predicates and functions. The notation $M.C$ is treated as a call or an attribute if $M$ is not an atom.
 
-Suppose that users want to define a function named \texttt{generic\_sort(M,L)} that sorts list \texttt{L} using the \texttt{sort} function defined in module \texttt{M}. Users cannot just call \texttt{M.sort(L)}, since \texttt{M} is a variable. Users can, however, select a function based on the value held in \texttt{M} by using function facts\index{function fact} as follows:
+Suppose that users want to define a function named \texttt{generic\_sort(M, L)} that sorts list \texttt{L} using the \texttt{sort} function defined in module \texttt{M}. Users cannot just call \texttt{M.sort(L)}, since \texttt{M} is a variable. Users can, however, select a function based on the value held in \texttt{M} by using function facts\index{function fact} as follows:
 \begin{verbatim}
-generic_sort(qsort,L) = qsort.sort(L).
-generic_sort(isort,L) = isort.sort(L).
+generic_sort(qsort, L) = qsort.sort(L).
+generic_sort(isort, L) = isort.sort(L).
 \end{verbatim}
 
-\section{Binding Higher-Order Calls}\index{higher-order call}
-Because Picat forbids variable module qualifiers and terms in dot notations, it is impossible to create module-qualified higher-order terms. For a higher-order call, if the compiler knows the name of the higher-order term, as in \texttt{findall(X,$member(X,L)$)}\index{\texttt{findall}}\index{\texttt{member/2}}, then it searches for a definition for the name, just like it does for a normal call. However, if the name is unknown, as in \texttt{apply(F,X,Y)}\index{\texttt{apply}}, then the compiler generates code to search for a definition. For a higher-order call to \texttt{call/N} or \texttt{apply/N}, the runtime system searches modules in the following order:
+\section{Binding Higher-order Calls}\index{higher-order call}
+Because Picat forbids variable module qualifiers and terms in dot notations, it is impossible to create module-qualified higher-order terms. For a higher-order call, if the compiler knows the name of the higher-order term, as in \texttt{findall(X, $member(X, L)$)}\index{\texttt{findall}}\index{\texttt{member/2}}, then it searches for a definition for the name, just like it does for a normal call. However, if the name is unknown, as in \texttt{F(X, Y)}, then the compiler generates code to search for a definition. For a higher-order call, the runtime system searches modules in the following order:
 \begin{enumerate}
 \item The implicitly imported built-in modules \texttt{basic}, \texttt{io}, \texttt{math},  and \texttt{sys}.
-\item The current list of loaded modules that is returned by the built-in function call \texttt{loaded\_modules()}, excluding the pre-imported built-in modules.
+\item The current list of loaded modules that is returned by the built-in \texttt{loaded\_modules()}, excluding the pre-imported built-in modules.
 \item The global module.
 \end{enumerate}
+For a module-qualified higher-order call such as \texttt{m.F(X, Y)}, the runtime system first searches module \texttt{m}, followed by the implicitly imported built-in modules and the global module.
+
 As private symbols are compiled away at compile time, higher-order terms can never reference private symbols. Due to the overhead of runtime search, the use of higher-order calls is discouraged.
 
 \ignore{

@@ -555,7 +555,6 @@ trigger_on_handler:{
     }
 }  /* end toam.c */
 
-
 /**************************************************/
 /*
   printEntrance(p)

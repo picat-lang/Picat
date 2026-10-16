@@ -8,14 +8,5 @@ For example, for MacOS, type
 
 make -f Makefile.mac64
 
-The interface between Picat and SCIP, which is supported
-for Linux and MacOS, is not included in the default make
-files. To make Picat including the SCIP interface, type
-
-sh make_picat_scip_linux
-
-or
-
-sh make_picat_scip_mac
-
-
+MIP and SMT solvers are not included. Check the User's Guide
+to see the command that Picat uses to call external solvers.

@@ -6824,6 +6824,7 @@ lab_throw_ball:
                     catch_all_flag = FOLLOW(btm_ptr);
                     except = FOLLOW(btm_ptr-3);
                     if ((catch_all_flag == BP_ONE || b == af) && is_UNIFIABLE(op1, except)) {  /* this catcher catches the exception */
+//                        resetPlanSubgoal();
                         FOLLOW(op2) = ADDTAG((BPULONG)stack_up_addr-(BPULONG)b, INT_TAG);
                         CONTCASE;
                     }
@@ -8847,6 +8848,9 @@ lab_table_produce:
     if ((BPLONG)answer_table & 0x1) {  // has one answer 
         answer = (BPLONG_PTR)UNTAGGED_ADDR(answer_table);
         if (opt_arg_index == 0) {
+            if (table_card == 1) {  /* the current tabled call is complete now */
+                BACKTRACK;
+            }
             CREATE_ANSWER_TABLE_ADD_ANSWER(stack_arg_ptr, answer, arity, subgoal_entry);
             BACKTRACK;
         } else {
@@ -8862,7 +8866,7 @@ lab_table_produce:
             table_arg_ptr = ANSWER_ARG_ADDR(answer);
             op1 = FOLLOW(stack_arg_ptr-opt_arg_index); DEREF(op1);
             op2 = FOLLOW(table_arg_ptr+opt_arg_index);
-            TABLE_ANS_COMPARE(op1, op2, res);
+            res = bp_compare(op1, op2);
             if (maximize == 0 && res > 0 || maximize == 1 && res < 0){  // worse objective value, discard 
                 BACKTRACK;
             }
@@ -8902,7 +8906,7 @@ lab_table_produce:
         table_arg_ptr = ANSWER_ARG_ADDR(answer);
         op1 = FOLLOW(stack_arg_ptr-opt_arg_index); DEREF(op1);
         op2 = FOLLOW(table_arg_ptr+opt_arg_index);
-        TABLE_ANS_COMPARE(op1, op2, res);
+        res = bp_compare(op1, op2);
         if (maximize == 0 && res > 0 || maximize == 1 && res < 0){  // worse objective value, discard 
             BACKTRACK;
         }
@@ -8919,7 +8923,7 @@ lab_table_produce:
             for (int i = 0; i < bucket_size; i++){
                 FOLLOW(bucket_ptr+i) = (BPLONG)NULL;
             }
-            entryPtr = bucket_ptr+hcode%bucket_size;
+            entryPtr = bucket_ptr + hcode%bucket_size;
             FOLLOW(entryPtr) = (BPLONG)answer;
             ANSWERTABLE_LAST(answer_table) = (BPLONG)answer;
             ANSWER_NEXT_IN_CHAIN(answer) = (BPLONG)NULL;
