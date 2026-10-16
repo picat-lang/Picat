@@ -33,7 +33,14 @@ extern FILE *curr_out;
 #define cv_ge_v 12
 
 #define MAX_NUM_VARS_EQ 551
-/* c+a1*x1+...+an*xn = 0 */
+/* Interval (bounds) consistency for c+a1*x1+...+an*xn = 0. The frame holds the
+   n variables, the n coefficients, c and a type code from b_CONSTR_COES_TYPE.
+   A forward pass computes bounds [tl[i],tu[i]] of the partial sums
+   t(i) = c+a1*x1+...+ai*xi, the last term is narrowed so that t(n) can be 0, and a
+   backward pass narrows each xi. The type selects specialised code: unit
+   coefficients, 0/1 variables (counting instead of bounds, killing the
+   propagator once entailed), and arithmetic without overflow checks when
+   b_CONSTR_COES_TYPE has proved that no partial sum can overflow. */
 int nary_interval_consistent_eq(BPLONG n)
 {
     register BPLONG_PTR dv_ptr, var_ptr, coe_ptr;
@@ -41,7 +48,7 @@ int nary_interval_consistent_eq(BPLONG n)
     register BPLONG a, x;
     register BPLONG_PTR top;
     BPLONG tl[MAX_NUM_VARS_EQ], tu[MAX_NUM_VARS_EQ],
-        aa[MAX_NUM_VARS_EQ], xx[MAX_NUM_VARS_EQ];  /* assume no constraint contain more than MAX_NUM_VARS_EQ variables */
+        aa[MAX_NUM_VARS_EQ], xx[MAX_NUM_VARS_EQ];  /* indexed 0..n-1, n <= MAX_NUM_VARS_EQ */
     BPLONG first0, last0, dv_ptr_first, dv_ptr_last, size, temp_i, c;
     int k;
     BPLONG type;
@@ -350,7 +357,8 @@ int nary_interval_consistent_eq(BPLONG n)
 
 
 #define MAX_NUM_VARS_NOCOE_EQ 6
-/* c+x1+...+xn = 0 */
+/* Interval consistency for c+x1+...+xn = 0 (all coefficients 1, n < 6). Currently
+   unused: the interval_consistent_eq_nocoe instruction aborts instead of calling it. */
 int nary_interval_consistent_nocoe(BPLONG n)
 {
     register BPLONG_PTR dv_ptr, var_ptr;
@@ -402,14 +410,18 @@ int nary_interval_consistent_nocoe(BPLONG n)
    t(i-1) >= l(i)-a(i)*min(x(i)) if a(i) < 0
 */
 #define MAX_NUM_VARS_GE 551
+/* Interval consistency for c+a1*x1+...+an*xn >= 0, using the scheme above.
+   Kills the propagator when the constraint is entailed (min of the sum >= 0) and
+   fails when it cannot hold (max of the sum < 0). Same type codes as the EQ version,
+   plus cv_ge_v (c+x1-x2 >= 0) and the 0/1 cases with negative coefficients. */
 int nary_interval_consistent_ge(BPLONG n)
 {
     register BPLONG_PTR dv_ptr, var_ptr, coe_ptr;
     register BPLONG i, first, last;
     register BPLONG a, x;
     register BPLONG_PTR top;
-    BPLONG tl[MAX_NUM_VARS_GE], tu[MAX_NUM_VARS_GE],
-        aa[MAX_NUM_VARS_GE], xx[MAX_NUM_VARS_GE];  /* assume no constraint contain more than 10 variables */
+    BPLONG tl[MAX_NUM_VARS_GE+1], tu[MAX_NUM_VARS_GE+1],
+        aa[MAX_NUM_VARS_GE+1], xx[MAX_NUM_VARS_GE+1];  /* indexed 0..n, n <= MAX_NUM_VARS_GE */
     BPLONG first0, last0, dv_ptr_first, dv_ptr_last, size, temp_i, c;
     int k;
     BPLONG type;
@@ -752,6 +764,8 @@ int varorint_domain_region(BPLONG X, BPLONG from, BPLONG to)
     }
 }
 
+/* Restricts the domain of the (unbound) variable at dv_ptr to from..to.
+   Returns 0 if the result would be empty. */
 int domain_region_noint(BPLONG_PTR dv_ptr, BPLONG from, BPLONG to)
 {
     BPLONG dv_ptr_first, dv_ptr_last, size;
@@ -763,6 +777,8 @@ int domain_region_noint(BPLONG_PTR dv_ptr, BPLONG from, BPLONG to)
     return 1;
 }
 
+/* Same as domain_region_noint, but dv_ptr's variable may already be bound,
+   in which case its value is just checked against from..to. */
 int domain_region_aux(BPLONG_PTR dv_ptr, BPLONG from, BPLONG to)
 {
     BPLONG dv_ptr_first, dv_ptr_last, size, val;
@@ -779,6 +795,7 @@ int domain_region_aux(BPLONG_PTR dv_ptr, BPLONG from, BPLONG to)
     return 1;
 }
 
+/* Debugging: prints the linear constraint stored in the current frame as c+a*x+...=0. */
 void print_linear_constr(BPLONG n)
 {
     BPLONG i;
@@ -798,11 +815,26 @@ void print_linear_constr(BPLONG n)
     fprintf(curr_out, "=0 \n");
 }
 
+/* Returns 1 if |a*v| <= bound, computed without overflowing. */
+static int coe_term_fits(BPLONG a, BPLONG v, BPLONG bound)
+{
+    if (a < 0) a = -a;
+    if (v < 0) v = -v;
+    if (a == 0 || v == 0) return 1;
+    return a <= bound / v;
+}
+
+/* Classifies the linear constraint in the current frame and stores the type code
+   (coes_* or cv_ge_v above, 0 = may overflow, 14 = mixed signs) after the constant,
+   for the nary_interval_consistent_* propagators. Also dereferences the constant and
+   the coefficients in place. A constraint is typed as non-overflowing only if c and
+   every term a*x stay within BP_MAXINT_1W/(n+1), so no partial sum can overflow. */
 int b_CONSTR_COES_TYPE(BPLONG n)
 {
     BPLONG_PTR dv_ptr, var_ptr, coe_ptr;
     BPLONG a, c, x, first, last;
-    int property, type, term_lb, term_ub, all_bool_vars, i;
+    BPLONG term_lb, term_ub;  /* must be BPLONG: BP_MAXINT_1W/(n+1) does not fit in an int on 64-bit */
+    int property, type, all_bool_vars, i;
 
     n = INTVAL(n);
     property = 0;
@@ -826,8 +858,10 @@ int b_CONSTR_COES_TYPE(BPLONG n)
         } else {
             first = last = INTVAL(x);
         }
-        if (a*first < term_lb || a*last > term_ub) {FOLLOW(coe_ptr+1) = BP_ZERO; return BP_TRUE;}
-        if (first != 0 || last != 1) all_bool_vars = 0;
+        /* both a*first and a*last must be within [term_lb,term_ub]; with a<0 the product
+           of last is the low end, so check both magnitudes */
+        if (!coe_term_fits(a, first, term_ub) || !coe_term_fits(a, last, term_ub)) {FOLLOW(coe_ptr+1) = BP_ZERO; return BP_TRUE;}
+        if (first < 0 || last > 1) all_bool_vars = 0;  /* 0..1 vars and the integers 0 and 1 */
 
         if (a == 1) {
             property |= 1;
@@ -858,15 +892,15 @@ int b_CONSTR_COES_TYPE(BPLONG n)
         else
             type = coes_one_mone;
         break;
-    case 4:  /* all positive */
-    case 5:  /* all positive */
+    case 4:  /* all positive, none is 1 */
+    case 5:  /* all positive, some are 1 */
         if (all_bool_vars)
             type = coes_all_pos_bool;
         else
             type = coes_all_pos;
         break;
-    case 8:  /* all negative */
-    case 10:  /* all positive */
+    case 8:  /* all negative, none is -1 */
+    case 10:  /* all negative, some are -1 */
         if (all_bool_vars)
             type = coes_all_neg_bool;
         else
@@ -879,6 +913,7 @@ int b_CONSTR_COES_TYPE(BPLONG n)
     return BP_TRUE;
 }
 
+/* Succeeds if the type code is one of the 0/1-variable types (the odd codes). */
 int b_IS_BOOLEAN_VAR_CONSTR(BPLONG coes_type)
 {
     DEREF_NONVAR(coes_type);
@@ -888,7 +923,7 @@ int b_IS_BOOLEAN_VAR_CONSTR(BPLONG coes_type)
 
 /* Install the coefficients and variables on to the stack so that
    the nary_interval_consistent_eq or nary_interval_consistent_ge
-   can be called.
+   can be called. Terms is a list of (A,V) pairs; the type is set to 0 (general case).
 */
 void install_coes_vars_to_stack(int n, BPLONG Terms, BPLONG Const) {
     int i;
@@ -913,7 +948,9 @@ void install_coes_vars_to_stack(int n, BPLONG Terms, BPLONG Const) {
     }
 }
 
-/* install the terms in reversed order */
+/* Same as install_coes_vars_to_stack, with the terms in reversed order.
+   Running the propagator in both orders gives each variable a chance to be
+   narrowed using the bounds of all the others. */
 void install_coes_vars_to_stack_rev(int n, BPLONG Terms, BPLONG Const) {
     int i;
     BPLONG_PTR var_ptr, coe_ptr;
@@ -938,7 +975,9 @@ void install_coes_vars_to_stack_rev(int n, BPLONG Terms, BPLONG Const) {
 }
 
 /* Terms=[(An,Vn),...,(A1,V1)].
-   Reduce domains of Vi's such that the constraint An*Vn+...,A1*V1+Const=0 is interval consistent
+   Reduce domains of Vi's such that the constraint An*Vn+...,A1*V1+Const=0 is interval consistent.
+   Builds a temporary frame below local_top and runs nary_interval_consistent_eq twice
+   (forward and reversed term order); constraints with more than MAX_NUM_VARS_EQ terms are skipped.
 */
 int c_REDUCE_DOMAINS_IC_EQ() {
     BPLONG Terms, Const;
@@ -975,7 +1014,8 @@ int c_REDUCE_DOMAINS_IC_EQ() {
 }
 
 /* Terms=[(An,Vn),...,(A1,V1)].
-   Reduce domains of Vi's such that the constraint An*Vn+...,A1*V1+Const>=0 is interval consistent
+   Reduce domains of Vi's such that the constraint An*Vn+...,A1*V1+Const>=0 is interval consistent.
+   Same scheme as c_REDUCE_DOMAINS_IC_EQ, using nary_interval_consistent_ge.
 */
 int c_REDUCE_DOMAINS_IC_GE() {
     BPLONG Terms, Const;
@@ -1003,7 +1043,9 @@ int c_REDUCE_DOMAINS_IC_GE() {
     return res;
 }
 
-/* X1 = (X2 or ... or Xn), n<=15, Xi's are in the current frame */
+/* X1 = (X2 or ... or Xn), n<=15, Xi's are in the current frame.
+   X1 unknown: some Xi=1 forces X1=1; all Xi=0 forces X1=0.
+   X1=0: all Xi become 0. X1=1: unit propagation when only one Xi is unknown. */
 int b_BOOL_OR_c(BPLONG n) {
     BPLONG_PTR dv_ptr, var_ptr;
     BPLONG x1, x;
@@ -1041,6 +1083,7 @@ int b_BOOL_OR_c(BPLONG n) {
                 return BP_FALSE;
             }
         }
+        AR_STATUS(arreg) = SUSP_EXIT;  /* entailed: kill this propagator */
         return BP_TRUE;
     } else {  /* x1=1, perform unit propagation */
         int num_of_vars = 0;
@@ -1069,7 +1112,9 @@ int b_BOOL_OR_c(BPLONG n) {
     return BP_TRUE;  /* not reachable */
 }
 
-/* X1 = (X2 and ... and Xn), n<=15, Xi's are in the current frame */
+/* X1 = (X2 and ... and Xn), n<=15, Xi's are in the current frame.
+   Dual of b_BOOL_OR_c: some Xi=0 forces X1=0; all Xi=1 forces X1=1;
+   X1=1 sets all Xi to 1; X1=0 with one unknown Xi (the rest 1) forces it to 0. */
 int b_BOOL_AND_c(BPLONG n) {
     BPLONG_PTR dv_ptr, var_ptr;
     BPLONG x1, x;
@@ -1114,6 +1159,7 @@ int b_BOOL_AND_c(BPLONG n) {
                 return BP_FALSE;
             }
         }
+        AR_STATUS(arreg) = SUSP_EXIT;  /* entailed: kill this propagator */
         return BP_TRUE;
     } else {  /* x1=0, perform unit propagation (sort of) */
         int num_of_vars = 0;
@@ -1142,13 +1188,15 @@ int b_BOOL_AND_c(BPLONG n) {
     return BP_TRUE;  /* not reachable */
 }
 
-/* X1 = max(X2, ..., Xn), n<=15, Xi's are in the current frame */
+/* X1 = max(X2, ..., Xn), n<=15, Xi's are in the current frame.
+   Bounds reasoning: every Xi <= max(X1); X1 lies in [max_i min(Xi), max_i max(Xi)].
+   When X1 is fixed, no fixed Xi equals it, and exactly one variable Xi can still
+   reach X1's value, that Xi must equal X1. */
 int b_PROP_MAX_c(BPLONG n) {
-    BPLONG_PTR dv_ptr1, dv_ptr, var_ptr;
-    BPLONG x1, x, first1, last1, first, last, num_of_vars, acc_min, acc_max;
+    BPLONG_PTR dv_ptr1, dv_ptr, var_ptr, last_dv_ptr = NULL;
+    BPLONG x1, x, first1, last1, first, last, num_of_vars, num_reach, max_first, max_last, max_fixed;
     int i;
 
-    //  printf("=> prop_max\n");
     DEREF_NONVAR(n); n = INTVAL(n);
     var_ptr = arreg+n;
     x1 = FOLLOW(var_ptr); DEREF_NONVAR(x1);
@@ -1157,72 +1205,72 @@ int b_PROP_MAX_c(BPLONG n) {
         first1 = DV_first(dv_ptr1);
         last1 = DV_last(dv_ptr1);
     } else {
+        dv_ptr1 = NULL;
         first1 = last1 = INTVAL(x1);
     }
 
-    num_of_vars = 0;
-    acc_min = BP_MAXINT_1W;
-    acc_max = BP_MININT_1W;
+    num_of_vars = num_reach = 0;
+    max_first = max_last = max_fixed = BP_MININT_1W;
     for (i = 1; i < n; i++) {
         x = FOLLOW(var_ptr-i); DEREF_NONVAR(x);
         if (IS_SUSP_VAR(x)) {
-            num_of_vars++;
             dv_ptr = (BPLONG_PTR)UNTAGGED_TOPON_ADDR(x);
-
             first = DV_first(dv_ptr);
             last = DV_last(dv_ptr);
-            if (last > last1) {
+            if (last > last1) {  /* Xi <= max(X1) */
                 if (domain_region_noint(dv_ptr, first, last1) == BP_FALSE) return BP_FALSE;
+                x = FOLLOW(dv_ptr);  /* the region may have instantiated Xi */
             }
-            if (first < acc_min) acc_min = first;
-        } else {
-            x = INTVAL(x);
-            if (x > last1) return BP_FALSE;
-            if (x < acc_min) acc_min = x;
-            if (x > acc_max) acc_max = x;
         }
+        if (IS_SUSP_VAR(x)) {
+            num_of_vars++;
+            first = DV_first(dv_ptr);
+            last = DV_last(dv_ptr);
+            if (last >= first1) {num_reach++; last_dv_ptr = dv_ptr;}  /* can take X1's lowest value */
+        } else {
+            first = last = INTVAL(x);
+            if (first > last1) return BP_FALSE;
+            if (first > max_fixed) max_fixed = first;
+        }
+        if (first > max_first) max_first = first;
+        if (last > max_last) max_last = last;
     }
-    if (num_of_vars == 0) {
-        if (first1 != last1) {  /* x1 is a var */
-            if (dm_true(dv_ptr1, acc_max)) {
-                ASSIGN_DVAR(dv_ptr1, MAKEINT(acc_max));
-                AR_STATUS(arreg) = SUSP_EXIT;  /* kill this propagator */
-                return BP_TRUE;
-            } else {
-                return BP_FALSE;
-            }
-        } else {
-            return (first1 == acc_max) ? BP_TRUE : BP_FALSE;
-        }
-    } else {
-        if (first1 != last1) {  /* x1 is a var */
-            if (first1 < acc_min) {
-                if (domain_region_noint(dv_ptr1, acc_min, last1) == BP_FALSE) return BP_FALSE;
-            }
+    if (dv_ptr1 != NULL) {  /* X1 is a variable */
+        if (num_of_vars == 0) {  /* X1 = max of the fixed values */
+            if (!dm_true(dv_ptr1, max_fixed)) return BP_FALSE;
+            ASSIGN_DVAR(dv_ptr1, MAKEINT(max_fixed));
+            AR_STATUS(arreg) = SUSP_EXIT;  /* kill this propagator */
             return BP_TRUE;
-        } else if (num_of_vars == 1 && acc_max < first1) {  /* do something like unit propagation */
-            if (IS_SUSP_VAR(FOLLOW(dv_ptr))) {  /* dv_ptr points to the unique var, ensure that it's not instantiated */
-                if (dm_true(dv_ptr, first1)) {
-                    ASSIGN_DVAR(dv_ptr, MAKEINT(first1));
-                    AR_STATUS(arreg) = SUSP_EXIT;  /* kill this propagator */
-                    return BP_TRUE;
-                } else {
-                    return BP_FALSE;
-                }
-            }
         }
+        if (max_first > first1 || max_last < last1) {
+            if (domain_region_noint(dv_ptr1, max_first, max_last) == BP_FALSE) return BP_FALSE;
+        }
+        return BP_TRUE;
+    }
+    /* X1 is fixed */
+    if (num_of_vars == 0) return (first1 == max_fixed) ? BP_TRUE : BP_FALSE;
+    if (max_fixed == first1) {  /* attained by a fixed Xi; the others are already bounded by X1 */
+        AR_STATUS(arreg) = SUSP_EXIT;  /* entailed: kill this propagator */
+        return BP_TRUE;
+    }
+    if (num_reach == 0) return BP_FALSE;  /* no Xi can reach X1 */
+    if (num_reach == 1) {  /* the only Xi that can reach X1 must take its value */
+        if (!dm_true(last_dv_ptr, first1)) return BP_FALSE;
+        ASSIGN_DVAR(last_dv_ptr, MAKEINT(first1));
+        AR_STATUS(arreg) = SUSP_EXIT;  /* kill this propagator */
     }
     return BP_TRUE;
 }
 
 
-/* X1 = min(X2, ..., Xn), n<=15, Xi's are in the current frame */
+/* X1 = min(X2, ..., Xn), n<=15, Xi's are in the current frame.
+   Mirror image of b_PROP_MAX_c: every Xi >= min(X1);
+   X1 lies in [min_i min(Xi), min_i max(Xi)]. */
 int b_PROP_MIN_c(BPLONG n) {
-    BPLONG_PTR dv_ptr1, dv_ptr, var_ptr;
-    BPLONG x1, x, first1, last1, first, last, num_of_vars, acc_min, acc_max;
+    BPLONG_PTR dv_ptr1, dv_ptr, var_ptr, last_dv_ptr = NULL;
+    BPLONG x1, x, first1, last1, first, last, num_of_vars, num_reach, min_first, min_last, min_fixed;
     int i;
 
-    //  printf("=> prop_min\n");
     DEREF_NONVAR(n); n = INTVAL(n);
     var_ptr = arreg+n;
     x1 = FOLLOW(var_ptr); DEREF_NONVAR(x1);
@@ -1231,64 +1279,64 @@ int b_PROP_MIN_c(BPLONG n) {
         first1 = DV_first(dv_ptr1);
         last1 = DV_last(dv_ptr1);
     } else {
+        dv_ptr1 = NULL;
         first1 = last1 = INTVAL(x1);
     }
 
-    num_of_vars = 0;
-    acc_min = BP_MAXINT_1W;
-    acc_max = BP_MININT_1W;
+    num_of_vars = num_reach = 0;
+    min_first = min_last = min_fixed = BP_MAXINT_1W;
     for (i = 1; i < n; i++) {
         x = FOLLOW(var_ptr-i); DEREF_NONVAR(x);
         if (IS_SUSP_VAR(x)) {
-            num_of_vars++;
             dv_ptr = (BPLONG_PTR)UNTAGGED_TOPON_ADDR(x);
             first = DV_first(dv_ptr);
             last = DV_last(dv_ptr);
-            if (first < first1) {
+            if (first < first1) {  /* Xi >= min(X1) */
                 if (domain_region_noint(dv_ptr, first1, last) == BP_FALSE) return BP_FALSE;
+                x = FOLLOW(dv_ptr);  /* the region may have instantiated Xi */
             }
-            if (last > acc_max) acc_max = last;
-        } else {
-            x = INTVAL(x);
-            if (x < first1) return BP_FALSE;
-            if (x < acc_min) acc_min = x;
-            if (x > acc_max) acc_max = x;
         }
+        if (IS_SUSP_VAR(x)) {
+            num_of_vars++;
+            first = DV_first(dv_ptr);
+            last = DV_last(dv_ptr);
+            if (first <= first1) {num_reach++; last_dv_ptr = dv_ptr;}  /* can take X1's value */
+        } else {
+            first = last = INTVAL(x);
+            if (first < first1) return BP_FALSE;
+            if (first < min_fixed) min_fixed = first;
+        }
+        if (first < min_first) min_first = first;
+        if (last < min_last) min_last = last;
     }
-    if (num_of_vars == 0) {
-        if (first1 != last1) {  /* x1 is var */
-            if (dm_true(dv_ptr1, acc_min)) {
-                ASSIGN_DVAR(dv_ptr1, MAKEINT(acc_min));
-                AR_STATUS(arreg) = SUSP_EXIT;  /* kill this propagator */
-                return BP_TRUE;
-            } else {
-                return BP_FALSE;
-            }
-        } else {
-            return (first1 == acc_min) ? BP_TRUE : BP_FALSE;
-        }
-    } else {
-        if (first1 != last1) {  /* x1 is var */
-            if (acc_max < last1) {
-                if (domain_region_noint(dv_ptr1, first1, acc_max) == BP_FALSE) return BP_FALSE;
-            }
+    if (dv_ptr1 != NULL) {  /* X1 is a variable */
+        if (num_of_vars == 0) {  /* X1 = min of the fixed values */
+            if (!dm_true(dv_ptr1, min_fixed)) return BP_FALSE;
+            ASSIGN_DVAR(dv_ptr1, MAKEINT(min_fixed));
+            AR_STATUS(arreg) = SUSP_EXIT;  /* kill this propagator */
             return BP_TRUE;
-        } else if (num_of_vars == 1 && acc_min > first1) {  /* do something like unit propagation */
-            if (IS_SUSP_VAR(FOLLOW(dv_ptr))) {  /* dv_ptr points to the unique var, ensure that it's not instantiated */
-                if (dm_true(dv_ptr, first1)) {
-                    ASSIGN_DVAR(dv_ptr, MAKEINT(first1));
-                    AR_STATUS(arreg) = SUSP_EXIT;  /* kill this propagator */
-                    return BP_TRUE;
-                } else {
-                    return BP_FALSE;
-                }
-            }
         }
+        if (min_first > first1 || min_last < last1) {
+            if (domain_region_noint(dv_ptr1, min_first, min_last) == BP_FALSE) return BP_FALSE;
+        }
+        return BP_TRUE;
+    }
+    /* X1 is fixed */
+    if (num_of_vars == 0) return (first1 == min_fixed) ? BP_TRUE : BP_FALSE;
+    if (min_fixed == first1) {  /* attained by a fixed Xi; the others are already bounded by X1 */
+        AR_STATUS(arreg) = SUSP_EXIT;  /* entailed: kill this propagator */
+        return BP_TRUE;
+    }
+    if (num_reach == 0) return BP_FALSE;  /* no Xi can reach X1 */
+    if (num_reach == 1) {  /* the only Xi that can reach X1 must take its value */
+        if (!dm_true(last_dv_ptr, first1)) return BP_FALSE;
+        ASSIGN_DVAR(last_dv_ptr, MAKEINT(first1));
+        AR_STATUS(arreg) = SUSP_EXIT;  /* kill this propagator */
     }
     return BP_TRUE;
 }
 
-/* Maitain arc consistency for X+Y = Z when one of the domains is a bit-vector domain
+/* (Disabled.) Maintain arc consistency for X+Y = Z when one of the domains is a bit-vector domain
    (a domain with holes), and Z's domain is small (which means both X's and Y's domains
    are small as well). Note that the constraint is already interval consistent.
 
