@@ -38,3 +38,4 @@ aspic/test/tmp_*
 exs/parallel/pvm/README.pdf
 
 __pycache__/
+smoke/.smoke
