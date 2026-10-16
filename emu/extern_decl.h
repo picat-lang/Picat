@@ -590,7 +590,7 @@ extern int count_domain_elms(BPLONG_PTR dv_ptr, BPLONG from, BPLONG to);
 extern int exclude_domain_elms(BPLONG_PTR dv_ptr, BPLONG from, BPLONG to);
 extern int c_reachability_test(void);
 extern int c_path_from_to_reachability_test(void);
-extern int path_from_to_reachable(BPLONG from, BPLONG to, BPLONG_PTR var_vector, BPLONG_PTR visited);
+extern int path_from_to_reachable(BPLONG from, BPLONG to, BPLONG_PTR var_vector, BPLONG_PTR visited, BPLONG_PTR queue);
 extern int b_PATH_FROM_TO_REACHABLE(void);
 extern int check_reach_cuts_in_one_connection(BPLONG n, BPLONG Start, BPLONG End, BPLONG Lab, BPLONG TaggedLab,
                                               BPLONG_PTR LabVarArray, BPLONG_PTR SuccVarArray, BPLONG_PTR VisitedArray);
@@ -605,7 +605,7 @@ extern void check_two_cuts_in_two_connections(BPLONG n, BPLONG firstCon, BPLONG 
                                               BPLONG_PTR LabVarArray, BPLONG_PTR SuccVarArray, BPLONG_PTR VisitedArray);
 extern void check_cuts_in_another_connection(BPLONG v1, BPLONG v2, BPLONG n, BPLONG firstCon, BPLONG firstLab,
                                              BPLONG nConnections, BPLONG_PTR ConStartArray, BPLONG_PTR ConEndArray,
-                                             BPLONG_PTR ConLabArray, BPLONG_PTR LabVarArray,
+                                             BPLONG_PTR ConLabArray, BPLONG_PTR ConFlagArray, BPLONG_PTR LabVarArray,
                                              BPLONG_PTR SuccVarArray, BPLONG_PTR VisitedArray);
 extern void check_reach_with_two_cuts(BPLONG Start, BPLONG Lab, BPLONG TaggedLab,
                                       BPLONG_PTR LabVarArray, BPLONG_PTR SuccVarArray, BPLONG_PTR VisitedArray,

@@ -11,6 +11,8 @@
 #include "event.h"
 #include "clpfd.h"
 #include "frame.h"
+
+/* prev (next) = the largest (smallest) element of the domain below (above) elm */
 #define CALL_DOMAIN_PREV(dv_ptr, elm, prev) {           \
         if (IS_IT_DOMAIN(dv_ptr))                       \
             prev = elm-1;                               \
@@ -35,6 +37,8 @@ static int dvar_has_elm(BPLONG_PTR dv_ptr, BPLONG elm)
     return dm_true(dv_ptr, elm);
 }
 
+/* Binds the 0/1 variable B to val and returns true, or, if B is already
+   fixed, returns whether it equals val. Returns from the enclosing function. */
 #define UNIFY_DVAR_VAL(B, val) {                                \
         if (IS_SUSP_VAR(B)) {                                   \
             dv_ptr_b = (BPLONG_PTR)UNTAGGED_TOPON_ADDR(B);      \
@@ -131,7 +135,8 @@ int dvar_or_int(BPLONG op)
     return 0;
 }
 
-/* check while counting. Return -1 immediately if the count exceeds limit. */
+/* Adds the number of variables in op to count0. Returns -1 as soon as the
+   count exceeds limit, so large terms are not traversed in full. */
 int n_vars_gt(BPLONG count0, BPLONG op, BPLONG limit)
 {
     BPLONG i, arity;
@@ -304,9 +309,8 @@ start:
 }
 
 /*
-  exclude_elm_vcs(X,VCs)
-  VCs=[(Y1,C1),...,(Yn,Cn)]
-  ensure that Yi \= X-Ci
+  exclude_elm_vcs(X,VCs): VCs = [(Y1,C1),...,(Yn,Cn)].
+  Ensures Yi != X-Ci for every i (X is an integer).
 */
 int exclude_elm_vcs() {
     BPLONG elm, P_list;
@@ -353,8 +357,8 @@ int b_EXCLUDE_ELM_VCS(BPLONG elm, BPLONG P_list)
 }
 
 /*
-  Select a variable based on the first-fail principle.
-  No dereference needed because the list was just copied.
+  Select the left-most variable with the smallest domain (first-fail).
+  Integers in the list are skipped; fails if there are no variables.
 */
 int b_select_ff(BPLONG Vars, BPLONG BestVar)
 {
@@ -369,9 +373,9 @@ int b_select_ff(BPLONG Vars, BPLONG BestVar)
         Vars = FOLLOW(ptr+1); DEREF_NONVAR(Vars);
         if (IS_SUSP_VAR(Var)) {
             dv_ptr0 = (BPLONG_PTR)UNTAGGED_TOPON_ADDR(Var);
-            size0 = DV_size(dv_ptr0);  /* first dvar */
+            size0 = DV_size(dv_ptr0);  /* first domain variable in the list */
             while (ISLIST(Vars)) {
-                if (size0 == 2) break;  /* no size can be smaller than 2 */
+                if (size0 == 2) break;  /* a domain variable has at least 2 values: can't do better */
                 ptr = (BPLONG_PTR)UNTAGGED_ADDR(Vars);
                 Var = FOLLOW(ptr); DEREF_NONVAR(Var);
                 Vars = FOLLOW(ptr+1); DEREF_NONVAR(Vars);
@@ -391,8 +395,8 @@ int b_select_ff(BPLONG Vars, BPLONG BestVar)
 }
 
 /*
-  Select a variable based on the first-fail principle,
-  breaking ties by selecting a variable with the smallest lower bound.
+  Select a variable with the smallest domain (first-fail),
+  breaking ties by selecting the one with the smallest lower bound.
 */
 int b_SELECT_FF_MIN_cf(BPLONG Vars, BPLONG BestVar)
 {
@@ -428,8 +432,8 @@ int b_SELECT_FF_MIN_cf(BPLONG Vars, BPLONG BestVar)
 }
 
 /*
-  Select a variable based on the first-fail principle,
-  breaking ties by selecting a variable with the largest uppper bound.
+  Select a variable with the smallest domain (first-fail),
+  breaking ties by selecting the one with the largest upper bound.
 */
 int b_SELECT_FF_MAX_cf(BPLONG Vars, BPLONG BestVar)
 {
@@ -464,7 +468,7 @@ int b_SELECT_FF_MAX_cf(BPLONG Vars, BPLONG BestVar)
 }
 
 /*
-  Select a variable with the smallest lower bound, breaking ties by selecting 
+  Select a variable with the smallest lower bound, breaking ties by selecting
   the left-most one with the smallest domain.
 */
 int b_SELECT_MIN_cf(BPLONG Vars, BPLONG BestVar)
@@ -500,7 +504,7 @@ int b_SELECT_MIN_cf(BPLONG Vars, BPLONG BestVar)
 }
 
 /*
-  Select a variable with the largest upper bound, breaking ties by selecting 
+  Select a variable with the largest upper bound, breaking ties by selecting
   the left-most one with the smallest domain.
 */
 int b_SELECT_MAX_cf(BPLONG Vars, BPLONG BestVar)
@@ -551,7 +555,7 @@ int b_CONSTRAINTS_NUMBER_cf(BPLONG Var, BPLONG N)
     DEREF(attrs);
     if (ISSTRUCT(attrs)) {
         ptr = (BPLONG_PTR)UNTAGGED_ADDR(attrs);
-        lst = FOLLOW(ptr+1);  /* $attrs(AttrValueList) */
+        lst = FOLLOW(ptr+1);  /* attributes are stored as $attrs(AttrValueList) */
         DEREF(lst);
         while (ISLIST(lst)) {
             BPLONG pair, attr_name, value;
@@ -561,7 +565,7 @@ int b_CONSTRAINTS_NUMBER_cf(BPLONG Var, BPLONG N)
             lst = FOLLOW(ptr+1); DEREF(lst);
             pair_ptr = (BPLONG_PTR)UNTAGGED_ADDR(pair);
             attr_name = FOLLOW(pair_ptr+1);
-            DEREF_NONVAR(attr_name);  /* (name,value) */
+            DEREF_NONVAR(attr_name);  /* each element is (Name,Value) */
             if (attr_name == attr_neq_atm) {
                 value = FOLLOW(pair_ptr+2); DEREF_NONVAR(value);  /* combined_propagators(NeqVs,NeqVCs) */
                 ptr = (BPLONG_PTR)UNTAGGED_ADDR(value);
@@ -613,7 +617,7 @@ int c_fd_degree() {
     dv_ptr = (BPLONG_PTR)UNTAGGED_TOPON_ADDR(Var);
     cs = DV_ins_cs(dv_ptr);
     if (ISLIST(cs)) {
-        DV_ins_cs(dv_ptr) = ADDTAG(UNTAGGED_ADDR(cs), STR);  /* mark it so it won't be counted twice */
+        DV_ins_cs(dv_ptr) = ADDTAG(UNTAGGED_ADDR(cs), STR);  /* mark the variable (retag its list as STR) so it is counted only once */
         count = dvar_degree_count_connected_vars_cs(cs);
         DV_ins_cs(dv_ptr) = cs;
         dvar_degree_reset_cs_tags_cs(cs);
@@ -666,7 +670,7 @@ start:
         dv_ptr = (BPLONG_PTR)UNTAGGED_TOPON_ADDR(term);
         cs = DV_ins_cs(dv_ptr);
         if (ISLIST(cs)) {
-            DV_ins_cs(dv_ptr) = ADDTAG(UNTAGGED_ADDR(cs), STR);  /* mark it so it won't be counted twice */
+            DV_ins_cs(dv_ptr) = ADDTAG(UNTAGGED_ADDR(cs), STR);  /* mark the variable (retag its list as STR) so it is counted only once */
             count++;
         }
     } else if (ISLIST(term)) {
@@ -726,7 +730,7 @@ start:
         cs = DV_ins_cs(dv_ptr);
         if (ISNIL(cs) || ISLIST(cs)) {
             return;
-        } else {  /* restore the tag */
+        } else {  /* marked: restore the LST tag */
             cs = ADDTAG(UNTAGGED_ADDR(cs), LST);
             DV_ins_cs(dv_ptr) = cs;
         }
@@ -794,7 +798,7 @@ int b_VV_EQ_C_CON_ccc(BPLONG X, BPLONG Y, BPLONG C)
 
     DEREF_NONVAR(X); if (!IS_SUSP_VAR(X)) return BP_TRUE;
     DEREF_NONVAR(Y); if (!IS_SUSP_VAR(Y)) return BP_TRUE;
-    C = INTVAL(C);  /* C is dereferenced already */
+    C = INTVAL(C);  /* C is already dereferenced */
 
     dv_ptr_x = (BPLONG_PTR)UNTAGGED_TOPON_ADDR(X);
     dv_ptr_y = (BPLONG_PTR)UNTAGGED_TOPON_ADDR(Y);
@@ -816,7 +820,7 @@ int c_VV_EQ_C_CON_aux(BPLONG_PTR dv_ptr_x, BPLONG_PTR dv_ptr_y, BPLONG C)
     BPLONG currX, currY, maxX;
 
 
-    /* for each x in X, there is an y in Y such that x+y=C */
+    /* for each x in X, there must be a y in Y such that x+y=C */
     currX = DV_first(dv_ptr_x); maxX = DV_last(dv_ptr_x);
     /* write_term(dv_ptr_x);printf("+"); write_term(dv_ptr_y); printf("_eq_%d",C);printf("\n"); */
     for (; ; ) {
@@ -835,7 +839,7 @@ int c_VV_EQ_C_CON_aux(BPLONG_PTR dv_ptr_x, BPLONG_PTR dv_ptr_y, BPLONG C)
     return BP_TRUE;
 }
 
-/* X=Y+C */
+/* C-callable wrapper for b_V_EQ_VC_CON_ccc/3 (X=Y+C). */
 int c_V_EQ_VC_CON() {
     BPLONG X, Y, C;
 
@@ -852,7 +856,7 @@ int b_V_EQ_VC_CON_ccc(BPLONG X, BPLONG Y, BPLONG C)
 
     DEREF_NONVAR(X); if (!IS_SUSP_VAR(X)) return BP_TRUE;
     DEREF_NONVAR(Y); if (!IS_SUSP_VAR(Y)) return BP_TRUE;
-    C = INTVAL(C);  /* no dereference is necessary */
+    C = INTVAL(C);  /* C is already dereferenced */
 
     dv_ptr_x = (BPLONG_PTR)UNTAGGED_TOPON_ADDR(X);
     dv_ptr_y = (BPLONG_PTR)UNTAGGED_TOPON_ADDR(Y);
@@ -873,7 +877,7 @@ int c_V_EQ_VC_CON_aux(BPLONG_PTR dv_ptr_x, BPLONG_PTR dv_ptr_y, BPLONG C)
     BPLONG currX, currY, maxX;
 
 
-    /* for each x in X, there is an y in Y such that x=y+C */
+    /* for each x in X, there must be a y in Y such that x=y+C */
     currX = DV_first(dv_ptr_x); maxX = DV_last(dv_ptr_x);
     /* write_term(dv_ptr_x);printf("_eq_"); write_term(dv_ptr_y); printf("+%d",C);printf("\n"); */
     for (; ; ) {
@@ -893,7 +897,9 @@ int c_V_EQ_VC_CON_aux(BPLONG_PTR dv_ptr_x, BPLONG_PTR dv_ptr_y, BPLONG C)
     return BP_TRUE;
 }
 
-/* for each x in X, there is an y in Y such that A*x+B*y=C */
+/* Arc consistency for A*X+B*Y=C: every x in X needs a y in Y with A*x+B*y=C,
+   and vice versa. A side is revised only if the other side has holes or a
+   coefficient other than 1. Arguments are taken from the frame (A,X,B,Y,C). */
 int c_UU_EQ_C_CON() {
     BPLONG A, X, B, Y, C;
     BPLONG_PTR dv_ptr_x, dv_ptr_y;
@@ -918,7 +924,7 @@ int c_UU_EQ_C_CON() {
     return BP_TRUE;
 }
 
-/* for each x in X, there is an y in Y such that A*x+B*y=C */
+/* Removes from X every x that has no y in Y with A*x+B*y=C. */
 int c_UU_EQ_C_CON_aux(BPLONG A, BPLONG_PTR dv_ptr_x, BPLONG B, BPLONG_PTR dv_ptr_y, BPLONG C)
 {
     BPLONG tmp, currX, currY, maxX;
@@ -951,7 +957,7 @@ void print_event_queue() {
     if (trigger_no >= 1) printf("\n");
 }
 
-/* for each x in X, there is a y in Y such that A*x=B*y+C */
+/* Arc consistency for A*X=B*Y+C, in the same way as c_UU_EQ_C_CON. */
 int c_U_EQ_UC_CON() {
     BPLONG A, X, B, Y, C;
     BPLONG_PTR dv_ptr_x, dv_ptr_y;
@@ -975,7 +981,7 @@ int c_U_EQ_UC_CON() {
     return BP_TRUE;
 }
 
-/* for each x in X, there is a y in Y such that A*x=B*y+C */
+/* Removes from X every x that has no y in Y with A*x=B*y+C. */
 int c_U_EQ_UC_CON_aux(BPLONG A, BPLONG_PTR dv_ptr_x, BPLONG B, BPLONG_PTR dv_ptr_y, BPLONG C)
 {
     BPLONG tmp, currX, currY, maxX;
@@ -1000,7 +1006,12 @@ int c_U_EQ_UC_CON_aux(BPLONG A, BPLONG_PTR dv_ptr_x, BPLONG B, BPLONG_PTR dv_ptr
 }
 
 /*
-  $set(SP,SA,Card,Ref,Univ,UnivSize,Tag,Notation)
+  A CLP(Set) variable is represented as
+     $set(SP,SA,Card,Ref,Univ,UnivSize,Tag,Notation)
+  SP: domain variable holding the elements that may be in the set (upper bound),
+  SA: domain variable holding the elements not yet known to be in the set,
+  both padded with a dummy element at each end (not counted in sizes);
+  Card: the cardinality; Ref: the set itself, bound once it is determined.
 */
 
 #define CLPSETTERM_PTR_GET_SP(ptr) FOLLOW(ptr+1)
@@ -1009,8 +1020,9 @@ int c_U_EQ_UC_CON_aux(BPLONG A, BPLONG_PTR dv_ptr_x, BPLONG B, BPLONG_PTR dv_ptr
 #define CLPSETTERM_PTR_GET_REF(ptr) FOLLOW(ptr+4)
 #define CLPSETTERM_PTR_GET_USIZE(ptr) FOLLOW(ptr+6)
 #define CLPSETTERM_PTR_GET_TAG(ptr) FOLLOW(ptr+7)
-/** CLP(Set) **/
-/*
+/******** CLP(Set) ********/
+/* C implementation of the following Prolog code:
+
   $clpset_check_when_card_bound_dvar(Card,S,SetTerm)=>true.
   fd_size(SP,SPSize),
   UpSize is SPSize-2, % not count dummies
@@ -1062,7 +1074,8 @@ int b_CLPSET_CARD_BOUND_c(BPLONG SetTerm)
     return 1;
 }
 
-/*
+/* C implementation of the following Prolog code:
+
   $clpset_check_when_low_updated_dvar(SA,S,SetTerm) => true.
   b_DM_COUNT_cf(SA,NotAddedSize),
   AddedSize is UnivSize-NotAddedSize+2,
@@ -1106,7 +1119,8 @@ int b_CLPSET_LOW_UPDATED_c(BPLONG SetTerm)
     return 1;
 }
 
-/*
+/* C implementation of the following Prolog code:
+
   $clpset_check_when_up_updated_dvar(SP,S,SetTerm) => 
   b_DM_COUNT_cf(SP,UpSize),
   UpBoundSize is UpSize-2, % not count dummies
@@ -1147,8 +1161,9 @@ int b_CLPSET_UP_UPDATED_c(BPLONG SetTerm)
     return 1;
 }
 
-/* SP and SA are derefered already */
-/*
+/* SP and SA are already dereferenced */
+/* C implementation of the following Prolog code:
+
   $clpset_indomain_pickup_all_possible(S,SP,SA,{},Tag):-var(S),dvar(SP) :  %set notation
   domain_min_max(SP,First,Last),
   domain_next_inst(SP,First,RealFirst),
@@ -1176,13 +1191,12 @@ BPLONG clpset_pickup_all_possible(BPLONG_PTR sp_dv_ptr, BPLONG_PTR sa_dv_ptr)
 
     cur = DV_first(sp_dv_ptr);
     last = DV_last(sp_dv_ptr);
-    CALL_DOMAIN_NEXT(sp_dv_ptr, cur, cur);  /* real first */
+    CALL_DOMAIN_NEXT(sp_dv_ptr, cur, cur);  /* first real element (skip the dummy) */
     if (cur == last) {
         return empty_set;
     }
-    CALL_DOMAIN_PREV(sp_dv_ptr, last, last);  /* real last */
+    CALL_DOMAIN_PREV(sp_dv_ptr, last, last);  /* last real element (skip the dummy) */
     set_tail_ptr = &set0;
-    /**/
     while (cur != last) {
         FOLLOW(set_tail_ptr) = ADDTAG(heap_top, STR);
         FOLLOW(heap_top++) = (BPLONG)comma_psc;
@@ -1191,10 +1205,9 @@ BPLONG clpset_pickup_all_possible(BPLONG_PTR sp_dv_ptr, BPLONG_PTR sa_dv_ptr)
         domain_set_false_noint(sa_dv_ptr, cur);
         CALL_DOMAIN_NEXT(sp_dv_ptr, cur, cur);
     }
-    /* last elm */
+    /* last element */
     FOLLOW(set_tail_ptr) = MAKEINT(cur);
     domain_set_false_noint(sa_dv_ptr, cur);
-    /**/
     return_val = ADDTAG(heap_top, STR);
     FOLLOW(heap_top++) = (BPLONG)set_constructor_psc;
     FOLLOW(heap_top++) = set0;
@@ -1202,7 +1215,8 @@ BPLONG clpset_pickup_all_possible(BPLONG_PTR sp_dv_ptr, BPLONG_PTR sa_dv_ptr)
     return return_val;
 }
 
-/*
+/* C implementation of the following Prolog code:
+
   $clpsetterm_indomain_pickup_only_in(S,SP,SA,Card,{},Tag):-var(S),dvar(SP) :
   domain_min_max(SP,First,Last),
   domain_next_inst(SP,First,RealFirst),
@@ -1236,13 +1250,12 @@ BPLONG clpset_pickup_only_in(BPLONG_PTR sp_dv_ptr, BPLONG_PTR sa_dv_ptr, BPLONG 
 
     cur = DV_first(sp_dv_ptr);
     last = DV_last(sp_dv_ptr);
-    CALL_DOMAIN_NEXT(sp_dv_ptr, cur, cur);  /* real first */
+    CALL_DOMAIN_NEXT(sp_dv_ptr, cur, cur);  /* first real element (skip the dummy) */
     if (card == 0) {clpset_exclude_all_possible(sp_dv_ptr, cur, last); return empty_set;}
     set_tail_ptr = &set0;
-    /**/
     for (; ; ) {
         /* if (cur==last){printf("STRANGE %d %d %d\n",cur,last,card);exit(1);} */
-        if (!dm_true(sa_dv_ptr, cur)) {  /* in low bound */
+        if (!dm_true(sa_dv_ptr, cur)) {  /* known to be in the set (not in SA): must be picked */
             if (card == 1) {
                 FOLLOW(set_tail_ptr) = MAKEINT(cur);
                 CALL_DOMAIN_NEXT(sp_dv_ptr, cur, cur);
@@ -1274,7 +1287,8 @@ void clpset_exclude_all_possible(BPLONG_PTR sp_dv_ptr, BPLONG cur, BPLONG last)
     }
 }
 
-/*
+/* C implementation of the following Prolog code:
+
   $determinate_pred(reify_eq_constr_consistency,3):-true : true.
   reify_eq_constr_consistency(B,X,Y):-
   dvar(X),dvar(Y) :
@@ -1326,7 +1340,8 @@ int b_REIFY_EQ_CONSTR_ACTION(BPLONG B, BPLONG X, BPLONG Y)
     return BP_TRUE;
 }
 
-/*
+/* C implementation of the following Prolog code:
+
   $determinate_pred(reify_ge_constr_consistency,3):-true : true.
   %reify_ge_constr_consistency(B,X,Y):-write(reify_ge_constr_consistency(B,X,Y)),nl,fail.
   reify_ge_constr_consistency(B,X,Y):-
@@ -1368,7 +1383,8 @@ int b_REIFY_GE_CONSTR_ACTION(BPLONG B, BPLONG X, BPLONG Y)
     return BP_TRUE;
 }
 
-/*
+/* C implementation of the following Prolog code:
+
   $determinate_pred(reify_neq_constr_consistency,3):-true : true.
   reify_neq_constr_consistency(B,X,Y):-
   dvar(X),dvar(Y) :
@@ -1426,8 +1442,10 @@ int b_REIFY_NEQ_CONSTR_ACTION(BPLONG B, BPLONG X, BPLONG Y)
 }
 
 /*
+  Arc consistency for abs(X)=Y (skipped when both domains are intervals):
   for each x in X, |x| is in Y;
-  for each y in Y, either y or -y is in X
+  for each y in Y, either y or -y is in X.
+  Only values with |x| in min(Y)..max(Y) are examined; b_FD_ABS_X_TO_Y handles the bounds.
 */
 int b_ABS_CON_cc(BPLONG X, BPLONG Y)
 {
@@ -1458,7 +1476,8 @@ int b_ABS_CON_cc(BPLONG X, BPLONG Y)
     return BP_TRUE;
 }
 
-/*
+/* C implementation of the following Prolog code:
+
   fd_abs_x_to_y(X,Y):-
   domain_min_max(X,MinX,MaxX),
   (MinX >= 0 -> domain_region(Y,MinX,MaxX);
@@ -1467,7 +1486,8 @@ int b_ABS_CON_cc(BPLONG X, BPLONG Y)
   (AbsMinX>MaxX->Up is AbsMinX;Up is MaxX),
   domain_region_max(Y,Up)).
 */
-/* when X updated */
+/* Bounds propagation from X to Y for abs(X)=Y, run when X is updated.
+   If Y is already fixed, X is fixed when only one of Y and -Y is possible. */
 int b_FD_ABS_X_TO_Y(BPLONG X, BPLONG Y)
 {
     BPLONG_PTR dv_ptr_x, dv_ptr_y;
@@ -1503,8 +1523,9 @@ int b_FD_ABS_X_TO_Y(BPLONG X, BPLONG Y)
     }
 }
 
-/* X mod Y = Z (precondition integer(Y),Y>0,min(X)>=0)
-   for each x in X if (x mod Y) is not in Z, then exclude x from X
+/* X mod Y = Z (preconditions: integer(Y), Y>0, min(X)>=0).
+   Excludes from X every x whose x mod Y is not in Z.
+   Skipped when max(X) >= 3000, to bound the cost of the scan.
 */
 int b_MOD_CON_ccc(BPLONG X, BPLONG Y, BPLONG Z)
 {
@@ -1542,9 +1563,9 @@ int b_MOD_CON_ccc(BPLONG X, BPLONG Y, BPLONG Z)
 }
 
 
-/* X // Y = Z (precondition integer(Y), Y>0 min(X)>=0)
-   Z in min(X)//Y..max(X)//Y
-   X in min(Z)*Y..(max(Z)+1)*Y-1
+/* X // Y = Z (preconditions: integer(Y), Y>0, min(X)>=0). Bounds propagation:
+   Z in min(X)//Y .. max(X)//Y,
+   X in min(Z)*Y .. (max(Z)+1)*Y-1.
 */
 int b_IDIV_CON_ccc(BPLONG X, BPLONG Y, BPLONG Z)
 {
@@ -1586,7 +1607,8 @@ int b_IDIV_CON_ccc(BPLONG X, BPLONG Y, BPLONG Z)
 static int abs_diff_revise(BPLONG_PTR dv_ptr_x, BPLONG_PTR dv_ptr_y, BPLONG N);
 
 /*
-  for each x in X, either x-N or x+N must be in Y.
+  Arc consistency for abs(X-Y)=N:
+  for each x in X, either x-N or x+N must be in Y;
   for each y in Y, either y-N or y+N must be in X.
 */
 /* Domain consistency for abs(X-Y)=N: revises X against Y, then Y against X. */
@@ -1627,8 +1649,10 @@ static int abs_diff_revise(BPLONG_PTR dv_ptr_x, BPLONG_PTR dv_ptr_y, BPLONG N)
     }
 }
 
-/* abs(X-Y) = N
-   triggered after Ex is excluded from X
+/* abs(X-Y) = N, run after the value Ex has been excluded from X
+   (arguments X, Y, N are in the frame). Ex was the support of Ex-N and Ex+N in Y;
+   each of them loses its last support if its other partner (Ex-2N or Ex+2N) is
+   not in X either, and is then removed from Y.
 */
 int b_ABS_DIFF_X_TO_Y(BPLONG Ex)
 {
@@ -1658,7 +1682,9 @@ int b_ABS_DIFF_X_TO_Y(BPLONG Ex)
     return BP_TRUE;
 }
 
-/* abs(abs(X)-abs(Y)) \= N: either X or Y is bound */
+/* abs(abs(X)-abs(Y)) != N, run when X or Y is fixed (arguments in the frame).
+   Removes from the other variable the values v with abs(abs(v)-a) = N,
+   where a is the absolute value of the fixed one. */
 int b_ABS_ABS_DIFF_NEQ()
 {
     BPLONG X, Y, N, t;
