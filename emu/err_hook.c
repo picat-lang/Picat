@@ -402,6 +402,55 @@ static void err_report_undef(const char *name, int arity)
     }
 }
 
+/* ---------------------------------------------------------------- */
+/* Contiguity check: a predicate's clauses must be grouped together  */
+
+#define ERR_MAXHEADS 512
+static struct { char name[64]; int arity; int last_seq; int last_line; } err_heads[ERR_MAXHEADS];
+static int err_nheads = 0;
+static int err_clause_seq = 0;
+
+#define ERR_MAXCONTIG 8
+static struct { int line; int prev_line; char name[64]; int arity; } err_contig[ERR_MAXCONTIG];
+static int err_ncontig = 0;
+
+/* scanner state, carried across lines */
+static int err_expect_head = 1;
+static int err_in_head = 0;
+static int err_h_depth = 0, err_h_commas = 0, err_h_empty = 1;
+static int err_h_nest = 0;          /* bracket/brace nesting inside the args */
+static char err_h_name[64] = "";
+static int err_h_line = 0;
+static int err_brack_bad = 0;
+
+static void err_register_clause(const char *name, int arity, int line)
+{
+    int i;
+    for (i = 0; i < err_nheads; i++)
+        if (err_heads[i].arity == arity && strcmp(err_heads[i].name, name) == 0) break;
+    if (i == err_nheads) {
+        if (err_nheads >= ERR_MAXHEADS) return;
+        err_nheads++;
+        err_heads[i].name[0] = '\0';
+        strncpy(err_heads[i].name, name, sizeof(err_heads[i].name) - 1);
+        err_heads[i].arity = arity;
+        err_heads[i].last_seq = -1;
+        err_heads[i].last_line = 0;
+    }
+    if (err_heads[i].last_seq >= 0 && err_heads[i].last_seq != err_clause_seq - 1 &&
+        err_ncontig < ERR_MAXCONTIG) {
+        err_contig[err_ncontig].line = line;
+        err_contig[err_ncontig].prev_line = err_heads[i].last_line;
+        err_contig[err_ncontig].name[0] = '\0';
+        strncpy(err_contig[err_ncontig].name, name, sizeof(err_contig[err_ncontig].name) - 1);
+        err_contig[err_ncontig].arity = arity;
+        err_ncontig++;
+    }
+    err_heads[i].last_seq = err_clause_seq;
+    err_heads[i].last_line = line;
+    err_clause_seq++;
+}
+
 void err_lint_main_file(void)
 {
     char *buf, *p;
@@ -410,6 +459,7 @@ void err_lint_main_file(void)
     int paren[24], brack[24], brace[24];
     int np = 0, nb = 0, nc = 0;
     int errors = 0;
+    int i;
     char undef_name[64];
     int undef_arity = -1;
 
@@ -420,6 +470,8 @@ void err_lint_main_file(void)
     buf = err_read_file(err_main_file, &len);
     if (buf == NULL) return;
     err_suppress_name = undef_name;
+    err_nheads = 0; err_clause_seq = 0; err_ncontig = 0;
+    err_expect_head = 1; err_in_head = 0; err_brack_bad = 0;
 
     p = buf;
     while (p != NULL && *p != '\0') {
@@ -443,13 +495,13 @@ void err_lint_main_file(void)
                 else if (c == '[') { if (nb < 24) brack[nb++] = curlin; }
                 else if (c == '{') { if (nc < 24) brace[nc++] = curlin; }
                 else if (c == ')') {
-                    if (np == 0) { fprintf(stderr, "*** lint: unbalanced ')' at line %d\n", curlin); errors++; }
+                    if (np == 0) { fprintf(stderr, "*** lint: unbalanced ')' at line %d\n", curlin); errors++; err_brack_bad = 1; }
                     else np--;
                 } else if (c == ']') {
-                    if (nb == 0) { fprintf(stderr, "*** lint: unbalanced ']' at line %d\n", curlin); errors++; }
+                    if (nb == 0) { fprintf(stderr, "*** lint: unbalanced ']' at line %d\n", curlin); errors++; err_brack_bad = 1; }
                     else nb--;
                 } else if (c == '}') {
-                    if (nc == 0) { fprintf(stderr, "*** lint: unbalanced '}' at line %d\n", curlin); errors++; }
+                    if (nc == 0) { fprintf(stderr, "*** lint: unbalanced '}' at line %d\n", curlin); errors++; err_brack_bad = 1; }
                     else nc--;
                 }
             }
@@ -507,10 +559,87 @@ void err_lint_main_file(void)
                 }
             }
         }
+
+        /* (c) contiguity: track rule heads; a predicate's clauses must be
+           grouped together (skipping directive keywords and variables) */
+        {
+            i = 0;
+            while (clean[i] != '\0') {
+                char c = clean[i];
+                if (c == ' ' || c == '\t') { i++; continue; }
+                if (err_in_head) {
+                    if (c == '(') { err_h_depth++; i++; }
+                    else if (c == '[' || c == '{') { err_h_nest++; i++; }
+                    else if (c == ']' || c == '}') { err_h_nest--; i++; }
+                    else if (c == ')') {
+                        err_h_depth--; i++;
+                        if (err_h_depth == 0) {
+                            int ar = err_h_empty ? 0 : err_h_commas + 1;
+                            err_register_clause(err_h_name, ar, err_h_line);
+                            err_in_head = 0; err_expect_head = 0;
+                        }
+                    } else if (c == ',') {
+                        if (err_h_depth == 1 && err_h_nest == 0) err_h_commas++;
+                        err_h_empty = 0; i++;
+                    } else { if (c != ' ') err_h_empty = 0; i++; }
+                    continue;
+                }
+                if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_') {
+                    int start = i, tlen; char tok[64]; int k, iskw = 0;
+                    while ((clean[i] >= 'a' && clean[i] <= 'z') ||
+                           (clean[i] >= 'A' && clean[i] <= 'Z') ||
+                           (clean[i] >= '0' && clean[i] <= '9') || clean[i] == '_') i++;
+                    tlen = i - start;
+                    if (tlen >= (int)sizeof(tok)) continue;
+                    memcpy(tok, clean + start, (size_t)tlen);
+                    tok[tlen] = '\0';
+                    if (clean[start] >= 'A' && clean[start] <= 'Z') continue;  /* variable */
+                    for (k = 0; k < ERR_MAXKW; k++)
+                        if (strcmp(tok, err_keywords[k]) == 0) { iskw = 1; break; }
+                    if (iskw) continue;                                        /* directive */
+                    if (err_expect_head) {
+                        if (clean[i] == '(') {
+                            err_in_head = 1; err_h_depth = 1;
+                            err_h_commas = 0; err_h_empty = 1; err_h_nest = 0;
+                            strncpy(err_h_name, tok, sizeof(err_h_name) - 1);
+                            err_h_name[sizeof(err_h_name) - 1] = '\0';
+                            err_h_line = curlin;
+                            i++; continue;
+                        }
+                        err_register_clause(tok, 0, curlin);
+                        err_expect_head = 0;
+                        continue;
+                    }
+                    continue;
+                }
+                if (c == '.') {
+                    char n = clean[i+1];
+                    char pr = (i > 0) ? clean[i-1] : '\0';
+                    /* a rule end only when followed by EOL or whitespace and
+                       not the second dot of a range (1.. N); '.' followed by
+                       '.', a digit, or an identifier is a range, a float, or
+                       property access (L.length) */
+                    if ((n == '\0' || n == ' ' || n == '\t') && pr != '.')
+                        err_expect_head = 1;
+                    i++; continue;
+                }
+                if (c == '=' && clean[i+1] == '>') { err_expect_head = 0; i += 2; continue; }
+                if (c == '?' && clean[i+1] == '=' && clean[i+2] == '>') { err_expect_head = 0; i += 3; continue; }
+                i++;
+            }
+        }
     }
-    if (np > 0) { fprintf(stderr, "*** lint: '(' opened at line %d never closed\n", paren[0]); errors++; }
-    if (nb > 0) { fprintf(stderr, "*** lint: '[' opened at line %d never closed\n", brack[0]); errors++; }
-    if (nc > 0) { fprintf(stderr, "*** lint: '{' opened at line %d never closed\n", brace[0]); errors++; }
+    if (np > 0) { fprintf(stderr, "*** lint: '(' opened at line %d never closed\n", paren[0]); errors++; err_brack_bad = 1; }
+    if (nb > 0) { fprintf(stderr, "*** lint: '[' opened at line %d never closed\n", brack[0]); errors++; err_brack_bad = 1; }
+    if (nc > 0) { fprintf(stderr, "*** lint: '{' opened at line %d never closed\n", brace[0]); errors++; err_brack_bad = 1; }
+    /* the contiguity findings only make sense for otherwise well-formed files */
+    if (!err_brack_bad) {
+        for (i = 0; i < err_ncontig; i++)
+            fprintf(stderr,
+                    "*** lint: line %d: '%s/%d' clauses are not contiguous (previous group ended at line %d)\n",
+                    err_contig[i].line, err_contig[i].name, err_contig[i].arity,
+                    err_contig[i].prev_line);
+    }
     (void)errors;
     free(buf);
 }
