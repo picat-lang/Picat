@@ -366,7 +366,7 @@ against direct clausal encodings. Requirements, usage and examples:
 [exs/pb/README.md](exs/pb/README.md).
 
 
-### Check mode: `picat -c`
+## 9. Check mode: `picat -c`
 
 The native build of this branch accepts a `-c` flag: `picat -c FILE.pi`
 compiles and lints the file — reporting compiler errors as usual plus a
