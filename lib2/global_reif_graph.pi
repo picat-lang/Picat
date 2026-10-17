@@ -1,0 +1,1033 @@
+% common reified / test variants of the graph global constraints.
+%
+% For a graph global  g(Args)  the predicate pairs
+%   g_reif(Args, B)
+%   g_test(Args, B)
+% are normal constraints such that  B = 1  iff  g(Args)  holds
+% (B is a boolean dvar).  The arguments need not be grounded;  the
+% definitions are store-independent plain Picat,  re-encodings of the
+% standard formulations (orbit tables,  leaf-elimination times,
+% rooted-tree potentials) with only reified sub-constraints.
+%
+%  circuit  and  subcircuit  are aux-free:  for every  L,  B  is
+%  uniquely determined  ( B = 1  iff  the global holds ).  hcp,
+%  scc,  tree,  acyclic  and  acyclic_d  use existential auxiliary
+% dvars  (distance potentials,  parent flags):  B = 1  is forceable
+% iff  the global holds  and  B = 0  is always forceable,  but  B
+% is not forced to  1  on satisfying inputs.
+
+%
+% This file requires  global_reif.pi  to be included as well (it
+% reuses  as_list/2  and  all_different_reif/2).
+%
+% Provided:
+%   circuit,  subcircuit        (L is a list of dvars 1..N)
+%   acyclic,  acyclic_d         ( Vs = [{Node, Bv}, ...]  (Bv = 1
+%                     selects the vertex),  Es = [{N1, N2, Be}, ...]
+%                     (Be = 1  selects the edge);  vertex names must
+%                     be ground )
+%   hcp,  scc,  tree            ( Vs, Es as above;  K is a dvar or
+%                     int with  K = the number of selected vertices)
+%   hcp_grid,  scc_grid,  subcircuit_grid  (a 2D dvar/int array;
+%                     optional  Es / K  arguments as in the
+%                     un-reified versions)
+%
+% The directed strongly-connected variant  scc_d  is NOT reified.
+%
+% Naming note:  like the un-reified globals,  acyclic / scc / tree
+% treat edges as undirected  ( {A,B,Be}  and  {B,A,Be}  are the same
+% edge;  both directions must carry the same  Be ),  hcp treats them
+% as directed,  and  acyclic_d  always treats them as directed.
+
+% ---------- domain guards ----------
+
+% g_bdom01(B) :  give an uncommitted  B  the domain 0..1,  as in
+% hcp_scc_check_b  of the un-reified globals
+g_bdom01(B) => ( var(B) -> B :: 0..1 ; true ).
+dom01([]) => true.
+dom01([B | T]) => g_bdom01(B), dom01(T).
+edgedom01([]) => true.
+edgedom01([{_I, _J, B} | T]) => g_bdom01(B), edgedom01(T).
+
+% ---------- selection-boolean helpers ----------
+
+% andb(B1,B2,P):  P #<=> (B1 #/\ B2),  safe when  B1 / B2  are ints
+andb(0, _B2, P) => P #= 0.
+andb(B1, 0, P) => P #= 0.
+andb(1, B2, P) => P #= B2.
+andb(B1, 1, P) => P #= B1.
+andb(B1, B2, P) => P #<=> (B1 #/\ B2).
+
+% impb(C, K, I):  I #<=> (#~C #\/ K),  with  K  a boolean
+impb(_C, 1, I) => I #= 1.
+impb(0, _K, I) => I #= 1.
+impb(1, K, I) => I #= K.
+impb(C, 0, I) => g_reif_not(C, I).
+impb(C, K, I) => I #<=> (#~C #\/ K).
+
+% g_reif_not(C, I):  I #<=> #~C
+g_reif_not(0, I) => I #= 1.
+g_reif_not(1, I) => I #= 0.
+g_reif_not(C, I) =>
+    Z0 :: 0..1,
+    Z0 #= 0,
+    I #<=> (#~C #\/ Z0).
+
+% bool_and2_(Bs, Acc, B):  B #<=>  AND of the boolean list  Bs
+bool_and2_([], Acc, B) => B #= Acc.
+bool_and2_([B1 | T], Acc, B) =>
+    Acc2 :: 0..1,
+    Acc2 #<=> (Acc #/\ B1),
+    bool_and2_(T, Acc2, B).
+
+% cat2(X, Y) = list concatenation
+cat2(X, []) = X.
+cat2(X, [Y | T]) = R =>
+    cat2(X, T) = R1,
+    R = [Y | R1].
+
+% ---------- ground-name helpers ----------
+
+pos_of([Name | _], Name, I) => I = 1.
+pos_of([_ | T], Name, I) =>
+    pos_of(T, Name, I1),
+    I = I1+1.
+
+names_of([{V, _} | T], R) =>
+    names_of(T, TN),
+    R = [V | TN].
+names_of([], R) => R = [].
+
+vs_of([{_V, B} | T]) = R =>
+    vs_of(T) = Bs,
+    R = [B | Bs].
+vs_of([]) = [].
+
+% es_to_pos(Names, Es, Edges) :  Edges = [{I, J, B}],  directed
+es_to_pos(_Names, [], R) => R = [].
+es_to_pos(Names, [{V1, V2, B} | T], R) =>
+    pos_of(Names, V1, I),
+    pos_of(Names, V2, J),
+    es_to_pos(Names, T, R2),
+    R = [{I, J, B} | R2].
+
+% unique_edges(Names, Es, UEs) :  UEs = [{I, J, B}]  undirected-
+% unique  (I < J;  I = J for a loop);  duplicate directions must
+% carry the same  B,  as in the un-reified globals
+unique_edges(Names, Es, UEs) =>
+    unique_edges_acc(Names, Es, [], UEs).
+unique_edges_acc(_Names, [], R, UEs) => UEs = R.
+unique_edges_acc(Names, [{V1, V2, B} | T], R, UEs) =>
+    pos_of(Names, V1, I),
+    pos_of(Names, V2, J),
+    edge_insert(Names, T, I, J, B, R, UEs).
+edge_insert(Names, T, I, I, B, R, UEs) =>
+    unique_edges_acc(Names, T, [{I, I, B} | R], UEs).
+edge_insert(Names, T, I, J, B, R, UEs) =>
+    ( J < I -> K = J, L = I ; K = I, L = J ),
+    unique_edges_ins(Names, T, K, L, B, R, UEs).
+unique_edges_ins(Names, T, K, L, B, [{K, L, B2} | R1], UEs) =>
+    B = B2,
+    unique_edges_acc(Names, T, R1, UEs).
+unique_edges_ins(Names, T, K, L, B, R, UEs) =>
+    unique_edges_acc(Names, T, [{K, L, B} | R], UEs).
+
+% neighbour data of vertex  I  in a unique edge list
+neighbs([], _I) = [].
+neighbs([{I1, J1, B} | T], I) = L =>
+    neighbs(T, I) = L1,
+    ( I1 == I -> L = [{J1, B} | L1]
+    ; J1 == I -> L = [{I1, B} | L1]
+    ; L = L1
+    ).
+neigh_bs2([]) = [].
+neigh_bs2([{_J, B} | T]) = [B | L1] => neigh_bs2(T) = L1.
+
+% self_bs(Nbs, I) =  B  list of the self-loops  {I, B}  in a neighbour
+% list
+self_bs([], _I) = [].
+self_bs([{J, B} | T], I) = L =>
+    self_bs(T, I) = L1,
+    ( J == I -> L = [B | L1] ; L = L1 ).
+
+% out_bs(Edges, I) = [{J, B}],  in_bs(Edges, I) = [{J, B}]  of the
+% arcs out of / into  I
+out_bs([], _I) = [].
+out_bs([{I1, J1, B} | T], I) = L =>
+    out_bs(T, I) = L1,
+    ( I1 == I -> L = [{J1, B} | L1] ; L = L1 ).
+in_bs([], _I) = [].
+in_bs([{I1, J1, B} | T], I) = L =>
+    in_bs(T, I) = L1,
+    ( J1 == I -> L = [{I1, B} | L1] ; L = L1 ).
+
+% strip self-loops  (hcp ignores them,  like H[I,I] in the original)
+bs_noself(I, []) = [].
+bs_noself(I, [{J, B} | T]) = L =>
+    bs_noself(I, T) = L1,
+    ( J == I -> L = L1 ; L = [B | L1] ).
+
+obs_bs([]) = [].
+obs_bs([{_J, B} | T]) = L =>
+    obs_bs(T) = L1,
+    L = [B | L1].
+
+% rev_edge(T, J, I, B) :  {J, I, B}  is in  T  (fails if absent)
+rev_edge([], _J, _I, _B) => fail.
+rev_edge([{J, I, B} | _T], J, I, B) => true.
+rev_edge([_ | T], J, I, B) => rev_edge(T, J, I, B).
+
+col(M, J, I, N, L) =>
+    ( I > N -> L = []
+    ; M[I, J] = X,
+      col(M, J, I+1, N, L1),
+      L = [X | L1]
+    ).
+
+% ---------- orbit (power) table of a functional digraph ----------
+%
+% wpow(N, Ls, WS):  WS[K, I] = the vertex reached from  I  in exactly
+% K  steps along the arcs of  Ls   ( 1 =< K =< N ;  row 1  is  Ls )
+
+wpow(N, Ls, WS) =>
+    WS = new_array(N, N),
+    wpow_row1(1, N, Ls, WS),
+    wpow_next(2, N, Ls, WS).
+wpow_row1(I, N, Ls, WS), I > N => true.
+wpow_row1(I, N, Ls, WS) =>
+    WS[1, I] = Ls[I],
+    wpow_row1(I+1, N, Ls, WS).
+wpow_next(K, N, _Ls, _WS), K > N => true.
+wpow_next(K, N, Ls, WS) =>
+    wpow_map(1, N, K-1, Ls, WS),
+    wpow_next(K+1, N, Ls, WS).
+wpow_map(I, N, Km, Ls, WS), I > N => true.
+wpow_map(I, N, Km, Ls, WS) =>
+    element(WS[Km, I], Ls, WS[Km+1, I]),
+    wpow_map(I+1, N, Km, Ls, WS).
+
+
+% ---------- the "first selected vertex" machinery ----------
+%
+% start_first(N, A, S, H, Bs) :  S[i] = 1  iff  i  is the first
+% (lowest-index) selected vertex,  H[i]  the prefix OR of  S.
+% H  is defined hard (an existential aux);  the membership
+% conditions are reified and collected in  Bs.
+
+start_first(N, A, S, H, Bs) =>
+    start_first1(1, N, A, S, H, [], Bs).
+start_first1(I, N, A, S, H, L, Bs), I > N => Bs = L.
+start_first1(1, N, A, S, H, L, Bs) =>
+    H[1] #<=> S[1],
+    I1 :: 0..1,
+    impb(S[1], A[1], I1),
+    I2 :: 0..1,
+    impb(A[1], S[1], I2),
+    start_first1(2, N, A, S, H, [I1, I2 | L], Bs).
+start_first1(I, N, A, S, H, L, Bs) =>
+    Hi1 = H[I-1],
+    H[I] #<=> (Hi1 #\/ S[I]),
+    Ns1 :: 0..1,
+    g_reif_not(Hi1, Ns1),
+    I1 :: 0..1,
+    impb(S[I], A[I], I1),
+    I2 :: 0..1,
+    impb(S[I], Ns1, I2),
+    Pa :: 0..1,
+    andb(A[I], Ns1, Pa),
+    I3 :: 0..1,
+    impb(Pa, S[I], I3),
+    Nh :: 0..1,
+    g_reif_not(H[I], Nh),
+    Ph :: 0..1,
+    andb(S[I], Nh, Ph),
+    I4 :: 0..1,
+    impb(Ph, Hi1, I4),
+    start_first1(I+1, N, A, S, H, [I1, I2, I3, I4 | L], Bs).
+
+% =====================================================================
+% circuit_reif(L,B):  B #<=> circuit(L).
+%
+%  L :: 1..N.  B = 1  iff  L  is a Hamiltonian cycle:  a permutation
+% whose single orbit has length  N.  Aux-free encoding:  all values
+% distinct,  and no vertex returns to itself in fewer than  N
+% steps  (orbit table  WS).  For every  L  the  B  is determined in
+% both directions.
+
+circuit_reif(L, B) =>
+    as_list(L) = Ls,
+    len(Ls) = N,
+    Ls :: 1..N,
+    ( N =< 1 -> B #= 1
+    ; Z0 :: 0..1,
+      Z0 #= 1,
+      wpow(N, Ls, WS),
+      all_different_reif(Ls, B1),
+      circ_noret(1, N, WS, Z0, Bx),
+      B #<=> (B1 #/\ Bx)
+    ).
+circuit_test(L, B) => circuit_reif(L, B).
+
+% Bx #<=>  no vertex returns to itself in fewer than  N  steps
+circ_noret(K, N, _WS, Acc, B), K > N-1 => B = Acc.
+circ_noret(K, N, WS, Acc, B) =>
+    circ_noret_row(1, N, WS, K, Acc, A2),
+    circ_noret(K+1, N, WS, A2, B).
+circ_noret_row(I, N, _WS, _K, Acc, B), I > N => B = Acc.
+circ_noret_row(I, N, WS, K, Acc, B) =>
+    Wk = WS[K],
+    Ii :: 0..1,
+    Ii #<=> (Wk[I] #!= I),
+    Acc2 :: 0..1,
+    Acc2 #<=> (Acc #/\ Ii),
+    circ_noret_row(I+1, N, WS, K, Acc2, B).
+
+
+% =====================================================================
+% subcircuit_reif(L,B):  B #<=> subcircuit(L).
+%
+%  L :: 1..N;  Ls[I] = I  means  node I is not in the sub-circuit,
+%  Ls[I] = J \= I  is the arc  i -> j.  B = 1  iff  the selected
+% arcs form exactly one cycle  (any length,  possibly 0).
+%
+%  Re-encoding:  every selected arc ends in a selected vertex  and
+% every selected vertex has exactly one selected incoming arc,  so
+% the selected part is a permutation;  it is a single cycle  iff
+% the first return time of every selected vertex equals the number
+% Ksum  of selected vertices  (orbit table  WS).  Aux-free:  B  is
+% determined by  L  in both directions.
+
+subcircuit_reif(L, B) =>
+    as_list(L) = Ls,
+    len(Ls) = N,
+    ( N == 0 -> B #= 1
+    ; Ls :: 1..N,
+      M = new_array(N, N),
+      Z0 :: 0..1,
+      Z0 #= 1,
+      subc_list(Ls, SList),
+      subc_aj(1, N, Ls, SList, M, Z0, B2),
+      Ksum :: 0..N,
+      Ksum #= sum(SList),
+      subc_in(1, N, M, SList, Z0, B3),
+      wpow(N, Ls, WS),
+      Karr = new_array(N+1),
+      Karr :: 0..1,
+      subc_karr(0, N, Ksum, Karr),
+      subc_single(1, N, Karr, WS, SList, Z0, Z0, B4),
+      P34 :: 0..1,
+      P234 :: 0..1,
+      P34 #<=> (B3 #/\ B4),
+      P234 #<=> (B2 #/\ P34),
+      B #= P234
+    ).
+subcircuit_test(L, B) => subcircuit_reif(L, B).
+
+
+% SList[I] = " node I has a selected outgoing arc  ( Ls[I] \= I ) "
+subc_list(Ls, SList) =>
+    subc_list1(1, len(Ls), Ls, [], L1),
+    rev_list(L1, SList).
+subc_list1(I, N, Ls, L, S), I > len(Ls) => S = L.
+subc_list1(I, N, Ls, L, S) =>
+    Jii :: I..I,
+    Si :: 0..1,
+    Si #<=> (Ls[I] #!= Jii),
+    subc_list1(I+1, N, Ls, [Si | L], S).
+rev_list(L, R) => rev_list_acc(L, [], R).
+rev_list_acc([], A, R) => R = A.
+rev_list_acc([H | T], A, R) => rev_list_acc(T, [H | A], R).
+
+% M[I,J] = the selected-arc boolean  ( S[I] /\ Ls[I]=J );
+% the endpoint condition:  an arc  I -> J  requires  J  selected
+subc_aj(I, N, Ls, SList, M, Acc, B) =>
+    ( I > N -> B = Acc
+    ; subc_ajj(1, N, Ls, SList, I, M, Acc, B)
+    ).
+subc_ajj(J, N, Ls, SList, I, M, Acc, B) =>
+    ( J > N -> subc_aj(I+1, N, Ls, SList, M, Acc, B)
+    ; Jij :: J..J,
+      Kij :: 0..1,
+      Kij #<=> (Ls[I] #= Jij),
+      Aij :: 0..1,
+      Si = SList[I],
+      Aij #<=> (Si #/\ Kij),
+      Sj = SList[J],
+      Iend :: 0..1,
+      Iend #<=> (#~Aij #\/ Sj),
+      M[I, J] = Aij,
+      Acc2 :: 0..1,
+      Acc2 #<=> (Acc #/\ Iend),
+      subc_ajj(J+1, N, Ls, SList, I, M, Acc2, B)
+    ).
+
+% for each selected  J :  exactly one selected incoming arc
+subc_in(J, N, M, SList, Acc, B) =>
+    ( J > N -> B = Acc
+    ; col(M, J, 1, N, Col),
+      Dj :: 0..N,
+      Dj #= sum(Col),
+      Ej :: 0..1,
+      Ej #<=> (Dj #= 1),
+      Sj = SList[J],
+      Iin :: 0..1,
+      Iin #<=> (#~Sj #\/ Ej),
+      Acc2 :: 0..1,
+      Acc2 #<=> (Acc #/\ Iin),
+      subc_in(J+1, N, M, SList, Acc2, B)
+    ).
+
+% Karr[K] #<=> ( Ksum #= K ),  0 =< K =< N
+subc_karr(K, N, _Ksum, _Karr), K > N => true.
+subc_karr(K, N, Ksum, Karr) =>
+    Karr[K+1] #<=> (Ksum #= K),
+    subc_karr(K+1, N, Ksum, Karr).
+
+% B4 #<=>  for every  I :  I  unselected  or  its first return time
+% equals  Ksum
+subc_single(I, N, _Karr, _WS, _SList, _Z0, Acc, B), I > N => B = Acc.
+subc_single(I, N, Karr, WS, SList, Z0, Acc, B) =>
+    Z0o :: 0..1,
+    Z0o #= 0,
+    subc_firstret(0, N, Karr, WS, I, Z0, Z0o, Z0o, Ts),
+    Sj = SList[I],
+    Ns :: 0..1,
+    g_reif_not(Sj, Ns),
+    Is :: 0..1,
+    Is #<=> (Ns #\/ Ts),
+    Acc2 :: 0..1,
+    Acc2 #<=> (Acc #/\ Is),
+    subc_single(I+1, N, Karr, WS, SList, Z0, Acc2, B).
+
+% Ts #<=>  OR over  K = 0..N  of  ( Ksum #= K  and  I  returns to
+% itself in exactly  K  steps,  not in fewer );  the term  K = 0
+% is simply  Ksum #= 0
+subc_firstret(K, N, _Karr, _WS, _I, _Z0, _Z0o, Acc, B), K > N => B = Acc.
+subc_firstret(K, N, Karr, WS, I, Z0, Z0o, Acc, B) =>
+    Tk :: 0..1,
+    subc_kterm(K, N, Karr, WS, I, Z0, Tk),
+    Acc2 :: 0..1,
+    Acc2 #<=> (Acc #\/ Tk),
+    subc_firstret(K+1, N, Karr, WS, I, Z0, Z0o, Acc2, B).
+
+subc_kterm(0, _N, Karr, _WS, _I, _Z0, T) => T #= Karr[1].
+subc_kterm(K, N, Karr, WS, I, Z0, T) =>
+    Wk = WS[K],
+    Rk :: 0..1,
+    Rk #<=> (Wk[I] #= I),
+    subc_nobefore(1, K, N, WS, I, Z0, Z0, A1),
+    Kk = Karr[K+1],
+    P1 :: 0..1,
+    andb(Kk, Rk, P1),
+    T2 :: 0..1,
+    andb(P1, A1, T2),
+    T = T2.
+
+% A1 #<=>  for all  1 =< J < K :  WS[J, I] \= I
+subc_nobefore(J, K, N, WS, I, Z0, Acc, B) =>
+    ( J > K-1 -> B = Acc
+    ; Wj = WS[J],
+      Ij :: 0..1,
+      Ij #<=> (Wj[I] #!= I),
+      Acc2 :: 0..1,
+      Acc2 #<=> (Acc #/\ Ij),
+      subc_nobefore(J+1, K, N, WS, I, Z0, Acc2, B)
+    ).
+
+
+% =====================================================================
+% acyclic_reif(Vs,Es,B):  B #<=> acyclic(Vs,Es).
+%
+%  B = 1  iff  the selected sub-graph is a forest.  Re-encoding:  a
+%  leaf-elimination schedule T (0..N) exists iff the selected sub-
+%  graph is acyclic;  for two selected neighbours a, b of a vertex v
+%  we must have  T[v] > T[a]  or  T[v] > T[b]  (a strictly
+%  decreasing walk around any cycle is impossible),  and a vertex of
+%  selected degree  >= 2  must be eliminated last  (T >= 1).
+
+acyclic_reif(Vs, Es, B) =>
+    len(Vs) = N,
+    ( N == 0 -> B #= 1
+    ; T = new_array(N),
+      T :: 0..N,
+      acyclic_reif_t(Vs, Es, T, B)
+    ).
+acyclic_reif_t(Vs, Es, T, B) =>
+    len(Vs) = N,
+    names_of(Vs, Names),
+    unique_edges(Names, Es, UEs),
+    vs_of(Vs) = A,
+    dom01(A),
+    edgedom01(UEs),
+    Z0 :: 0..1,
+    Z0 #= 1,
+    acy_deg(1, N, UEs, T, Z0, B1),
+    acy_pairs(1, N, UEs, T, Z0, B2),
+    acy_end(UEs, A, Z0, B3),
+    P12 :: 0..1,
+    P12 #<=> (B1 #/\ B2),
+    P123 :: 0..1,
+    P123 #<=> (P12 #/\ B3),
+    B #<=> P123.
+acyclic_test(Vs, Es, B) => acyclic_reif(Vs, Es, B).
+
+acy_deg(I, N, UEs, T, Acc, B) =>
+    ( I > N -> B = Acc
+    ; neighbs(UEs, I) = Nbs,
+      neigh_bs2(Nbs) = Bs,
+      ( Bs == [] -> Dgi #= 0
+      ; Dgi :: 0..N,
+        Dgi #= sum(Bs)
+      ),
+      KGe2 :: 0..1,
+      KGe2 #<=> (Dgi #>= 2),
+      Gi :: 0..1,
+      Gi #<=> (T[I] #>= 1),
+      Ii :: 0..1,
+      Ii #<=> (#~KGe2 #\/ Gi),
+      self_bs(Nbs, I) = SBs,
+      acy_self(SBs, Ii, Acc, B)
+    ).
+
+% a selected self-loop is a cycle of length 1:  banned
+acy_self([], Ii, Acc, B) =>
+    P :: 0..1,
+    P #<=> (Acc #/\ Ii),
+    B #= P.
+acy_self([Be | T], Ii, Acc, B) =>
+    Ix :: 0..1,
+    g_reif_not(Be, Ix),
+    P :: 0..1,
+    andb(Ii, Ix, P),
+    Acc2 :: 0..1,
+    Acc2 #<=> (Acc #/\ P),
+    acy_self(T, Ii, Acc2, B).
+
+acy_end([], _A, Acc, B) => B = Acc.
+acy_end([{I, J, Be} | T], A, Acc, B) =>
+    Iu :: 0..1,
+    impb(Be, A[I], Iu),
+    Iv :: 0..1,
+    impb(Be, A[J], Iv),
+    P :: 0..1,
+    andb(Iu, Iv, P),
+    P2 :: 0..1,
+    P2 #<=> (Acc #/\ P),
+    acy_end(T, A, P2, B).
+
+acy_pairs(I, N, UEs, T, Acc, B) =>
+    ( I > N -> B = Acc
+    ; neighbs(UEs, I) = Nbs,
+      acy_pairfold(Nbs, I, T, Acc, B1),
+      acy_pairs(I+1, N, UEs, T, B1, B)
+    ).
+acy_pairfold(Nbs, I, T, Acc, B) =>
+    ( Nbs == [] -> B = Acc
+    ; [F | R] = Nbs,
+      F = {J, B1e},
+      acy_pairfold2(R, I, T, J, B1e, Acc, B)
+    ).
+acy_pairfold2(R, I, T, J, B1e, Acc, B) =>
+    ( R == [] -> acy_pairfold(R, I, T, Acc, B)
+    ; [F2 | R2] = R,
+      F2 = {J2, B2e},
+      Pab :: 0..1,
+      andb(B1e, B2e, Pab),
+      G1 :: 0..1,
+      G1 #<=> (T[I] #> T[J]),
+      G2 :: 0..1,
+      G2 #<=> (T[I] #> T[J2]),
+      G :: 0..1,
+      G #<=> (G1 #\/ G2),
+      Ip :: 0..1,
+      Ip #<=> (#~Pab #\/ G),
+      Acc2 :: 0..1,
+      Acc2 #<=> (Acc #/\ Ip),
+      acy_pairfold2(R2, I, T, J, B1e, Acc2, B)
+    ).
+
+% =====================================================================
+% acyclic_d_reif(Vs,Es,B):  B #<=> acyclic_d(Vs,Es).
+%
+%  directed;  B = 1  iff  the selected arcs form a DAG.  Re-encoding:
+%  a topological time T (0..N) with T[u] > T[v] on every selected
+%  arc  u -> v  (a self-loop is therefore impossible),  T = 0  for
+%  unselected vertices and for vertices without a selected outgoing
+%  arc.
+
+acyclic_d_reif(Vs, Es, B) =>
+    len(Vs) = N,
+    ( N == 0 -> B #= 1
+    ; T = new_array(N),
+      T :: 0..N,
+      acyclic_d_reif_t(Vs, Es, T, B)
+    ).
+acyclic_d_reif_t(Vs, Es, T, B) =>
+    len(Vs) = N,
+    names_of(Vs, Names),
+    vs_of(Vs) = A,
+    es_to_pos(Names, Es, Edges),
+    dom01(A),
+    edgedom01(Edges),
+    Z0 :: 0..1,
+    Z0 #= 1,
+    acyd_zero(1, N, Edges, T, Z0, B1),
+    acyd_arcs(Edges, T, Z0, B2),
+    acyd_end(Edges, A, Z0, B3),
+    P12 :: 0..1,
+    P12 #<=> (B1 #/\ B2),
+    P123 :: 0..1,
+    P123 #<=> (P12 #/\ B3),
+    B #<=> P123.
+acyclic_d_test(Vs, Es, B) => acyclic_d_reif(Vs, Es, B).
+
+% T[I] #= 0  for every vertex without a selected outgoing arc
+% (unselected vertices included)
+acyd_zero(I, N, Edges, T, Acc, B) =>
+    ( I > N -> B = Acc
+    ; out_bs(Edges, I) = OBs,
+      obs_bs(OBs) = OBv,
+      ( OBv == [] -> Do #= 0
+      ; Do :: 0..len(OBv),
+        Do #= sum(OBv)
+      ),
+      Ko :: 0..1,
+      Ko #<=> (Do #>= 1),
+      Eq0 :: 0..1,
+      Eq0 #<=> (T[I] #= 0),
+      Io :: 0..1,
+      Io #<=> (Ko #\/ Eq0),
+      Acc2 :: 0..1,
+      Acc2 #<=> (Acc #/\ Io),
+      acyd_zero(I+1, N, Edges, T, Acc2, B)
+    ).
+
+% a selected arc implies both of its endpoints
+acyd_end([], _A, Acc, B) => B = Acc.
+acyd_end([{I, J, Be} | Tarr], A, Acc, B) =>
+    Iu :: 0..1,
+    impb(Be, A[I], Iu),
+    Iv :: 0..1,
+    impb(Be, A[J], Iv),
+    P :: 0..1,
+    andb(Iu, Iv, P),
+    P2 :: 0..1,
+    P2 #<=> (Acc #/\ P),
+    acyd_end(Tarr, A, P2, B).
+
+acyd_arcs([], _T, Acc, B) => B = Acc.
+acyd_arcs([{I, J, Be} | Tarr], T, Acc, B) =>
+    G :: 0..1,
+    ( I == J -> G #= 0
+    ; G #<=> (T[I] #> T[J])
+    ),
+    I2 :: 0..1,
+    impb(Be, G, I2),
+    Acc2 :: 0..1,
+    Acc2 #<=> (Acc #/\ I2),
+    acyd_arcs(Tarr, T, Acc2, B).
+
+% =====================================================================
+% hcp_reif(Vs,Es,K,B):  B #<=> hcp(Vs,Es,K).
+%
+%  the selected vertices (K of them) and selected edges form exactly
+%  one directed cycle through all selected vertices  (vacuous for
+%  K <= 1).  Re-encoding:  edge implies endpoint,  degree-in/out = 1
+%  at every selected vertex,  a "first selected vertex"  Start  plus
+%  a distance potential advancing along cycle arcs  (bans sub-
+%  cycles),  and the ban on 2-cycles.  Self-loops are ignored,  like
+%  in the un-reified hcp.
+
+hcp_reif(Vs, Es, K, B) =>
+    len(Vs) = N,
+    ( N == 0 -> B #= 1
+    ; S = new_array(N),
+      H = new_array(N),
+      Dst = new_array(N),
+      S :: 0..1,
+      H :: 0..1,
+      Dst :: 0..N-1,
+      hcp_reif_t(Vs, Es, K, S, H, Dst, B)
+    ).
+hcp_reif_t(Vs, Es, K, S, H, Dst, B) =>
+    len(Vs) = N,
+    names_of(Vs, Names),
+    vs_of(Vs) = A,
+    es_to_pos(Names, Es, Edges),
+    dom01(A),
+    edgedom01(Edges),
+    Kd :: 0..N,
+    Kd #= sum(A),
+    KR :: 0..1,
+    KR #<=> (Kd #= K),
+    Z0 :: 0..1,
+    Z0 #= 1,
+    start_first(N, A, S, H, Bs1),
+    hcp_endpoint(Edges, A, Bs2),
+    Kg1 :: 0..1,
+    Kg1 #<=> (Kd #> 1),
+    Kg2 :: 0..1,
+    Kg2 #<=> (Kd #> 2),
+    hcp_degree(1, N, A, Edges, Kg1, Z0, B3d),
+    hcp_cycle(N, Edges, S, Dst, L4),
+    hcp_2cyc(Edges, Kg2, L5),
+    bool_and2_(Bs1, Z0, B1d),
+    bool_and2_(Bs2, Z0, B2d),
+    bool_and2_(L4, Z0, B4d),
+    bool_and2_(L5, Z0, B5d),
+    PA :: 0..1,
+    PA #<=> (B1d #/\ B2d),
+    PB :: 0..1,
+    PB #<=> (PA #/\ B3d),
+    PC :: 0..1,
+    PC #<=> (PB #/\ B4d),
+    PD :: 0..1,
+    PD #<=> (PC #/\ B5d),
+    B #<=> (KR #/\ PD).
+hcp_test(Vs, Es, K, B) => hcp_reif(Vs, Es, K, B).
+
+cat5(A1, B1, C, D, E) = R =>
+    cat2(cat2(cat2(cat2(A1, B1), C), D), E) = R.
+
+% selected edge  ==>  both endpoints selected
+hcp_endpoint([], _A, Bs) => Bs = [].
+hcp_endpoint([{I, J, Be} | T], A, Bs), I == J =>
+    hcp_endpoint(T, A, Bs).
+hcp_endpoint([{I, J, Be} | T], A, Bs) =>
+    impb(Be, A[I], Iu),
+    impb(Be, A[J], Iv),
+    hcp_endpoint(T, A, Bs2),
+    Bs = [Iu, Iv | Bs2].
+
+hcp_degree(I, N, A, Edges, Kg1, Acc, B) =>
+    ( I > N -> B = Acc
+    ; out_bs(Edges, I) = OBs,
+      bs_noself(I, OBs) = OBs1,
+      in_bs(Edges, I) = IBs,
+      bs_noself(I, IBs) = IBs1,
+      ( OBs1 == [] -> Do #= 0 ; Do :: 0..N, Do #= sum(OBs1) ),
+      ( IBs1 == [] -> Di #= 0 ; Di :: 0..N, Di #= sum(IBs1) ),
+      Eqo :: 0..1,
+      Eqo #<=> (Do #= 1),
+      Eiqu :: 0..1,
+      Eiqu #<=> (Di #= 1),
+      Pki :: 0..1,
+      andb(A[I], Kg1, Pki),
+      Impo :: 0..1,
+      impb(Pki, Eqo, Impo),
+      Impu :: 0..1,
+      impb(Pki, Eiqu, Impu),
+      Pimp :: 0..1,
+      Pimp #<=> (Impo #/\ Impu),
+      Acc2 :: 0..1,
+      Acc2 #<=> (Acc #/\ Pimp),
+      hcp_degree(I+1, N, A, Edges, Kg1, Acc2, B)
+    ).
+% (a)  Start  ->  Dst = 0;   (b)  a cycle arc out of  I  advances Dst
+hcp_cycle(N, Edges, S, Dst, Bs) =>
+    hcp_dst0(1, N, S, Dst, [], L1b),
+    hcp_step(Edges, S, Dst, L1b, Bs).
+hcp_dst0(I, N, S, Dst, L, Bs), I > N => Bs = L.
+hcp_dst0(I, N, S, Dst, L, Bs) =>
+    Eq0 :: 0..1,
+    Eq0 #<=> (Dst[I] #= 0),
+    Ix :: 0..1,
+    impb(S[I], Eq0, Ix),
+    hcp_dst0(I+1, N, S, Dst, [Ix | L], Bs).
+hcp_step([], _S, _Dst, L, Bs) => Bs = L.
+hcp_step([{I, J, Be} | T], S, Dst, L, Bs), I == J =>
+    hcp_step(T, S, Dst, L, Bs).
+hcp_step([{I, J, Be} | T], S, Dst, L, Bs) =>
+    NS :: 0..1,
+    g_reif_not(S[J], NS),
+    P :: 0..1,
+    andb(Be, NS, P),
+    Eq :: 0..1,
+    Eq #<=> (Dst[J] #= Dst[I]+1),
+    Ix :: 0..1,
+    impb(P, Eq, Ix),
+    hcp_step(T, S, Dst, [Ix | L], Bs).
+
+% 2-cycle ban:  for  i < j  with both directed edges present,
+% not both can be in the cycle  when  K > 2
+hcp_2cyc(Edges, Kg2, Bs) =>
+    hcp_2cyc2(Edges, Kg2, [], Bs).
+hcp_2cyc2([], _Kg2, L, Bs) => Bs = L.
+hcp_2cyc2([{I, _J, _Be} | T], Kg2, L, Bs), I == J =>
+    hcp_2cyc2(T, Kg2, L, Bs).
+hcp_2cyc2([{I, J, _Be} | T], Kg2, L, Bs), J < I =>
+    hcp_2cyc2(T, Kg2, L, Bs).
+hcp_2cyc2([{I, J, Be} | T], Kg2, L, Bs) =>
+    ( rev_edge(T, J, I, Brev)
+    -> Nb1 :: 0..1,
+      g_reif_not(Be, Nb1),
+      Nb2 :: 0..1,
+      g_reif_not(Brev, Nb2),
+      G :: 0..1,
+      G #<=> (Nb1 #/\ Nb2),
+      Ix :: 0..1,
+      impb(Kg2, G, Ix),
+      hcp_2cyc2(T, Kg2, [Ix | L], Bs)
+    ; hcp_2cyc2(T, Kg2, L, Bs)
+    ).
+
+% =====================================================================
+% scc_reif(Vs,Es,K,B):  B #<=> scc(Vs,Es,K).
+%
+%  the selected vertices (K of them) and selected edges form one
+%  connected component.  Re-encoding:  a "first selected vertex"
+%  root,  a parent direction per undirected edge (existential aux),
+%  exactly one parent for every selected non-root vertex,  and a
+%  distance potential from the root.
+
+scc_reif(Vs, Es, K, B) =>
+    len(Vs) = N,
+    ( N == 0 -> B #= 1
+    ; S = new_array(N),
+      H = new_array(N),
+      Dst = new_array(N),
+      S :: 0..1,
+      H :: 0..1,
+      Dst :: 0..N-1,
+      scc_reif_t(Vs, Es, K, S, H, Dst, B)
+    ).
+scc_reif_t(Vs, Es, K, S, H, Dst, B) =>
+    len(Vs) = N,
+    names_of(Vs, Names),
+    vs_of(Vs) = A,
+    unique_edges(Names, Es, UEs),
+    dom01(A),
+    edgedom01(UEs),
+    Kd :: 0..N,
+    Kd #= sum(A),
+    KR :: 0..1,
+    KR #<=> (Kd #= K),
+    Z0 :: 0..1,
+    Z0 #= 1,
+    start_first(N, A, S, H, L0),
+    scc_parents(UEs, Bp),
+    scc_vertex(1, N, A, S, Bp, Dst, Z0, B1d),
+    scc_edgeimp(Bp, A, S, Dst, Z0, B2d),
+    bool_and2_(L0, Z0, B0d),
+    PA :: 0..1,
+    PA #<=> (B0d #/\ B1d),
+    PB :: 0..1,
+    PB #<=> (PA #/\ B2d),
+    B #<=> (KR #/\ PB).
+scc_test(Vs, Es, K, B) => scc_reif(Vs, Es, K, B).
+
+% a parent-direction flag pair per undirected edge:  Pij  = "J is
+% the parent of I",  Pji  = "I is the parent of J"
+scc_parents(UEs, Bp) =>
+    scc_parents2(UEs, [], Bp).
+scc_parents2([], L, Bp) => Bp = L.
+scc_parents2([{I, J, Be} | T], L, Bp) =>
+    Pij :: 0..1,
+    Pji :: 0..1,
+    #~Pij #\/ #~Pji,
+    #~Pij #\/ Be,
+    #~Pji #\/ Be,
+    scc_parents2(T, [{I, J, Be, Pij, Pji} | L], Bp).
+
+scc_vertex(I, N, A, S, Bp, Dst, Acc, B) =>
+    ( I > N -> B = Acc
+    ; Ai = A[I],
+      parent_bs(Bp, I) = PBs,
+      ( PBs == [] -> Ci #= 0 ; Ci :: 0..len(PBs), Ci #= sum(PBs) ),
+      Eq0 :: 0..1,
+      Eq0 #<=> (Ci #= 0),
+      Iroot :: 0..1,
+      impb(S[I], Eq0, Iroot),
+      NS :: 0..1,
+      g_reif_not(S[I], NS),
+      Psel :: 0..1,
+      andb(Ai, NS, Psel),
+      Eq1 :: 0..1,
+      Eq1 #<=> (Ci #= 1),
+      Isel :: 0..1,
+      impb(Psel, Eq1, Isel),
+      Eq0d :: 0..1,
+      Eq0d #<=> (Dst[I] #= 0),
+      Iun :: 0..1,
+      Iun #<=> (NS #\/ Eq0d),
+      P1 :: 0..1,
+      P1 #<=> (Iroot #/\ Isel),
+      P2 :: 0..1,
+      P2 #<=> (P1 #/\ Iun),
+      Acc2 :: 0..1,
+      Acc2 #<=> (Acc #/\ P2),
+      scc_vertex(I+1, N, A, S, Bp, Dst, Acc2, B)
+    ).
+
+% parent_bs(Bp, I) = the flags  "  J is the parent of I  "  over the
+% edges incident with  I
+parent_bs([], _I) = [].
+parent_bs([{I, _J, _Be, P, _Pj} | T], I) = L =>
+    parent_bs(T, I) = L1,
+    L = [P | L1].
+parent_bs([{_J, I, _Be, _P, P} | T], I) = L =>
+    parent_bs(T, I) = L1,
+    L = [P | L1].
+parent_bs([_ | T], I) = L =>
+    parent_bs(T, I) = L1,
+    L = L1.
+
+scc_edgeimp([], _A, _S, _Dst, Acc, Bs) => Bs = Acc.
+scc_edgeimp([{I, J, Be, Pij, Pji} | T], A, S, Dst, Acc, Bs) =>
+    Eqi :: 0..1,
+    Eqi #<=> (Dst[I] #= Dst[J]+1),
+    Ii :: 0..1,
+    impb(Pij, Eqi, Ii),
+    Eqj :: 0..1,
+    Eqj #<=> (Dst[J] #= Dst[I]+1),
+    Ij :: 0..1,
+    impb(Pji, Eqj, Ij),
+    Pr1 :: 0..1,
+    andb(S[I], Be, Pr1),
+    Eq1 :: 0..1,
+    Eq1 #<=> (Dst[J] #= 1),
+    Ir1 :: 0..1,
+    impb(Pr1, Eq1, Ir1),
+    Pr2 :: 0..1,
+    andb(S[J], Be, Pr2),
+    Eq2 :: 0..1,
+    Eq2 #<=> (Dst[I] #= 1),
+    Ir2 :: 0..1,
+    impb(Pr2, Eq2, Ir2),
+    Iu :: 0..1,
+    impb(Be, A[I], Iu),
+    Iv :: 0..1,
+    impb(Be, A[J], Iv),
+    P1 :: 0..1,
+    P1 #<=> (Ii #/\ Ij),
+    P2 :: 0..1,
+    P2 #<=> (P1 #/\ Ir1),
+    P3 :: 0..1,
+    P3 #<=> (P2 #/\ Ir2),
+    P4 :: 0..1,
+    P4 #<=> (P3 #/\ Iu),
+    P5 :: 0..1,
+    P5 #<=> (P4 #/\ Iv),
+    Acc2 :: 0..1,
+    Acc2 #<=> (Acc #/\ P5),
+    scc_edgeimp(T, A, S, Dst, Acc2, Bs).
+
+% =====================================================================
+% tree_reif(Vs,Es,K,B):  B #<=> tree(Vs,Es,K).
+%
+%  the selected vertices and edges form exactly a tree with  K
+%  vertices:  scc  plus  exactly  K-1  selected edges  (for K >= 2).
+
+tree_reif(Vs, Es, K, B) =>
+    len(Vs) = N,
+    ( N == 0 ->
+      S = [], H = [], Dst = [],
+      tree_reif_t(Vs, Es, K, S, H, Dst, B)
+    ; S = new_array(N),
+      H = new_array(N),
+      Dst = new_array(N),
+      S :: 0..1,
+      H :: 0..1,
+      Dst :: 0..N-1,
+      tree_reif_t(Vs, Es, K, S, H, Dst, B)
+    ).
+tree_reif_t(Vs, Es, K, S, H, Dst, B) =>
+    scc_reif_t(Vs, Es, K, S, H, Dst, B1),
+    len(Vs) = N,
+    names_of(Vs, Names),
+    unique_edges(Names, Es, UEs),
+    edge_bs3(UEs) = EBs,
+    M = len(UEs),
+    ( M == 0 -> Esum #= 0
+    ; Esum :: 0..M,
+      Esum #= sum(EBs)
+    ),
+    ( integer(K) ->
+      ( K >= 2 -> I #<=> (K #= Esum+1)
+      ; I #= 1
+      )
+    ; Kg2 :: 0..1,
+      Kg2 #<=> (K #>= 2),
+      Eq #<=> (K #= Esum+1),
+      impb(Kg2, Eq, I)
+    ),
+    B #<=> (B1 #/\ I).
+tree_test(Vs, Es, K, B) => tree_reif(Vs, Es, K, B).
+
+edge_bs3([]) = [].
+edge_bs3([{_I, _J, B} | T]) = L =>
+    edge_bs3(T) = L1,
+    L = [B | L1].
+
+% =====================================================================
+% grid wrappers
+
+hcp_grid_reif(G, B) =>
+    hcp_grid_reif(G, _Es, _K, B).
+hcp_grid_reif(G, Es, B) =>
+    hcp_grid_reif(G, Es, _K, B).
+hcp_grid_reif(G, Es, K, B) =>
+    grid_check_matrix(G, hcp_grid_reif, NRows, NCols),
+    grid_vs(1, 1, NRows, NCols, G, [], Vs),
+    ( var(Es) -> grid_es(1, 1, NRows, NCols, G, [], Es1)
+    ; Es1 = Es
+    ),
+    hcp_reif(Vs, Es1, K, B).
+hcp_grid_test(G, B) => hcp_grid_reif(G, B).
+hcp_grid_test(G, Es, B) => hcp_grid_reif(G, Es, B).
+hcp_grid_test(G, Es, K, B) => hcp_grid_reif(G, Es, K, B).
+
+scc_grid_reif(G, B) =>
+    scc_grid_reif(G, _K, B).
+scc_grid_reif(G, K, B) =>
+    grid_check_matrix(G, scc_grid_reif, NRows, NCols),
+    grid_vs(1, 1, NRows, NCols, G, [], Vs),
+    grid_es_uniq(1, 1, NRows, NCols, G, [], Es),
+    scc_reif(Vs, Es, K, B).
+scc_grid_test(G, B) => scc_grid_reif(G, B).
+scc_grid_test(G, K, B) => scc_grid_reif(G, K, B).
+
+subcircuit_grid_reif(G, B) =>
+    hcp_grid_reif(G, B).
+subcircuit_grid_reif(G, K, B) =>
+    hcp_grid_reif(G, _Es, K, B).
+subcircuit_grid_test(G, B) => hcp_grid_reif(G, B).
+subcircuit_grid_test(G, K, B) => hcp_grid_reif(G, _Es, K, B).
+
+% Prolog-level grid traversal (no comprehensions:  dvar elements in
+% comprehension results are disconnected copies in this build)
+grid_vs(R, C, NR, NC, G, Acc, Vs) =>
+    ( R > NR -> Vs = Acc
+    ; ( C > NC -> grid_vs(R+1, 1, NR, NC, G, Acc, Vs)
+      ; Cell = G[R, C],
+        grid_vs(R, C+1, NR, NC, G, [ {(R, C), Cell} | Acc ], Vs)
+      )
+    ).
+
+grid_es(R, C, NR, NC, G, Acc, Es) =>
+    ( R > NR -> Es = Acc
+    ; ( C > NC -> grid_es(R+1, 1, NR, NC, G, Acc, Es)
+      ; grid_neibs(G, NR, NC, R, C, Neibs),
+        grid_es_neibs(Neibs, (R, C), Acc, Acc1),
+        grid_es(R, C+1, NR, NC, G, Acc1, Es)
+      )
+    ).
+grid_es_neibs([], _Pos, Acc, AccR) => AccR = Acc.
+grid_es_neibs([(R1, C1) | T], Pos, Acc, AccR) =>
+    B :: 0..1,
+    grid_es_neibs(T, Pos, [ {Pos, (R1, C1), B} | Acc ], AccR).
+
+grid_es_uniq(R, C, NR, NC, G, Acc, Es) =>
+    ( R > NR -> Es = Acc
+    ; ( C > NC -> grid_es_uniq(R+1, 1, NR, NC, G, Acc, Es)
+      ; grid_neibs(G, NR, NC, R, C, Neibs),
+        grid_es_uniq_neibs(Neibs, (R, C), Acc, Acc1),
+        grid_es_uniq(R, C+1, NR, NC, G, Acc1, Es)
+      )
+    ).
+grid_es_uniq_neibs([], _Pos, Acc, AccR) => AccR = Acc.
+grid_es_uniq_neibs([(R1, C1) | T], Pos, Acc, AccR) =>
+    ( Pos @> (R1, C1) -> grid_es_uniq_neibs(T, Pos, Acc, AccR)
+    ; B :: 0..1,
+      grid_es_uniq_neibs(T, Pos, [ {Pos, (R1, C1), B} | Acc ], AccR)
+    ).

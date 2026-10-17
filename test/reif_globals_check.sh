@@ -13,13 +13,13 @@
 cd "$(dirname "$0")/.." || exit 1
 P=${1:-emu/picat}
 # the stale-.qi guard:  an earlier probe run caches a compiled cp2 next
-# to this script (test/cp2.qi), which shadows lib/cp2.pi and hides any
+# to this script (test/cp2.qi), which shadows lib2/cp2.pi and hides any
 # global_reif.pi edit -- remove it first
 rm -f test/cp2.qi
 rc=0
 for fdn in 0 1; do
   echo "=== reif_globals_check (FDN=$fdn)"
-  FDN=$fdn PICATPATH=.:./lib $P test/reif_globals_check.pi > /tmp/reif_globals_check.$$ 2>&1
+  FDN=$fdn PICATPATH=.:./lib2 $P test/reif_globals_check.pi > /tmp/reif_globals_check.$$ 2>&1
   rc1=$?
   cat /tmp/reif_globals_check.$$
   if [ $rc1 -ne 0 ]; then rc=$rc1; fi

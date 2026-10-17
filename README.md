@@ -304,10 +304,9 @@ The `udf` examples are:
 [exs/mip/udf_functions.pi](exs/mip/udf_functions.pi),
 [exs/smt/udf_functions.pi](exs/smt/udf_functions.pi).
 
-Solver twins: `import cp2.` / `import sat2.` (in `lib/`, not
-preloaded — run with `PICATPATH` including `lib`, e.g.
-`PICATPATH=lib2:lib` when combined with `lib2` modules such as
-`udf`) re-export the whole `cp`/`sat` surface plus
+Solver twins: `import cp2.` / `import sat2.` (in `lib2/`, not
+preloaded — run with `PICATPATH` including `lib2`) re-export the whole
+`cp`/`sat` surface plus
 `count_all_solve(Opts, Vars) = C` — `count_all(solve(Opts, Vars))`
 with the zero-slice trap handled in one place (a failed or thrown
 count is the count 0; everything else is the exact count), which is
