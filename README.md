@@ -332,10 +332,13 @@ as a term, evaluated at runtime. Written `$lambda([X], Body)` (always
     F = $lambda([X], X + 1),
     println(F(4)),                        % 5
     map($lambda([X], X * X), [1,2,3])     % [1,4,9]
-
 The body is an expression over the parameters: variables, numbers,
-lists, `+ - * / // div mod rem **` (and unary `-`), and calls of named
-functions (built-ins included) and of other lambda values. Lambdas
+lists, `+ - * / // div mod rem **` (and unary `-`), the comparisons
+`> < >= =< == !=` (returning true/false), the built-in
+`cond(Boolean, TrueExp, FalseExp)` (short-circuiting — only the chosen
+branch is evaluated, so `cond(X == 0, 0, 100 / X)` is safe at `X = 0`),
+and calls of named functions (built-ins included) and of other lambda
+values. Lambdas
 compose with `comp`/`compose`/`pipe` and capture: a lambda returned
 from a lambda binds the outer parameter values, so
 

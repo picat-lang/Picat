@@ -40,9 +40,11 @@ module fp.
 %% binds the VList and evaluates the body.  The body is an EXPRESSION
 %% tree over the bound variables: variables, numbers, atoms, strings,
 %% lists, the arithmetic operators + - * / // div mod rem ** (and unary
-%% -), and CALLS of named functions (including built-ins, other lambda
-%% values, and comp/compose/pipe results).  Comparisons and goals are
-%% not part of the body language.
+%% -), the comparisons > < >= =< == != (which return true/false), the
+%% built-in cond(Boolean, TrueExp, FalseExp) (short-circuiting: only
+%% the chosen branch is evaluated), and CALLS of named functions
+%% (including built-ins, other lambda values, and comp/compose/pipe
+%% results).  Other goals are not part of the body language.
 %%
 %% Lambdas are first-class: a body may return a lambda, and a lambda
 %% created while evaluating another lambda CAPTURES the outer parameter
@@ -92,11 +94,31 @@ eval_exp(A - B, Env) = R => R = eval_exp(A, Env) - eval_exp(B, Env).
 eval_exp(A * B, Env) = R => R = eval_exp(A, Env) * eval_exp(B, Env).
 eval_exp(A / B, Env) = R => R = eval_exp(A, Env) / eval_exp(B, Env).
 eval_exp(A // B, Env) = R => R = eval_exp(A, Env) // eval_exp(B, Env).
-eval_exp(div(A, B), Env) = R => R = div(eval_exp(A, Env), eval_exp(B, Env)).
+eval_exp(T, Env) = R, compound(T), functor(T, F, N), F == 'div', N == 2 =>
+    arg(1, T, A),
+    arg(2, T, B),
+    R = div(eval_exp(A, Env), eval_exp(B, Env)).
 eval_exp(A mod B, Env) = R => R = eval_exp(A, Env) mod eval_exp(B, Env).
 eval_exp(A rem B, Env) = R => R = eval_exp(A, Env) rem eval_exp(B, Env).
 eval_exp(A ** B, Env) = R => R = eval_exp(A, Env) ** eval_exp(B, Env).
 eval_exp(-A, Env) = R => R = -eval_exp(A, Env).
+eval_exp(T, Env) = R, compound(T), functor(T, F, N), F == 'cond', N == 3 =>
+    arg(1, T, C),
+    arg(2, T, T2),
+    arg(3, T, F2),
+    (eval_exp(C, Env) == true -> R = eval_exp(T2, Env) ; R = eval_exp(F2, Env)).
+eval_exp(A > B, Env) = R => (eval_exp(A, Env) > eval_exp(B, Env) -> R = true ; R = false).
+eval_exp(A < B, Env) = R => (eval_exp(A, Env) < eval_exp(B, Env) -> R = true ; R = false).
+eval_exp(A >= B, Env) = R => (eval_exp(A, Env) >= eval_exp(B, Env) -> R = true ; R = false).
+eval_exp(A =< B, Env) = R => (eval_exp(A, Env) =< eval_exp(B, Env) -> R = true ; R = false).
+eval_exp(T, Env) = R, compound(T), functor(T, F, N), F == '==', N == 2 =>
+    arg(1, T, A),
+    arg(2, T, B),
+    (eval_exp(A, Env) == eval_exp(B, Env) -> R = true ; R = false).
+eval_exp(T, Env) = R, compound(T), functor(T, F, N), F == '!=', N == 2 =>
+    arg(1, T, A),
+    arg(2, T, B),
+    (eval_exp(A, Env) != eval_exp(B, Env) -> R = true ; R = false).
 eval_exp(L, Env) = R, list(L) =>
     R = [eval_exp(A, Env) : A in L].
 eval_exp(T, Env) = R, compound(T), var(F0), functor(T, F0, _) =>
