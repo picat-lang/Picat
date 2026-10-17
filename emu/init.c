@@ -52,10 +52,11 @@ BPLONG parea_size = 4000000;
 BPLONG table_size = 1000000;
 
 void print_picat_usage() {
-    printf("Usage: picat [[-path Path] | [-p P] | [-s S] | [-b B] | | [-g Goal] | [-d] | [-log] | [--help] | [--version]]* PicatMainFileName A1 A2 ...\n");
+    printf("Usage: picat [[-path Path] | [-p P] | [-s S] | [-b B] | | [-g Goal] | [-c] | [-d] | [-log] | [--help] | [--version]]* PicatMainFileName A1 A2 ...\n");
     printf("       P -- size for program area\n");
     printf("       S -- size for global and local stacks\n");
     printf("       B -- size for trail stack\n");
+    printf("       -c -- check mode: compile and lint PicatMainFileName without running it\n");
 }
 
 #ifdef WIN32
