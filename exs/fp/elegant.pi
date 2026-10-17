@@ -1,0 +1,41 @@
+%% elegant.pi -- a demonstration of the fp module (lib2/fp.pi):
+%% function values, lambdas, closures, recursion, and composition
+%% pipelines, ending in calculus as anonymous functions.
+%%
+%% Run from the repo root with PICATPATH including lib2:
+%%
+%%     PICATPATH=.:./lib2 emu/picat exs/fp/elegant.pi
+%%
+%% See exs/fp/README.md for how each piece works.
+import fp.
+
+main =>
+    % Newton's method as a recursive lambda: solves F(X) = 0.
+    % NEWTON takes itself as its first parameter (Me); selfapply passes
+    % it back on every recursive call.  The two lambdas -- the function
+    % and its derivative -- are passed as values.
+    NEWTON = $lambda([Me, F, DF, X],
+        cond(abs(callv(F, X)) < 1.0e-10,
+             X,
+             selfapply(Me, F, DF, X - callv(F, X) / callv(DF, X)))),
+    SQRT2 = NEWTON(NEWTON, $lambda([X], X * X - 2), $lambda([X], 2 * X), 1.0),
+    println("sqrt(2)      = " ++ SQRT2.to_string),
+
+    % The derivative operator: D(F) returns a CLOSURE -- a lambda whose
+    % body calls the captured F.  D(SQ) is a function value.
+    D = $lambda([F], $lambda([X], (callv(F, X + 1.0e-6) - callv(F, X)) / 1.0e-6)),
+    SQ = $lambda([X], X * X),
+    DSQ = D(SQ),
+    println("d/dx x^2 @3  = " ++ DSQ(3).to_string),
+
+    % The definite integral as a recursive lambda (left Riemann sum).
+    INTEG = $lambda([Me, F, A, H, N],
+        cond(N == 0,
+             0,
+             callv(F, A) * H + selfapply(Me, F, A + H, H, N - 1))),
+    I = INTEG(INTEG, SQ, 0.0, 0.001, 2000),
+    println("int x^2 0..2 = " ++ I.to_string),
+
+    % A composition pipeline bound once and mapped: 3*(x^2 + 1).
+    P = pipe([SQ, $lambda([X], X + 1), $'*'(3)]),
+    println("3*(x^2+1)    = " ++ map(P, [1,2,3]).to_string).

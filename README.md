@@ -344,7 +344,11 @@ values. Comprehension syntax cannot appear in a body (it is syntax,
 not a term) — the `collect(F, From, To, P)` helper replaces it: the
 example `[I*I : I in 1..X, I*I < X].sum` is written
 `sum(collect($sq, 1, X, $lambda([I], I*I < X)))`, with the condition
-as a capturing lambda. Lambdas can also RECURSIVE through
+as a capturing lambda. A worked example with a README explaining how
+to build lambdas and every helper — Newton's method, a derivative
+operator, an integral, and a pipeline, all as anonymous functions —
+is [exs/fp/elegant.pi](exs/fp/elegant.pi) with
+[exs/fp/README.md](exs/fp/README.md). Lambdas can also RECURSIVE through
 `selfapply(F, X[,Y[,Z]]) = F(F, ...)` — the lambda takes itself as its
 first parameter and `selfapply` passes it back:
 
