@@ -64,7 +64,7 @@ atom_codes(Atm) = atom_codes(Atm).
 atomic(Term) => atomic(Term).
 attr_var(Term) => attr_var(Term).
 avg(ListOrArray) = avg(ListOrArray).
-between(From,To,X) => between(From,To,1,X).
+between(From,To,X) => between(From,1,To,X).
 between(From,Step,To,X) => between(From,Step,To,X).
 bigint(Term) => bigint(Term).
 bind_vars(Term, Val) => bind_vars(Term,Val).
@@ -105,7 +105,7 @@ count_all(S) = _ => throw($meta_meta_call_not_allowed(count_all(S))).
 first(Compound) = first(Compound).
 flatten(List) = flatten(List).
 float(Term) => float(Term).
-fold(F,Acc, List) = fold(F,Acc,List).
+fold(F,Acc,List) = fold(F,Acc,List).
 freeze(X, Goal) => throw($meta_meta_call_not_allowed(freeze(X,Goal))).
 functor(T,F, N) => functor(T,F,N).
 get(Map, Key) = get(Map,Key).

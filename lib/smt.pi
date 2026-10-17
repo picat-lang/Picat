@@ -1,5 +1,5 @@
 module smt.
-import common_constr, smt_aux.
+import common_constr, smt_aux, graph_constrs.
 
 % X #!= Y
 % X #/\ Y
@@ -62,6 +62,7 @@ import common_constr, smt_aux.
 % path(Vs,Es,Src,Dest)
 % path_d(Vs,Es,Src,Dest)
 % regular(X,Q,S,D,Q0,F)
+% reset_store()
 % scalar_product(A,X,Product)
 % scalar_product(A,X,Rel,Product)
 % scc(Vs,Es)
@@ -86,6 +87,54 @@ import common_constr, smt_aux.
 include "cp_sat_mip_smt.pi". % common built-ins for cp, sat, mip, and smt
 include "sat_mip_smt.pi".    % common decomposers used for sat, mip, and smt
 include "mip_smt.pi".        % common decomposers used for mip and smt
+
+hcp(Vs,Es) =>
+    eahc_sat(Vs, Es, smt, auto).
+
+hcp(Vs,Es,K) =>
+    K #= sum([B : {_,B} in Vs]),
+    eahc_sat(Vs, Es, smt, auto).
+
+scc(Vs,Es) =>
+    graph_constrs.scc(Vs, Es, smt).
+
+scc(Vs,Es,K) =>
+    K #= sum([B : {_,B} in Vs]),
+    graph_constrs.scc(Vs, Es, smt).
+
+scc_d(Vs,Es) =>
+    graph_constrs.scc_d(Vs, Es, smt).
+
+scc_d(Vs,Es,K) =>
+    K #= sum([B : {_,B} in Vs]),
+    graph_constrs.scc_d(Vs, Es, smt).
+
+tree(Vs,Es) =>
+    graph_constrs.tree(Vs, Es, smt).
+
+tree(Vs,Es,K) =>
+    K #= sum([B : {_,B} in Vs]),
+    graph_constrs.tree(Vs, Es, smt).
+
+acyclic(Vs,Es) =>
+    graph_constrs.acyclic(Vs, Es, smt).
+
+acyclic(Vs,Es,K) =>
+    K #= sum([B : {_,B} in Vs]),
+    graph_constrs.acyclic(Vs, Es, smt).
+
+acyclic_d(Vs,Es) =>
+    graph_constrs.acyclic_d(Vs, Es, smt).
+
+acyclic_d(Vs,Es,K) =>
+    K #= sum([B : {_,B} in Vs]),
+    graph_constrs.acyclic_d(Vs, Es, smt).
+
+path(Vs,Es,Src,Dest) =>
+    graph_constrs.path(Vs,Es,Src,Dest,smt).
+
+path_d(Vs,Es,Src,Dest) =>
+    graph_constrs.path_d(Vs,Es,Src,Dest,smt).
 
 % solve(Vars) => solve(Vars).
 solve(Vars) => solve([],Vars).

@@ -142,14 +142,14 @@ circuit(List), list(List) =>
     LB = min([fd_min(V) : V in List]),
     if LB !== 1 then
         transform_circuit_aux(List,List1,LB),
-        circuit_hybrid_aux(List1)
+        circuit_aux(List1)
     else
-        circuit_hybrid_aux(List)
+        circuit_aux(List)
     end.
 circuit(L) =>
     handle_exception($array_or_list_expected(L), circuit).
 
-circuit_hybrid_aux(L) =>
+circuit_aux(L) =>
     N = len(L),
     L :: 1..N,
     Vs = [{I,1} : I in 1..N],
@@ -157,7 +157,7 @@ circuit_hybrid_aux(L) =>
                     J in fd_dom(L[I]), 
                     J !== I, 
                     B #<=> L[I] #= J],
-     hcp_hybrid(Vs,Es).
+     hcp(Vs,Es).
 
 
 /************************************************************************* 
@@ -166,13 +166,13 @@ L forms a subcircuit where Xi = j (j \= i) means that j is the successor of i
 and Xi = i means that i is not in the circuit. No sub-cycles are allowed.
 *************************************************************************/
 subcircuit(L), list(L) =>
-    subcircuit_hybrid(L).
+    subcircuit_aux(L).
 subcircuit(A), array(A) =>
-    subcircuit_hybrid(to_list(A)).
+    subcircuit_aux(to_list(A)).
 subcircuit(L) =>
     handle_exception($array_or_list_expected(L), subcircuit).
 
-subcircuit_hybrid(L) =>
+subcircuit_aux(L) =>
      N = len(L),
      L :: 1..N,
      Vs = [{I,B} : I in 1..N, 
@@ -181,7 +181,7 @@ subcircuit_hybrid(L) =>
                    J in fd_dom(L[I]), 
                    J !== I, 
                    B #<=> L[I] #= J],
-     hcp_hybrid(Vs,Es).
+     hcp(Vs,Es).
 
 
 fzn_circuit(List), array(List) =>
@@ -484,6 +484,9 @@ lex_lt_aux(L1,L2) =>
 
 %%
 nvalue(N,L) => bp.'$nvalue'(N,L).
+
+reset_store =>
+    bp.global_heap_set('$all_constrs',[]).
 
 %% Some of the following constraints were proposed and implemented by Hakan Kjellerstrand
 matrix_element(M,I,J,MIJ) =>

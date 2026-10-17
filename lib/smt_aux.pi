@@ -454,6 +454,10 @@ smt_dump_constr(OStream,'$table_in'(VarsTuple,Tuples)) =>
     smt_dump_table_in_constr(OStream,VarsTuple,Tuples).
 smt_dump_constr(OStream,'$table_notin'(VarsTuple,Tuples)) =>
     smt_dump_table_notin_constr(OStream,VarsTuple,Tuples).
+smt_dump_constr(OStream,1) =>
+    true.
+smt_dump_constr(OStream,0) =>
+    smt_dump_arith_constr(OStream,ge,-1,[]).
 smt_dump_constr(_OStream,Constr) =>
     handle_exception(unknown_constraint,Constr).
 

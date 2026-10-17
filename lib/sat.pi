@@ -1,6 +1,5 @@
 module sat.
-import common_constr.
-
+import common_constr, graph_constrs.
 % X #!= Y
 % X #/\ Y
 % X #< Y
@@ -62,6 +61,7 @@ import common_constr.
 % path(Vs,Es,Src,Dest)
 % path_d(Vs,Es,Src,Dest)
 % regular(X,Q,S,D,Q0,F)
+% reset_store()
 % scalar_product(A,X,Product)
 % scalar_product(A,X,Rel,Product)
 % scc(Vs,Es)
@@ -86,6 +86,55 @@ import common_constr.
 include "cp_sat_mip_smt.pi". % common built-ins for cp, sat, mip, and smt
 include "sat_mip_smt.pi".
 include "sat_bv.pi".
+
+hcp(Vs,Es) =>
+    eahc_sat(Vs, Es, sat, auto).
+
+hcp(Vs,Es,K) =>
+    K #= sum([B : {_,B} in Vs]),
+    eahc_sat(Vs, Es, sat, auto).
+
+scc(Vs,Es) =>
+    graph_constrs.scc(Vs, Es, sat).
+
+scc(Vs,Es,K) =>
+    K #= sum([B : {_,B} in Vs]),
+    graph_constrs.scc(Vs, Es, sat).
+
+scc_d(Vs,Es) =>
+    graph_constrs.scc_d(Vs, Es, sat).
+
+scc_d(Vs,Es,K) =>
+    K #= sum([B : {_,B} in Vs]),
+    graph_constrs.scc_d(Vs, Es, sat).
+
+tree(Vs,Es) =>
+    graph_constrs.tree(Vs, Es, sat).
+
+tree(Vs,Es,K) =>
+    K #= sum([B : {_,B} in Vs]),
+    graph_constrs.tree(Vs, Es, sat).
+
+acyclic(Vs,Es) =>
+    graph_constrs.acyclic(Vs, Es, sat).
+
+acyclic(Vs,Es,K) =>
+    K #= sum([B : {_,B} in Vs]),
+    graph_constrs.acyclic(Vs, Es, sat).
+
+acyclic_d(Vs,Es) =>
+    graph_constrs.acyclic_d(Vs, Es, sat).
+
+acyclic_d(Vs,Es,K) =>
+    K #= sum([B : {_,B} in Vs]),
+    graph_constrs.acyclic_d(Vs, Es, sat).
+
+path(Vs,Es,Src,Dest) =>
+    graph_constrs.path(Vs,Es,Src,Dest,sat).
+
+path_d(Vs,Es,Src,Dest) =>
+    graph_constrs.path_d(Vs,Es,Src,Dest,sat).
+
 
 '::'(Vars,Domain) =>
     bp.'_$_picat_in'(sat,Vars,Domain).
@@ -161,3 +210,20 @@ solve_all(Vars) = solve_all([],Vars).
 solve_all(Options,Vars) =
     findall(Vars, solve(Options,Vars)).
 
+solve_once(Vs) =>
+    solve_once([],Vs).
+
+solve_once(Options,Vs) =>
+    bp.global_del('$solve_once_sol',1),
+    (member($min(Obj),Options) -> true; true),
+    (member($max(Obj),Options) -> true; true),
+    Vs1 = [Obj|Vs],
+    solve_once_aux(Options,Vs1).
+
+ solve_once_aux(Options,Vs) ?=>
+    once solve(Options,Vs),
+    bp.global_set('$solve_once_sol',Vs),
+    fail.
+solve_once_aux(Options,Vs) =>    
+    bp.global_get('$solve_once_sol',Vs),
+    bp.global_heap_set('$all_constrs',[]).

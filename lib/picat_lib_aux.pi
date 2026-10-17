@@ -311,3 +311,7 @@ sinh(X) = Val =>
 % hyperbolic tangent
 tanh(X) = Val =>
      Val = (exp(2 * X) - 1) / (exp(2 * X) + 1).
+
+
+
+

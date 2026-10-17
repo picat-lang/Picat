@@ -1,5 +1,6 @@
 module cp.
-import common_constr.
+
+import common_constr, graph_constrs.
 
 % X #!= Y
 % X #/\ Y
@@ -68,6 +69,7 @@ import common_constr.
 % path(Vs,Es,Src,Dest)
 % path_d(Vs,Es,Src,Dest)
 % regular(X,Q,S,D,Q0,F)
+% reset_store()
 % scalar_product(A,X,Product)
 % scalar_product(A,X,Rel,Product)
 % scc(Vs,Es)
@@ -92,6 +94,56 @@ import common_constr.
 % tree(Vs,Es,K)
 
 include "cp_sat_mip_smt.pi". % common built-ins for cp, sat, mip, and smt
+
+hcp(Vs,Es) =>
+    eahc_sat(Vs, Es, cp, auto).
+
+hcp(Vs,Es,K) =>
+    K #= sum([B : {_,B} in Vs]),
+    eahc_sat(Vs, Es, cp, auto).
+   
+scc(Vs,Es) =>
+    graph_constrs.scc(Vs, Es, cp).
+
+scc(Vs,Es,K) =>
+    K #= sum([B : {_,B} in Vs]),
+    graph_constrs.scc(Vs, Es, cp).
+
+scc_d(Vs,Es) =>
+    graph_constrs.scc_d(Vs, Es, cp).
+
+scc_d(Vs,Es,K) =>
+    K #= sum([B : {_,B} in Vs]),
+    graph_constrs.scc_d(Vs, Es, cp).
+
+tree(Vs,Es) =>
+    graph_constrs.tree(Vs, Es, cp).
+
+tree(Vs,Es,K) =>
+    K #= sum([B : {_,B} in Vs]),
+    graph_constrs.tree(Vs, Es, cp).
+
+acyclic(Vs,Es) =>
+    graph_constrs.acyclic(Vs, Es, cp).
+
+acyclic(Vs,Es,K) =>
+    K #= sum([B : {_,B} in Vs]),
+    graph_constrs.acyclic(Vs, Es, cp).
+
+acyclic_d(Vs,Es) =>
+    graph_constrs.acyclic_d(Vs, Es, cp).
+
+acyclic_d(Vs,Es,K) =>
+    K #= sum([B : {_,B} in Vs]),
+    graph_constrs.acyclic_d(Vs, Es, cp).
+
+path(Vs,Es,Src,Dest) =>
+    graph_constrs.path(Vs,Es,Src,Dest,cp).
+
+path_d(Vs,Es,Src,Dest) =>
+    graph_constrs.path_d(Vs,Es,Src,Dest,cp).
+ 
+% include "hcp.pi".
 
 '::'(Vars,Domain) =>
     bp.'_$_picat_in'(cp,Vars,Domain).
@@ -170,6 +222,12 @@ solve_all(Vars) =
 % solve_all(Options,Vars) = solve_all(Options,Vars).
 solve_all(Options,Vars) =
     findall(Vars, solve(Options,Vars)).
+
+solve_once(Vs) =>
+    solve_once([],Vs).
+
+solve_once(Options,Vs) =>
+    once solve(Options,Vs).
 
 % solve_suspended => solve_suspended.
 solve_suspended =>
@@ -460,6 +518,10 @@ matrix_element(M,I,J,MIJ) =>
     check_matrix(M,NRows,NCols),
     matrix_element(M,NRows,NCols,I,J,MIJ,cp).
 
+matrix_element0(M,I,J,MIJ) =>
+    check_matrix(M,NRows,NCols),
+    matrix_element0(M,NRows,NCols,I,J,MIJ,cp).
+
 %
 % Requires that all non-zero values in Xs are distinct.
 %
@@ -482,3 +544,5 @@ all_different_except_0_aux(Xs) =>
         Xs[I] #= 0 #\/ Xs[J] #= 0 #\/ Xs[I] #!= Xs[J]
     end.
 
+reset_store =>
+    bp.c_reset_store().

@@ -1,0 +1,26 @@
+% split_list(L, Seperators) = split_list(L, Seperators).
+
+% Returns a list of sublists of L that are separated by any of the elements in Separators.
+% Exp: split_list([1,2,0,3,4,0,5,6],[0]) = [[1,2],[3,4],[5,6]]
+%
+split_list(L, Seperators) = SubLists =>
+    split_list(L, Seperators, SubLists, []).
+
+split_list([], Seperators, SubLists, SubListsR) => SubLists = SubListsR.
+split_list([C|L], Seperators, SubLists, SubListsR), membchk(C, Seperators) =>
+    split_list(L, Seperators, SubLists, SubListsR).
+split_list([C|L], Seperators, SubLists, SubListsR) =>
+    split_list_extract_sublist(L, L1, Seperators, SubList),
+    SubLists = [[C|SubList]|SubLists1],
+    split_list(L1, Seperators, SubLists1, SubListsR).
+
+split_list_extract_sublist([], LRest, Seperators, SubList) => SubList = [], LRest = [].
+split_list_extract_sublist([C|L], LRest, Seperators, SubList),  membchk(C, Seperators) =>
+    SubList = [],
+    LRest = L.
+split_list_extract_sublist([C|L], LRest, Seperators, SubList) =>
+    SubList = [C|SubListR],
+    split_list_extract_sublist(L, LRest, Seperators, SubListR).
+
+main =>
+    println(split_list([1,2,0,3,4,0,5,6],[0])).
