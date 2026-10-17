@@ -62,6 +62,15 @@ module fp.
 
 comp(F, G, X) = F(G(X)).
 
+%% The value forms: comp(F, G), compose(Fs), pipe(Fs) return the
+%% composite FUNCTION VALUE itself (a function-term), so a pipeline
+%% can be bound once and mapped:
+%%     P = pipe([$sq, $succ, $'*'(3)]),
+%%     map(P, L)
+comp(F, G) = $comp(F, G).
+compose(Fs) = $compose(Fs).
+pipe(Fs) = $pipe(Fs).
+
 compose([], X) = X.
 compose([F|Fs], X) = F(compose(Fs, X)).
 
@@ -93,6 +102,8 @@ callv(F, X) = F(X).
 selfapply(F, X) = F(F, X).
 selfapply(F, X, Y) = F(F, X, Y).
 selfapply(F, X, Y, Z) = F(F, X, Y, Z).
+selfapply(F, X, Y, Z, W) = F(F, X, Y, Z, W).
+selfapply(F, X, Y, Z, W, V) = F(F, X, Y, Z, W, V).
 
 %% truth(Goal) = cond(Goal, true, false) -- the expression-to-goal
 %% bridge: the built-in cond calls its Boolean argument as a goal, so
@@ -109,6 +120,9 @@ filterf(P, L) = [X : X in L, P(X) == true].
 lambda(VL, Ex, X1) = eval_lambda(VL, Ex, [X1]).
 lambda(VL, Ex, X1, X2) = eval_lambda(VL, Ex, [X1, X2]).
 lambda(VL, Ex, X1, X2, X3) = eval_lambda(VL, Ex, [X1, X2, X3]).
+lambda(VL, Ex, X1, X2, X3, X4) = eval_lambda(VL, Ex, [X1, X2, X3, X4]).
+lambda(VL, Ex, X1, X2, X3, X4, X5) = eval_lambda(VL, Ex, [X1, X2, X3, X4, X5]).
+lambda(VL, Ex, X1, X2, X3, X4, X5, X6) = eval_lambda(VL, Ex, [X1, X2, X3, X4, X5, X6]).
 
 eval_lambda(VL, Ex, Args) = R, len(VL) == len(Args) =>
     R = eval_exp(Ex, bind(VL, Args)).
