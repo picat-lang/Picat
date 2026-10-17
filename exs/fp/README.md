@@ -170,6 +170,32 @@ The module's self-checking test suite (41+ checks) is
 
     sh test/fp_check.sh
 
+## Performance
+
+The lambdas are an interpreter over terms, so they are **much slower
+than compiled Picat functions** — measure before using them in hot
+loops (benchmarks, `statistics(runtime, ...)`):
+
+| benchmark | compiled | lambda | ratio |
+|---|---|---|---|
+| 20k calls of `sq(X) = X*X` | 1 ms | 11 ms | ~10x |
+| `sumto(300)` x20 (300-step recursion) | <1 ms | 13 ms | per-step ~2 us |
+| `map(F, 1..2000)` x10 | 28 ms | 13 ms | ~2x FASTER |
+
+The map result shows why: a compiled function value passed to `map`
+(`$sq`) pays a runtime module search per element, while the lambda's
+`lambda/3` is found once and the interpreter walk is cheap for a
+small body.  For raw calls the ratio is 10-40x (every named call
+inside a body goes through `call_by_arity`, i.e. another runtime
+search).
+
+**Known heap-pressure hang (upstream interpreter, not fp):** a long
+run of function-term calls (tens of thousands) followed by a loop of
+compiled recursions and then a recursive lambda call can hang the
+interpreter (the heap sits at ~80 of 128 MB, gc has run once).  Keep
+long-running lambda work in separate runs, or call the compiled
+function instead in hot loops.
+
 ## Known limitations
 
 - Bodies are expressions only: no multi-goal bodies, no `if/then/else`
