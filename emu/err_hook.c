@@ -277,8 +277,10 @@ static void err_strip_noise(const char *line, char *out, int outsize)
 }
 
 /* restore stderr, replay what the run wrote there, and extract the first
-   "Undefined procedure: NAME/ARITY" message if there is one */
-static void err_dump_stderr(char *undef_name, int namecap, int *undef_arity)
+   "Undefined procedure: NAME/ARITY" message if there is one; also extract
+   the first typed error "*** error(TYPE(...),CONTEXT)" */
+static void err_dump_stderr(char *undef_name, int namecap, int *undef_arity,
+                            int *ttype, char *tculprit, int culprcap)
 {
     FILE *fp;
     long size;
@@ -286,6 +288,8 @@ static void err_dump_stderr(char *undef_name, int namecap, int *undef_arity)
 
     *undef_name = '\0';
     *undef_arity = -1;
+    *ttype = 0;
+    tculprit[0] = '\0';
     if (err_real_stderr_fd < 0) return;
     fflush(stderr);
     if (dup2(err_real_stderr_fd, 2) != 2) return;   /* stderr back to the real fd */
@@ -322,6 +326,27 @@ static void err_dump_stderr(char *undef_name, int namecap, int *undef_arity)
                 undef_name[n] = '\0';
                 if (q[n+1] >= '0' && q[n+1] <= '9') a = atoi(q + n + 1);
                 *undef_arity = a;
+            }
+        }
+        /* typed errors: extract the culprit for the common shapes */
+        {
+            const char *e = sbuf;
+            const char *c;
+            while ((e = strstr(e, "*** error(")) != NULL) {
+                const char *t = e + 10;
+                if (strncmp(t, "existence_error(module,", 23) == 0) { *ttype = 1; c = t + 23; }
+                else if (strncmp(t, "existence_error(source_sink,", 28) == 0) { *ttype = 3; c = t + 28; }
+                else if (strncmp(t, "type_error(compound,", 20) == 0) { *ttype = 2; c = t + 20; }
+                else if (strncmp(t, "collection_expected(", 20) == 0) { *ttype = 4; c = t + 20; }
+                else if (strncmp(t, "number_expected(", 16) == 0) { *ttype = 5; c = t + 16; }
+                else { e += 10; continue; }
+                {
+                    int n2 = 0;
+                    while (c[n2] != '\0' && c[n2] != ')' && n2 < culprcap - 1) n2++;
+                    if (n2 > 0) { memcpy(tculprit, c, (size_t)n2); tculprit[n2] = '\0'; }
+                    else *ttype = 0;
+                }
+                break;
             }
         }
     }
@@ -451,6 +476,99 @@ static void err_register_clause(const char *name, int arity, int line)
     err_clause_seq++;
 }
 
+/* report a typed error: locate the culprit in the main file.
+   type 1: existence_error(module,M)     -- find the token M
+   type 2: type_error(compound,C)        -- find "C[" (the value indexed)
+   type 3: existence_error(source_sink,F)-- find F in the raw lines
+   type 4: collection_expected(V)        -- foreach lines (candidates)
+   type 5: number_expected(V)            -- range lines (candidates)   */
+static void err_report_typed(int type, const char *culprit)
+{
+    char *buf, *p;
+    long len;
+    int lineno = 1;
+    int found = -1, ncand = 0, fallback = -1;
+    char desc[128];
+
+    if (culprit[0] == '\0') return;
+    buf = err_read_file(err_main_file, &len);
+    if (buf == NULL) {
+        fprintf(stderr, "*** lint: '%s' -- typed error (source not readable).\n", culprit);
+        return;
+    }
+    p = buf;
+    while (p != NULL && *p != '\0' && found < 0) {
+        char raw[2048], clean[2048];
+        int curlin = lineno;
+        p = err_next_line(p, raw, (int)sizeof(raw), &lineno);
+        if (p == NULL) break;
+        err_strip_noise(raw, clean, (int)sizeof(clean));
+        if (type == 3) {
+            if (strstr(raw, culprit) != NULL) { found = curlin; break; }
+            continue;
+        }
+        if (type == 4 || type == 5) {
+            const char *pat = (type == 4) ? "foreach" : "..";
+            if (strstr(clean, pat) != NULL) {
+                if (ncand < 3) {
+                    fprintf(stderr, "*** lint: line %d: '%s' -- %s (candidate)\n",
+                            curlin, culprit, (type == 4) ?
+                            "foreach may be over a non-collection" :
+                            "range may have a non-number bound");
+                    ncand++;
+                }
+            }
+            continue;
+        }
+        if (type == 2) {
+            char pat[128];
+            if (strlen(culprit) < sizeof(pat) - 2) {
+                snprintf(pat, sizeof(pat), "%s[", culprit);
+                if (strstr(clean, pat) != NULL) { found = curlin; break; }
+                /* fallback: the line where the culprit value is bound */
+                if (fallback < 0 && strstr(clean, culprit) != NULL) fallback = curlin;
+            }
+            continue;
+        }
+        /* type 1: the culprit as a token */
+        {
+            int i = 0;
+            while (clean[i] != '\0') {
+                int start, tlen;
+                char tok[128];
+                if (!((clean[i] >= 'a' && clean[i] <= 'z') ||
+                      (clean[i] >= 'A' && clean[i] <= 'Z') || clean[i] == '_')) { i++; continue; }
+                start = i;
+                while ((clean[i] >= 'a' && clean[i] <= 'z') ||
+                       (clean[i] >= 'A' && clean[i] <= 'Z') ||
+                       (clean[i] >= '0' && clean[i] <= '9') || clean[i] == '_') i++;
+                tlen = i - start;
+                if (tlen >= (int)sizeof(tok)) continue;
+                memcpy(tok, clean + start, (size_t)tlen);
+                tok[tlen] = '\0';
+                if (strcmp(tok, culprit) == 0) { found = curlin; break; }
+            }
+            if (found > 0) break;
+            continue;
+        }
+    }
+    free(buf);
+    switch (type) {
+    case 1: snprintf(desc, sizeof(desc), "module load failed"); break;
+    case 2: snprintf(desc, sizeof(desc), "indexing a non-compound value"); break;
+    case 3: snprintf(desc, sizeof(desc), "file open failed"); break;
+    case 4: snprintf(desc, sizeof(desc), "foreach over a non-collection"); break;
+    case 5: snprintf(desc, sizeof(desc), "range with a non-number bound"); break;
+    default: return;
+    }
+    if (found > 0)
+        fprintf(stderr, "*** lint: line %d: '%s' -- %s\n", found, culprit, desc);
+    else if (fallback > 0)
+        fprintf(stderr, "*** lint: line %d: '%s' -- %s (value bound here)\n", fallback, culprit, desc);
+    else if (ncand == 0)
+        fprintf(stderr, "*** lint: '%s' -- %s (not found in the source)\n", culprit, desc);
+}
+
 void err_lint_main_file(void)
 {
     char *buf, *p;
@@ -462,10 +580,14 @@ void err_lint_main_file(void)
     int i;
     char undef_name[64];
     int undef_arity = -1;
+    int ttype = 0;
+    char tculprit[128];
 
-    err_dump_stderr(undef_name, (int)sizeof(undef_name), &undef_arity);
+    err_dump_stderr(undef_name, (int)sizeof(undef_name), &undef_arity,
+                    &ttype, tculprit, (int)sizeof(tculprit));
     if (getenv("PICAT_NO_ERRHOOK")) return;
     if (undef_name[0] != '\0') err_report_undef(undef_name, undef_arity);
+    else if (ttype != 0) err_report_typed(ttype, tculprit);
     if (err_main_file[0] == '\0') return;
     buf = err_read_file(err_main_file, &len);
     if (buf == NULL) return;
