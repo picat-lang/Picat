@@ -45,14 +45,14 @@ characters and would be parsed as a six-element argv (`"k"`, `"i"`,
 ...), which protocol detection rejects with a warning.
 
 The `$solver(Spec)` option of `solve(Options,Vars)` is documented in
-`lib/sat.pi`, but it is **inert in the current build**: `import sat`
+[lib/sat.pi](lib/sat.pi), but it is **inert in the current build**: `import sat`
 loads the embedded copy of the standard library (`emu/picat_bc.h`),
 which predates the option, and a module named `sat` on `PICATPATH`
 cannot override an embedded one. No generator for `emu/picat_bc.h`
 exists in the repository, so the option stays inert until the standard
 library is re-embedded. The environment
 variable and `bp.c_satext_set_solver/1` above reach the same C state
-without going through `sat.pi`, so they work today.
+without going through [sat.pi](lib/sat.pi), so they work today.
 
 Environment variables (all read by the satext layer):
 
@@ -88,7 +88,7 @@ Environment variables (all read by the satext layer):
   decisive built-in answer within the window ends the solve with no
   external forked at all (no fork/exec, no reap — measured: a
   618-solve loop goes from 71x to 6.7x slower, and the geomean over
-  `test/satext_speedup.sh` from 1.30 to 0.88), while hard problems
+  [test/satext_speedup.sh](test/satext_speedup.sh) from 1.30 to 0.88), while hard problems
   (each solve longer than the window) still get the full portfolio.
 - `SATEXT_SHIM` — path of the `satshim` helper, used to hand a large
   formula to a solver via a file descriptor; default: next to the
@@ -98,8 +98,10 @@ Environment variables (all read by the satext layer):
 - `SATEXT_TMPDIR` — directory for generated CNF files (default:
   `/dev/shm`, else `/tmp`).
 
-Usage notes: the comments of `lib/sat.pi` / `lib2/satext.pi` and
-`exs/satext/bench_satext.sh`; examples: `exs/satext/`.
+Usage notes: the comments of [lib/sat.pi](lib/sat.pi) /
+[lib2/satext.pi](lib2/satext.pi) and
+[exs/satext/bench_satext.sh](exs/satext/bench_satext.sh); examples:
+[exs/satext/](exs/satext/).
 
 ## 2. Picat in a browser — new folder `webasm/`
 
@@ -237,7 +239,7 @@ main =>
 
 Notes: task names in `{F}` / `{F, A}` must be UNQUALIFIED references
 visible in the calling program — a module-qualified dynamic dispatch
-of a function hangs (engine bug, repros `q1/q2.pi`). The PVM
+of a function hangs (engine bug). The PVM
 acceleration matrix for the underlying `pvm` substrate and the full
 example set:
 [exs/parallel/README.md](exs/parallel/README.md),
@@ -245,16 +247,17 @@ example set:
 
 ## 4. Picat syntax checker — new folder `lsp/`
 
-`lsp/picat_syntax_check.py FILE.pi [MORE ...]` reports
+[lsp/picat_syntax_check.py](lsp/picat_syntax_check.py) `FILE.pi
+[MORE ...]` reports
 line/column-accurate syntax diagnostics (unbalanced delimiters,
 unterminated strings/quoted atoms/comments, line-spanning string
 literals, ...) where the Picat parser would only say `error` — useful
-for editor/LSP integration. Self-test:
-`python3 lsp/run_mutation_tests.py`.
+for editor/LSP integration. Self-test: python3
+[lsp/run_mutation_tests.py](lsp/run_mutation_tests.py).
 
 ## 5. User-defined functions in constraints — very experimental (`udf`)
 
-The `udf` module (`lib2/udf.pi`) lets you use *your own* functions inside
+The `udf` module ([lib2/udf.pi](lib2/udf.pi)) lets you use *your own* functions inside
 constraint expressions, which the built-in solvers do not support.
 **This is very experimental and the syntax is not yet ideal.** In
 particular, `f(X)` in a normal (non-constraint) expression is an
@@ -263,14 +266,17 @@ function as a *term* and every use must be written `$f(X)`.
 
 **Why an operator file is needed.** A solver's own `#=`, `#>=`, … treat
 expressions as terms, so they cannot expand a user function. The feature
-therefore ships one small *operator file* per solver — `udf_ops.pi`
-(`cp`), `udf_ops_sat.pi`, `udf_ops_mip.pi`, `udf_ops_smt.pi` —
+therefore ships one small *operator file* per solver —
+[exs/cp/udf_ops.pi](exs/cp/udf_ops.pi) (`cp`),
+[exs/sat/udf_ops_sat.pi](exs/sat/udf_ops_sat.pi),
+[exs/mip/udf_ops_mip.pi](exs/mip/udf_ops_mip.pi),
+[exs/smt/udf_ops_smt.pi](exs/smt/udf_ops_smt.pi) —
 that you `include` in *your own* module: it redefines `#=`, `#!=`,
 `#<`, `#=<`, `#<=`, `#>`, `#>=` (and the Boolean `#~ #/\ #^ #\/ #=> #<=>`)
 to first expand the user functions and then delegate back to the solver.
 
 Tiny example (`cp`), using normal constraint notation (this is
-`exs/cp/udf_test.pi`):
+[exs/cp/udf_test.pi](exs/cp/udf_test.pi)):
 
 ```picat
 import cp.
@@ -287,13 +293,13 @@ main =>
     println(udf.evaluate($inc(X))).   % 6
 ```
 
-The `udf` documentation lives in `doc/udf.tex`.
+The `udf` documentation lives in [doc/udf.tex](doc/udf.tex).
 The `udf` examples are:
-`exs/cp/udf_functions.pi`,
-`exs/cp/udf_ops_schedule.pi`,
-`exs/sat/udf_functions.pi`,
-`exs/mip/udf_functions.pi`,
-`exs/smt/udf_functions.pi`.
+[exs/cp/udf_functions.pi](exs/cp/udf_functions.pi),
+[exs/cp/udf_ops_schedule.pi](exs/cp/udf_ops_schedule.pi),
+[exs/sat/udf_functions.pi](exs/sat/udf_functions.pi),
+[exs/mip/udf_functions.pi](exs/mip/udf_functions.pi),
+[exs/smt/udf_functions.pi](exs/smt/udf_functions.pi).
 
 Solver twins: `import cp2.` / `import sat2.` (in `lib/`, not
 preloaded — run with `PICATPATH` including `lib`, e.g.
@@ -308,8 +314,8 @@ fallbacks in counting and branch-and-bound loops that also post
 
 ## 6. Transparent native multicore FD solver — the `fdn` engine
 
-Compiled into the binary automatically; `fdn_hook.pi` ships next to the
-executable and is loaded at start-up.
+Compiled into the binary automatically; [fdn_hook.pi](emu/fdn_hook.pi)
+ships next to the executable and is loaded at start-up.
 
 Every cp `solve/1,2` checks the live constraint network: if it is fully
 supported, the whole search runs natively on all cores and the solutions
@@ -340,7 +346,7 @@ Details, supported propagators, benchmark suite and reference numbers:
 ## 7. Executable Picat scripts in Linux
 
 Picat files with a `#!` first line can be run as executable scripts
-(`./prog args`) with the `tools/picat-run` wrapper: picat rejects that
+(`./prog args`) with the [tools/picat-run](tools/picat-run) wrapper: picat rejects that
 line and only loads `*.pi` files, so the wrapper runs a copy with line 1
 turned into a comment, the script's directory prepended to `PICATPATH`,
 and `${PICAT:-picat}` as the interpreter. Design, installation and
