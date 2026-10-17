@@ -68,6 +68,14 @@ compose([F|Fs], X) = F(compose(Fs, X)).
 pipe([], X) = X.
 pipe([F|Fs], X) = pipe(Fs, F(X)).
 
+%% collect(F, From, To, P) = [F(I) : I in From..To, P(I)] -- the
+%% comprehension surrogate for lambda bodies: comprehension syntax
+%% itself cannot be $-quoted into a body (it is syntax, not a term),
+%% so a body maps and filters a range through this helper instead.
+%% F and P are function values (atoms, function-terms, or lambdas);
+%% the predicate P is applied as a function returning true/false.
+collect(F, From, To, P) = [F(I) : I in From..To, P(I) == true].
+
 lambda(VL, Ex, X1) = eval_lambda(VL, Ex, [X1]).
 lambda(VL, Ex, X1, X2) = eval_lambda(VL, Ex, [X1, X2]).
 lambda(VL, Ex, X1, X2, X3) = eval_lambda(VL, Ex, [X1, X2, X3]).

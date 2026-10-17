@@ -340,7 +340,11 @@ branch is evaluated, so `cond(X == 0, 0, 100 / X)` is safe at `X = 0`;
 it works at any nesting depth — inside branches, arithmetic, lists,
 call arguments, and comparisons),
 and calls of named functions (built-ins included) and of other lambda
-values. Lambdas
+values. Comprehension syntax cannot appear in a body (it is syntax,
+not a term) — the `collect(F, From, To, P)` helper replaces it: the
+example `[I*I : I in 1..X, I*I < X].sum` is written
+`sum(collect($sq, 1, X, $lambda([I], I*I < X)))`, with the condition
+as a capturing lambda. Lambdas
 compose with `comp`/`compose`/`pipe` and capture: a lambda returned
 from a lambda binds the outer parameter values, so
 
