@@ -336,7 +336,9 @@ The body is an expression over the parameters: variables, numbers,
 lists, `+ - * / // div mod rem **` (and unary `-`), the comparisons
 `> < >= =< == !=` (returning true/false), the built-in
 `cond(Boolean, TrueExp, FalseExp)` (short-circuiting — only the chosen
-branch is evaluated, so `cond(X == 0, 0, 100 / X)` is safe at `X = 0`),
+branch is evaluated, so `cond(X == 0, 0, 100 / X)` is safe at `X = 0`;
+it works at any nesting depth — inside branches, arithmetic, lists,
+call arguments, and comparisons),
 and calls of named functions (built-ins included) and of other lambda
 values. Lambdas
 compose with `comp`/`compose`/`pipe` and capture: a lambda returned
