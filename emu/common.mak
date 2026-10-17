@@ -1,4 +1,4 @@
-OBJ = fdn.o fdn_solver.o dis.o init.o init_sym.o loader.o inst_inf.o main.o toam.o unify.o \
+OBJ = fdn.o err_hook.o fdn_solver.o dis.o init.o init_sym.o loader.o inst_inf.o main.o toam.o unify.o \
 	file.o domain.o cfd.o float1.o arith.o token.o global.o \
 	builtins.o mic.o numbervars.o cpreds.o univ.o assert_bp.o findall.o clause.o \
     delay.o clpfd.o clpfd_libs.o event.o toamprofile.o \

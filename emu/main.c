@@ -11,14 +11,21 @@
 #ifndef PICAT_BUILD_COMMIT
 #define PICAT_BUILD_COMMIT "unknown"
 #endif
+#include <stdlib.h>
 #ifndef PICAT_BUILD_DATE
 #define PICAT_BUILD_DATE "unknown"
 #endif
 int main(int argc, char *argv[]);
 static INLINE int bprolog_main(int argc, char *argv[]);
+#ifdef ERRHOOK
+static void err_atexit_lint(void);
+#endif
 
 int bprolog_main(int argc, char *argv[])
 {
+#ifdef ERRHOOK
+    atexit(err_atexit_lint);
+#endif
     initialize_bprolog(argc, argv);
     if (disassem) {
         dis();
@@ -50,6 +57,16 @@ int main(int argc, char *argv[])
 {
     return bprolog_main(argc, argv);
 }
+
+#ifdef ERRHOOK
+/* the exit lint: re-read the main .pi file and report unbalanced brackets
+   and keyword typos; silent when the file has no findings */
+static void err_atexit_lint(void)
+{
+    extern void err_lint_main_file(void);
+    err_lint_main_file();
+}
+#endif
 
 
 

@@ -528,6 +528,8 @@ case halt0:  /* E */
 #endif
 lab_halt0:
     SAVE_AR; SAVE_TOP;
+    { extern BPLONG bp_exception;
+      fprintf(stderr, "HALT0: bp_exception=%lx\n", (unsigned long)bp_exception); }
     curr_toam_status = TOAM_DONE;
     if (bp_exception == (BPLONG)NULL) return BP_FALSE; else return BP_ERROR;
 
@@ -553,6 +555,10 @@ call_sub_after_ar_cps:
         AR_BTM(AR) = ADDTAG(AR+GET_ARITY(sym_ptr), FLAT_FRAME_TAG);
         LOCAL_TOP = AR-FLAT_FRAME_SIZE;
         AR_TOP(AR) = (BPLONG)LOCAL_TOP;
+#ifdef ERRHOOK
+        { extern void err_didyoumean(const char *, BPLONG);
+          err_didyoumean(GET_NAME(sym_ptr), GET_ARITY(sym_ptr)); }
+#endif
         RAISE_ISO_EXCEPTION(c_existence_error(et_PROCEDURE, c_error_src(GET_NAME(sym_ptr), GET_ARITY(sym_ptr))), "call", 1);
 
     case T_DYNA :

@@ -358,6 +358,16 @@ int init_loading(int argc, char *argv[])
         }
         i++;
     }
+#ifdef ERRHOOK
+    { extern void err_save_main_file(const char *);
+      i = 1;
+      while (i < argc) {
+          if (argv[i][0] != '-') { err_save_main_file(argv[i]); break; }
+          if (argv[i][0] == '-' && strchr("psbtm", argv[i][1]) && argv[i][1] != '\0') i++;
+          i++;
+      }
+    }
+#endif
     return BP_TRUE;
 }
 
