@@ -53,6 +53,7 @@
 
 static char err_main_file[4096] = "";
 static int err_real_stderr_fd = -1;
+static int err_misleading_seen = 0;
 static char err_stderr_path[512] = "";
 
 static void err_capture_stderr(void);
@@ -319,6 +320,7 @@ static void err_dump_stderr(char *undef_name, int namecap, int *undef_arity,
     *undef_arity = -1;
     *ttype = 0;
     tculprit[0] = '\0';
+    err_misleading_seen = 0;
     if (err_real_stderr_fd < 0) return;
     fflush(stderr);
     if (dup2(err_real_stderr_fd, 2) != 2) return;   /* stderr back to the real fd */
@@ -399,6 +401,12 @@ static void err_dump_stderr(char *undef_name, int namecap, int *undef_arity,
                the digit-dot candidates as a hint */
             if (*ttype == 0 && strstr(sbuf, "error(syntax_error,picat)") != NULL)
                 *ttype = 10;
+            /* a misleading error: the message blames an operator, a callee,
+               or an index operator instead of the unbound variable */
+            if (strstr(sbuf, "instantiation_error") != NULL ||
+                strstr(sbuf, "Free variable in expression") != NULL ||
+                strstr(sbuf, "index_operator") != NULL)
+                err_misleading_seen = 1;
         }
     }
     fputs(sbuf, stderr);
@@ -648,8 +656,74 @@ static void err_report_typed(int type, const char *culprit)
         fprintf(stderr, "*** lint: line %d: '%s' -- %s\n", found, culprit, desc);
     else if (fallback > 0)
         fprintf(stderr, "*** lint: line %d: '%s' -- %s (value bound here)\n", fallback, culprit, desc);
-    else if (ncand == 0)
+    else if (ncand == 0 && culprit[0] != '\0')
         fprintf(stderr, "*** lint: '%s' -- %s (not found in the source)\n", culprit, desc);
+}
+
+/* report variables that occur only once in the file (singletons) as style
+   warnings; _-prefixed don't-care variables are excluded.  When a misleading
+   error (instantiation_error / free variable) was seen this run, phrase them
+   as possible unbound variables.  Advisory only: never affects the exit
+   code. */
+static void err_report_singletons(const char *path)
+{
+    struct { char name[64]; int count; int line; } tab[256];
+    char *buf, *p;
+    long len;
+    int lineno = 1;
+    int ntab = 0;
+    int i, shown = 0, total = 0;
+
+    buf = err_read_file(path, &len);
+    if (buf == NULL) return;
+    p = buf;
+    while (*p != '\0') {
+        char raw[2048], clean[2048];
+        int curlin = lineno;
+        p = err_next_line(p, raw, (int)sizeof(raw), &lineno);
+        if (p == NULL) break;
+        err_strip_noise(raw, clean, (int)sizeof(clean));
+        for (i = 0; clean[i] != '\0'; i++) {
+            int start, tlen, k, found = 0;
+            if (!((clean[i] >= 'A' && clean[i] <= 'Z') || clean[i] == '_')) continue;
+            start = i;
+            while ((clean[i] >= 'a' && clean[i] <= 'z') ||
+                   (clean[i] >= 'A' && clean[i] <= 'Z') ||
+                   (clean[i] >= '0' && clean[i] <= '9') || clean[i] == '_') i++;
+            tlen = i - start;
+            if (clean[start] == '_') continue;          /* don't-care */
+            if (tlen >= (int)sizeof(tab[0].name)) continue;
+            for (k = 0; k < ntab; k++)
+                if (tab[k].name[tlen] == '\0' &&
+                    strncmp(tab[k].name, clean + start, (size_t)tlen) == 0) {
+                    tab[k].count++; found = 1; break;
+                }
+            if (!found && ntab < (int)(sizeof(tab) / sizeof(tab[0]))) {
+                memcpy(tab[ntab].name, clean + start, (size_t)tlen);
+                tab[ntab].name[tlen] = '\0';
+                tab[ntab].count = 1;
+                tab[ntab].line = curlin;
+                ntab++;
+            }
+        }
+    }
+    free(buf);
+    for (i = 0; i < ntab; i++)
+        if (tab[i].count == 1) total++;
+    for (i = 0; i < ntab && shown < 8; i++) {
+        if (tab[i].count != 1) continue;
+        if (err_misleading_seen)
+            fprintf(stderr,
+                    "*** lint: line %d: '%s' occurs only once -- possible unbound variable (candidate)\n",
+                    tab[i].line, tab[i].name);
+        else
+            fprintf(stderr,
+                    "*** lint: line %d: '%s' occurs only once (singleton)\n",
+                    tab[i].line, tab[i].name);
+        shown++;
+    }
+    if (total > shown)
+        fprintf(stderr, "*** lint: ... and %d more singleton variable(s)\n", total - shown);
 }
 
 void err_lint_main_file(void)
@@ -845,6 +919,7 @@ void err_lint_main_file(void)
                     err_contig[i].line, err_contig[i].name, err_contig[i].arity,
                     err_contig[i].prev_line);
     }
+    if (!err_brack_bad) err_report_singletons(err_main_file);
     (void)errors;
     free(buf);
 }
