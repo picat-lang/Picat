@@ -41,7 +41,7 @@ classify() {
     elif printf '%s' "$blk" | grep -q 'Undefined procedure'; then echo undef-proc
     elif printf '%s' "$blk" | grep -q 'Free variable\|instantiation_error'; then echo misleading
     elif printf '%s' "$blk" | grep -q 'type_args'; then echo oddity
-    elif printf '%s' "$blk" | grep -q 'collection_expected\|type_error\|domain_error\|existence_error'; then echo typed-err
+    elif printf '%s' "$blk" | grep -q 'collection_expected\|type_error\|domain_error\|existence_error\|number_expected\|integer_list_expected\|file_not_exist'; then echo typed-err
     elif printf '%s' "$blk" | grep -qE 'rc=(1|2)'; then echo other-err
     else echo non-error; fi
 }

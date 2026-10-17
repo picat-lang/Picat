@@ -339,6 +339,30 @@ static void err_dump_stderr(char *undef_name, int namecap, int *undef_arity,
                 else if (strncmp(t, "type_error(compound,", 20) == 0) { *ttype = 2; c = t + 20; }
                 else if (strncmp(t, "collection_expected(", 20) == 0) { *ttype = 4; c = t + 20; }
                 else if (strncmp(t, "number_expected(", 16) == 0) { *ttype = 5; c = t + 16; }
+                else if (strncmp(t, "integer_list_expected(", 22) == 0) { *ttype = 6; c = t + 22; }
+                else if (strncmp(t, "file_not_exist(", 15) == 0) {
+                    /* decode the char-code list [d,i,g,...] to a string */
+                    *ttype = 7;
+                    {
+                        const char *cl = t + 15;
+                        int nd = 0;
+                        if (*cl == '[') {
+                            cl++;
+                            while (*cl != '\0' && *cl != ']' && nd < culprcap - 1) {
+                                if (*cl == ',') { cl++; continue; }
+                                tculprit[nd++] = *cl;
+                                cl++;
+                            }
+                            tculprit[nd] = '\0';
+                        } else {
+                            int n2 = 0;
+                            while (cl[n2] != '\0' && cl[n2] != ')' && n2 < culprcap - 1) n2++;
+                            if (n2 > 0) { memcpy(tculprit, cl, (size_t)n2); tculprit[n2] = '\0'; }
+                        }
+                        if (tculprit[0] == '\0') *ttype = 0;
+                    }
+                    break;
+                }
                 else { e += 10; continue; }
                 {
                     int n2 = 0;
@@ -481,7 +505,9 @@ static void err_register_clause(const char *name, int arity, int line)
    type 2: type_error(compound,C)        -- find "C[" (the value indexed)
    type 3: existence_error(source_sink,F)-- find F in the raw lines
    type 4: collection_expected(V)        -- foreach lines (candidates)
-   type 5: number_expected(V)            -- range lines (candidates)   */
+   type 5: number_expected(V)            -- range lines (candidates)
+   type 6: integer_list_expected(V)      -- find V; fallback: :: lines
+   type 7: file_not_exist(F)             -- find the decoded F, raw lines */
 static void err_report_typed(int type, const char *culprit)
 {
     char *buf, *p;
@@ -503,8 +529,13 @@ static void err_report_typed(int type, const char *culprit)
         p = err_next_line(p, raw, (int)sizeof(raw), &lineno);
         if (p == NULL) break;
         err_strip_noise(raw, clean, (int)sizeof(clean));
-        if (type == 3) {
+        if (type == 3 || type == 7) {
             if (strstr(raw, culprit) != NULL) { found = curlin; break; }
+            continue;
+        }
+        if (type == 6) {
+            if (strstr(clean, culprit) != NULL) { found = curlin; break; }
+            if (fallback < 0 && strstr(clean, "::") != NULL) fallback = curlin;
             continue;
         }
         if (type == 4 || type == 5) {
@@ -559,6 +590,8 @@ static void err_report_typed(int type, const char *culprit)
     case 3: snprintf(desc, sizeof(desc), "file open failed"); break;
     case 4: snprintf(desc, sizeof(desc), "foreach over a non-collection"); break;
     case 5: snprintf(desc, sizeof(desc), "range with a non-number bound"); break;
+    case 6: snprintf(desc, sizeof(desc), "non-integer in a domain list"); break;
+    case 7: snprintf(desc, sizeof(desc), "file not found"); break;
     default: return;
     }
     if (found > 0)
