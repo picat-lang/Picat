@@ -3,6 +3,9 @@
 This branch (`experimental`) adds features on top of `main`. Each area
 has its own README where noted.
 
+[Download the Picat experimental version for Linux](releases/picat-experimental-linux64-9f5d1cb.tgz)
+(a self-contained, statically linked tgz; see below for what it adds).
+
 ## 1. External SAT solvers and the SAT solver portfolio (satext)
 
 `solve`/`solve_all` can now be served by an external SAT solver

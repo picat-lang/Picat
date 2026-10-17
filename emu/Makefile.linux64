@@ -24,6 +24,22 @@ include common.mak
 # so a plain `make clean && make` never ships a picat without its shim.
 picat$(EXT): satshim
 
+# --- portable (statically linked) build -------------------------------------
+#   make -f Makefile.linux64 portable       -> emu/picat-portable
+# The same objects and -O3 flags as the default dynamic build, linked with
+# -static: the binary runs on any x86-64 Linux, new or old, regardless of the
+# installed glibc/libstdc++, and it is identical code, so it is no slower on
+# newer machines.  The output is a separate file (picat-portable) so the two
+# builds can coexist; the release packager (tools/make_release_tgz.sh) stages
+# it as the shipped binary.
+PORTABLE_EXE = picat-portable
+
+.PHONY: portable
+portable: $(PORTABLE_EXE)
+
+$(PORTABLE_EXE): satshim $(OBJ) $(ESPRESSO_OBJ) $(KISSAT_OBJ)
+	$(CPP) -o $(PORTABLE_EXE) $(CFLAGS) $(OBJ) $(ESPRESSO_OBJ) $(KISSAT_OBJ) -static $(LFLAGS)
+
 # --- build stamp for the interactive banner ------------------------------
 # The banner (main.c printf, init.c --version) records the commit the
 # binary was built from.  The stamp is known only at compile time and a

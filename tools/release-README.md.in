@@ -1,0 +1,64 @@
+# Picat experimental — linux64 release (@COMMIT)
+
+This is the Linux x86-64 build of the `experimental` branch of
+[Picat](https://picat-lang.org) (commit @COMMIT), based on Picat 4.0b8.
+The binary is **statically linked**: it runs on any x86-64 Linux,
+new or old, without installing any libraries, and it is built with the
+same `-O3` flags as the normal build, so it is no slower on newer
+machines.
+
+## What is inside
+
+```
+picat        launcher script (sets PICATPATH, execs bin/picat)
+bin/picat    the interpreter (statically linked)
+bin/satshim  helper for handing large CNFs to external SAT solvers
+bin/fdn_hook.pi
+lib2/        the runtime modules of the experimental branch
+             (satext, pb, udf, par, ...)
+README.md    this file
+```
+
+## Install and run
+
+Unpack anywhere and run through the `picat` launcher (do not run
+`bin/picat` directly — the launcher is what makes the shipped modules
+loadable):
+
+```
+tar xzf picat-experimental-linux64-@COMMIT.tgz
+cd picat-experimental-linux64-@COMMIT
+./picat examples/hello.pi        # or any .pi file
+```
+
+The launcher prepends this distribution's `lib2` to `PICATPATH`; an
+existing `PICATPATH` is preserved after it.
+
+## What the experimental branch adds over the 4.0b8 base
+
+- **Check mode**: `./picat -c FILE.pi` compiles and lints the file
+  (unbalanced brackets, keyword typos, duplicated clause groups,
+  singletons, suspicious unbound variables are reported) without ever
+  running the program; the exit code is nonzero on any error, so the
+  flag works in editors, scripts and CI.
+- **External SAT solvers** (`satext`): `solve`/`solve_all` can be
+  served by kissat, CaDiCaL, CryptoMiniSat, or any DIMACS/IPASIR
+  solver, with a first-wins portfolio of up to 8 racers; selected with
+  the environment variable `SATEXT_SOLVER` or `bp.c_satext_set_solver/1`.
+- **Native multicore FD solver** (`fdn`): a fully supported `cp`
+  constraint network runs the search natively on all cores, transparently.
+  Opt in with `FDN=1`; `FDN_THREADS=n`, `FDN_VERBOSE=1`, `FDN_MAXVAR=n`
+  and `FDN_COUNT=0` are further knobs.
+- **Pseudo-Boolean constraints** (`pb`, in `lib2`): `import pb.` emits
+  OPB directly to a pseudo-Boolean solver such as roundingsat
+  (environment variable `PBSOL`).
+- **User-defined functions in constraints** (`udf`, in `lib2`),
+  **structured concurrency** (`parblock`, the `par` module), a
+  **syntax checker** (`lsp/picat_syntax_check.py` in the repository),
+  **executable scripts** (the `tools/picat-run` wrapper in the
+  repository), and **Picat in a browser** (the `webasm/` folder in the
+  repository).
+
+`lib2` ships the modules; the repository (`picat-lang/Picat`, branch
+`experimental`, commit @COMMIT) contains the full source, the examples
+(`exs/`), the tests (`test/`) and the documentation.
