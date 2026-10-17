@@ -276,6 +276,35 @@ static void err_strip_noise(const char *line, char *out, int outsize)
     out[o] = '\0';
 }
 
+/* decode a char-code list culprit to a string.  Handles both shapes:
+   [a,u,t,h,...] (char elements) and [104,101,...] (code elements).
+   A digit element is treated as a code if it is printable, else the
+   digits are kept literally. */
+static void err_decode_charlist(const char *cl, char *out, int cap)
+{
+    int o = 0;
+    if (*cl != '[') {
+        int n2 = 0;
+        while (cl[n2] != '\0' && cl[n2] != ')' && n2 < cap - 1) n2++;
+        if (n2 > 0) { memcpy(out, cl, (size_t)n2); out[n2] = '\0'; }
+        return;
+    }
+    cl++;
+    while (*cl != '\0' && *cl != ']' && o < cap - 1) {
+        if (*cl == ',') { cl++; continue; }
+        if (*cl >= '0' && *cl <= '9') {
+            int v = 0, nd = 0;
+            while (*cl >= '0' && *cl <= '9') { v = v * 10 + (*cl - '0'); cl++; nd++; }
+            if (v >= 32 && v < 127) out[o++] = (char)v;
+            else if (o + nd < cap - 1) { memcpy(out + o, cl - nd, (size_t)nd); o += nd; }
+            continue;
+        }
+        out[o++] = *cl;
+        cl++;
+    }
+    out[o] = '\0';
+}
+
 /* restore stderr, replay what the run wrote there, and extract the first
    "Undefined procedure: NAME/ARITY" message if there is one; also extract
    the first typed error "*** error(TYPE(...),CONTEXT)" */
@@ -340,27 +369,19 @@ static void err_dump_stderr(char *undef_name, int namecap, int *undef_arity,
                 else if (strncmp(t, "collection_expected(", 20) == 0) { *ttype = 4; c = t + 20; }
                 else if (strncmp(t, "number_expected(", 16) == 0) { *ttype = 5; c = t + 16; }
                 else if (strncmp(t, "integer_list_expected(", 22) == 0) { *ttype = 6; c = t + 22; }
+                else if (strncmp(t, "invalid_constraint_exp,", 23) == 0) { *ttype = 8; c = t + 23; }
+                else if (strncmp(t, "string_expected(", 16) == 0) {
+                    /* the same char-code list decode as file_not_exist */
+                    *ttype = 9;
+                    err_decode_charlist(t + 16, tculprit, culprcap);
+                    if (tculprit[0] == '\0') *ttype = 0;
+                    break;
+                }
                 else if (strncmp(t, "file_not_exist(", 15) == 0) {
                     /* decode the char-code list [d,i,g,...] to a string */
                     *ttype = 7;
-                    {
-                        const char *cl = t + 15;
-                        int nd = 0;
-                        if (*cl == '[') {
-                            cl++;
-                            while (*cl != '\0' && *cl != ']' && nd < culprcap - 1) {
-                                if (*cl == ',') { cl++; continue; }
-                                tculprit[nd++] = *cl;
-                                cl++;
-                            }
-                            tculprit[nd] = '\0';
-                        } else {
-                            int n2 = 0;
-                            while (cl[n2] != '\0' && cl[n2] != ')' && n2 < culprcap - 1) n2++;
-                            if (n2 > 0) { memcpy(tculprit, cl, (size_t)n2); tculprit[n2] = '\0'; }
-                        }
-                        if (tculprit[0] == '\0') *ttype = 0;
-                    }
+                    err_decode_charlist(t + 15, tculprit, culprcap);
+                    if (tculprit[0] == '\0') *ttype = 0;
                     break;
                 }
                 else { e += 10; continue; }
@@ -372,6 +393,12 @@ static void err_dump_stderr(char *undef_name, int namecap, int *undef_arity,
                 }
                 break;
             }
+            /* marker-less syntax errors: the stderr only carries
+               "*** error(syntax_error,picat)" (the compiler's own
+               dot-notation message is stdout-only and unseen); report
+               the digit-dot candidates as a hint */
+            if (*ttype == 0 && strstr(sbuf, "error(syntax_error,picat)") != NULL)
+                *ttype = 10;
         }
     }
     fputs(sbuf, stderr);
@@ -516,10 +543,13 @@ static void err_report_typed(int type, const char *culprit)
     int found = -1, ncand = 0, fallback = -1;
     char desc[128];
 
-    if (culprit[0] == '\0') return;
+    if (culprit[0] == '\0' && type != 10) return;
     buf = err_read_file(err_main_file, &len);
     if (buf == NULL) {
-        fprintf(stderr, "*** lint: '%s' -- typed error (source not readable).\n", culprit);
+        if (type == 10)
+            fprintf(stderr, "*** lint: typed error (source not readable).\n");
+        else
+            fprintf(stderr, "*** lint: '%s' -- typed error (source not readable).\n", culprit);
         return;
     }
     p = buf;
@@ -529,8 +559,25 @@ static void err_report_typed(int type, const char *culprit)
         p = err_next_line(p, raw, (int)sizeof(raw), &lineno);
         if (p == NULL) break;
         err_strip_noise(raw, clean, (int)sizeof(clean));
-        if (type == 3 || type == 7) {
+        if (type == 3 || type == 7 || type == 9) {
             if (strstr(raw, culprit) != NULL) { found = curlin; break; }
+            continue;
+        }
+        if (type == 10) {
+            /* dot notation on a non-module: digit '.' name-char */
+            int i;
+            for (i = 0; clean[i] != '\0' && clean[i+1] != '\0' && clean[i+2] != '\0'; i++) {
+                if (clean[i] >= '0' && clean[i] <= '9' && clean[i+1] == '.' &&
+                    ((clean[i+2] >= 'a' && clean[i+2] <= 'z') ||
+                     (clean[i+2] >= 'A' && clean[i+2] <= 'Z') || clean[i+2] == '_')) {
+                    if (ncand < 3) {
+                        fprintf(stderr, "*** lint: line %d: possible dot notation on a non-module (candidate)\n",
+                                curlin);
+                        ncand++;
+                    }
+                    break;
+                }
+            }
             continue;
         }
         if (type == 6) {
@@ -561,7 +608,7 @@ static void err_report_typed(int type, const char *culprit)
             }
             continue;
         }
-        /* type 1: the culprit as a token */
+        /* type 1 and type 8: the culprit as a token */
         {
             int i = 0;
             while (clean[i] != '\0') {
@@ -591,6 +638,9 @@ static void err_report_typed(int type, const char *culprit)
     case 4: snprintf(desc, sizeof(desc), "foreach over a non-collection"); break;
     case 5: snprintf(desc, sizeof(desc), "range with a non-number bound"); break;
     case 6: snprintf(desc, sizeof(desc), "non-integer in a domain list"); break;
+    case 8: snprintf(desc, sizeof(desc), "invalid constraint expression"); break;
+    case 9: snprintf(desc, sizeof(desc), "non-string argument"); break;
+    case 10: snprintf(desc, sizeof(desc), "dot notation on a non-module"); break;
     case 7: snprintf(desc, sizeof(desc), "file not found"); break;
     default: return;
     }

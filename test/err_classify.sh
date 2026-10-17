@@ -38,10 +38,13 @@ classify() {
         if printf '%s' "$blk" | grep -q 'HERE'; then echo parse-here
         elif printf '%s' "$blk" | grep -q 'contiguously'; then echo contiguous
         else echo parse-span; fi
+    elif printf '%s' "$blk" | grep -q 'syntax_error\|invalid_dot_notation'; then
+        if printf '%s' "$blk" | grep -q 'HERE'; then echo parse-here
+        else echo parse-nomarker; fi
     elif printf '%s' "$blk" | grep -q 'Undefined procedure'; then echo undef-proc
     elif printf '%s' "$blk" | grep -q 'Free variable\|instantiation_error'; then echo misleading
     elif printf '%s' "$blk" | grep -q 'type_args'; then echo oddity
-    elif printf '%s' "$blk" | grep -q 'collection_expected\|type_error\|domain_error\|existence_error\|number_expected\|integer_list_expected\|file_not_exist'; then echo typed-err
+    elif printf '%s' "$blk" | grep -q 'collection_expected\|type_error\|domain_error\|existence_error\|number_expected\|integer_list_expected\|file_not_exist\|string_expected\|invalid_constraint_exp'; then echo typed-err
     elif printf '%s' "$blk" | grep -qE 'rc=(1|2)'; then echo other-err
     else echo non-error; fi
 }
@@ -63,7 +66,7 @@ ph=$(grep -c '^parse-here' "$SCRATCH/classes"); ps=$(grep -c '^parse-span' "$SCR
 echo "parse-here=$ph parse-span=$ps"
 echo
 echo "== one example per class =="
-for cls in parse-here parse-span contiguous undef-proc misleading typed-err oddity other-err; do
+for cls in parse-here parse-nomarker parse-span contiguous undef-proc misleading typed-err oddity other-err; do
     ex=$(awk -v c="$cls" '$1 == c {print $2; exit}' "$SCRATCH/classes")
     [ -n "$ex" ] && printf '%-12s: %s\n' "$cls" "$ex"
 done
