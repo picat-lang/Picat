@@ -1,5 +1,7 @@
 %% fp_check.pi -- self-checking test for the fp module (lib2/fp.pi):
-%% function composition over function-terms, mapped in one pass.
+%% function composition over function-terms, mapped in one pass, and
+%% the lambda extension (anonymous function values with runtime
+%% evaluation, udf-style).
 %%
 %% Run via test/fp_check.sh.
 %%
@@ -10,6 +12,9 @@
 %%   4. compose (n-ary, right-to-left), incl. the empty list (identity)
 %%   5. pipe (left-to-right), incl. the empty list (identity)
 %%   6. comp used directly on a value (not through map)
+%%   7. lambdas: call, map, 2-arg, comp of two lambdas, named call
+%%   8. closures: capture, nested capture, list body, division ops
+%%   9. lambda errors: arity mismatch, free variable
 import fp.
 
 sq(X) = X * X.
@@ -31,6 +36,33 @@ main =>
     FC = $comp($succ, $sq),
     F = FC(5),
     check(F = 26, "comp as a value: (succ . sq)(5)"),
+    FL = $lambda([X], X + 1),
+    check(FL(4) = 5, "lambda call"),
+    check(map($lambda([X], X * X), [1,2,3]) = [1,4,9], "lambda + map"),
+    FG = $lambda([X, Y], X * Y),
+    check(FG(6, 7) = 42, "2-arg lambda"),
+    CL = $comp($lambda([X], X + 1), $lambda([X], X * X)),
+    check(map(CL, [1,2,3]) = [2,5,10], "comp of two lambdas"),
+    NL = $lambda([X], sq(X) + 1),
+    check(NL(4) = 17, "lambda calls a named function"),
+    MK = $lambda([X], lambda([Y], Y + X)),
+    F3 = MK(3),
+    check(F3(4) = 7, "closure capture"),
+    GN = $lambda([X], lambda([Y], lambda([Z], X * Y + Z))),
+    G1 = GN(2),
+    G2 = G1(3),
+    check(G2(4) = 10, "nested closures"),
+    DL = $lambda([X], [X, X * X]),
+    check(DL(5) = [5,25], "list body"),
+    SL = $lambda([X], X / 2),
+    check(SL(7) = 3.5, "real division in a lambda body"),
+    IL = $lambda([X], X // 2),
+    check(IL(7) = 3, "integer division in a lambda body"),
+    catch((X = FL(3, 4), throw($no_error)), E1, true),
+    check(E1 = $lambda_arity_mismatch(1, 2), "lambda arity mismatch"),
+    FL2 = $lambda([X], Y + 1),
+    catch((_ = FL2(1), throw($no_error)), E2, true),
+    check(E2 = $lambda_free_variable(_), "lambda free variable"),
     println("ALL PASS").
 
 check(Result, Name), Result => println("ok: " ++ Name).

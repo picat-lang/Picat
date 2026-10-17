@@ -23,6 +23,40 @@ module fp.
 %%
 %% pipe(Fs, X) applies left-to-right:
 %% pipe([F1,F2,F3], X) = F3(F2(F1(X))); pipe([], X) = X.
+%%
+%% ---- lambdas (like udf: the function as a term, evaluated at runtime) ----
+%%
+%% lambda([X1,...,Xk], Exp) is an anonymous FUNCTION VALUE, written
+%% exactly like the (unimplemented, doc-only) form in overview.tex and
+%% always $-quoted so that VList and Exp stay terms:
+%%
+%%     import fp.
+%%     F = $lambda([X], X + 1),
+%%     println(F(4))                       % 5
+%%     map($lambda([X], X * X), [1,2,3])   % [1,4,9]
+%%
+%% Applying F(A1,...,An) appends the arguments to the term and calls
+%% lambda(VList, Exp, A1,...,An) (provided here for arities 1..3), which
+%% binds the VList and evaluates the body.  The body is an EXPRESSION
+%% tree over the bound variables: variables, numbers, atoms, strings,
+%% lists, the arithmetic operators + - * / // div mod rem ** (and unary
+%% -), and CALLS of named functions (including built-ins, other lambda
+%% values, and comp/compose/pipe results).  Comparisons and goals are
+%% not part of the body language.
+%%
+%% Lambdas are first-class: a body may return a lambda, and a lambda
+%% created while evaluating another lambda CAPTURES the outer parameter
+%% values (a copy of the term is made and its free variables are bound),
+%% so make_adder style closures work:
+%%
+%%     L = $lambda([X], lambda([Y], Y + X)),
+%%     F = L(3),
+%%     F(4)                                % 7
+%%
+%% Errors are thrown as $lambda_arity_mismatch(K, N) when a lambda of K
+%% parameters is applied to N arguments, and $lambda_free_variable(V)
+%% when the body needs a variable that is neither a parameter nor a
+%% captured value.
 
 comp(F, G, X) = F(G(X)).
 
@@ -31,3 +65,89 @@ compose([F|Fs], X) = F(compose(Fs, X)).
 
 pipe([], X) = X.
 pipe([F|Fs], X) = pipe(Fs, F(X)).
+
+lambda(VL, Ex, X1) = eval_lambda(VL, Ex, [X1]).
+lambda(VL, Ex, X1, X2) = eval_lambda(VL, Ex, [X1, X2]).
+lambda(VL, Ex, X1, X2, X3) = eval_lambda(VL, Ex, [X1, X2, X3]).
+
+eval_lambda(VL, Ex, Args) = R, len(VL) == len(Args) =>
+    R = eval_exp(Ex, bind(VL, Args)).
+eval_lambda(VL, Ex, Args) = _ =>
+    K = len(VL),
+    N = len(Args),
+    throw($lambda_arity_mismatch(K, N)).
+
+bind([], []) = [].
+bind([V|Vs], [A|As]) = [(V, A) | bind(Vs, As)].
+
+eval_exp(T, Env) = V, var(T), var_val(T, Env, Val) => V = Val.
+eval_exp(T, _Env) = _, var(T) => throw($lambda_free_variable(T)).
+eval_exp(T, _Env) = T, atomic(T) => true.
+eval_exp(T, Env) = R, compound(T), functor(T, F, N), F == 'lambda', N == 2 =>
+    L2 = copy_term(T),
+    capture2(T, L2, [], Env),
+    R = L2.
+eval_exp(A + B, Env) = R => R = eval_exp(A, Env) + eval_exp(B, Env).
+eval_exp(A - B, Env) = R => R = eval_exp(A, Env) - eval_exp(B, Env).
+eval_exp(A * B, Env) = R => R = eval_exp(A, Env) * eval_exp(B, Env).
+eval_exp(A / B, Env) = R => R = eval_exp(A, Env) / eval_exp(B, Env).
+eval_exp(A // B, Env) = R => R = eval_exp(A, Env) // eval_exp(B, Env).
+eval_exp(div(A, B), Env) = R => R = div(eval_exp(A, Env), eval_exp(B, Env)).
+eval_exp(A mod B, Env) = R => R = eval_exp(A, Env) mod eval_exp(B, Env).
+eval_exp(A rem B, Env) = R => R = eval_exp(A, Env) rem eval_exp(B, Env).
+eval_exp(A ** B, Env) = R => R = eval_exp(A, Env) ** eval_exp(B, Env).
+eval_exp(-A, Env) = R => R = -eval_exp(A, Env).
+eval_exp(L, Env) = R, list(L) =>
+    R = [eval_exp(A, Env) : A in L].
+eval_exp(T, Env) = R, compound(T), var(F0), functor(T, F0, _) =>
+    N = arity(T),
+    Fv = eval_exp(F0, Env),
+    As = [eval_exp(arg_t(I, T), Env) : I in 1..N],
+    R = apply_value(Fv, As).
+eval_exp(T, Env) = R, compound(T) =>
+    functor(T, F, N),
+    As = [eval_exp(arg_t(I, T), Env) : I in 1..N],
+    R = call_by_arity(F, As).
+
+apply_value(Fv, As) = R, compound(Fv), functor(Fv, F, N), F == 'lambda', N == 2 =>
+    arg(1, Fv, VL),
+    arg(2, Fv, Ex),
+    R = eval_lambda(VL, Ex, As).
+apply_value(F, As) = R, atomic(F) => R = call_by_arity(F, As).
+apply_value(F, _As) = _ => throw($lambda_bad_function_value(F)).
+
+call_by_arity(F, [A]) = R => R = F(A).
+call_by_arity(F, [A, B]) = R => R = F(A, B).
+call_by_arity(F, [A, B, C]) = R => R = F(A, B, C).
+call_by_arity(F, [A, B, C, D]) = R => R = F(A, B, C, D).
+call_by_arity(F, [A, B, C, D, E]) = R => R = F(A, B, C, D, E).
+call_by_arity(F, As) = _ =>
+    N = len(As) + 1,
+    throw($lambda_arity_unsupported(N, F)).
+
+var_val(V, Env, Val), Env = [(K, Val0)|_], V == K => Val = Val0.
+var_val(V, [_|Rest], Val) => var_val(V, Rest, Val).
+
+capture2(Orig, Copy, _Own, _Env), atomic(Orig) => true.
+capture2(Orig, _Copy, Own, _Env), var(Orig), mem_eq(Orig, Own) => true.
+capture2(Orig, Copy, _Own, Env), var(Orig), var_val(Orig, Env, Val) => Copy = Val.
+capture2(Orig, _Copy, _Own, _Env), var(Orig) => true.
+capture2(Orig, Copy, _Own, Env), compound(Orig), functor(Orig, F, N), F == 'lambda', N == 2 =>
+    arg(1, Orig, VL),
+    arg(1, Copy, _VLC),
+    arg(2, Orig, Ex),
+    arg(2, Copy, ExC),
+    capture2(Ex, ExC, VL, Env).
+capture2(Orig, Copy, Own, Env), compound(Orig) =>
+    foreach (I in 1..arity(Orig))
+        arg(I, Orig, Oi),
+        arg(I, Copy, Ci),
+        capture2(Oi, Ci, Own, Env)
+    end.
+
+arg_t(I, T) = A, T = [H|Tt], I == 1 => A = H.
+arg_t(I, T) = A, T = [_|Tt], I > 1 => arg_t(I - 1, Tt) = A.
+arg_t(I, T) = A, compound(T), not list(T) => arg(I, T, A).
+
+mem_eq(V, [H|_]) ?=> V == H.
+mem_eq(V, [_|T]) ?=> mem_eq(V, T).

@@ -321,8 +321,33 @@ function, or a term with pre-applied arguments). Used as a value,
 `map($comp($succ, $sq), L)` maps the composition over `L` in one
 pass, with no intermediate list, and built-ins compose too
 (`$comp($'*'(2), $sq)`). Also `compose(Fs, X)` (n-ary, right-to-left,
-`compose([], X) = X`) and `pipe(Fs, X)` (left-to-right). The test is
-[test/fp_check.sh](test/fp_check.sh).
+`compose([], X) = X`) and `pipe(Fs, X)` (left-to-right).
+
+Lambdas: the same module also implements the (doc-only, unimplemented
+in the compiler) `lambda(VList, Exp)` form, udf-style — the function
+as a term, evaluated at runtime. Written `$lambda([X], Body)` (always
+`$`-quoted) it *is* an anonymous function value:
+
+    import fp.
+    F = $lambda([X], X + 1),
+    println(F(4)),                        % 5
+    map($lambda([X], X * X), [1,2,3])     % [1,4,9]
+
+The body is an expression over the parameters: variables, numbers,
+lists, `+ - * / // div mod rem **` (and unary `-`), and calls of named
+functions (built-ins included) and of other lambda values. Lambdas
+compose with `comp`/`compose`/`pipe` and capture: a lambda returned
+from a lambda binds the outer parameter values, so
+
+    L = $lambda([X], lambda([Y], Y + X)),
+    F = L(3),
+    F(4)                                  % 7
+
+is a working closure. Errors: applying a lambda of K parameters to N
+arguments throws `$lambda_arity_mismatch(K, N)`; a body needing a
+variable that is neither a parameter nor captured throws
+`$lambda_free_variable(V)`. Goals and comparisons are not part of the
+body language. The test is [test/fp_check.sh](test/fp_check.sh).
 
 ## 6. Transparent native multicore FD solver — the `fdn` engine
 
