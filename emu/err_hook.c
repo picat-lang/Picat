@@ -413,8 +413,18 @@ static void err_dump_stderr(char *undef_name, int namecap, int *undef_arity,
     free(sbuf);
 }
 
+/* clause registry, shared by the contiguity check and the undefined-
+   procedure report (which needs the defined arities and their lines) */
+#define ERR_MAXHEADS 512
+static struct { char name[64]; int arity; int last_seq; int last_line; int first_line; } err_heads[ERR_MAXHEADS];
+static int err_nheads = 0;
+static int err_clause_seq = 0;
+
 /* report an undefined procedure: find its line in the main file and the
-   nearest keyword or file identifier by edit distance */
+   nearest keyword or file identifier by edit distance (distance 1, or 2
+   for names of length >= 4).  When the name is defined with a different
+   arity, list the arities seen.  When the name is not in the file at all,
+   point to the closest named predicate's line. */
 static void err_report_undef(const char *name, int arity)
 {
     char *buf, *p;
@@ -422,9 +432,13 @@ static void err_report_undef(const char *name, int arity)
     int lineno = 1;
     int found_line = -1;
     char cands[256][64];
+    int cand_line[256];
     int ncands = 0;
+    struct { int ar; int line; } ars[8];
+    int nars = 0;
     int k, best = 99;
     char best_name[64] = "";
+    int best_line = -1;
 
     if (name[0] == '\0' || name[0] == '$') return;
     buf = err_read_file(err_main_file, &len);
@@ -433,7 +447,7 @@ static void err_report_undef(const char *name, int arity)
         return;
     }
     p = buf;
-    while (p != NULL && *p != '\0' && found_line < 0) {
+    while (p != NULL && *p != '\0') {
         char raw[2048], clean[2048];
         int curlin = lineno;
         p = err_next_line(p, raw, (int)sizeof(raw), &lineno);
@@ -444,6 +458,7 @@ static void err_report_undef(const char *name, int arity)
             while (clean[i] != '\0') {
                 int start, tlen;
                 char tok[64];
+                int dup = 0, q;
                 if (!((clean[i] >= 'a' && clean[i] <= 'z') ||
                       (clean[i] >= 'A' && clean[i] <= 'Z') || clean[i] == '_')) { i++; continue; }
                 start = i;
@@ -456,43 +471,66 @@ static void err_report_undef(const char *name, int arity)
                 tok[tlen] = '\0';
                 if (clean[start] >= 'A' && clean[start] <= 'Z') continue;  /* variable */
                 if (found_line < 0 && strcmp(tok, name) == 0) found_line = curlin;
-                if (ncands < 256 && tlen >= 2) {
+                for (q = 0; q < ncands; q++)
+                    if (strcmp(cands[q], tok) == 0) { dup = 1; break; }
+                if (!dup && ncands < 256 && tlen >= 2) {
                     memcpy(cands[ncands], tok, (size_t)tlen + 1);
+                    cand_line[ncands] = curlin;
                     ncands++;
                 }
             }
         }
     }
     free(buf);
-    for (k = 0; k < ERR_MAXKW; k++) {            /* keywords win ties */
+    for (k = 0; k < ERR_MAXKW; k++) {            /* keywords only at distance 1 */
         int d = err_lev(name, err_keywords[k]);
-        if (d == 1 && d < best) { best = d; strncpy(best_name, err_keywords[k], sizeof(best_name) - 1); best_name[sizeof(best_name) - 1] = '\0'; }
+        if (d == 1 && d < best) { best = d; strncpy(best_name, err_keywords[k], sizeof(best_name) - 1); best_name[sizeof(best_name) - 1] = '\0'; best_line = -1; }
     }
-    for (k = 0; k < ncands; k++) {
+    for (k = 0; k < ncands; k++) {               /* file names: distance 1, or 2 for longer names */
         int d = err_lev(name, cands[k]);
-        if (d == 1 && d < best) { best = d; strncpy(best_name, cands[k], sizeof(best_name) - 1); best_name[sizeof(best_name) - 1] = '\0'; }
+        int ok = (d == 1) || (d == 2 && (int)strlen(name) >= 4);
+        if (ok && d < best) { best = d; strncpy(best_name, cands[k], sizeof(best_name) - 1); best_name[sizeof(best_name) - 1] = '\0'; best_line = cand_line[k]; }
+    }
+    /* the wrong-arity case: the name is defined, but not with this arity
+       (from the clause registry, so calls do not pollute the list) */
+    {
+        int i, match = 0;
+        for (i = 0; i < err_nheads && nars < 8; i++)
+            if (strcmp(err_heads[i].name, name) == 0) {
+                int seen = 0;
+                for (k = 0; k < nars; k++) if (ars[k].ar == err_heads[i].arity) { seen = 1; break; }
+                if (!seen) { ars[nars].ar = err_heads[i].arity; ars[nars].line = err_heads[i].first_line; nars++; }
+            }
+        for (k = 0; k < nars; k++) if (ars[k].ar == arity) { match = 1; break; }
+        if (found_line > 0 && nars > 0 && !match) {
+            fprintf(stderr, "*** lint: line %d: '%s/%d' is undefined -- '%s' is defined with arity %d (line %d)",
+                    found_line, name, arity, name, ars[0].ar, ars[0].line);
+            for (k = 1; k < nars; k++)
+                fprintf(stderr, ", %d (line %d)", ars[k].ar, ars[k].line);
+            fprintf(stderr, "\n");
+            return;
+        }
     }
     if (found_line > 0) {
-        if (best == 1)
+        if (best_name[0] != '\0')
             fprintf(stderr, "*** lint: line %d: '%s/%d' is undefined -- did you mean '%s'?\n",
                     found_line, name, arity, best_name);
         else
             fprintf(stderr, "*** lint: line %d: '%s/%d' is undefined here.\n", found_line, name, arity);
     } else {
-        if (best == 1)
-            fprintf(stderr, "*** lint: '%s/%d' is undefined -- did you mean '%s'?\n", name, arity, best_name);
-        else
+        if (best_name[0] != '\0') {
+            if (best_line > 0)
+                fprintf(stderr, "*** lint: '%s/%d' is undefined -- did you mean '%s' (line %d)?\n",
+                        name, arity, best_name, best_line);
+            else
+                fprintf(stderr, "*** lint: '%s/%d' is undefined -- did you mean '%s'?\n", name, arity, best_name);
+        } else
             fprintf(stderr, "*** lint: '%s/%d' is undefined.\n", name, arity);
     }
 }
 
 /* ---------------------------------------------------------------- */
 /* Contiguity check: a predicate's clauses must be grouped together  */
-
-#define ERR_MAXHEADS 512
-static struct { char name[64]; int arity; int last_seq; int last_line; } err_heads[ERR_MAXHEADS];
-static int err_nheads = 0;
-static int err_clause_seq = 0;
 
 #define ERR_MAXCONTIG 8
 static struct { int line; int prev_line; char name[64]; int arity; } err_contig[ERR_MAXCONTIG];
@@ -520,6 +558,7 @@ static void err_register_clause(const char *name, int arity, int line)
         err_heads[i].arity = arity;
         err_heads[i].last_seq = -1;
         err_heads[i].last_line = 0;
+        err_heads[i].first_line = line;
     }
     if (err_heads[i].last_seq >= 0 && err_heads[i].last_seq != err_clause_seq - 1 &&
         err_ncontig < ERR_MAXCONTIG) {
@@ -743,9 +782,11 @@ void err_lint_main_file(void)
     err_dump_stderr(undef_name, (int)sizeof(undef_name), &undef_arity,
                     &ttype, tculprit, (int)sizeof(tculprit));
     if (getenv("PICAT_NO_ERRHOOK")) return;
-    if (undef_name[0] != '\0') err_report_undef(undef_name, undef_arity);
-    else if (ttype != 0) err_report_typed(ttype, tculprit);
-    if (err_main_file[0] == '\0') return;
+    if (undef_name[0] == '\0' && ttype != 0) err_report_typed(ttype, tculprit);
+    if (err_main_file[0] == '\0') {
+        if (undef_name[0] != '\0') err_report_undef(undef_name, undef_arity);
+        return;
+    }
     buf = err_read_file(err_main_file, &len);
     if (buf == NULL) return;
     err_suppress_name = undef_name;
@@ -911,6 +952,9 @@ void err_lint_main_file(void)
     if (np > 0) { fprintf(stderr, "*** lint: '(' opened at line %d never closed\n", paren[0]); errors++; err_brack_bad = 1; }
     if (nb > 0) { fprintf(stderr, "*** lint: '[' opened at line %d never closed\n", brack[0]); errors++; err_brack_bad = 1; }
     if (nc > 0) { fprintf(stderr, "*** lint: '{' opened at line %d never closed\n", brace[0]); errors++; err_brack_bad = 1; }
+    /* the undef report comes after the pass so the clause registry is built */
+    if (undef_name[0] != '\0' && !err_brack_bad)
+        err_report_undef(undef_name, undef_arity);
     /* the contiguity findings only make sense for otherwise well-formed files */
     if (!err_brack_bad) {
         for (i = 0; i < err_ncontig; i++)
