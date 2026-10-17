@@ -253,14 +253,48 @@ static char *err_next_line(char *p, char *out, int outsize, int *lineno)
     return p;
 }
 
-/* strip strings, % comments, and quoted atoms from a line in place-ish */
+/* strip strings, % comments, and quoted atoms from a line in place-ish.
+   Multi-line double-quoted strings are tracked: an unterminated " carries
+   to the following lines (err_instring), so prose inside a multi-line
+   string is not parsed as code.  Each pass resets err_instring to 0. */
+#define ERR_LINEBUF 131072
+static int err_instring = 0;
+
 static void err_strip_noise(const char *line, char *out, int outsize)
 {
     int i = 0, o = 0;
     while (line[i] != '\0' && o < outsize - 1) {
         char c = line[i];
+        if (err_instring) {
+            if (c == '\\' && line[i+1] != '\0') { i += 2; continue; }
+            if (c == '"') { err_instring = 0; i++; continue; }
+            i++;
+            continue;
+        }
         if (c == '%') break;
-        if (c == '"' || c == '\'') {
+        if (c >= '0' && c <= '9' && line[i+1] == '\'') {
+            /* a character literal 0'A: eat the digit, the quote, and the
+               char (or an escape pair) so the quote is not mistaken for
+               the start of a quoted atom; an immediately following ' (the
+               0'A' pattern) is eaten as well */
+            i += 2;
+            if (line[i] == '\\' && line[i+1] != '\0') i += 2; else if (line[i] != '\0') i++;
+            if (line[i] == '\'') i++;
+            out[o++] = ' ';
+            continue;
+        }
+        if (c == '"') {
+            err_instring = 1;
+            i++;
+            while (line[i] != '\0') {
+                if (line[i] == '\\' && line[i+1] != '\0') { i += 2; continue; }
+                if (line[i] == '"') { err_instring = 0; i++; break; }
+                i++;
+            }
+            out[o++] = ' ';
+            continue;
+        }
+        if (c == '\'') {
             char q = c;
             i++;
             while (line[i] != '\0' && line[i] != q) {
@@ -441,6 +475,7 @@ static void err_report_undef(const char *name, int arity)
     int best_line = -1;
 
     if (name[0] == '\0' || name[0] == '$') return;
+    err_instring = 0;
     buf = err_read_file(err_main_file, &len);
     if (buf == NULL) {                    /* call is not in the main file */
         fprintf(stderr, "*** lint: '%s/%d' is undefined.\n", name, arity);
@@ -448,7 +483,7 @@ static void err_report_undef(const char *name, int arity)
     }
     p = buf;
     while (p != NULL && *p != '\0') {
-        char raw[2048], clean[2048];
+        char raw[ERR_LINEBUF], clean[ERR_LINEBUF];
         int curlin = lineno;
         p = err_next_line(p, raw, (int)sizeof(raw), &lineno);
         if (p == NULL) break;
@@ -486,9 +521,15 @@ static void err_report_undef(const char *name, int arity)
         int d = err_lev(name, err_keywords[k]);
         if (d == 1 && d < best) { best = d; strncpy(best_name, err_keywords[k], sizeof(best_name) - 1); best_name[sizeof(best_name) - 1] = '\0'; best_line = -1; }
     }
-    for (k = 0; k < ncands; k++) {               /* file names: distance 1, or 2 for longer names */
+    for (k = 0; k < ncands; k++) {               /* file names: distance 1, or 2 for longer names
+                                                    when the candidate is a DEFINED predicate */
         int d = err_lev(name, cands[k]);
-        int ok = (d == 1) || (d == 2 && (int)strlen(name) >= 4);
+        int ok = (d == 1);
+        if (d == 2 && (int)strlen(name) >= 4) {
+            int q;
+            for (q = 0; q < err_nheads; q++)
+                if (strcmp(err_heads[q].name, cands[k]) == 0) { ok = 1; break; }
+        }
         if (ok && d < best) { best = d; strncpy(best_name, cands[k], sizeof(best_name) - 1); best_name[sizeof(best_name) - 1] = '\0'; best_line = cand_line[k]; }
     }
     /* the wrong-arity case: the name is defined, but not with this arity
@@ -535,6 +576,10 @@ static void err_report_undef(const char *name, int arity)
 #define ERR_MAXCONTIG 8
 static struct { int line; int prev_line; char name[64]; int arity; } err_contig[ERR_MAXCONTIG];
 static int err_ncontig = 0;
+/* per-NAME contiguity: interleaved different-arity clauses of the same
+   name are a common intentional pattern and must not be flagged */
+static struct { char name[64]; int last_seq; } err_namecontig[ERR_MAXHEADS];
+static int err_nnamecontig = 0;
 
 /* scanner state, carried across lines */
 static int err_expect_head = 1;
@@ -560,14 +605,31 @@ static void err_register_clause(const char *name, int arity, int line)
         err_heads[i].last_line = 0;
         err_heads[i].first_line = line;
     }
-    if (err_heads[i].last_seq >= 0 && err_heads[i].last_seq != err_clause_seq - 1 &&
-        err_ncontig < ERR_MAXCONTIG) {
-        err_contig[err_ncontig].line = line;
-        err_contig[err_ncontig].prev_line = err_heads[i].last_line;
-        err_contig[err_ncontig].name[0] = '\0';
-        strncpy(err_contig[err_ncontig].name, name, sizeof(err_contig[err_ncontig].name) - 1);
-        err_contig[err_ncontig].arity = arity;
-        err_ncontig++;
+    /* per-name contiguity: the same name's clauses (any arity) adjacent */
+    {
+        int j, name_contig = 0;
+        for (j = 0; j < err_nnamecontig; j++)
+            if (strcmp(err_namecontig[j].name, name) == 0) break;
+        if (j == err_nnamecontig) {
+            if (err_nnamecontig < ERR_MAXHEADS) {
+                err_nnamecontig++;
+                err_namecontig[j].name[0] = '\0';
+                strncpy(err_namecontig[j].name, name, sizeof(err_namecontig[j].name) - 1);
+                err_namecontig[j].last_seq = -1;
+            } else j = 0;
+        }
+        if (err_namecontig[j].last_seq == err_clause_seq - 1) name_contig = 1;
+        err_namecontig[j].last_seq = err_clause_seq;
+        if (!name_contig && err_heads[i].last_seq >= 0 &&
+            err_heads[i].last_seq != err_clause_seq - 1 &&
+            err_ncontig < ERR_MAXCONTIG) {
+            err_contig[err_ncontig].line = line;
+            err_contig[err_ncontig].prev_line = err_heads[i].last_line;
+            err_contig[err_ncontig].name[0] = '\0';
+            strncpy(err_contig[err_ncontig].name, name, sizeof(err_contig[err_ncontig].name) - 1);
+            err_contig[err_ncontig].arity = arity;
+            err_ncontig++;
+        }
     }
     err_heads[i].last_seq = err_clause_seq;
     err_heads[i].last_line = line;
@@ -591,6 +653,7 @@ static void err_report_typed(int type, const char *culprit)
     char desc[128];
 
     if (culprit[0] == '\0' && type != 10) return;
+    err_instring = 0;
     buf = err_read_file(err_main_file, &len);
     if (buf == NULL) {
         if (type == 10)
@@ -601,7 +664,7 @@ static void err_report_typed(int type, const char *culprit)
     }
     p = buf;
     while (p != NULL && *p != '\0' && found < 0) {
-        char raw[2048], clean[2048];
+        char raw[ERR_LINEBUF], clean[ERR_LINEBUF];
         int curlin = lineno;
         p = err_next_line(p, raw, (int)sizeof(raw), &lineno);
         if (p == NULL) break;
@@ -713,11 +776,12 @@ static void err_report_singletons(const char *path)
     int ntab = 0;
     int i, shown = 0, total = 0;
 
+    err_instring = 0;
     buf = err_read_file(path, &len);
     if (buf == NULL) return;
     p = buf;
     while (*p != '\0') {
-        char raw[2048], clean[2048];
+        char raw[ERR_LINEBUF], clean[ERR_LINEBUF];
         int curlin = lineno;
         p = err_next_line(p, raw, (int)sizeof(raw), &lineno);
         if (p == NULL) break;
@@ -789,15 +853,18 @@ void err_lint_main_file(void)
     }
     buf = err_read_file(err_main_file, &len);
     if (buf == NULL) return;
+    err_instring = 0;
     err_suppress_name = undef_name;
-    err_nheads = 0; err_clause_seq = 0; err_ncontig = 0;
+    err_nheads = 0; err_clause_seq = 0; err_ncontig = 0; err_nnamecontig = 0;
     err_expect_head = 1; err_in_head = 0; err_brack_bad = 0;
+    int depth = 0;   /* running bracket depth, for statement positions */
 
     p = buf;
     while (p != NULL && *p != '\0') {
-        char raw[2048];
-        char clean[2048];
+        char raw[ERR_LINEBUF];
+        char clean[ERR_LINEBUF];
         int curlin = lineno;
+        int start_depth = depth;
         p = err_next_line(p, raw, (int)sizeof(raw), &lineno);
         if (p == NULL) {
             fprintf(stderr, "*** lint: unterminated /* comment starting at line %d\n", lineno);
@@ -811,27 +878,31 @@ void err_lint_main_file(void)
             int i;
             for (i = 0; clean[i] != '\0'; i++) {
                 char c = clean[i];
-                if (c == '(') { if (np < 24) paren[np++] = curlin; }
-                else if (c == '[') { if (nb < 24) brack[nb++] = curlin; }
-                else if (c == '{') { if (nc < 24) brace[nc++] = curlin; }
+                if (c == '(') { depth++; if (np < 24) paren[np++] = curlin; }
+                else if (c == '[') { depth++; if (nb < 24) brack[nb++] = curlin; }
+                else if (c == '{') { depth++; if (nc < 24) brace[nc++] = curlin; }
                 else if (c == ')') {
+                    if (depth > 0) depth--;
                     if (np == 0) { fprintf(stderr, "*** lint: unbalanced ')' at line %d\n", curlin); errors++; err_brack_bad = 1; }
                     else np--;
                 } else if (c == ']') {
+                    if (depth > 0) depth--;
                     if (nb == 0) { fprintf(stderr, "*** lint: unbalanced ']' at line %d\n", curlin); errors++; err_brack_bad = 1; }
                     else nb--;
                 } else if (c == '}') {
+                    if (depth > 0) depth--;
                     if (nc == 0) { fprintf(stderr, "*** lint: unbalanced '}' at line %d\n", curlin); errors++; err_brack_bad = 1; }
                     else nc--;
                 }
             }
         }
 
-        /* (b) keyword typos, only at statement positions (the line start or
-           right after '=>' / '?=>') and not for locally defined names */
+        /* (b) keyword typos, only at statement positions (the line start
+           OUTSIDE brackets, or right after '=>' / '?=>') and not for
+           locally defined names; DCG rule heads (token '-->') are skipped */
         {
             int i = 0;
-            int bol = 1;   /* at the beginning of the (code) line */
+            int bol = (start_depth == 0);   /* a line start outside brackets */
             while (clean[i] != '\0') {
                 int start, tlen;
                 char tok[64];
@@ -866,6 +937,12 @@ void err_lint_main_file(void)
 
                 if (!iskw) {
                     if (err_suppress_name != NULL && strcmp(tok, err_suppress_name) == 0) continue;
+                    {
+                        /* a DCG rule head: token '-->' (skipping whitespace) */
+                        int j = i;
+                        while (clean[j] == ' ' || clean[j] == '\t') j++;
+                        if (clean[j] == '-' && clean[j+1] == '-' && clean[j+2] == '>') continue;
+                    }
                     for (k = 0; k < ERR_MAXKW; k++) {
                         size_t tl = strlen(tok), kl = strlen(err_keywords[k]);
                         if (tl < 2) continue;
@@ -894,8 +971,14 @@ void err_lint_main_file(void)
                     else if (c == ')') {
                         err_h_depth--; i++;
                         if (err_h_depth == 0) {
-                            int ar = err_h_empty ? 0 : err_h_commas + 1;
-                            err_register_clause(err_h_name, ar, err_h_line);
+                            /* a DCG rule head (token '-->' after the args):
+                               the compiler allows DCG splits; not tracked */
+                            int j = i;
+                            while (clean[j] == ' ' || clean[j] == '\t') j++;
+                            if (!(clean[j] == '-' && clean[j+1] == '-' && clean[j+2] == '>')) {
+                                int ar = err_h_empty ? 0 : err_h_commas + 1;
+                                err_register_clause(err_h_name, ar, err_h_line);
+                            }
                             err_in_head = 0; err_expect_head = 0;
                         }
                     } else if (c == ',') {
@@ -916,7 +999,12 @@ void err_lint_main_file(void)
                     if (clean[start] >= 'A' && clean[start] <= 'Z') continue;  /* variable */
                     for (k = 0; k < ERR_MAXKW; k++)
                         if (strcmp(tok, err_keywords[k]) == 0) { iskw = 1; break; }
-                    if (iskw) continue;                                        /* directive */
+                    if (iskw) {
+                        /* a directive: skip its args so they are not
+                           mistaken for clause heads (table (+,-,min)) */
+                        if (err_expect_head) while (clean[i] != '\0') i++;
+                        continue;
+                    }
                     if (err_expect_head) {
                         if (clean[i] == '(') {
                             err_in_head = 1; err_h_depth = 1;
@@ -930,6 +1018,19 @@ void err_lint_main_file(void)
                         err_expect_head = 0;
                         continue;
                     }
+                    continue;
+                }
+                if (c == '(' && err_expect_head) {
+                    /* a quoted-atom head ('!'(N) = ...): the strip ate the
+                       name; skip to the matching ')' without registering */
+                    int hd = 1, j = i + 1;
+                    while (clean[j] != '\0' && hd > 0) {
+                        if (clean[j] == '(') hd++;
+                        else if (clean[j] == ')') hd--;
+                        j++;
+                    }
+                    i = j;
+                    err_expect_head = 0;
                     continue;
                 }
                 if (c == '.') {
