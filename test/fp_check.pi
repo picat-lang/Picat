@@ -1,0 +1,37 @@
+%% fp_check.pi -- self-checking test for the fp module (lib2/fp.pi):
+%% function composition over function-terms, mapped in one pass.
+%%
+%% Run via test/fp_check.sh.
+%%
+%% Checks:
+%%   1. comp + map, named outer function, one pass: succ . sq = x^2+1
+%%   2. comp + map, built-in outer function: '*'(2) . sq = 2*x^2
+%%   3. comp of comp: succ . succ . sq
+%%   4. compose (n-ary, right-to-left), incl. the empty list (identity)
+%%   5. pipe (left-to-right), incl. the empty list (identity)
+%%   6. comp used directly on a value (not through map)
+import fp.
+
+sq(X) = X * X.
+succ(X) = X + 1.
+
+main =>
+    A = map($comp($succ, $sq), [1,2,3]),
+    check(A = [2,5,10], "comp+map named: succ . sq"),
+    B = map($comp($'*'(2), $sq), [1,2,3]),
+    check(B = [2,8,18], "comp+map built-in: '*'(2) . sq"),
+    C = map($comp($succ, $comp($succ, $sq)), [1,2,3]),
+    check(C = [3,6,11], "comp of comp: succ . succ . sq"),
+    D = compose([$succ, $succ, $sq], 2),
+    check(D = 6, "compose right-to-left: succ(succ(sq(2)))"),
+    check(compose([], 42) = 42, "compose empty = identity"),
+    E = pipe([$succ, $succ, $sq], 2),
+    check(E = 16, "pipe left-to-right: sq(succ(succ(2)))"),
+    check(pipe([], 42) = 42, "pipe empty = identity"),
+    FC = $comp($succ, $sq),
+    F = FC(5),
+    check(F = 26, "comp as a value: (succ . sq)(5)"),
+    println("ALL PASS").
+
+check(Result, Name), Result => println("ok: " ++ Name).
+check(_Result, Name) => throw($fp_check_failed(Name)).

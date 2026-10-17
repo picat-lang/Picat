@@ -1,0 +1,33 @@
+module fp.
+
+%% fp -- function composition over Picat function-terms.
+%%
+%% A "function value" in this module is a Picat function-term: either an
+%% atom naming a function (e.g. $succ for succ/1), or a term
+%% f(PreArgs...) for a function whose real arity is len(PreArgs)+1
+%% (e.g. $'*'(2) for '*'/2 with the first argument pre-applied).  Picat
+%% applies such a value to the remaining arguments by appending them to
+%% the term: F(X) where F = $succ is succ(X), and F(X) where F = $'*'(2)
+%% is '*'(2,X).
+%%
+%% comp(F, G, X) = F(G(X)) -- the standard right-to-left composition.
+%% Used as a function-term, comp(F, G) IS the composite function, so
+%%
+%%     map($comp(F, G), L)
+%%
+%% maps the composition over L in one pass, with no intermediate list,
+%% even when F and G are built-ins.
+%%
+%% compose(Fs, X) applies the list of functions right-to-left:
+%% compose([F1,F2,F3], X) = F1(F2(F3(X))); compose([], X) = X.
+%%
+%% pipe(Fs, X) applies left-to-right:
+%% pipe([F1,F2,F3], X) = F3(F2(F1(X))); pipe([], X) = X.
+
+comp(F, G, X) = F(G(X)).
+
+compose([], X) = X.
+compose([F|Fs], X) = F(compose(Fs, X)).
+
+pipe([], X) = X.
+pipe([F|Fs], X) = pipe(Fs, F(X)).

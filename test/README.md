@@ -106,5 +106,6 @@ or the comparison tests a stale `dist/`.
 | external-solver code (`fdn_solver.cpp`, `fdn_cpsat.py`, `fdn_hook.pi`) | `exs/fd_native_mt/ext_check.sh`, `test/fdn_exs.sh` |
 | the reified library (`lib/global_reif.pi`) | `test/reif_globals_check.sh` (the truth-value equivalence + faithfulness of the reified globals), the 4 `exs/*/reif_*` examples; the wasm preload needs a relink (`webasm/dist` carries a copy) |
 | the pb library (`lib2/pb.pi`, `emu/satext.c`) | `test/pb_families_bench.sh` (the five families under pb/cp/sat), `exs/pb/pb_test.pi` (the battery), `exs/pb/php_bench.pi` + `exs/pb/parity.pi` (the head-to-heads) |
+| the fp library (`lib2/fp.pi`) | `test/fp_check.sh` (composition over function-terms, mapped in one pass) |
 | any other C change (`emu/*.c`) | `exs/deviation_check.sh`, `webasm/headless/compare.py` (after rebuilding `dist/`) |
 | shell tools (`tools/`) | `tools/test_picat_run.sh` |

@@ -314,6 +314,16 @@ the library-level replacement for the per-callsite `; C = 0`
 fallbacks in counting and branch-and-bound loops that also post
 `udf` constraints.
 
+Function composition: `import fp.` ([lib2/fp.pi](lib2/fp.pi)) gives
+`comp(F, G, X) = F(G(X))` over Picat function-terms (an atom naming a
+function, or a term with pre-applied arguments). Used as a value,
+`$comp(F, G)` *is* the composite function —
+`map($comp($succ, $sq), L)` maps the composition over `L` in one
+pass, with no intermediate list, and built-ins compose too
+(`$comp($'*'(2), $sq)`). Also `compose(Fs, X)` (n-ary, right-to-left,
+`compose([], X) = X`) and `pipe(Fs, X)` (left-to-right). The test is
+[test/fp_check.sh](test/fp_check.sh).
+
 ## 6. Transparent native multicore FD solver — the `fdn` engine
 
 Compiled into the binary automatically; [fdn_hook.pi](emu/fdn_hook.pi)
