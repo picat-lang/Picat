@@ -55,6 +55,7 @@ static char err_main_file[4096] = "";
 static int err_real_stderr_fd = -1;
 static int err_misleading_seen = 0;
 static char err_stderr_path[512] = "";
+int err_check_only = 0;   /* -c: compile + lint only, no run (set in init_loading) */
 
 static void err_capture_stderr(void);
 
@@ -64,6 +65,11 @@ void err_save_main_file(const char *path)
     strncpy(err_main_file, path, sizeof(err_main_file) - 1);
     err_main_file[sizeof(err_main_file) - 1] = '\0';
     err_capture_stderr();
+}
+
+const char *err_get_main_file(void)
+{
+    return err_main_file;
 }
 
 /* dup2 stderr to a temp file so the run's stderr output survives to exit */
@@ -343,25 +349,26 @@ static void err_decode_charlist(const char *cl, char *out, int cap)
 /* restore stderr, replay what the run wrote there, and extract the first
    "Undefined procedure: NAME/ARITY" message if there is one; also extract
    the first typed error "*** error(TYPE(...),CONTEXT)" */
-static void err_dump_stderr(char *undef_name, int namecap, int *undef_arity,
-                            int *ttype, char *tculprit, int culprcap)
+static int err_dump_stderr(char *undef_name, int namecap, int *undef_arity,
+                           int *ttype, char *tculprit, int culprcap)
 {
     FILE *fp;
     long size;
     char *sbuf;
+    int ndump = 0;
 
     *undef_name = '\0';
     *undef_arity = -1;
     *ttype = 0;
     tculprit[0] = '\0';
     err_misleading_seen = 0;
-    if (err_real_stderr_fd < 0) return;
+    if (err_real_stderr_fd < 0) return 0;
     fflush(stderr);
-    if (dup2(err_real_stderr_fd, 2) != 2) return;   /* stderr back to the real fd */
+    if (dup2(err_real_stderr_fd, 2) != 2) return 0;   /* stderr back to the real fd */
     fp = fopen(err_stderr_path, "r");
     unlink(err_stderr_path);
     err_stderr_path[0] = '\0';
-    if (fp == NULL) return;
+    if (fp == NULL) return 0;
     fseek(fp, 0, SEEK_END);
     size = ftell(fp);
     rewind(fp);
@@ -370,13 +377,19 @@ static void err_dump_stderr(char *undef_name, int namecap, int *undef_arity,
         size_t n;
         while ((n = fread(chunk, 1, sizeof(chunk), fp)) > 0) fwrite(chunk, 1, n, stderr);
         fclose(fp);
-        return;
+        return 0;
     }
     sbuf = (char *)malloc((size_t)size + 2);
-    if (sbuf == NULL) { fclose(fp); return; }
+    if (sbuf == NULL) { fclose(fp); return 0; }
     size = (long)fread(sbuf, 1, (size_t)size, fp);
     fclose(fp);
     sbuf[size] = '\0';
+    {
+        const char *s;
+        for (s = sbuf; (s = strstr(s, "SYNTAX ERROR")) != NULL; s++) ndump++;
+        for (s = sbuf; (s = strstr(s, "** Error")) != NULL; s++) ndump++;
+        for (s = sbuf; (s = strstr(s, "*** error(")) != NULL; s++) ndump++;
+    }
     {
         const char *p = strstr(sbuf, "Undefined procedure: ");
         if (p == NULL) p = strstr(sbuf, "Undefined predicate: ");
@@ -445,6 +458,7 @@ static void err_dump_stderr(char *undef_name, int namecap, int *undef_arity,
     }
     fputs(sbuf, stderr);
     free(sbuf);
+    return ndump;
 }
 
 /* clause registry, shared by the contiguity check and the undefined-
@@ -829,7 +843,7 @@ static void err_report_singletons(const char *path)
         fprintf(stderr, "*** lint: ... and %d more singleton variable(s)\n", total - shown);
 }
 
-void err_lint_main_file(void)
+int err_lint_main_file(void)
 {
     char *buf, *p;
     long len;
@@ -842,17 +856,25 @@ void err_lint_main_file(void)
     int undef_arity = -1;
     int ttype = 0;
     char tculprit[128];
+    static int err_lint_ran = 0;
 
-    err_dump_stderr(undef_name, (int)sizeof(undef_name), &undef_arity,
-                    &ttype, tculprit, (int)sizeof(tculprit));
-    if (getenv("PICAT_NO_ERRHOOK")) return;
+    if (err_lint_ran) return 0;   /* -c runs the lint explicitly; skip atexit */
+    err_lint_ran = 1;
+
+    int ndump = err_dump_stderr(undef_name, (int)sizeof(undef_name), &undef_arity,
+                                &ttype, tculprit, (int)sizeof(tculprit));
+    if (getenv("PICAT_NO_ERRHOOK")) return 0;
+    /* in check mode the compile output is the captured stderr: count its
+       error markers so a compile failure fails the exit code even when
+       picat_load itself still succeeds (e.g. a module-name mismatch) */
+    if (err_check_only) errors += ndump;
     if (undef_name[0] == '\0' && ttype != 0) err_report_typed(ttype, tculprit);
     if (err_main_file[0] == '\0') {
         if (undef_name[0] != '\0') err_report_undef(undef_name, undef_arity);
-        return;
+        return 0;
     }
     buf = err_read_file(err_main_file, &len);
-    if (buf == NULL) return;
+    if (buf == NULL) return 0;
     err_instring = 0;
     err_suppress_name = undef_name;
     err_nheads = 0; err_clause_seq = 0; err_ncontig = 0; err_nnamecontig = 0;
@@ -1054,17 +1076,22 @@ void err_lint_main_file(void)
     if (nb > 0) { fprintf(stderr, "*** lint: '[' opened at line %d never closed\n", brack[0]); errors++; err_brack_bad = 1; }
     if (nc > 0) { fprintf(stderr, "*** lint: '{' opened at line %d never closed\n", brace[0]); errors++; err_brack_bad = 1; }
     /* the undef report comes after the pass so the clause registry is built */
-    if (undef_name[0] != '\0' && !err_brack_bad)
+    if (undef_name[0] != '\0' && !err_brack_bad) {
         err_report_undef(undef_name, undef_arity);
+        errors++;
+    }
     /* the contiguity findings only make sense for otherwise well-formed files */
     if (!err_brack_bad) {
-        for (i = 0; i < err_ncontig; i++)
+        for (i = 0; i < err_ncontig; i++) {
             fprintf(stderr,
                     "*** lint: line %d: '%s/%d' clauses are not contiguous (previous group ended at line %d)\n",
                     err_contig[i].line, err_contig[i].name, err_contig[i].arity,
                     err_contig[i].prev_line);
+            errors++;
+        }
     }
+    /* the singleton warnings are advisory only: they never count here */
     if (!err_brack_bad) err_report_singletons(err_main_file);
-    (void)errors;
     free(buf);
+    return errors;
 }

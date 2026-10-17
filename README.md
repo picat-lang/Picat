@@ -366,6 +366,17 @@ against direct clausal encodings. Requirements, usage and examples:
 [exs/pb/README.md](exs/pb/README.md).
 
 
+### Check mode: `picat -c`
+
+The native build of this branch accepts a `-c` flag: `picat -c FILE.pi`
+compiles and lints the file — reporting compiler errors as usual plus a
+static lint (unbalanced brackets, keyword typos, misspelled or duplicated
+clause groups, singletons, suspicious unbound variables) — without ever
+running the program. The exit code is nonzero when the compile fails or
+the lint finds errors, which makes the flag usable in editors, scripts
+and CI as a syntax/style check.
+
+
 __Current version 4.0b8__ (the experimental branch carries the upstream 4.0b8
 standard-library blob and the 4.0 C sources, merged from `main`; the interpreter
 banner reports the build commit and the base version).

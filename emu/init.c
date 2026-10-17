@@ -340,6 +340,11 @@ int init_loading(int argc, char *argv[])
             case 'v':
             case 'd':
                 break;
+            case 'c':
+#ifdef ERRHOOK
+                { extern int err_check_only; err_check_only = 1; }
+#endif
+                break;
 #ifdef BPSOLVER
 #else
             case 'p':
