@@ -43,6 +43,7 @@ cp "$EMU/picat-portable" "$STAGE/$PKGDIR/bin/picat"
 cp "$EMU/fdn_hook.pi" "$STAGE/$PKGDIR/bin/fdn_hook.pi"
 cp "$EMU/satshim" "$STAGE/$PKGDIR/bin/satshim"
 cp "$REPO"/lib2/*.pi "$STAGE/$PKGDIR/lib2/"
+strip "$STAGE/$PKGDIR/bin/picat" "$STAGE/$PKGDIR/bin/satshim"
 
 cat > "$STAGE/$PKGDIR/picat" <<EOF
 #!/bin/bash
@@ -57,7 +58,9 @@ chmod +x "$STAGE/$PKGDIR/picat"
 sed -e "s/@COMMIT@/$COMMIT/g" "$REPO/tools/release-README.md.in" > "$STAGE/$PKGDIR/README.md"
 
 echo "== packing"
-tar czf "$TGZ" -C "$STAGE" "$PKGDIR"
+TGZ_OUT="$REPO/releases/$(basename "$TGZ")"
+tar czf "$TGZ_OUT" -C "$STAGE" "$PKGDIR"
+TGZ="$TGZ_OUT"
 
 echo "== verifying (unpack + run)"
 rm -rf "$CHECK"; mkdir -p "$CHECK"
