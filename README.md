@@ -344,7 +344,19 @@ values. Comprehension syntax cannot appear in a body (it is syntax,
 not a term) — the `collect(F, From, To, P)` helper replaces it: the
 example `[I*I : I in 1..X, I*I < X].sum` is written
 `sum(collect($sq, 1, X, $lambda([I], I*I < X)))`, with the condition
-as a capturing lambda. Lambdas
+as a capturing lambda. Lambdas can also RECURSIVE through
+`selfapply(F, X[,Y[,Z]]) = F(F, ...)` — the lambda takes itself as its
+first parameter and `selfapply` passes it back:
+
+    FAC = $lambda([Me, N], cond(N =< 1, 1, N * selfapply(Me, N - 1))),
+    FAC(FAC, 5)                            % 120
+
+(never self-reference through the variable the lambda is bound to —
+that makes the term circular and crashes the interpreter). The module
+also gives `truth(Goal) = cond(Goal, true, false)` — the
+expression-to-goal bridge, turning any goal into a true/false
+expression — and `filterf(P, L)` — filter for function values, since
+the built-ins that take a predicate call it as a goal. Lambdas
 compose with `comp`/`compose`/`pipe` and capture: a lambda returned
 from a lambda binds the outer parameter values, so
 

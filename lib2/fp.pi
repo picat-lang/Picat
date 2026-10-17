@@ -76,6 +76,36 @@ pipe([F|Fs], X) = pipe(Fs, F(X)).
 %% the predicate P is applied as a function returning true/false.
 collect(F, From, To, P) = [F(I) : I in From..To, P(I) == true].
 
+%% callv(F, X) = F(X) -- apply a function value to one argument, from
+%% inside a lambda body (the compiler evaluates the arguments of a
+%% variable-functor call eagerly, so N * F(X) cannot be quoted, but the
+%% named call callv(F, X) can).  WARNING: do not use callv for
+%% SELF-REFERENCE through the variable the lambda is bound to -- that
+%% makes the term circular and crashes the interpreter; recursion goes
+%% through selfapply (see below) instead.
+callv(F, X) = F(X).
+
+%% selfapply(F, X) = F(F, X) -- the Y-style recursion helper for
+%% two-parameter lambdas: Y = $lambda([Me, N], cond(N =< 1, 1,
+%% N * selfapply(Me, N - 1))), then Y(Y, N) computes with Me bound to
+%% the lambda itself.  Also /3 and /4 for lambdas taking the rest
+%% plus one or two more arguments.
+selfapply(F, X) = F(F, X).
+selfapply(F, X, Y) = F(F, X, Y).
+selfapply(F, X, Y, Z) = F(F, X, Y, Z).
+
+%% truth(Goal) = cond(Goal, true, false) -- the expression-to-goal
+%% bridge: the built-in cond calls its Boolean argument as a goal, so
+%% truth turns any goal into a true/false expression, usable in a
+%% lambda body (e.g. $lambda([X], truth(member(X, L)))).
+truth(G) = cond(G, true, false).
+
+%% filterf(P, L) = [X : X in L, P(X)] -- filter for function values:
+%% the built-ins that take a predicate call it as a goal, which a
+%% function-returning lambda cannot serve; filterf applies P as a
+%% function and keeps the elements returning true.
+filterf(P, L) = [X : X in L, P(X) == true].
+
 lambda(VL, Ex, X1) = eval_lambda(VL, Ex, [X1]).
 lambda(VL, Ex, X1, X2) = eval_lambda(VL, Ex, [X1, X2]).
 lambda(VL, Ex, X1, X2, X3) = eval_lambda(VL, Ex, [X1, X2, X3]).
