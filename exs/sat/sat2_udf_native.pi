@@ -40,6 +40,7 @@
 
   main =>
       register_udfs(),
+      register_udfs_lambda(),
 
       % ---- 1) natural style: udf in a bare  #=  ----
       X :: 0..10,
@@ -92,4 +93,31 @@
       % ---- 9) udfs in the objective function of  solve  ($min/$max) ----
       O :: 0..5,
       solve([$max($sq(O))], [O]),
-      printf("9) max $sq(O) over 0..5      => O = %w%n", O).
+      printf("9) max $sq(O) over 0..5      => O = %w%n", O),
+
+      % ---- 10) LAMBDA as a define body, natural style ----
+      % The expansion delegates to lib2/udf.pi, which supports lambda
+      % bodies; no shim and no udf import needed with sat2.
+      L1 :: 0..20, LZ :: 0..5,
+      L1 #= $lsq(LZ) + 1,
+      solve([L1, LZ]),
+      printf("10) $lsq(LZ)+1 #= L1         => L1 = %w LZ = %w%n", L1, LZ),
+
+      % ---- 11) higher-order: a lambda body returning a closure ----
+      L2 :: 0..20, LZ5 :: 0..5,
+      L2 #= $apply($ladd(5), LZ5),
+      solve([L2, LZ5]),
+      printf("11) $apply($ladd(5), LZ5)    => L2 = %w LZ5 = %w%n", L2, LZ5),
+
+      % ---- 12) lambda evaluation and an immediate apply ----
+      V12 = udf_evaluate($lsq(3)),
+      printf("12) udf_evaluate($lsq(3))    = %w%n", V12),
+      V13 = udf_evaluate($apply($lambda([LY], LY * LY), 5)),
+      printf("13) immediate apply          = %w%n", V13).
+
+  % Lambda-body udfs: the parameters must be variables, their number
+  % must equal the head's arity.  Fresh parameter names, registered in
+  % their own scope so main can reuse variable names.
+  register_udfs_lambda() =>
+      udf_define($lsq(_), $lambda([LZ1], LZ1 * LZ1)),
+      udf_define($ladd(N), $lambda([LZ2], LZ2 + N)).

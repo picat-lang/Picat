@@ -8,7 +8,10 @@ entirely on Picat's own function-terms.
 
 This directory contains [elegant.pi](elegant.pi), which computes
 sqrt(2) by Newton's method, differentiates x^2, integrates x^2, and
-maps a composition pipeline over a list -- all with lambdas.
+maps a composition pipeline over a list -- all with lambdas -- and
+[udf_lambda.pi](udf_lambda.pi), which uses the same lambda construct as
+the body of a user-defined function in constraints (the `udf` module's
+lambda extension, see the end of this file).
 
 ## Introduction and requirements
 
@@ -153,6 +156,42 @@ capture works too (`make_adder` style):
     F = MK(3),
     F(4)                                 % 7
 
+## Lambdas in user-defined functions (udf)
+
+The `udf` module ([lib2/udf.pi](../../lib2/udf.pi)) accepts a lambda
+value as the body of a user-defined function in constraints:
+`udf.define($add(N), $lambda([Y], Y + N))` makes `$add(5)` equal `5 + 5`.
+The lambda's parameters must be variables and match the head's arity;
+head pattern variables are bound *inside* the closure, and free body
+variables are captured -- a solver variable stays SHARED, so it becomes
+part of the constraint.  An anonymous lambda can also be applied
+directly in a constraint expression with `$apply`, including
+higher-order (`$apply($add(5), Z)`, where `$add(5)` returns a closure)
+and nested lambdas.
+
+[udf_lambda.pi](udf_lambda.pi) demonstrates all of this.  One thing it
+also shows: to write `X #= $sq(Z)` in the natural operator style, YOUR
+module needs a one-line shim per relation, because an imported module
+cannot override the solver's `#=`:
+
+    '#='(L, R) => cp.'#='(udf.flatten(L), udf.flatten(R)).
+
+Without the shim the call reaches cp unexpanded and fails with
+`invalid_constraint_exp` (the explicit form `udf.post('#=', X, $sq(Z))`
+needs no shim; see [exs/cp/udf_ops.pi](../cp/udf_ops.pi) for the full
+shim set).  Alternatively, `import cp2.` --
+[lib2/cp2.pi](../../lib2/cp2.pi) or `import sat2.` --
+[lib2/sat2.pi](../../lib2/sat2.pi) -- gives the natural style with ONE
+import and no shim: these modules override all the constraint operators
+(cp or sat) and delegate the expansion to the `udf` module, so lambda
+bodies and `$apply` work there too (see
+[exs/cp/cp2_udf_native.pi](../cp/cp2_udf_native.pi) and
+[exs/sat/sat2_udf_native.pi](../sat/sat2_udf_native.pi), which
+demonstrate both the pattern rules and the lambdas).  The check suite
+for the udf lambda machinery is
+[test/udf_check.sh](../../test/udf_check.sh), which
+verifies it against all four solvers (cp, sat, mip, smt).
+
 ## Running the example and the test suite
 
     cd Picat-src
@@ -206,3 +245,20 @@ function instead in hot loops.
 - The `$` at the definition site cannot be avoided: true unquoted
   lambda syntax would need compiler support (the compiler's own
   `lambda` hook is bytecode-only and unreachable).
+
+## Running udf_lambda.pi
+
+    cd Picat-src
+    PICATPATH=.:./lib2 emu/picat exs/fp/udf_lambda.pi
+
+Expected output (the constraint sections may bind different, equally
+valid solutions on another build):
+
+    sq(3)        = 9
+    x = sq(z)+1  = 2 at z = 1
+    addk(5)      = 10
+    y = z3+k     = 2 at z3 = 1, k = 1
+    add(5)(z5)   = 6 at z5 = 1
+    add(z6)(v)   = 2 at z6 = 1, v = 1
+    (l l6)(3)(z7)= 3 at z7 = 1
+    apply imm.   = 25

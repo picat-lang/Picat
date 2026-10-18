@@ -1,5 +1,5 @@
 module sat2.
-import common_constr, sat.
+import common_constr, sat, udf.
 
 % X #!= Y
 % X #/\ Y
@@ -699,86 +699,29 @@ sat2_marker() => printf("DISK-SAT2 IN USE\n").
 
 % %%%%%%%%%%%%%%%%%%%% sat2 udf integration %%%%%%%%%%%%%%%%%%%%
 % The operators above and the  $min/$max  objectives of  solve
-% expand registered user-function calls automatically.  The registry
-% is the global heap map keyed by the atom 'udf' - the SAME registry
-% lib2/udf.pi uses, so a  user-side  udf.define(...)  is visible
-% here too.
+% expand registered user-function calls automatically, including LAMBDA
+% bodies and $apply: the expansion is delegated to lib2/udf.pi's
+% solver-agnostic flatten/evaluate/define/post (the full machinery,
+% single source of truth).  The registry is the global heap map keyed
+% by the atom 'udf' - the SAME registry lib2/udf.pi uses, so a
+% user-side  udf.define(...)  is visible here too.
 
 udf_define(Head, Body) =>
-    M = get_heap_map(udf),
-    Key = {name(Head), arity(Head)},
-    Rules = get(M, Key, []),
-    put(M, Key, Rules ++ [{Head, Body}]).
+    udf.define(Head, Body).
 
 udf_evaluate(E) = Val =>
-    F = uf_flatten(E),
-    Val = F * 1.
+    Val = udf.evaluate(E).
 
 udf_set_max_depth(N) =>
-    M = get_heap_map(udf),
-    put(M, max_depth, N).
+    udf.set_max_depth(N).
 
 udf_post(Rel, E1, E2) =>
-    O1 = uf_flatten(E1),
-    O2 = uf_flatten(E2),
-    Goal =.. [Rel, O1, O2],
-    call(Goal).
+    udf.post(Rel, E1, E2).
 
 private
 
 uf_flatten(E) = F =>
-    F = uf_expand(E, 0).
-
-uf_expand(T, D) = F =>
-    ( var(T) -> F = T
-    ; number(T) -> F = T
-    ; list(T) -> F = [X : E in T, X = uf_expand(E, D)]
-    ; ( D > uf_max_depth() -> ( printf("sat2: udf expansion too deep (max_depth=%w)%n", uf_max_depth()), fail ) )
-    ; F = uf_expand_struct(T, D)
-    ).
-
-uf_expand_struct(T, D) = F =>
-    T =.. [Name | As],
-    ( uf_is_prim(Name) ->
-        As2 = [A : Arg in As, A = uf_expand(Arg, D)],
-        F =.. [Name | As2]
-      ;
-        F = uf_apply_rule(T, D)
-    ).
-
-uf_apply_rule(T, D) = F =>
-    T =.. [Fn | Args],
-    M = get_heap_map(udf),
-    Rules = get(M, {Fn, length(Args)}, []),
-    ( ( Rules == []
-        -> ( printf("sat2: undefined udf function: %w/%d%n", Fn, length(Args)), fail ) )
-    ; F = uf_match_rule(Rules, Args, D)
-    ).
-
-uf_match_rule([{Head, Body} | More], Args, D) = F =>
-    P = copy_term({Head, Body}),
-    P = {CH, CB},
-    CH =.. [_ | HArgs],
-    ( HArgs = Args ->
-        F = uf_expand(CB, D + 1)
-      ;
-        F = uf_match_rule(More, Args, D)
-    ).
-
-uf_match_rule([], _Args, _D) = F =>
-    ( printf("sat2: undefined or nonmatching udf function%n"), F = 0, fail ).
-
-uf_max_depth() = D =>
-    M = get_heap_map(udf),
-    D = get(M, max_depth, 100).
-
-uf_is_prim(Name) =>
-    membchk(Name,
-            [+, -, *, /, //, /<, />, div, mod, **, abs,
-             min, max, sum, prod, count, cond]
-      ++ [ to_atom(S) : S in
-           ["#=", "#\\=", "#!=", "#<", "#=<", "#<=", "#>", "#>=",
-            "#<=>", "#=>", "#/\\", "#\\/", "#^", "#~"] ]).
+    F = udf.flatten(E).
 
 include "global_reif.pi".
 

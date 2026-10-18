@@ -1,0 +1,76 @@
+%% udf_lambda.pi -- lambdas as bodies of user-defined functions in
+%% constraints: the lambda extension of the udf module (lib2/udf.pi).
+%% A udf body can be an anonymous function value, $lambda([X1,...,Xk],
+%% Body) -- the same construct as the fp module's lambdas -- and an
+%% anonymous lambda can also be applied directly inside a constraint
+%% expression with $apply.
+%%
+%% Run from the repo root with PICATPATH including lib2:
+%%
+%%     PICATPATH=.:./lib2 emu/picat exs/fp/udf_lambda.pi
+%%
+%% See exs/fp/README.md and the udf module header for how each piece
+%% works.  The module's check suite is test/udf_check.sh.
+import cp.
+import udf.
+
+%% One-line shim: a module's own definitions beat the imported solver's,
+%% so this expands every registered user-function call in the two
+%% arguments and delegates the constraint to cp.  Without it, a call
+%% like $sq(Z) reaches cp unexpanded and fails with
+%% invalid_constraint_exp.  (See exs/cp/udf_ops.pi for the full set.)
+'#='(L, R) => cp.'#='(udf.flatten(L), udf.flatten(R)).
+
+main =>
+    % 1. A lambda as the body of a defined function, evaluated
+    %    outside a constraint.  The lambda's parameters must be
+    %    variables and their number must equal the head's arity.
+    udf.define($sq(_), $lambda([L1], L1 * L1)),
+    println("sq(3)        = " ++ udf.evaluate($sq(3)).to_string),
+
+    % 2. The same function inside a constraint: the call is expanded
+    %    into primitive arithmetic, here X = Z*Z + 1.
+    X :: 1..100, Z :: 1..10,
+    X #= $sq(Z) + 1,
+    solve([X, Z]),
+    println("x = sq(z)+1  = " ++ X.to_string ++ " at z = " ++ Z.to_string),
+
+    % 3. The head's pattern variables are bound INSIDE the closure:
+    %    $addk(5) evaluates to 5 + 5.
+    udf.define($addk(N), $lambda([L2], L2 + N)),
+    println("addk(5)      = " ++ udf.evaluate($addk(5)).to_string),
+
+    % 4. Free variables of a lambda body are captured: a solver
+    %    variable stays SHARED, so K is constrained by the call.
+    K :: 1..10,
+    udf.define($gsum(_), $lambda([L3], L3 + K)),
+    Y :: 1..20, Z3 :: 1..10,
+    Y #= $gsum(Z3),
+    solve([Y, Z3, K]),
+    println("y = z3+k     = " ++ Y.to_string ++ " at z3 = " ++ Z3.to_string
+            ++ ", k = " ++ K.to_string),
+
+    % 5. A defined function whose body is a lambda returns a closure:
+    %    $add(5) is the function L -> 5 + L, applied with $apply.
+    udf.define($add(N), $lambda([L4], L4 + N)),
+    W :: 1..20, Z5 :: 1..10,
+    W #= $apply($add(5), Z5),
+    solve([W, Z5]),
+    println("add(5)(z5)   = " ++ W.to_string ++ " at z5 = " ++ Z5.to_string),
+
+    % 6. The captured head variable may itself be a solver variable:
+    %    $add(Z6) applied to V constrains W2 to V + Z6.
+    W2 :: 1..20, Z6 :: 1..10, V :: 1..10,
+    W2 #= $apply($add(Z6), V),
+    solve([W2, Z6, V]),
+    println("add(z6)(v)   = " ++ W2.to_string ++ " at z6 = " ++ Z6.to_string
+            ++ ", v = " ++ V.to_string),
+
+    % 7. Nested lambdas in a constraint, and an immediate apply with
+    %    evaluate outside one.
+    Q :: 1..30, Z7 :: 1..5,
+    Q #= $apply($lambda([L5], $apply($lambda([L6], L5 * L6), 3)), Z7),
+    solve([Q, Z7]),
+    println("(l l6)(3)(z7)= " ++ Q.to_string ++ " at z7 = " ++ Z7.to_string),
+    println("apply imm.   = " ++
+            udf.evaluate($apply($lambda([L7], L7 * L7), 5)).to_string).
