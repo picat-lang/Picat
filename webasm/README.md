@@ -134,10 +134,18 @@ build), which this `sat` queens encoding exceeds at N=200 (N=150
 still runs), while the CP backend has no such cap (N=200 solves in
 the browser in ~1 min).
 
-The 101 packed examples (`examples/`) came from the repository's
+The 106 packed examples (`examples/`) came from the repository's
 `exs/` collection, renamed with their folder as prefix
 (`cp_kakuro.pi`, `sat_bqueens.pi`, `planner_sokoban.pi`,
-`euler_p1.pi`, `nn_spam_test.pi`, ...). Every candidate was tested on
+`euler_p1.pi`, `nn_spam_test.pi`, ...), plus the `x_`-prefixed
+experimental ones that need lib2 modules packed at the FS root
+(`x_udf_test.pi`, `x_cp2_udf_native.pi`, `x_sat2_udf_native.pi`,
+`x_reif_cp2_native.pi`, `x_reif_sat2_native.pi`,
+`x_asp_queens.pi`, `x_functional_prog.pi` -- the fp module's lambdas:
+function values, closures and composition pipelines; the file header
+says it is experimental, not standard Picat, and `lib2/fp.pi` is
+preloaded at the root via `FP_PRELOADS` in the Makefile). Every
+candidate was tested on
 the wasm runtime; what did not make it: `mip/`, `smt/`, `parallel/`
 and `satext/` (back-ends the browser build excludes), the interactive
 and missing-data `nn` programs, `sat/numberlink_b.pi` (too slow on

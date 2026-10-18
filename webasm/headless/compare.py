@@ -162,6 +162,7 @@ def measure(example, runs):
     """All measurements for one example (native first, then wasm, each
     `runs` times, medians kept).  Runs sequentially, so with the outer
     pool at W workers at most W OS processes are running at once."""
+    print(example)
     path = os.path.join(EXAMPLES, example)
     asp = is_asp(path)
     was = [wasm_once(path, asp) for _ in range(runs)]

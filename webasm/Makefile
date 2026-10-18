@@ -169,33 +169,40 @@ UDF_PRELOADS := \
   --preload-file ../lib2/udf.pi@/udf.pi \
   --preload-file ../lib2/udf_ops.pi@/udf_ops.pi
 
+# fp (lib2/fp.pi, function values / lambdas / composition), for the
+# x_functional_prog.pi example.  Lands at the filesystem root like the
+# udf files: the wasm CWD is where the example's  import fp.  looks.
+FP_PRELOADS := \
+  --preload-file ../lib2/fp.pi@/fp.pi
+
 # the file preloads (besides the lib2 directory):  they are link
 # dependencies, so editing one of them refreshes dist/picat.data
-LIB_PRELOAD_FILES := ../lib2/udf.pi ../lib2/udf_ops.pi \
-                     ../lib/cp2.pi ../lib/common_constr.pi \
+LIB_PRELOAD_FILES := ../lib2/udf.pi ../lib2/udf_ops.pi ../lib2/fp.pi \
+                     ../lib2/cp2.pi ../lib/common_constr.pi \
                      ../lib/cp_sat_mip_smt.pi ../lib/global_reif.pi \
-                     ../lib/global_reif_graph.pi ../lib/sat2.pi
+                     ../lib/global_reif_graph.pi ../lib2/sat2.pi
 
-# cp2 (lib/cp2.pi, a disk-compiled clone of cp with built-in udf
-# expansion) and its source dependencies, for the  x_cp2_udf_native.pi
+# cp2 (lib2/cp2.pi, with built-in udf expansion; it delegates to
+# lib2/udf.pi) and its source dependencies, for the  x_cp2_udf_native.pi
 # example.  As with the udf files these land at the filesystem root: the
 # wasm CWD is "/", where  import cp2.  and  include "cp_sat_mip_smt.pi"
 # look.  The precompiled in-image  cp  module (imported by cp2) needs no
 # source here.
 CP2_PRELOADS := \
-  --preload-file ../lib/cp2.pi@/cp2.pi \
+  --preload-file ../lib2/cp2.pi@/cp2.pi \
   --preload-file ../lib/common_constr.pi@/common_constr.pi \
   --preload-file ../lib/cp_sat_mip_smt.pi@/cp_sat_mip_smt.pi \
   --preload-file ../lib/global_reif.pi@/global_reif.pi \
   --preload-file ../lib/global_reif_graph.pi@/global_reif_graph.pi
 
-# sat2 (lib/sat2.pi, a disk-compiled clone of sat with built-in udf
+# sat2 (lib2/sat2.pi, with built-in udf expansion; it delegates to
 # expansion) and its source dependencies, for the  x_sat2_udf_native.pi
-# example.  Lands at the filesystem root like the cp2 files.  The
-# precompiled in-image  sat  module (imported by sat2) needs no source
-# here; common_constr / cp_sat_mip_smt are shared with the cp2 block.
+# lib2/udf.pi) for the x_sat2_udf_native.pi example.  Lands at the
+# filesystem root like the cp2 files.  The precompiled in-image  sat
+# module (imported by sat2) needs no source here; common_constr /
+# cp_sat_mip_smt are shared with the cp2 block.
 SAT2_PRELOADS := \
-  --preload-file ../lib/sat2.pi@/sat2.pi \
+  --preload-file ../lib2/sat2.pi@/sat2.pi \
   --preload-file ../lib/common_constr.pi@/common_constr.pi \
   --preload-file ../lib/cp_sat_mip_smt.pi@/cp_sat_mip_smt.pi \
   --preload-file ../lib/global_reif.pi@/global_reif.pi \
@@ -212,6 +219,7 @@ EMFLAGS := -sMODULARIZE=1 -sEXPORT_NAME=PicatWasm \
             --preload-file $(LIB2)@/lib2 \
             --preload-file examples@/examples \
             $(UDF_PRELOADS) \
+            $(FP_PRELOADS) \
             $(CP2_PRELOADS) \
             $(SAT2_PRELOADS) \
             $(ASPIC_PRELOADS) \
