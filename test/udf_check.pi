@@ -1,0 +1,131 @@
+%% udf_check.pi -- self-checking test for the udf module (lib2/udf.pi):
+%% user-defined functions in CP constraints, plus the lambda extension
+%% (lambda bodies in define, $apply/call in constraint expressions,
+%% closures over solver variables, higher-order applies).
+%%
+%% Run via test/udf_check.sh, which also generates and runs sat/mip/smt
+%% variants of the constraint checks.
+%%
+%% Checks:
+%%   1. define + flatten: single rule, several pattern rules, recursion
+%%   2. evaluate, post, expansion-bound error, undefined-function error
+%%   3. Route A lambda bodies: ground arg, constraint use, head-var capture
+%%   4. closures: ground value, solver variable (stays SHARED)
+%%   5. Route B: literal $apply in a constraint, higher-order $apply,
+%%      closure over an apply argument
+%%   6. nested lambdas, evaluate with an immediate lambda
+%%   7. lambda errors: define-time parameter/arity validation,
+%%      apply-time errors
+import cp.
+import udf.
+
+%% one-line shims for the operators used here (see exs/cp/udf_ops.pi for
+%% the full set); they expand user-function calls and delegate to cp.
+'#='(L,R)  => cp.'#='(udf.flatten(L), udf.flatten(R)).
+'#=<'(L,R) => cp.'#=<'(udf.flatten(L), udf.flatten(R)).
+'#!='(L,R) => cp.'#!='(udf.flatten(L), udf.flatten(R)).
+
+%% pattern rules used by the checks
+tri(W,H) = W * H // 2.
+fact(0) = 1.
+fact(N) = N * fact(N - 1).
+day_demand(N) = cond(N =< 3, 2 * N, 2 * N + 5).
+total([]) = 0.
+total([H|T]) = H + total(T).
+
+main =>
+    %% ---- 1. pattern rules ----
+    udf.define($tri(W,H), $W*H//2),
+    udf.define($fact(0), 1),
+    udf.define($fact(N), $N*fact(N - 1)),
+    udf.define($day_demand(N), $cond(N #=< 3, 2*N, 2*N + 5)),
+    udf.define($total([]), 0),
+    udf.define($total([H|T]), $(H + total(T))),
+    A :: 1..30,
+    A #= $tri(3, 4),
+    check(A = 6, "single rule: tri(3,4) = 6"),
+    B :: 1..200,
+    B #= $fact(5),
+    check(B = 120, "recursion: fact(5) = 120"),
+    C :: 1..30, D :: 1..30,
+    C #= $day_demand(2),
+    D #= $day_demand(5),
+    check((C, D) = (4, 15), "two pattern rules picked by the guard"),
+    E :: 1..30,
+    E #= $total([1,2,3,4]),
+    check(E = 10, "list pattern + structural recursion"),
+
+    %% ---- 2. evaluate, post, errors ----
+    check(udf.evaluate($tri(3, 4)) = 6, "evaluate outside the constraint world"),
+    F :: 1..30,
+    udf.post('#=', F, $tri(4, 5)),
+    solve([F]),
+    check(F = 10, "post: udf.post('#=', F, $tri(4,5))"),
+    catch((G :: 1..200, G #= $fact(-1), throw($no_error)), E1, true),
+    check(E1 = udf_expansion_too_deep, "negative recursion hits the expansion bound"),
+    catch((H = udf.evaluate($nosuch(1)), throw($no_error)), E2, true),
+    check(E2 = udf_undefined_or_nonmatching_function, "undefined function error"),
+    udf.set_max_depth(100),
+
+    %% ---- 3. Route A: a lambda as a define body ----
+    udf.define($sq(_), $lambda([Y2], Y2*Y2)),
+    check(udf.evaluate($sq(3)) = 9, "lambda body, ground arg: sq(3) = 9"),
+    I :: 1..20, Z :: 1..10,
+    I #= $sq(Z) + 1,
+    solve([I, Z]),
+    check(I = Z*Z + 1, "lambda body in a constraint: sq(Z)+1"),
+    udf.define($addk(N), $lambda([Y3], Y3 + N)),
+    check(udf.evaluate($addk(5)) = 10, "head pattern var captured in the closure: addk(5) = 5+5"),
+
+    %% ---- 4. closures ----
+    K0 = 5,
+    udf.define($gsq(_), $lambda([Y4], Y4*Y4 + K0)),
+    J :: 1..20, Z2 :: 1..4,
+    J #= $gsq(Z2),
+    solve([J, Z2]),
+    check(J = Z2*Z2 + 5, "closure over a ground value: Z^2+5"),
+    K :: 1..10,
+    udf.define($gsum(_), $lambda([Y5], Y5 + K)),
+    L :: 1..20, Z3 :: 1..10,
+    L #= $gsum(Z3),
+    solve([L, Z3, K]),
+    check(L = Z3 + K, "closure over a solver variable (shared)"),
+
+    %% ---- 5. Route B: apply/call in expressions ----
+    M :: 1..20, Z4 :: 1..4,
+    M #= $apply($lambda([Y6], Y6*Y6), Z4) + 1,
+    solve([M, Z4]),
+    check(M = Z4*Z4 + 1, "literal apply in a constraint: lambda(Y)(Z)^2+1"),
+    udf.define($add(N), $lambda([Y7], Y7 + N)),
+    N1 :: 1..20, Z5 :: 1..10,
+    N1 #= $apply($add(5), Z5),
+    solve([N1, Z5]),
+    check(N1 = Z5 + 5, "higher-order apply: add(5) returns a closure"),
+    O :: 1..20, Z6 :: 1..10, W :: 1..10,
+    O #= $apply($add(Z6), W),
+    solve([O, Z6, W]),
+    check(O = Z6 + W, "higher-order apply with a variable argument (closure shared)"),
+    P :: 1..20, Z7 :: 1..5,
+    P #= $apply($lambda([Q1], $apply($lambda([Q2], Q1*Q2), 3)), Z7),
+    solve([P, Z7]),
+    check(P = 3*Z7, "nested lambdas: (lambda(Y)(lambda(Z)(Y*Z)(3)))(Z)"),
+
+    %% ---- 6. evaluate with an immediate lambda ----
+    check(udf.evaluate($apply($lambda([Y8], Y8*Y8), 5)) = 25,
+          "evaluate with an immediate lambda"),
+
+    %% ---- 7. lambda errors ----
+    catch((udf.define($bad(_), $lambda([7], 1)), throw($no_error)), E3, true),
+    check(E3 = udf_lambda_bad_parameter, "define-time: non-variable lambda parameter"),
+    catch((udf.define($bad2(_, _), $lambda([Y9], Y9)), throw($no_error)), E4, true),
+    check(E4 = udf_lambda_arity_mismatch, "define-time: parameter count != head arity"),
+    catch((Q :: 1..20, Q #= $apply($lambda([Y10], Y10), 1, 2), throw($no_error)), E5, true),
+    check(E5 = udf_lambda_arity_mismatch, "apply-time: more arguments than parameters"),
+    catch((R :: 1..20, R #= $apply($tri(1, 1), R), throw($no_error)), E6, true),
+    check(E6 = udf_lambda_bad_function_value, "apply-time: first argument is not a lambda"),
+    catch((S :: 1..20, S #= $apply($lambda([11], 1), S), throw($no_error)), E7, true),
+    check(E7 = udf_lambda_bad_parameter, "apply-time: literal lambda with a non-variable parameter"),
+    println("ALL PASS").
+
+check(Result, Name), Result => println("ok: " ++ Name).
+check(_Result, Name) => throw($udf_check_failed(Name)).

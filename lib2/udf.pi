@@ -20,7 +20,40 @@ module udf.
 
             A function may have several (pattern) rules, and a body may call
             other user functions or itself (recursion), up to a configurable
-            expansion bound.
+            expansion bound.  A recursive rule needs a BASE-CASE PATTERN
+            (e.g.  $fact(0)  and  $fact(N)), and ground argument terms are
+            evaluated to numbers before the rule match, so the  N - 1  of a
+            recursive body bottoms out.  Comparisons inside a body should be
+            written in the # form (e.g.  #=<  instead of  =< ): the # forms
+            work in constraints (all four solvers) AND with evaluate.
+
+            A body may also be a LAMBDA VALUE:  define($f(N), $lambda([Y], Y*Y+A))
+            registers f as the lambda applied to the call's arguments.  The
+            lambda's parameters must be variables and their number must equal
+            the head's arity (else  udf_lambda_arity_mismatch  /
+            udf_lambda_bad_parameter  is thrown).  The head's pattern
+            variables are bound to the call's arguments INSIDE the closure:
+            define($add(N), $lambda([Y], Y+N)) makes  $add(5)  equal 5+5,
+            i.e. 10.  Free variables of the lambda body that are not head
+            variables are captured: ground values are copied, and solver
+            variables stay SHARED, i.e. they become part of the constraint
+            (a closure over a domain variable).
+
+        apply / call  in expressions
+            An anonymous lambda can be applied INSIDE a constraint expression
+            or inside a define body:
+                X #= $apply($lambda([Y], Y*Y), Z) + 1
+                define($g(N), $apply($lambda([Y], Y+N), N))
+            The first argument may also be a call to a user function whose
+            body is a lambda (a higher-order function); the call's arguments
+            are bound into the returned closure:
+                define($add(N), $lambda([Y], Y+N)),
+                X #= $apply($add(5), Z)          %  X = Z + 5
+                X #= $apply($add(Z), W)          %  X = W + Z  (Z stays shared)
+            (call/... is accepted as a synonym of apply/....)  If the first
+            argument is neither a literal lambda nor such a call,
+            udf_lambda_bad_function_value  is thrown.  Do not name a udf
+            function  apply  or  call .
 
         flatten(E) = Out
             Rewrite the constraint expression E, expanding every registered
@@ -100,6 +133,12 @@ module udf.
         M = get_heap_map(udf),
         Key = {name(Head), arity(Head)},
         Rules = get(M, Key, []),
+        ( is_lambda(Body) ->
+            arg(1, Body, Ps),
+            ( all_vars(Ps) -> true ; throw(udf_lambda_bad_parameter) ),
+            ( length(Ps) = arity(Head) -> true ; throw(udf_lambda_arity_mismatch) )
+          ; true
+        ),
         put(M, Key, Rules ++ [{Head, Body}]).
 
     %%%%%% expansion core %%%%%%
@@ -115,7 +154,20 @@ module udf.
 
     expand_struct(T, D) = F =>
         T =.. [Name | As],
-        ( is_prim(Name) ->
+        ( (Name == apply ; Name == call), As = [L | Rest] ->
+            ( is_lambda(L) ->
+                arg(1, L, Ps0),
+                ( all_vars(Ps0) -> true ; throw(udf_lambda_bad_parameter) ),
+                F = apply_call(L, Rest, D)
+              ;
+                lambda_call(L, D, L2),
+                ( is_lambda(L2) ->
+                    F = apply_call(L2, Rest, D)
+                  ;
+                    throw(udf_lambda_bad_function_value)
+                )
+            )
+          ; is_prim(Name) ->
             As2 = [A : Arg in As, A = expand(Arg, D)],
             F =.. [Name | As2]
           ;
@@ -124,22 +176,200 @@ module udf.
 
     apply_rule(T, D) = F =>
         T =.. [Fn | Args],
+        % evaluate GROUND argument terms to numbers before the rule match,
+        % so a recursive body's  N - 1  (an unevaluated term) bottoms out
+        % (fact(-(5,1)) would otherwise grow forever).  Non-arithmetic
+        % arguments (e.g. lists) are left unchanged; arguments containing
+        % domain variables cannot be evaluated and are left unchanged too.
+        ( ground(Args) ->
+            Args2 = [eval_arg(A) : A in Args]
+          ; Args2 = Args
+        ),
         M = get_heap_map(udf),
-        Rules = get(M, {Fn, length(Args)}, []),
-        F = match_rule(Rules, Args, D).
+        Rules = get(M, {Fn, length(Args2)}, []),
+        F = match_rule(Rules, Args2, D).
+
+    % evaluate a ground argument term to a number if it is arithmetic
+    % (e.g. the  N - 1  of a recursive body); otherwise leave it unchanged.
+    eval_arg(A) = B =>
+        ( compound(A) ->
+            catch((B = A * 1), _E, (B = A))
+          ; B = A
+        ).
 
     match_rule([{Head, Body} | More], Args, D) = F =>
+        ( is_lambda(Body) ->
+            ( lambda_value(Body, Head, Args, L) ->
+                F = apply_lambda(L, Args, D + 1)
+              ;
+                F = match_rule(More, Args, D)
+            )
+          ;
+            P = copy_term({Head, Body}),
+            P = {CH, CB},
+            CH =.. [_ | HArgs],
+            ( HArgs = Args ->
+                F = expand(CB, D + 1)
+              ;
+                F = match_rule(More, Args, D)
+            )
+        ).
+
+    match_rule([], _Args, _D) = _F =>
+        throw(udf_undefined_or_nonmatching_function).
+
+    is_lambda(T) =>
+        nonvar(T), functor(T, 'lambda', 2).
+
+    % Build the lambda VALUE for a rule whose body is a lambda: copy the
+    % rule as ONE unit so the lambda shares the head's pattern variables,
+    % bind the head copy's variables to the call's argument terms, restore
+    % the lambda's parameter binders to fresh variables (a head variable
+    % that is also a lambda parameter gets bound by the head unification;
+    % the body already refers to the argument value), and re-link every
+    % still-unbound variable of the copy with the original lambda's
+    % corresponding variable, EXCEPT the argument's own variables (they
+    % are already in place and must not be unified with the head's pattern
+    % variables).  Captures of e.g. solver variables stay SHARED.
+    lambda_value(Body, Head, Args, L) =>
         P = copy_term({Head, Body}),
         P = {CH, CB},
         CH =.. [_ | HArgs],
-        ( HArgs = Args ->
-            F = expand(CB, D + 1)
-          ;
-            F = match_rule(More, Args, D)
+        HArgs = Args,
+        tvars(Args, AVars),
+        relink_captured(Body, CB, AVars),
+        L = CB.
+
+    % The first argument of apply/call is not a literal lambda: if it is a
+    % call to a user function with a lambda-body rule, produce the lambda
+    % value (with the call's arguments bound into the closure); otherwise
+    % leave the term unchanged and the caller throws
+    % udf_lambda_bad_function_value.
+    lambda_call(T, _D, L2) =>
+        ( var(T) ; number(T) ; list(T) -> L2 = T
+        ; T =.. [Fn | Args],
+          M = get_heap_map(udf),
+          Rules = get(M, {Fn, length(Args)}, []),
+          match_lambda_value(Rules, Args, L2)
         ).
 
-    match_rule([], _Args, _D) = throw(udf_undefined_or_nonmatching_function) =>
-        true.
+    match_lambda_value([{Head, Body} | More], Args, L) =>
+        ( is_lambda(Body) ->
+            ( lambda_value(Body, Head, Args, L) -> true
+            ; match_lambda_value(More, Args, L)
+            )
+          ;
+            CH = copy_term(Head),
+            CH =.. [_ | HArgs],
+            ( HArgs = Args ->
+                throw(udf_lambda_bad_function_value)
+              ;
+                match_lambda_value(More, Args, L)
+            )
+        ).
+
+    match_lambda_value([], _Args, _L) =>
+        throw(udf_lambda_bad_function_value).
+
+    % apply a lambda term to the given argument terms.  The lambda term is
+    % copied, its VARIABLE parameters are bound to positional  $param(I)
+    % markers; a parameter that is already BOUND (a head pattern variable
+    % shared with the lambda's parameter, bound by the call's argument) is
+    % already applied and is skipped.  The captured (free) variables of the
+    % copy are re-linked with the ORIGINAL lambda (so a closure over a
+    % solver variable stays SHARED, i.e. becomes part of the constraint),
+    % the markers are replaced by the argument terms, and the body is
+    % expanded.  No == on variables: the equality test is unreliable when
+    % domain variables are involved.
+    apply_lambda(L, Args, D) = F =>
+        arg(1, L, Ps),
+        ( length(Ps) = length(Args) ->
+            L2 = copy_term(L),
+            arg(1, L2, Ps2),
+            bind_params(Ps2, Args, 1),
+            arg(2, L2, Body2),
+            arg(2, L, Body),
+            relink_captured(Body, Body2),
+            Body3 = subst_markers(Body2, Args),
+            F = expand(Body3, D)
+          ;
+            throw(udf_lambda_arity_mismatch)
+        ).
+
+    bind_params([], _Args, _I) => true.
+    bind_params([P | Ps], _Args, I) =>
+        ( var(P) -> P = $param(I) ; true ),
+        bind_params(Ps, _Args, I + 1).
+
+    relink_captured(Orig, Copy) =>
+        relink_captured(Orig, Copy, []).
+
+    % bind every unbound variable of Copy to the corresponding variable of
+    % Orig (lockstep structural walk), EXCEPT the variables of AVars (the
+    % argument's own variables: they are already in place and must not be
+    % unified with the head's pattern variables).  The $param(I) markers
+    % are compounds and are skipped.
+    relink_captured(Orig, Copy, AVars) =>
+        ( var(Copy) ->
+            ( contains_var(Copy, AVars) -> true ; Copy = Orig )
+          ; compound(Copy), compound(Orig) ->
+            functor(Copy, _, N),
+            relink_args(1, N, Orig, Copy, AVars)
+          ; true
+        ).
+
+    % NOTE: in this build a repeated variable in a => clause head compiles
+    % as a NON-UNIFYING == test (app([],L,L) => true. fails for
+    % app([],[1],X)), so a walker that threads an accumulator must use
+    % distinct head variables and unify them explicitly in the body.
+    relink_args(I, N, Orig, Copy, AVars) =>
+        ( I > N -> true
+        ; arg(I, Orig, OA),
+          arg(I, Copy, CA),
+          relink_captured(OA, CA, AVars),
+          relink_args(I + 1, N, Orig, Copy, AVars)
+        ).
+
+    subst_markers(E, Args) = E2 =>
+        ( nonvar(E), functor(E, 'param', 1) ->
+            arg(1, E, I),
+            E2 = Args[I]
+          ; compound(E) ->
+            E =.. [F | As],
+            As2 = [X : A in As, X = subst_markers(A, Args)],
+            E2 =.. [F | As2]
+          ;
+            E2 = E
+        ).
+
+    apply_call(L, Rest, D) = F =>
+        F = apply_lambda(L, Rest, D + 1).
+
+    all_vars([]) => true.
+    all_vars([P | Ps]) => var(P), all_vars(Ps).
+
+    % variables occurring in T (identity test: == on two variables succeeds
+    % only when they are the same variable; membchk would bind them).
+    tvars(T, Vs) => tvars(T, [], Vs).
+
+    tvars(T, L0, L) =>
+        ( var(T) ->
+            ( contains_var(T, L0) -> L = L0 ; L = [T | L0] )
+          ; compound(T) ->
+            functor(T, _, N),
+            tvars_args(1, N, T, L0, L)
+          ; L = L0
+        ).
+
+    tvars_args(I, N, T, L0, L) =>
+        ( I > N -> L = L0
+        ; arg(I, T, A),
+          tvars(A, L0, L1),
+          tvars_args(I + 1, N, T, L1, L)
+        ).
+
+    contains_var(_V, []) => fail.
+    contains_var(V, [X | Xs]) => ( V == X -> true ; contains_var(V, Xs) ).
 
     max_depth() = D =>
         M = get_heap_map(udf),
@@ -148,5 +378,6 @@ module udf.
     is_prim(Name) => membchk(Name,
                           [+, -, *, /, //, /<, />, div, mod, **, abs,
                            min, max, sum, prod, count, cond,
+                           =:=, =\\=, =<, >=, <, >, ==, !=,
                            '#=' , '#!=', '#<', '#=<', '#<=', '#>', '#>=',
                            '#<=>', '#=>', '#/\\', '#\\/', '#^', '#~']).

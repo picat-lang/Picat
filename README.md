@@ -304,6 +304,52 @@ The `udf` examples are:
 [exs/mip/udf_functions.pi](exs/mip/udf_functions.pi),
 [exs/smt/udf_functions.pi](exs/smt/udf_functions.pi).
 
+**Lambdas inside constraints.** A `define` body may also be a LAMBDA
+VALUE, and an anonymous lambda can be applied *inside* a constraint
+expression or inside a `define` body (`$apply`/`$call`; `call/...` is a
+synonym of `apply/...`):
+
+```picat
+import cp.
+import udf.
+include "udf_ops.pi".
+
+main =>
+    % Route A: the lambda IS the function.  The head's pattern variables
+    % are bound to the call's arguments inside the closure, so addk(5)
+    % evaluates to 5+5 = 10:
+    udf.define($addk(N), $lambda([Y], Y + N)),
+    % a closure over a SOLVER variable stays shared - it becomes part of
+    % the constraint (X = Z + K, K a domain variable):
+    K :: 1..10,
+    udf.define($gsum(_), $lambda([Y], Y + K)),
+    % Route B: an anonymous lambda applied inside a constraint ...
+    M :: 1..20, Z :: 1..4,
+    M #= $apply($lambda([Y], Y*Y), Z) + 1,     % M = Z*Z + 1
+    % ... and a HIGHER-ORDER apply: a udf function whose body is a lambda
+    % returns the closure, with the call's arguments bound into it:
+    udf.define($add(N), $lambda([Y], Y + N)),
+    P :: 1..20, W :: 1..10,
+    P #= $apply($add(5), W),                    % P = W + 5
+    Q :: 1..20,
+    Q #= $apply($add(Z), W),                    % Q = W + Z  (Z shared)
+    solve([M, Z, P, W, Q]).
+```
+
+The lambda's parameters must be variables and their number must equal
+the head's arity — this is validated when `define` runs
+(`udf_lambda_bad_parameter` / `udf_lambda_arity_mismatch`).  Free
+variables of the lambda body are captured: ground values are copied,
+and solver variables stay SHARED (a closure over a domain variable).
+The first argument of `$apply` must be a literal `$lambda(...)` or a
+call to a udf function whose body is a lambda — otherwise
+`udf_lambda_bad_function_value` is thrown; applying more arguments than
+parameters throws `udf_lambda_arity_mismatch`.  Do not name a udf
+function `apply` or `call`.  The test is
+[test/udf_check.sh](test/udf_check.sh) — 23 `cp` checks plus generated
+`sat`/`mip`/`smt` variants of the constraint checks, so the machinery is
+verified against all four solvers.
+
 Solver twins: `import cp2.` / `import sat2.` (in `lib2/`, not
 preloaded — run with `PICATPATH` including `lib2`) re-export the whole
 `cp`/`sat` surface plus
