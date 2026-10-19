@@ -972,7 +972,8 @@ int c_fdn_close(void) {
     BPLONG H = ARG(1, 1);
     handle *h = get_handle(H);
     if (h && h->net) {
-        if (h->round) free_handle(h->round);
+        if (h->round) { if (verbose && h->round->r) fprintf(stderr, "fdn: round closed (%s)\n", fdn_stats(h->round->r)); free_handle(h->round); }
+        if (verbose && h->r) fprintf(stderr, "fdn: closed (%s)\n", fdn_stats(h->r));
         fdn_net_free(h->net); free_handle(h);
     }
     return BP_TRUE;
@@ -1000,6 +1001,27 @@ static int alone_term(vmap *m, BPLONG t, int depth) {
         return 1;
     }
 }
+/* c_fdn_budget_cut: true when the last stopped run hit the FDN_TIME budget
+   with no solution; the bridge falls back to Picat's own labeling on it
+   (a budget cut must not look like "no solution"). Clears the flag. */
+int c_fdn_budget_cut(void) {
+    int fdn_budget_cut_take(void);          /* fdn_solver.cpp */
+    return fdn_budget_cut_take() ? BP_TRUE : BP_FALSE;
+}
+/* c_fdn_reject(R): the hook reports one delivered solution that failed
+   Picat's replay (fdn_altp). The fdn's network under-approximates the
+   store, so its solutions can violate constraints it does not model;
+   too many rejections (or the FDN_TIME budget) stop the run and the
+   hook falls back to Picat's own labeling. */
+int c_fdn_reject(void) {
+    void fdn_reject(void *);                /* fdn_solver.cpp */
+    BPLONG H = ARG(1, 1);
+    handle *h = get_handle(H);
+    if (!h || !h->r) return BP_TRUE;
+    fdn_reject(h->r);
+    return BP_TRUE;
+}
+
 int c_fdn_alone(void) {
     BPLONG Vars = ARG(1, 1); BPLONG_PTR top;
     if (verbose < 0) verbose = getenv("FDN_VERBOSE") != NULL;
@@ -1553,6 +1575,8 @@ void fdn_boot(void) {
     insert_cpred("c_fdn_round", 3, c_fdn_round);
     insert_cpred("c_fdn_close", 1, c_fdn_close);
     insert_cpred("c_fdn_alone", 1, c_fdn_alone);
+    insert_cpred("c_fdn_budget_cut", 0, c_fdn_budget_cut);
+    insert_cpred("c_fdn_reject", 1, c_fdn_reject);
     insert_cpred("c_fdn_extsolve", 7, c_fdn_extsolve);
     insert_cpred("c_fdn_extopen", 5, c_fdn_extopen);
     insert_cpred("c_fdn_extnext", 2, c_fdn_extnext);

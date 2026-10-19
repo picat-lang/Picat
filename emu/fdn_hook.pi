@@ -46,10 +46,18 @@ fdn_labeling([], Vars) =>
      bp.c_fdn_extopen(leftmost, up, L, Vars, H) ->
         fdn_ext_emit(H, L)
     ; bp.c_fdn_start(leftmost, up, Vars, Path, H) ->
+        % the inner disjunctions keep the enumeration's choice points live;
+        % the second arms fire on an FDN_TIME budget or replay-rejection cut
+        % (Picat's own labeling re-runs from the same state) and fail on
+        % normal exhaustion, so no solution is duplicated
         (Path == false ->
-            fdn_sols(H, Vars)
+            (fdn_sols(H, Vars) ;
+             bp.c_fdn_budget_cut, bp.c_fdn_close(H),
+             bp.'$fdn_orig_labeling'([], Vars))
         ;
-            fdn_solsp(H, Vars), fdn_rest([])
+            ((fdn_solsp(H, Vars), fdn_rest([])) ;
+             bp.c_fdn_budget_cut, bp.c_fdn_close(H),
+             bp.'$fdn_orig_labeling'([], Vars))
         )
     ;
         bp.'$fdn_orig_labeling'([], Vars)
@@ -72,15 +80,28 @@ fdn_labeling(Opts, Vars) =>
              bp.c_fdn_extopen(VS, US, L, Vs, H) ->
                 fdn_ext_emit(H, L)
             ;
-                (bp.c_fdn_start(VS, US, Vs, Path, H) ->
+                % The inner disjunctions keep the enumeration's choice
+                % points live on success (a commit wrapper would cut them
+                % and end the enumeration after the first solution).  The
+                % second arms run when the enumeration ended with no first
+                % solution under the FDN_TIME budget or the replay-rejection
+                % bound -- then Picat's own labeling runs from the same state
+                % (a budget cut must not look like "no solution").  On
+                % normal exhaustion the budget flag is false and the second
+                % arm fails, so no solution is duplicated.  A c_fdn_start
+                % failure falls back as before, in the outer else.
+                bp.c_fdn_start(VS, US, Vs, Path, H) ->
                     (Path == false ->
-                        fdn_sols(H, Vs)
+                        (fdn_sols(H, Vs) ;
+                         bp.c_fdn_budget_cut, bp.c_fdn_close(H),
+                         bp.'$fdn_orig_labeling'(Opts, Vars))
                     ;
-                        fdn_solsp(H, Vs), fdn_rest(VS, US)
+                        ((fdn_solsp(H, Vs), fdn_rest(VS, US)) ;
+                         bp.c_fdn_budget_cut, bp.c_fdn_close(H),
+                         bp.'$fdn_orig_labeling'(Opts, Vars))
                     )
                 ;
                     bp.'$fdn_orig_labeling'(Opts, Vars)
-                )
             )
         ;
             fdn_bb(VS, US, Vs, Obj, Report)
@@ -174,7 +195,7 @@ fdn_alt(H, Vars, _Vals) => fdn_sols(H, Vars).
 % the difference is invisible, and fdn_sols does the cheaper unification.
 fdn_solsp(H, Vars) => bp.c_fdn_nextp(H, Vars, Vals, Path), fdn_altp(H, Vars, Vals, Path).
 
-fdn_altp(_H, Vars, Vals, Path) ?=> fdn_replay(Path), Vars = Vals.
+fdn_altp(H, Vars, Vals, Path) ?=> (fdn_replay(Path) -> Vars = Vals ; bp.c_fdn_reject(H), fail).
 fdn_altp(H, Vars, _Vals, _Path) => fdn_solsp(H, Vars).
 
 fdn_replay([]) => true.
@@ -262,11 +283,20 @@ fdn_bb_nat(VS, US, Vs, Obj, Report) =>
 % and V (same store at every round start) and V is bound.
 fdn_bb_repeat(H, B), not not fdn_bb_round(H, B) =>
     fdn_bb_repeat(H, B).
-fdn_bb_repeat(H, bb(K, GV, V, _, _, _, _, _)) =>
-    bp.c_fdn_close(H),
-    bp.'$dec_minof_num',
-    bp.global_get('_$current_best_sol', K, S), GV = S,
-    bp.global_get('_$current_best_bound', K, Best), V = Best.
+fdn_bb_repeat(H, bb(K, GV, V, Report, Vs, VS, US, _Alone)) =>
+    (bp.c_fdn_budget_cut ->
+         % the last round was cut by the FDN_TIME budget with no solution:
+         % that must not look like "no improving solution" -- the whole
+         % branch and bound re-runs with Picat's own code from this state
+         % (the slot K stays active: minof_repeat uses it)
+         bp.c_fdn_close(H),
+         bp.minof_repeat(K, $generic_labeling(Vs, VS, US), GV, V, Report)
+     ;
+         bp.c_fdn_close(H),
+         bp.'$dec_minof_num',
+         bp.global_get('_$current_best_sol', K, S), GV = S,
+         bp.global_get('_$current_best_bound', K, Best), V = Best
+    ).
 
 fdn_bb_round(H, bb(K, GV, V, Report, Vs, VS, US, Alone)) =>
     bp.global_get('_$current_best_bound', K, B),

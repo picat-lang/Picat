@@ -402,6 +402,8 @@ template <class T> using AV = vector<T, A128<T>>;
 
 // environment, read once at load (never in the search loops)
 static const bool TRACE = getenv("FDN_TRACE") != nullptr;   // FDN_TRACE=1: print decisions
+static const bool EVSTAT = getenv("FDN_EVSTAT") != nullptr; // FDN_EVSTAT=1: event counters in the stats line
+static atomic<long> G_ev{0}, G_ev_bound{0}, G_ev_lin{0}, G_ev_reif{0}, G_ev_reifv{0}, G_ev_map{0}, G_reif_calls{0}, G_lin_calls{0};
 
 struct Task;
 // alignas: a Search is written at every node (vector ends, counters) by the
@@ -999,8 +1001,11 @@ struct alignas(128) Search {
         return restrict_bounds(x, MN[x], MX[y] - 1) && restrict_bounds(y, MN[x] + 1, MX[y]);
     }
     bool propagate1() {
+        long evseen = 0;                       // diagnostic: one propagate1 pass must not see unbounded events
         while (!EV.empty()) {
+            if (++evseen > 20000000L) { printf("FDN DIAG: propagate1 pass saw %ld events (run stuck inside one propagation)\n", evseen); fflush(stdout); abort(); }
             Ev e = EV.back(); EV.pop_back();
+            if (EVSTAT) { G_ev++; if (e.k == E_BOUND) G_ev_bound++; else if (e.k == E_LIN) G_ev_lin++; else if (e.k == E_REIF) { if (e.v < 0) G_ev_reif++; else G_ev_reifv++; } else G_ev_map++; }
             int x = e.x;
             if (e.k == E_BOUND) {
                 int v = MN[x];
@@ -1021,6 +1026,7 @@ struct alignas(128) Search {
                 for (int s : N.vreif[x]) { if (TRACE) fprintf(stderr, "reif_bound %d\n", s); if (!reif_bound(s)) { if (TRACE) fprintf(stderr, "reif_bound %d FAIL\n", s); return false; } }
             } else if (e.k == E_LIN) {
                 PENDL[x] = 0;
+                if (EVSTAT) G_lin_calls++;
                 if (!linear(x)) return false;
             } else if (e.k == E_BMAP) {         // X = Y+C / C-Y, bounds part ('$v_in_*_int')
                 for (const Map &mp : N.vbmap[x]) {
@@ -1033,7 +1039,7 @@ struct alignas(128) Search {
             } else if (e.k == E_REIF) {
                 if (e.v < 0) {                     // batched change event
                     PENDR[x] = 0;
-                    for (int s : N.vreif[x]) if (!reif_prop(s)) return false;
+                    for (int s : N.vreif[x]) { if (EVSTAT) G_reif_calls++; if (!reif_prop(s)) return false; }
                     for (int s : N.veldc[x]) if (!eld_same(s)) return false;
                     for (int s : N.vmod[x]) if (!mod_prop(s)) return false;
                 } else {                           // per-removed-value event
@@ -1333,14 +1339,16 @@ struct Task {
 struct KeyLess { bool operator()(const Task *a, const Task *b) const { return a->key < b->key; } };
 struct fdn_run {
     fdn_net *N; Task *head; long head_bt = 0;  // tasks: linked list from head; a task is freed once consumed
-    long live = 0, ntasks = 0;
+    long live = 0, ntasks = 0; long delivered = 0;   // solutions handed to Picat (the FDN_TIME budget measures the first)
+    long rejects = 0;                                // delivered solutions that failed Picat's replay (fdn_altp)
     set<Task *, KeyLess> pending;           // runnable: not owned, not done
     bool in_next = false, stop = false; int active_owners = 0; long buffered = 0, nodes = 0, donations = 0;
     bool count = false; long csol = 0, cbt = 0;   // count mode (fdn_count): totals of finished tasks
-    int obj = -1; long ub = 0; bool own = true;   // branch-and-bound round: bound on obj; own: free N with the run
+    int obj = -1; long ub = 0; bool own = true;   // branch and bound round: bound on obj, own: free N with the run
     chrono::steady_clock::time_point last;
     string stats;
     bool want_path = false; vector<int> last_path;   // solutions carry their decision path (fdn_last_path)
+    chrono::steady_clock::time_point t0;    // wall-clock start: the FDN_TIME budget is measured from here
 };
 
 // never destroyed: detached pool threads may still wait on them at exit
@@ -1350,6 +1358,18 @@ static vector<fdn_run *> &RUNS = *new vector<fdn_run *>;
 static int POOL_N = 0; static bool POOL_UP = false;
 static atomic<int> IDLE{0};
 static const long SPAWN_NODES = getenv("FDN_SPAWN") ? atol(getenv("FDN_SPAWN")) : 20000;
+static const long BUDGET_SECS = getenv("FDN_TIME") ? atol(getenv("FDN_TIME")) : 10;   // per-run wall-clock budget; 0 = off
+static atomic<bool> G_BUDGET_CUT{false};   // the last stopped run hit the budget (read by c_fdn_budget_cut)
+extern "C" int fdn_budget_cut_take(void) { return G_BUDGET_CUT.exchange(false) ? 1 : 0; }
+static const long REJECT_MAX = getenv("FDN_REJECTS") ? atol(getenv("FDN_REJECTS")) : 100;   // replay rejections before the run is stopped; 0 = off
+extern "C" void fdn_reject(void *rp) {      // the hook signals one failed replay of a delivered solution
+    fdn_run *r = (fdn_run *)rp;
+    r->rejects++;
+    if ((REJECT_MAX > 0 && r->rejects >= REJECT_MAX) || (BUDGET_SECS > 0
+        && chrono::duration_cast<chrono::seconds>(chrono::steady_clock::now() - r->t0).count() >= BUDGET_SECS)) {
+        r->stop = true; G_BUDGET_CUT = true;
+    }
+}
 // solution buffers (in label values): per task ahead of the consumer, and per run
 static const long TASK_BUF = 1L << 18, RUN_BUF = 1L << 26; static const int GRACE_MS = 50;
 
@@ -1393,7 +1413,14 @@ static int run_task(fdn_run *r, Task *t, bool consumer) {
         {
             unique_lock<mutex> lk(G);
             r->nodes += se.nodes - n0; n0 = se.nodes;
+            if (getenv("FDN_DIAG2") && (se.nodes & 65535) == 0) { printf("FDN DIAG2: nodes=%ld elapsed=%lds delivered=%ld buffered=%ld stop=%d\n", se.nodes, (long)chrono::duration_cast<chrono::seconds>(chrono::steady_clock::now() - r->t0).count(), r->delivered, r->buffered, (int)r->stop); fflush(stdout); }
             if (r->stop) return true;
+            if (BUDGET_SECS > 0 && (r->delivered == 0 || r->rejects > 0)
+                && chrono::duration_cast<chrono::seconds>(chrono::steady_clock::now() - r->t0).count() >= BUDGET_SECS) {
+                r->stop = true; G_BUDGET_CUT = true;
+                if (TRACE) fprintf(stderr, "fdn: run hit the %lds FDN_TIME budget with no solution\n", BUDGET_SECS);
+                return true;
+            }
             if (!consumer) {
                 if (!active(r)) return true;
                 if (over_buf(r, t)) return true;
@@ -1477,6 +1504,7 @@ static fdn_run *start(fdn_net *n, bool count, int obj = -1, long ub = 0, bool ow
     n->finalize();
     fdn_run *r = new fdn_run; r->N = n; r->count = count;   // all set before pool threads can see the run
     r->obj = obj; r->ub = ub; r->own = own; r->want_path = path;
+    r->t0 = chrono::steady_clock::now();
     Task *t = new Task; r->pending.insert(t); r->live = r->ntasks = 1;
     r->head = count ? nullptr : t;   // count mode: tasks are not linked, freed when done
     r->last = chrono::steady_clock::now();
@@ -1495,6 +1523,7 @@ int fdn_next(fdn_run *r, int *vals, long *bt) {
     for (;;) {
         Task *t = r->head;
         if (!t) break;
+        if (r->stop) break;   // the run was stopped (the FDN_TIME budget or too many replay rejections): give up, the hook falls back to Picat's own labeling
         if (!t->sols.empty()) {
             Sol &so = t->sols.front();
             *bt += so.bt_at - r->head_bt; r->head_bt = so.bt_at;
@@ -1516,12 +1545,15 @@ int fdn_next(fdn_run *r, int *vals, long *bt) {
         CV_CONS.wait(lk);
     }
     r->in_next = false; r->last = chrono::steady_clock::now();
+    if (res) r->delivered++;
     return res;
 }
 const int *fdn_last_path(fdn_run *r, int *n) { *n = r->last_path.size() / 3; return r->last_path.data(); }
 const char *fdn_stats(fdn_run *r) {
     lock_guard<mutex> lk(G);
-    char b[200]; snprintf(b, sizeof b, "nodes=%ld tasks=%ld donations=%ld threads=%d", r->nodes, r->ntasks, r->donations, POOL_UP ? POOL_N + 1 : 1);
+    char b[400]; snprintf(b, sizeof b, "nodes=%ld tasks=%ld donations=%ld threads=%d%s", r->nodes, r->ntasks, r->donations, POOL_UP ? POOL_N + 1 : 1,
+        EVSTAT ? "" : "");
+    if (EVSTAT) { char c[300]; snprintf(c, sizeof c, " ev=%ld(bound=%ld lin=%ld reif=%ld reifv=%ld map=%ld) reif_calls=%ld lin_calls=%ld", (long)G_ev, (long)G_ev_bound, (long)G_ev_lin, (long)G_ev_reif, (long)G_ev_reifv, (long)G_ev_map, (long)G_reif_calls, (long)G_lin_calls); strncat(b, c, sizeof b - strlen(b) - 1); }
     r->stats = b; return r->stats.c_str();
 }
 // count mode: the consumer works like a pool thread, on any pending task
