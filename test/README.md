@@ -72,6 +72,14 @@ workspace; override `HAKAN`/`TARGET` (the Hakan tree), `STOCK_PICAT`,
 - `fdn_exs.sh [JOBS]` — the same fdn transparency sweep over all `exs`
   examples instead of the Hakan tree (the `pb` and `satext` examples run
   with their environments). Needs GNU parallel.
+- `fdn_speedup.sh [JOBS]` — the FDN=1 vs FDN=0 wall-time benchmark over
+  every example that imports cp or cp2 (exs/ root+cp+cp2 and the Hakan
+  tree root+ppl+nn_hakank). Each side runs twice, the minimum kept (the
+  first run's one-time .qi compile does not pollute the timing). Reports
+  per-example times, the speedup (t_FDN0/t_FDN1) and flags every example
+  where FDN=1 is slower. `FDN_THREADS=N` (in the environment) bounds the
+  fdn's worker pool per process for batch runs; `TIMEOUT=N` (default 60)
+  bounds one run. Needs GNU parallel.
 
 Every script exits 0 only when there is no divergence (for the
 transparency sweeps: no `RC-DIFFERS` and no `OUTPUT-DIFFERS`).

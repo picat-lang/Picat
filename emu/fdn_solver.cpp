@@ -49,6 +49,8 @@
 #include <thread>
 #include <vector>
 using namespace std;
+static chrono::steady_clock::time_point G_prog_t0;   // FDN_ROUNDTIME diagnostic: process start
+static const bool RT = getenv("FDN_ROUNDTIME") != nullptr;   // FDN_ROUNDTIME=1: per-round timing markers (diagnostic)
 typedef uint64_t W;
 
 struct Edge { int t, d; };
@@ -399,11 +401,12 @@ template <class T> struct A128 {
     bool operator!=(const A128 &) const { return false; }
 };
 template <class T> using AV = vector<T, A128<T>>;
+static int POOL_N = 0; static bool POOL_UP = false;   // the worker pool (declared early: the search reads it in push_cp)
 
 // environment, read once at load (never in the search loops)
 static const bool TRACE = getenv("FDN_TRACE") != nullptr;   // FDN_TRACE=1: print decisions
 static const bool EVSTAT = getenv("FDN_EVSTAT") != nullptr; // FDN_EVSTAT=1: event counters in the stats line
-static atomic<long> G_ev{0}, G_ev_bound{0}, G_ev_lin{0}, G_ev_reif{0}, G_ev_reifv{0}, G_ev_map{0}, G_reif_calls{0}, G_lin_calls{0};
+static atomic<long> G_ev{0}, G_ev_bound{0}, G_ev_lin{0}, G_ev_reif{0}, G_ev_reifv{0}, G_ev_map{0}, G_reif_calls{0}, G_lin_calls{0}, G_tr_push{0}, G_undo{0};
 
 struct Task;
 // alignas: a Search is written at every node (vector ends, counters) by the
@@ -473,7 +476,7 @@ struct alignas(128) Search {
     bool setword(int x, int k, W nw) {
         size_t w = (size_t)x * NW + k; W old = D[w], rem = old & ~nw;
         if (!rem) return true;
-        if (STAMP[w] != EPOCH) { STAMP[w] = EPOCH; TR.push_back({w, old, x, SZ[x], MN[x], MX[x]}); }
+        if (STAMP[w] != EPOCH) { STAMP[w] = EPOCH; TR.push_back({w, old, x, SZ[x], MN[x], MX[x]}); if (EVSTAT) G_tr_push++; }
         int omn = MN[x], omx = MX[x], osz = SZ[x];
         D[w] = nw; SZ[x] -= __builtin_popcountll(rem);
         if (SZ[x] == 0) { SZ[x] = osz; D[w] = old; return false; }
@@ -490,12 +493,17 @@ struct alignas(128) Search {
         // carries the running frame as seed: INSERT_TRIGGER_minmax_checkseed);
         // its own bindings do wake it (ASSIGN_DVAR, ins). An ARC constraint
         // with <= 2 unbound variables is '$binary_constr_eq', arc consistent,
-        // woken by any change. Picat runs the constraint once per event, so
-        // a constraint already pending is queued again (its pass is not
-        // idempotent)
+        // woken by any change. Picat runs the constraint once per event and
+        // its C actions are sub-microsecond, so the re-wakes cost nothing
+        // there. Here a wake is a full chain sweep (~7us), so duplicate wakes
+        // are coalesced like the E_REIF/E_CHG ones above: a pending pass
+        // recomputes from the current domains, and these sweeps are
+        // idempotent in effect (a second pass over unchanged domains prunes
+        // nothing new), so the fixpoint and the frame kills are unchanged.
         bool bnd = SZ[x] == 1 || MN[x] != omn || MX[x] != omx;
         if (bnd && !N.vbmap[x].empty()) EV.push_back({E_BMAP, x, 0});
         for (int s : N.vlin[x]) {
+            if (PENDL[s]) continue;
             bool ac = N.lins[s].op == 2 && NUNB[s] <= 2;
             if (ac || (bnd && (s != SEED || SZ[x] == 1))) { PENDL[s] = 1; EV.push_back({E_LIN, s, 0}); }
         }
@@ -1269,10 +1277,17 @@ struct alignas(128) Search {
             if ((nodes & 255) == 0 && poll(*this)) return R_PAUSE;
             if (state == 2) return R_DONE;
             if (state == 0) {
+                auto rt_mark = [&](const char *what) {
+                    if (RT && nodes < 8) printf("FDN RT:     node %ld %s at %.3f s\n", nodes, what, chrono::duration<double>(chrono::steady_clock::now() - G_prog_t0).count()), fflush(stdout);
+                };
+                if (RT) rt_mark("select_var begin");
                 int x = select_var();
+                if (RT) rt_mark("select_var done");
                 if (x < 0) { state = 1; if (counting) { nsol++; continue; } return R_SOL; }
                 bt += push_cp(x); EPOCH++; nodes++;
+                if (RT) rt_mark("push_cp done");
                 if (!try_alt(st.back())) state = 1;
+                if (RT) rt_mark("try_alt done");
                 continue;
             }
             // backtrack
@@ -1321,7 +1336,7 @@ struct alignas(128) Search {
         c.cut = true;
         return s;
     }
-    void undo(const TE &t) {
+    void undo(const TE &t) { if (EVSTAT) G_undo++;
         int omn = MN[t.x], omx = MX[t.x], osz = SZ[t.x];
         D[t.w] = t.old; SZ[t.x] = t.sz; MN[t.x] = t.mn; MX[t.x] = t.mx; STAMP[t.w] = 0;
         if (!N.vlinA[t.x].empty()) lin_delta(t.x, omn, omx, osz);
@@ -1355,7 +1370,6 @@ struct fdn_run {
 static mutex &G = *new mutex;
 static condition_variable &CV_WORK = *new condition_variable, &CV_CONS = *new condition_variable;
 static vector<fdn_run *> &RUNS = *new vector<fdn_run *>;
-static int POOL_N = 0; static bool POOL_UP = false;
 static atomic<int> IDLE{0};
 static const long SPAWN_NODES = getenv("FDN_SPAWN") ? atol(getenv("FDN_SPAWN")) : 20000;
 static const long BUDGET_SECS = getenv("FDN_TIME") ? atol(getenv("FDN_TIME")) : 10;   // per-run wall-clock budget; 0 = off
@@ -1398,16 +1412,24 @@ static void start_pool() {            // with G held
 // run task t of r on the calling thread until a solution / done / pause.
 // Called without G; t->owned is set by the caller.
 static int run_task(fdn_run *r, Task *t, bool consumer) {
+    auto rt_mark = [&](const char *what) {
+        if (RT) printf("FDN RT:   %s at %.3f s\n", what, chrono::duration<double>(chrono::steady_clock::now() - G_prog_t0).count()), fflush(stdout);
+    };
+    if (RT) rt_mark("run_task enter");
     if (!t->s) {
+        if (RT) rt_mark("search create begin");
         t->s.reset(new Search(*r->N)); t->s->counting = r->count;
+        if (RT) rt_mark("search create done");
         if (!t->s->init(0, r->obj, r->ub)) {
             // cannot happen for a donated task; the root task fails here if
             // the start state is inconsistent
             t->s->state = 2;
         }
+        if (RT) rt_mark("search init done");
     }
     Search &s = *t->s;
     long n0 = s.nodes;
+    if (RT) rt_mark("search run begin");
     auto poll = [&](Search &se) {
         bool want;
         {
@@ -1492,6 +1514,9 @@ static void worker_main() {
 
 extern "C" {
 static fdn_run *start(fdn_net *n, bool count, int obj = -1, long ub = 0, bool own = true, bool path = false) {
+    static bool pt0_set = false;
+    if (RT && !pt0_set) { G_prog_t0 = chrono::steady_clock::now(); pt0_set = true; }
+    if (RT) printf("FDN RT: start (obj=%d ub=%ld) at %.3f s\n", obj, ub, chrono::duration<double>(chrono::steady_clock::now() - G_prog_t0).count()), fflush(stdout);
     if (getenv("FDN_DUMP")) {
         fprintf(stderr, "net: nv=%d glo=%d ghi=%d muls=%zu lins=%zu\n", n->nv, n->glo, n->ghi, n->muls.size(), n->lins.size());
         for (size_t i = 0; i < n->muls.size(); i++) fprintf(stderr, "  mul %zu: %d*%d=%d\n", i, n->muls[i].x, n->muls[i].y, n->muls[i].z);
@@ -1545,6 +1570,7 @@ int fdn_next(fdn_run *r, int *vals, long *bt) {
         CV_CONS.wait(lk);
     }
     r->in_next = false; r->last = chrono::steady_clock::now();
+    if (RT) printf("FDN RT: next done (res=%d nodes=%ld) at %.3f s\n", res, r->nodes, chrono::duration<double>(chrono::steady_clock::now() - G_prog_t0).count()), fflush(stdout);
     if (res) r->delivered++;
     return res;
 }
@@ -1553,7 +1579,7 @@ const char *fdn_stats(fdn_run *r) {
     lock_guard<mutex> lk(G);
     char b[400]; snprintf(b, sizeof b, "nodes=%ld tasks=%ld donations=%ld threads=%d%s", r->nodes, r->ntasks, r->donations, POOL_UP ? POOL_N + 1 : 1,
         EVSTAT ? "" : "");
-    if (EVSTAT) { char c[300]; snprintf(c, sizeof c, " ev=%ld(bound=%ld lin=%ld reif=%ld reifv=%ld map=%ld) reif_calls=%ld lin_calls=%ld", (long)G_ev, (long)G_ev_bound, (long)G_ev_lin, (long)G_ev_reif, (long)G_ev_reifv, (long)G_ev_map, (long)G_reif_calls, (long)G_lin_calls); strncat(b, c, sizeof b - strlen(b) - 1); }
+    if (EVSTAT) { char c[300]; snprintf(c, sizeof c, " ev=%ld(bound=%ld lin=%ld reif=%ld reifv=%ld map=%ld) reif_calls=%ld lin_calls=%ld tr_push=%ld undo=%ld", (long)G_ev, (long)G_ev_bound, (long)G_ev_lin, (long)G_ev_reif, (long)G_ev_reifv, (long)G_ev_map, (long)G_reif_calls, (long)G_lin_calls, (long)G_tr_push, (long)G_undo); strncat(b, c, sizeof b - strlen(b) - 1); }
     r->stats = b; return r->stats.c_str();
 }
 // count mode: the consumer works like a pool thread, on any pending task
