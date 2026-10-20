@@ -51,6 +51,7 @@
 using namespace std;
 static chrono::steady_clock::time_point G_prog_t0;   // FDN_ROUNDTIME diagnostic: process start
 static const bool RT = getenv("FDN_ROUNDTIME") != nullptr;   // FDN_ROUNDTIME=1: per-round timing markers (diagnostic)
+static const bool LHIST = getenv("FDN_LINHIST") != nullptr;  // FDN_LINHIST=1: linear constraint term-count histogram (diagnostic)
 typedef uint64_t W;
 
 struct Edge { int t, d; };
@@ -107,6 +108,12 @@ struct fdn_net {
         if (fin) return;           // a branch-and-bound network serves several runs
         fin = true;
         nv = vals.size(); nw = (ghi - glo + 64) / 64; vlinA.clear();
+        if (LHIST) {
+            int h[9] = {0}; int maxt = 0;
+            for (auto &l : lins) { size_t t = l.xs.size(); if (t > (size_t)maxt) maxt = (int)t; int b = t <= 8 ? (int)t : 8; h[b]++; }
+            printf("fdn LHIST: lins=%zu maxterms=%d hist(1..8+)=%d %d %d %d %d %d %d %d %d\n", lins.size(), maxt, h[1], h[2], h[3], h[4], h[5], h[6], h[7], h[8]);
+            fflush(stdout);
+        }
         D0.assign((size_t)nv * nw, 0); SZ0.resize(nv); MN0.resize(nv); MX0.resize(nv); chg.assign(nv, 0); chx.assign(nv, 0);
         for (auto &l : lins) for (size_t i = 0; i < l.xs.size(); i++) {
             const vector<int> &v = vals[l.xs[i]];
@@ -406,7 +413,7 @@ static int POOL_N = 0; static bool POOL_UP = false;   // the worker pool (declar
 // environment, read once at load (never in the search loops)
 static const bool TRACE = getenv("FDN_TRACE") != nullptr;   // FDN_TRACE=1: print decisions
 static const bool EVSTAT = getenv("FDN_EVSTAT") != nullptr; // FDN_EVSTAT=1: event counters in the stats line
-static atomic<long> G_ev{0}, G_ev_bound{0}, G_ev_lin{0}, G_ev_reif{0}, G_ev_reifv{0}, G_ev_map{0}, G_reif_calls{0}, G_lin_calls{0}, G_tr_push{0}, G_undo{0};
+static atomic<long> G_ev{0}, G_ev_bound{0}, G_ev_lin{0}, G_ev_reif{0}, G_ev_reifv{0}, G_ev_map{0}, G_reif_calls{0}, G_lin_calls{0}, G_tr_push{0}, G_undo{0}, G_lin_skip{0}, G_lin_sweep{0}, G_prune{0};
 
 struct Task;
 // alignas: a Search is written at every node (vector ends, counters) by the
@@ -590,6 +597,7 @@ struct alignas(128) Search {
     bool region(int x, long lo, long hi) {
         if (lo > hi) return false;
         if (lo <= MN[x] && hi >= MX[x]) return true;
+        if (EVSTAT) G_prune++;
         return restrict_bounds(x, max<long>(lo, MN[x]), min<long>(hi, MX[x]));
     }
     // bounds of term i (a * x, or a * constant); bound variables count as constants
@@ -677,7 +685,8 @@ struct alignas(128) Search {
         if (c.op == 2 && NUNB[s] <= 2) return ac2(c);
         long smin = SMIN[s], smax = SMAX[s];
         if (c.op == 1 ? smin >= 0 || smax >= c.maxrange                    // entailed / nothing can be pruned
-                      : smin <= 0 && smax >= 0 && min(smax, -smin) >= c.maxrange) return true;
+                      : smin <= 0 && smax >= 0 && min(smax, -smin) >= c.maxrange) { if (EVSTAT) G_lin_skip++; return true; }
+        if (EVSTAT) G_lin_sweep++;
         SEED = s;
         bool ok = c.op == 1 ? chain_ge(c) : chain_eq(c);
         SEED = -1;
@@ -1579,7 +1588,7 @@ const char *fdn_stats(fdn_run *r) {
     lock_guard<mutex> lk(G);
     char b[400]; snprintf(b, sizeof b, "nodes=%ld tasks=%ld donations=%ld threads=%d%s", r->nodes, r->ntasks, r->donations, POOL_UP ? POOL_N + 1 : 1,
         EVSTAT ? "" : "");
-    if (EVSTAT) { char c[300]; snprintf(c, sizeof c, " ev=%ld(bound=%ld lin=%ld reif=%ld reifv=%ld map=%ld) reif_calls=%ld lin_calls=%ld tr_push=%ld undo=%ld", (long)G_ev, (long)G_ev_bound, (long)G_ev_lin, (long)G_ev_reif, (long)G_ev_reifv, (long)G_ev_map, (long)G_reif_calls, (long)G_lin_calls, (long)G_tr_push, (long)G_undo); strncat(b, c, sizeof b - strlen(b) - 1); }
+    if (EVSTAT) { char c[300]; snprintf(c, sizeof c, " ev=%ld(bound=%ld lin=%ld reif=%ld reifv=%ld map=%ld) reif_calls=%ld lin_calls=%ld lin_skip=%ld lin_sweep=%ld prune=%ld tr_push=%ld undo=%ld", (long)G_ev, (long)G_ev_bound, (long)G_ev_lin, (long)G_ev_reif, (long)G_ev_reifv, (long)G_ev_map, (long)G_reif_calls, (long)G_lin_calls, (long)G_lin_skip, (long)G_lin_sweep, (long)G_prune, (long)G_tr_push, (long)G_undo); strncat(b, c, sizeof b - strlen(b) - 1); }
     r->stats = b; return r->stats.c_str();
 }
 // count mode: the consumer works like a pool thread, on any pending task
