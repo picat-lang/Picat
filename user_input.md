@@ -78,3 +78,10 @@ the udf-rewrite (v0.4.0) compared to the unmodified baseline (v0.3.27)?
 Commit the current project state (the v0.4.0 aspic rewrite, the battery and
 test-script fixes, the comparison/speed scripts, and the project docs) as a
 single commit on the aspicudf branch.
+
+## Entry 12 (Thu Oct 22 2026)
+
+"pay attention, aspic_runtime gets regenerated" - reminder that the
+transpiler regenerates aspic_runtime.pi (via sed from aspic_runtime_template.pi
+in its CWD) on every transpile run; the comparison scripts must copy the
+version-matched template into the transpile working dir first.

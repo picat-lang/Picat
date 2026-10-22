@@ -69,6 +69,16 @@ aggregate/objective posted through a shimmed `'#='`.
   `.qi` files in the CWD from relative-path runs, plus a wrong relative
   `PICATPATH` from a subfolder). With a clean CWD the store dumps correctly
   and the battery is green.
+- **Queens scaling ladder (test/queens_ladder.sh)**: queens5.lp (the header's
+  reference times, with completion on AMD EPYC 9654: 128 -> 0.9 s,
+  256 -> 3.2 s, 512 -> 26.2 s, 768 -> 89.3 s, 1024 -> 944.6 s) copied to
+  n = 8..768 and timed with both versions (5-minute per-run cap; the 1024
+  point exceeds it).  No slowdown: ratios 95-102% over the ladder
+  (n=768: 90.1 s new vs 94.5 s old, 95%; n=128-512 within 1-2%).  Gotcha the
+  ladder needed: the transpiler writes aspic_runtime.pi with
+  "sed ... aspic_runtime_template.pi > aspic_runtime.pi" reading the
+  template from its CWD, so the version-matched template must be copied into
+  the run dir before the transpile.
 - **Baseline comparison (test/compare_baseline.sh)**: every shipped example
   run with the current sources vs the unmodified git HEAD sources —
   31 matched, 0 differed, 4 skipped (the skips behave identically on both
@@ -123,6 +133,7 @@ aggregate/objective posted through a shimmed `'#='`.
 - lib2/: udf.pi, udf_ops.pi, udf_ops_sat.pi, udf_ops_mip.pi, udf_ops_smt.pi.
 - test/: test_aspic_syntax.sh (fixed PICATPATH + awk), compare_baseline.sh
   (answers vs the git HEAD sources), speed_baseline.sh (times vs the git
+  HEAD sources), queens_ladder.sh (the n-queens scaling times vs the git
   HEAD sources), udf_check.sh, udf_check.pi, clingo_examples.py.
 - scratch/backpack/: the backpack conversion (t.pi = the new v0.4.0 output).
 - scratch/udfexp/exp1–exp13.pi: the construct experiments that validated the
