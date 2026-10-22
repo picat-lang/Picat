@@ -1,0 +1,5 @@
+import cp.
+import udf.
+main =>
+    udf.define($f, $(1 + 2)),
+    println("0-arity defined").

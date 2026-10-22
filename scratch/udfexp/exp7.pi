@@ -1,0 +1,76 @@
+%% exp7.pi -- does udf.define have issues with reusing variables between
+%% multiple rules?
+%%
+%% The historical concern: (a) in this Picat build a repeated variable in a
+%% => clause head compiles as a NON-UNIFYING == test (the udf.pi NOTE at
+%% lib2/udf.pi:321), and (b) rules stored in the registry could in principle
+%% interfere when one rule's match partially binds variables.
+%%
+%% Each test prints "ok <name>" or throws.
+import cp.
+import udf.
+
+'#='(L,R)  => cp.'#='(udf.flatten(L), udf.flatten(R)).
+
+check(R,Name), R => println("ok: "++Name).
+check(R,Name) => throw($exp7_failed(Name)).
+
+main =>
+    % T1: the same variable NAME reused across two rules of one function
+    %     (N means different things in each rule)
+    udf.define($pick(0), 100),
+    udf.define($pick(N), $(N + 1)),
+    check(udf.evaluate($pick(0)) == 100, "T1 first rule matches (N=0)"),
+    check(udf.evaluate($pick(5)) == 6, "T1 second rule matches (N=5)"),
+
+    % T2: structural recursion, base case + recursive case, N reused
+    udf.define($total([]), 0),
+    udf.define($total([H|T]), $(H + total(T))),
+    check(udf.evaluate($total([1,2,3])) == 6, "T2 recursion over a list"),
+
+    % T3: arithmetic recursion bottoming out via the N - 1 evaluation
+    udf.define($fact(0), 1),
+    udf.define($fact(N), $(N * fact(N - 1))),
+    check(udf.evaluate($fact(5)) == 120, "T3 arithmetic recursion"),
+
+    % T4: two variable names, each rule using one position as a pattern
+    %     and the other as a variable; failed first-rule matches must not
+    %     leak bindings into later rules
+    udf.define($f(X, 0), $(X + 1)),
+    udf.define($f(0, Y), $(Y * 2)),
+    check(udf.evaluate($f(3, 0)) == 4, "T4 first rule (X=3)"),
+    check(udf.evaluate($f(0, 5)) == 10, "T4 second rule (Y=5)"),
+    check(udf.evaluate($f(0, 0)) == 1, "T4 first rule wins on (0,0)"),
+
+    % T5: many rules, the same name reused in all of them, called repeatedly
+    %     (the stored rules must stay unbound after every expansion)
+    udf.define($step(1), 10),
+    udf.define($step(2), 20),
+    udf.define($step(3), 30),
+    udf.define($step(M), $(0 - M)),
+    check(udf.evaluate($step(2)) == 20, "T5 second rule"),
+    check(udf.evaluate($step(2)) == 20, "T5 second rule again (no leak)"),
+    check(udf.evaluate($step(9)) == -9, "T5 catch-all rule"),
+    check(udf.evaluate($step(1)) == 10, "T5 first rule after the others"),
+
+    % T6: two different functions reusing the same variable names
+    udf.define($g(K), $(K * 3)),
+    udf.define($h(K), $(K + 3)),
+    check(udf.evaluate($g(2)) == 6, "T6 g"),
+    check(udf.evaluate($h(2)) == 5, "T6 h"),
+
+    % T7: several LAMBDA-body rules, parameters reused across rules
+    udf.define($lf(0), $lambda([A], A * 100)),
+    udf.define($lf(N), $lambda([B], B + N)),
+    check(udf.evaluate($lf(0)) == 0, "T7 lambda base case (0*100)"),
+    check(udf.evaluate($lf(7)) == 14, "T7 lambda recursive case (7+7)"),
+
+    % T8: a variable in the head shared with the body of the SAME rule,
+    %     plus a second rule reusing the name - evaluated under solve too
+    udf.define($tri(W, H), $(W * H // 2)),
+    udf.define($tri(0, _H2), 0),
+    X :: 1..5, Y :: 1..5, T :: 1..25,
+    T #= $tri(X, Y),
+    solve([], [X, Y, T]),
+    check(T == X * Y // 2, "T8 tri inside a constraint"),
+    true.

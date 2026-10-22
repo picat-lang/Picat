@@ -1,0 +1,10 @@
+import cp.
+import udf.
+'#='(L,R) => cp.'#='(udf.flatten(L), udf.flatten(R)).
+main =>
+    udf.define($f(X), $(X * 2)),
+    udf.define($g(X), $(X + 10)),
+    B :: 1..5,
+    Y #= $f(1) + $g(1),
+    solve([], [B,Y]),
+    println(y=Y).

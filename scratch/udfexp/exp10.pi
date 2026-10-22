@@ -1,0 +1,8 @@
+%% exp10.pi -- bisect which line breaks the parse.
+a(V,L1,Op) = R =>
+    EV=cond(Op.to_string()=="count","1",cond(member(L1[1],[X[1]:X in V]),L1[1].to_string(),"EA")),
+    EABIND=cond(Op.to_string()=="count","",cond(member(L1[1],[X[1]:X in V]),"","EA = "++L1[1].to_string()++",")),
+    R=EV++EABIND.
+main =>
+    println(a([1],[a,b],count)),
+    true.

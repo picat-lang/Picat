@@ -1,0 +1,385 @@
+import ASPIC_CONSTRAINTS_LIB.
+import udf.
+import datetime.
+import util.
+import os.
+import math.
+import ordset.
+import datetime.
+
+% ---------------------------------------------------------------------------
+%  The udf layer of the generated programs (v0.4.0).
+%
+%  ASP aggregates are translated into ONE udf term per aggregate instead of
+%  the old chain of supplementary variables (ASPIC_OPTCOND1/2/3,
+%  ASPIC_AGVAL1/2).  The generated program posts its constraints through the
+%  shimmed '#=' (emitted next to the program), whose arguments are expanded
+%  here before the solver sees them:
+%
+%      $suml([$when(C,V), ...])   the value of the aggregate: V when the
+%                                 0/1 condition C holds, 0 otherwise
+%
+%  $when/$suml are registered once per load by aspic_udf_init (called at the
+%  head of every generated main/island predicate); aspic_flatten is the
+%  wrapper the emitted '#=' shim calls, so the generated program itself never
+%  references udf directly and needs no "import udf.".
+% ---------------------------------------------------------------------------
+aspic_flatten(E)=F => F=udf.flatten(E).
+
+aspic_udf_init =>
+    S=get_heap_map(aspic_udfinit),
+    (S.get(done,0)==0 ->
+        udf.define($when(C,V), $(cond(C,V,0))),
+        udf.define($nwhen(C,V), $(cond(C, 0 - V, 0))),
+        udf.define($suml([]), 0),
+        udf.define($suml([H|T]), $(H + suml(T))),
+        % the recursive $suml expansion descends one level per element, so a
+        % large objective exceeds the default depth limit of 100
+        udf.set_max_depth(1000),
+        S.put(done,1)
+    ; true).
+
+% Every (re)load of a program that uses an embedded ASP block must get
+% fresh heap maps: the atom->fdvar maps persist in the same interpreter
+% (e.g. the web build re-runs programs in one module instance), and
+% reused 0..1 variables still carry the constraints of the previous
+% run.  The generated code calls aspic_seed_bump() as a top-level goal,
+% so each load bumps the seed and every map name below becomes unique
+% per load.
+aspic_seedctr_get()=S=>S=get_heap_map(aspic_seedctr).get(n,1).
+aspic_seed_bump()=>M=get_heap_map(aspic_seedctr),N=M.get(n,0),M.put(n,N+1).
+aspic_m(B)=N=>N=to_atom(B.to_string()++"_"++aspic_seedctr_get().to_string()).
+
+ismember(X,L)=T,member(X,L)=>T=1.
+ismember(_,_)=T=>T=0.
+
+aspic_debug(X)=>println(stderr,X).
+
+uniquevarname()=Y=>
+H=get_heap_map(asp_counter),
+N=H.get(varnum,0),
+N2=N+1,
+H.put(varnum,N2),
+Y=("fd"++N2.to_string()).to_atom().
+
+aspic_markfd(T)=>M=get_heap_map(aspic_m(aspic_fdvars)),M.put(T,1).
+aspic_isfdvariable(T)=>get_heap_map(aspic_m(aspic_fdvars)).has_key(T).
+fd(A,N)=R=>A=..L,R#=sum([V*2**(I-1):I in 1..N,T=..(L++[I]),V=aspic_var(T),aspic_markfd(T)]).
+fd(N)=R=>R=fd(uniquevarname(),N).
+showfd(KF)=Y=>
+KF=..L0
+,M=get_heap_map(aspic_m(aspic_fdvars))
+,MV=get_heap_map(aspic_m(aspic_atoms))
+,Y=sum([2**(I-1):K in M.keys,MV.get(K)==1,K=..L,L.removelast==L0,I=L.last]).
+
+% aspic_startlearning(): opens the learning bracket. The runtime-map seed
+% is bumped LAZILY here - exactly once per run, when the previous run is
+% closed - so all islands and all aspic_holds injections of one enclosing
+% computation share the same seed-scoped maps (aspic_m appends the seed
+% counter). A run is closed by aspic_stoplearning(); on the web build
+% re-running main, the next startlearning bumps again and every map below
+% becomes fresh, so stale asserted rules or constrained fd variables from
+% the previous run are never replayed.
+aspic_startlearning()=>S=get_heap_map(aspic_state),
+(S.get(open,0)==0 -> N=S.get(seedctr,0),S.put(seedctr,N+1),S.put(open,1);true),
+M=get_heap_map(aspic_m(aspic_learning)),M.put(now,1),aspic_debug(started_learning).
+aspic_stoplearning()=>S=get_heap_map(aspic_state),S.put(open,0),
+M=get_heap_map(aspic_m(aspic_learning)),M.put(now,0),M.del(universe),aspic_debug(stopped_learning).
+
+% The islands' completions (the support clauses) are generated as the ONE
+% zero-argument aspic_completion_1 (all islands' texts joined into a
+% single island); aspic_solve_sub turns learning off and calls it directly
+% against the FINAL universe (all the atoms created by the island plus
+% everything injected with aspic_holds) before solving - there is no
+% completion registration mechanism.
+
+% the joined island runs at the FIRST asp block's position (the prep
+% replaces that block with aspic_startlearning(), aspic_1(ASPIC_OPT)),
+% so no solve-time island registration or application is needed
+aspic_islearning()=>M=get_heap_map(aspic_m(aspic_learning)),Y=M.get(now,0),Y==1.
+
+
+%variable associated to ASP atom X (can be a functor)
+aspic_var(X)=Y=>
+M=get_heap_map(aspic_m(aspic_atoms))
+% ,println(keys=M.keys)
+%,d(search=X)
+,if(M.has_key(X)) then
+%d(found=X),
+Y=M.get(X)
+else
+%d(notfound=X),
+if(aspic_islearning()) then
+Z::0..1
+,Y=Z
+,M.put(X,Y)
+else
+%d('missing bq'),
+Y=0 %false because it is missing
+end
+end
+%,d(val=Y)
+%,d(vals=M)
+.
+
+% register a ground fact atom in the atoms map with the constant value 1
+% (no fd variable): the atom stays in the universe (the choice-rule
+% enumeration sets and the objective sums iterate it) and in
+% aspic_instances (the completion's instance-based enumerations), while
+% the fact functions provide its truth value - emitted for the fact
+% assertions of fact-only predicates in place of aspic_holds, which would
+% evaluate the fact function to 1 and assert nothing
+aspic_markfact(A) => M=get_heap_map(aspic_m(aspic_atoms)), M.put(A,1).
+
+removelast(L)=L.reverse.tail.reverse.
+
+show(X)=X.
+
+
+universe0=L=>M=get_heap_map(aspic_m(aspic_atoms)),L=[Z:K in M.keys,K=..[_|Y],Z in Y,not aspic_isaggrid(Z)].remove_dups. % ,d(L).
+universe=R=>
+M=get_heap_map(aspic_m(aspic_learning))
+,if(M.get(now,0)==0) then % not learning
+if(M.has_key(universe)) then
+R=M.get(universe)
+else
+R=universe0()
+,M.put(universe,R)
+end
+else
+R=universe0()
+end.
+
+
+logprod([])=Z=>Z=1.
+logprod([X])=Z=>Z=X.
+logprod([H|T])=Z=>if(H==0) Z=0 else if(H==1) Z=logprod(T) else T2=logprod(T),Z=(H#/\T2) end end.
+
+logsum([])=Z=>Z=0.
+logsum([X])=Z=>Z=X.
+logsum([H|T])=Z=>if(H==1) Z=1 else if(H==0) Z=logsum(T) else T2=logsum(T),Z=(H#\/T2) end end.
+
+% the instances of predicate P/N: the I-th arguments of the atoms of P/N in
+% the atom map (the atoms mentioned so far - a sound superset of the true
+% instances, since an atom is mentioned for every domain binding of every
+% rule that uses it; the fd constraints filter exactly)
+aspic_instances(P,N,I)=L=>
+M=get_heap_map(aspic_m(aspic_atoms)),
+L=[A : K in M.keys, K=..[FP|Args], FP==P, Args.len==N, A=Args[I]].remove_dups().
+
+aspic_sum([])=Y=>Y#=0.
+aspic_sum([H|T])=Y=>Y2=aspic_sum(T),Y#=H+Y2.
+
+% the aggregate atoms: a rule head with a computed argument (q(S) :-
+% S = #sum{...}.) is keyed by the synthetic ground id aspic_aggr_<n> in
+% place of the computed argument, and the side map
+% aspic_m(aspic_aggrvars) records the id -> the fd variable of the
+% aggregate value; the solution report replaces every id argument of the
+% head atom with the bound variable
+aspic_isaggrid(A)=>atom(A),S=A.to_string(),S.length>11,S.slice(1,11)=="aspic_aggr_".
+aspic_hasaggrid([])=>fail.
+aspic_hasaggrid([A|ARGS])=>aspic_isaggrid(A);aspic_hasaggrid(ARGS).
+aspic_isaggratom(K)=>K=..[_|ARGS],aspic_hasaggrid(ARGS).
+aspic_showaggr(K)=Y=>
+K=..[P|ARGS],
+AGM=get_heap_map(aspic_m(aspic_aggrvars)),
+ARGS2=[cond(aspic_isaggrid(A),AGM.get(A,A),A):A in ARGS],
+Y=..[P|ARGS2].
+
+% the aggregate functions: the value is computed into a plain var first
+% (Picat's fd constraints cannot contain the max/min/count calls - the
+% constraint store rejects them with invalid_constraint_exp), then the fd
+% variable is bound to the value; the count is the sum of the
+% comprehension's 0/1 entries (the number of the true conditions)
+aspic_max(L)=Y=>Y2=max(L),Y#=Y2.
+aspic_min(L)=Y=>Y2=min(L),Y#=Y2.
+% the count is the sum of the comprehension's 0/1 entries (the number of
+% the true conditions) - via the fd constraint chain of aspic_sum, since
+% Picat's sum/1 rejects fd variables with number_expected
+aspic_count(L)=Y=>Y2=aspic_sum(L),Y#=Y2.
+
+
+aspic_member(V,[H|_]),V==H=>true.
+aspic_member(V,[_|T])=>aspic_member(V,T).
+
+aspic_conj(X)=Y=>X2=[Y:Y in X,not(Y==1)],Y=cond(aspic_member(0,X2),0,logprod(X2)).
+aspic_disj(X)=Y=>X2=[Y:Y in X,not(Y==0)],Y=cond(aspic_member(1,X2),1,logsum(X2)).
+
+aspic_not(A)=Y=>if(A==0) then Y=1 else if(A==1)Y=0 else Y=(A#=0) end end. %not
+aspic_assert(A)=Y=>M2=get_heap_map(aspic_m(aspic_asserted)),M2.put(A,1),Y=aspic_fholds(apply(A)).
+aspic_fholds(A)=Y,aspic_holds(A)=>Y=1. %function version to use in expressions
+aspic_fholds(_)=Y=>Y=0.
+aspic_holds(A)=>
+if(not(A==1))
+A#=1,M=get_heap_map(aspic_m(aspic_learning)),C=1+M.get(clauses,0),M.put(clauses,C)
+end.
+%aspic_holds(A)=>if(not(A==1)) d(A),M=get_heap_map(aspic_m(aspic_learning)),C=1+M.get(clauses,0),M.put(clauses,C) end.
+aspic_impl(A,B)=Y=>if(not(A==0))if(A==1)Y#=B else Y#=(A#=>B)end else Y=1 end.
+aspic_equiv(A,B)=Y=>Y#=(A#<=>B).
+
+aspic_vn(X),var(X)=>true.
+aspic_vn(X),number(X)=>true.
+% resolve a hoisted aggregate's synthetic id (aspic_aggr_<n>) to its fd
+% variable wherever the id appears in an expression: the id replaces the
+% aggregate call in the emitted program (ground in the atom map keys),
+% the arithmetic and relational helpers substitute the bound fd variable
+aspic_aggrval(A)=Y,aspic_isaggrid(A)=>Y=get_heap_map(aspic_m(aspic_aggrvars)).get(A).
+aspic_aggrval(A)=Y=>Y=A.
+aspic_lt(A,B)=Y,(aspic_isaggrid(A);aspic_isaggrid(B))=>Y=aspic_lt(aspic_aggrval(A),aspic_aggrval(B)).
+aspic_lt(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A#<B).
+aspic_le(A,B)=Y,(aspic_isaggrid(A);aspic_isaggrid(B))=>Y=aspic_le(aspic_aggrval(A),aspic_aggrval(B)).
+aspic_le(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A#<=B).
+aspic_gt(A,B)=Y,(aspic_isaggrid(A);aspic_isaggrid(B))=>Y=aspic_gt(aspic_aggrval(A),aspic_aggrval(B)).
+aspic_gt(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A#>B).
+aspic_ge(A,B)=Y,(aspic_isaggrid(A);aspic_isaggrid(B))=>Y=aspic_ge(aspic_aggrval(A),aspic_aggrval(B)).
+aspic_ge(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A#>=B).
+aspic_eq(A,B)=Y,(aspic_isaggrid(A);aspic_isaggrid(B))=>Y=aspic_eq(aspic_aggrval(A),aspic_aggrval(B)).
+aspic_eq(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A#=B).
+% non-numeric arguments (the Clark completion's head-argument enumeration
+% over compound terms): compare as terms, the equation holds when equal
+aspic_eq(A,B)=Y,A==B=>Y=1.
+aspic_eq(A,B)=0.
+aspic_ne(A,B)=Y,(aspic_isaggrid(A);aspic_isaggrid(B))=>Y=aspic_ne(aspic_aggrval(A),aspic_aggrval(B)).
+aspic_ne(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A#!=B).
+%ne over SYMBOL values (X!=Y with X,Y enumerated over the universe, e.g.
+%the sibling rule): the fd constraint A#!=B rejects non-numeric terms, and
+%with both sides bound the truth is decided at call time (the conj's
+%element list evaluates the call to 1/0). The clauses end with =>true. -
+%Picat function clauses with comma-guards cannot end with a period
+%(unlike predicate facts, the => or ?=> token is required)
+aspic_ne(A,B)=1,atom(A),atom(B),A!=B=>true.
+aspic_ne(A,B)=0,atom(A),atom(B)=>true.
+aspic_sum(A,B)=Y,(aspic_isaggrid(A);aspic_isaggrid(B))=>Y=aspic_sum(aspic_aggrval(A),aspic_aggrval(B)).
+aspic_sum(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A+B).
+aspic_mul(A,B)=Y,(aspic_isaggrid(A);aspic_isaggrid(B))=>Y=aspic_mul(aspic_aggrval(A),aspic_aggrval(B)).
+aspic_mul(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A*B).
+aspic_div(A,B)=Y,(aspic_isaggrid(A);aspic_isaggrid(B))=>Y=aspic_div(aspic_aggrval(A),aspic_aggrval(B)).
+aspic_div(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A/B).
+aspic_mod(A,B)=Y,(aspic_isaggrid(A);aspic_isaggrid(B))=>Y=aspic_mod(aspic_aggrval(A),aspic_aggrval(B)).
+aspic_mod(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A mod B).
+aspic_diff(A,B)=Y,(aspic_isaggrid(A);aspic_isaggrid(B))=>Y=aspic_diff(aspic_aggrval(A),aspic_aggrval(B)).
+aspic_diff(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A-B).
+aspic_diff(A,B)=0.
+aspic_abs(A)=Y,aspic_isaggrid(A)=>Y=aspic_abs(aspic_aggrval(A)).
+aspic_abs(A)=Y,aspic_vn(A)=>Y#=(abs(A)).
+aspic_pow(A,B)=Y,(aspic_isaggrid(A);aspic_isaggrid(B))=>Y=aspic_pow(aspic_aggrval(A),aspic_aggrval(B)).
+aspic_pow(A,B)=Y,aspic_vn(A),aspic_vn(B)=>Y#=(A**B).
+
+aspic_card(_)=1.
+
+aspic_card(L,A,[])=Y,A=B=>C#=sum(L),Y#=(C#>=A).
+aspic_card(L,[],B)=Y,A=B=>C#=sum(L),Y#=(C#<=B).
+aspic_card(L,A,B)=Y,A=B=>C#=sum(L),Y#=(C#=A).
+
+% aspic_card(L,A,[])=Y,A=B=>count(1,L,#>=,A).
+% aspic_card(L,[],B)=Y,A=B=>count(1,L,#<=,B).
+% aspic_card(L,A,B)=Y,A=B=>count(1,L,#=,A).
+
+
+% aspic_card(L,A,[])=Y,A=B=>at_least(A,L,1).
+% aspic_card(L,[],B)=Y,A=B=>at_most(B,L,1).
+% aspic_card(L,A,B)=Y,A=B=>exactly(A,L,1).
+
+
+aspic_card(L,A,B)=Y=>C#=sum(L),Y#=((C#>=A)#/\(C#<=B)).
+
+var(X)=X.
+
+% aspic_showsatstats(MV),solve([$nvars(NVARS),$ncls(NCLS)],MV)
+% %,(solve([$min(S),$nvars(NVARS),$ncls(NCLS)],[S|MV])
+% ,d(satvars=NVARS)
+% ,d(satclauses=NCLS)=>true.
+aspic_showsatstats(_).
+
+% aspic_solve_dir(D): store the optimization direction (min or max) of an
+% asp block in the seed-scoped map, for aspic_solve_sub to read (the
+% generated block predicates call this when the block has #maximize).
+aspic_solve_dir(D)=>M=get_heap_map(aspic_m(aspic_solvedir)),M.put(now,D).
+
+aspic_solve_gen(Mini,Dir)=>
+M=get_heap_map(aspic_m(aspic_atoms))
+,MV=M.values()++get_heap_map(aspic_m(aspic_aggrvars)).values()
+%,S::0..MV.len
+%,S#=sum(MV)
+,aspic_debug("starting to solve")
+,(aspic_showsatstats(MV),fail
+%;solve([dump],MV),fail
+%;(solve([$min(S)],[S|MV])
+;(
+%d(presolution=[K.show=V:K in M.keys.sort,V=M.get(K)]),
+%d(universe=universe().sort),
+aspic_debug(universe_size=universe().len)
+%,d(cpvars=M.keys.sort.map(show))
+,aspic_debug(cpvars=MV.len)
+,aspic_debug(cprules=get_heap_map(aspic_m(aspic_learning)).get(clauses,0))
+,if Mini==0 then solve([rand],MV)
+,aspic_debug(solution=[aspic_showaggr(K):K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K),aspic_isaggratom(K)]
+++[K.show:K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K),not aspic_isaggratom(K)]
+++[X=X.showfd:X in [F:K in M.keys,aspic_isfdvariable(K),K=..L,L2=L.removelast,F=..L2].remove_dups.sort])
+elseif Dir==max then solve([$max(Mini),rand],[Mini|MV])
+,aspic_debug(solution=[$maximization(Mini)]++[aspic_showaggr(K):K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K),aspic_isaggratom(K)]
+++[K.show:K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K),not aspic_isaggratom(K)]
+++[X=X.showfd:X in [F:K in M.keys,aspic_isfdvariable(K),K=..L,L2=L.removelast,F=..L2].remove_dups.sort])
+else solve([$min(Mini),rand],[Mini|MV])
+,aspic_debug(solution=[$optimization(Mini)]++[aspic_showaggr(K):K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K),aspic_isaggratom(K)]
+++[K.show:K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K),not aspic_isaggratom(K)]
+++[X=X.showfd:X in [F:K in M.keys,aspic_isfdvariable(K),K=..L,L2=L.removelast,F=..L2].remove_dups.sort])
+end
+% ,d([K.show:K in M.keys.sort,V=M.get(K),V=0])
+%,d(s=S)
+% ,d([K.show:K in M.keys()])
+)
+;
+aspic_debug("UNSAT")
+)
+,current_datetime().aspic_debug
+.
+
+aspic_solve(sat,Mini,Dir)=>aspic_solve_gen(Mini,Dir).
+
+% backward-compatible 2-arg form: minimize
+aspic_solve(sat,Mini)=>aspic_solve_gen(Mini,min).
+
+%used when embedding ASP islands in Picat; the optimization direction
+%(min or max) is read from the map written by aspic_solve_dir (default min).
+%The first asp block is replaced by aspic_startlearning() - the learning
+%bracket opens at that position and stays open while the surrounding
+%Picat code injects facts with aspic_holds. aspic_solve_sub is the first
+%and only place the asp text is considered: it runs the joined island
+%aspic_1(ASPIC_OPT) (its rules create the atoms over the accumulated
+%universe), turns learning off, calls the one aspic_completion_1 directly
+%against the final universe, and solves.
+aspic_solve_sub=>
+aspic_1(ASPIC_OPT)
+,D=get_heap_map(aspic_m(aspic_solvedir)).get(now,min)
+,aspic_stoplearning()
+,aspic_completion_1()
+,M=get_heap_map(aspic_m(aspic_atoms))
+,MV=M.values()++get_heap_map(aspic_m(aspic_aggrvars)).values()
+,aspic_debug("starting to solve")
+,(aspic_showsatstats(MV),fail
+;(
+%d(presolution=[K.show=V:K in M.keys.sort,V=M.get(K)]),
+%d(universe=universe().sort),
+aspic_debug(universe_size=universe().len)
+%,d(cpvars=M.keys.sort.map(show))
+,aspic_debug(cpvars=MV.len)
+,aspic_debug(cprules=get_heap_map(aspic_m(aspic_learning)).get(clauses,0))
+,if ASPIC_OPT==0 then solve([rand],MV)
+%,aspic_debug(solution=[K.show:K in M.keys.sort,V=M.get(K),V==1,not aspic_isfdvariable(K)]
+%++[X=X.showfd:X in [F:K in M.keys,aspic_isfdvariable(K),K=..L,L2=L.removelast,F=..L2].remove_dups.sort])
+elseif D==max then solve([$max(ASPIC_OPT),rand],[ASPIC_OPT|MV])
+,aspic_debug(solution=[$maximization(ASPIC_OPT)])
+else solve([$min(ASPIC_OPT),rand],[ASPIC_OPT|MV])
+,aspic_debug(solution=[$optimization(ASPIC_OPT)])
+end
+% ,d([K.show:K in M.keys.sort,V=M.get(K),V=0])
+%,d(s=S)
+% ,d([K.show:K in M.keys()])
+)
+;
+aspic_debug("UNSAT"),!,fail
+)
+%,current_datetime().d
+.
+

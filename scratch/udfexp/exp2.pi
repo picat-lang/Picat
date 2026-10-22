@@ -1,0 +1,25 @@
+%% exp2.pi -- debug the $suml/$when flattening.
+import cp.
+import udf.
+
+'#='(L,R)  => cp.'#='(udf.flatten(L), udf.flatten(R)).
+
+aspic_udf_init =>
+    udf.define($when(C,V),   $(cond(C,V,0))),
+    udf.define($suml([]), 0),
+    udf.define($suml([H|T]), $(H + suml(T))).
+
+main =>
+    aspic_udf_init(),
+    % what does flatten produce for a two-element sum?
+    F = udf.flatten($suml([$when(1, 5), $when(0, 7)])),
+    println(F),
+    A :: 0..20,
+    A #= $suml([$when(1, 5), $when(0, 7)]),
+    solve([A]),
+    printf("A=%w (expect 5)%n", A),
+    B :: 0..1,
+    B #= $when(1, 1),
+    solve([B]),
+    printf("B=%w (expect 1)%n", B),
+    true.

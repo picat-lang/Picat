@@ -1,0 +1,49 @@
+import aspic_runtime.
+import sat.
+var(X,_)=X.
+range(_,_)=0.
+dom(1)=1.
+dom(_)=0.
+p(1)=1.
+p(_)=0.
+aspic_1(ASPIC_OPT)=>ASPIC_SEARCH:=sat,
+aspic_startlearning(),
+% {1}	dom(1).
+aspic_debug("{1}	dom(options([[1]]))"),
+aspic_markfact($dom(1))
+,
+% {2}	p(1).
+aspic_debug("{2}	p(options([[1]]))"),
+aspic_markfact($p(1))
+,
+% {3}	q:-p(1).
+aspic_debug("{3}	aspic_impl(p(options([[1]])),aspic_var(q))"),
+aspic_holds(aspic_impl(p(1),aspic_var(q)))
+,
+% {4}	s:-q,p(2).
+aspic_debug("{4}	aspic_impl(aspic_conj([aspic_var(q),p(options([[2]]))]),aspic_var(s))"),
+aspic_holds(aspic_impl(aspic_conj([aspic_var(q),p(2)]),aspic_var(s)))
+,
+ASPIC_OPT#=0,
+true.
+aspic_completion_1()=>
+H=get_heap_map(aspic_m(aspic_atoms)),M2=get_heap_map(aspic_m(aspic_asserted)),
+foreach(ASPIC_ATOM in H.keys())
+if(not aspic_isfdvariable(ASPIC_ATOM),not(M2.has_key(ASPIC_ATOM)))
+L=[]
+++[1:_ in 1..1,ASPIC_ATOM=$dom(1)]
+++[1:_ in 1..1,ASPIC_ATOM=$p(1)]
+++[p(1):_ in 1..1,ASPIC_ATOM=$q]
+++[aspic_conj([aspic_var(q),p(2)]):_ in 1..1,ASPIC_ATOM=$s]
+,L2=aspic_disj(L)
+,if(not(L2==1)) then
+aspic_holds(aspic_impl(H.get(ASPIC_ATOM),aspic_disj(L))),
+end
+end
+end,
+true.
+main=>aspic_startlearning(),
+aspic_solve_sub,
+println(s=aspic_var($s)),
+println(p2=aspic_var($p(2))),
+println(q=aspic_var($q)),fail;true.

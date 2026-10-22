@@ -1,0 +1,10 @@
+%% exp11.pi -- bisect the COMPR line.
+b(V,L1,L2,Op) = R =>
+    R="aspic_"++Op.to_string()++"([W3 : " ++ join([X[1].to_string()++" in "++cond(X[2]=[],institer(L2,X[1]),showrange(X[2])):X in V],',')
+ ++cond(V!=[],"","_ in 1..1")
+ ++", "++EABIND++"WC = "++L2.to_string()++", W3 #= cond(WC, "++EV++", 0)])".
+institer(L3,X)=S=>S="universe()".
+showrange(X)="?".
+main =>
+    println(b([1],[a],[],count)),
+    true.

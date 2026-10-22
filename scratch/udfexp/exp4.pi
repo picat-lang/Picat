@@ -1,0 +1,53 @@
+%% exp4.pi -- debug T1: the comprehension values and the flatten.
+import cp.
+import udf.
+
+'#='(L,R)  => cp.'#='(udf.flatten(L), udf.flatten(R)).
+
+aspic_udf_init =>
+    udf.define($when(C,V),   $(cond(C,V,0))),
+    udf.define($suml([]), 0),
+    udf.define($suml([H|T]), $(H + suml(T))).
+
+aspic_seedctr_get()=S=>S=get_heap_map(aspic_seedctr).get(n,1).
+aspic_m(B)=N=>N=to_atom(B.to_string()++"_"++aspic_seedctr_get().to_string()).
+aspic_var(X)=Y=>
+    M=get_heap_map(aspic_m(aspic_atoms)),
+    (M.has_key(X) -> Y=M.get(X)
+    ; Z::0..1, Y=Z, M.put(X,Y)).
+aspic_markfact(A) => M=get_heap_map(aspic_m(aspic_atoms)), M.put(A,1).
+aspic_instances(P,N,I)=L=>
+    M=get_heap_map(aspic_m(aspic_atoms)),
+    L=[A : K in M.keys, K=..[FP|Args], FP==P, Args.len==N, A=Args[I]].remove_dups().
+logprod([])=Z=>Z#=1.
+logprod([X])=Z=>Z#=X.
+logprod([H|T])=Z=>if(H==0) Z=0 else if(H==1) Z=logprod(T) else T2=logprod(T),Z=(H#/\T2) end end.
+aspic_member(V,[H|_]),V==H=>true.
+aspic_member(V,[_|T])=>aspic_member(V,T).
+aspic_conj(X)=Y=>X2=[Y:Y in X,not(Y==1)],Y=cond(aspic_member(0,X2),0,logprod(X2)).
+
+item(1,3,15)=1.
+item(2,5,20)=1.
+item(3,2,14)=1.
+item(_,_,_)=0.
+sel(X1)=aspic_var($sel(X1)).
+
+main =>
+    aspic_udf_init(),
+    aspic_markfact($item(1,3,15)),
+    aspic_markfact($item(2,5,20)),
+    aspic_markfact($item(3,2,14)),
+    _=[sel(I) : I in aspic_instances(item,3,1)],
+    M=get_heap_map(aspic_m(aspic_atoms)),
+    println(keys=[K : K in M.keys]),
+    L = [WC : V in aspic_instances(item,3,3), I in aspic_instances(sel,1,1), AR1 in aspic_instances(item,3,2), WC = aspic_conj([sel(I), item(I,AR1,V)])],
+    println(L),
+    VALS = [V : V in aspic_instances(item,3,3)],
+    println(vals=VALS),
+    IDS = [I : I in aspic_instances(sel,1,1)],
+    println(ids=IDS),
+    WS = [W : W in aspic_instances(item,3,2)],
+    println(weights=WS),
+    F = udf.flatten($suml([$when(WC, V) : V in aspic_instances(item,3,3), I in aspic_instances(sel,1,1), AR1 in aspic_instances(item,3,2), WC = aspic_conj([sel(I), item(I,AR1,V)])])),
+    println(F),
+    true.

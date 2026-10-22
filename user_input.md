@@ -121,3 +121,11 @@ those instead of cp and sat" + "they are in lib2, pay attention to picat's
 libraries) instead of sat/cp; the per-program '#=' shim lines and the
 runtime's aspic_flatten wrapper are removed; lib2 must be on the module
 search path (PICATPATH or picat's -path argument).
+
+## Entry 18 (Thu Oct 22 2026)
+
+"show me how an aspic optimisation problem translates" then "commit" - the
+backpack.lp translation (v0.4.1: import sat2, the $suml objective, the
+minimal two-locals-per-instance constraint chain) was walked through and
+verified (maximization(29), sel(1), sel(3)); the verification experiments in
+scratch/ and the walkthrough files are committed.

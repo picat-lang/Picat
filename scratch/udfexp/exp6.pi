@@ -1,0 +1,22 @@
+%% exp6.pi -- cond arg kinds: does cond(fdvar, fdvar, const) work where
+%% cond(fdvar, const, const) does not?
+import cp.
+import udf.
+
+main =>
+    % 1: cond(fdvar, constant, 0), vars in the two-arg solve
+    W :: 0..1, A :: 0..100,
+    A #= cond(W, 5, 0),
+    solve([$max(A)],[A, W]),
+    printf("cond(fdv,const)=%w (expect 5)%n", A),
+    % 2: cond(fdvar, fdvar, 0) -- the value is an fd var
+    W2 :: 0..1, V :: 0..100, V #= 5, B :: 0..100,
+    B #= cond(W2, V, 0),
+    solve([$max(B)],[B, W2]),
+    printf("cond(fdv,fdv)=%w (expect 5)%n", B),
+    % 3: cond(fdvar, fdvar, 0) where the value var is only constrained, not ground
+    W3 :: 0..1, V3 :: 0..20, V3 #>= 5, C :: 0..100,
+    C #= cond(W3, V3, 0),
+    solve([$max(C)],[C, W3]),
+    printf("cond(fdv,fdv-free)=%w (expect 20)%n", C),
+    true.

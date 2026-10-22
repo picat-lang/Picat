@@ -1,0 +1,374 @@
+module aspic_prep.
+
+import util.
+import aspic_gen.
+
+% Pure-Picat pre-transpiler for programs with embedded "asp ... end"
+% blocks (the PICASP flow, minus the cpp / python / sed / forked-picat
+% steps of picasp.pi):
+%   1. substitute "#define NAME value" lines (the subset of cpp the
+%      embedded examples use; "#const" is left to the transpiler;
+%      #if/#ifdef/#include are rejected with a clear error)
+%   2. extract each "asp ... end" block: the marker is a bare "asp"
+%      as the final word of a line (an asp(...) call is not a marker),
+%      scanned over the comment-blanked source so comment text is
+%      never interpreted
+%   3. aspic_gen/3 (in-process transpiler) generates the predicate
+%      aspic_<N>(ASPIC_OPT_N) for every block
+%   4. splice "import <constr>." (when not already imported) and the
+%      generated predicates after the last import, replacing each
+%      block by a call to aspic_<N>(ASPIC_OPT_N)
+%   5. write the result: an ordinary Picat program importing
+%      aspic_runtime, which this driver also generates from the
+%      template in place of the upstream sed step. The result runs on
+%      any Picat build, including the one in the browser (browser_rerun
+%      compiles it in the running module; aspic_seed_bump() at the head
+%      of every generated predicate gives each run fresh runtime maps).
+%
+% Browser entry (no command line, fixed web-FS paths; the wasm CWD
+% is "/" and module sources are only found there / next to the
+% importing module): main reads /user_code_raw.pi, writes
+% /user_code_final.pi and /aspic_runtime.pi.
+% General entry:
+%   main(["pre",Src,LibDir,Out,Tmpl,Constr])
+%   main(["pre",Src,LibDir,Out])          (template in CWD, constr=sat)
+%     Src    : the Picat source to pre-translate
+%     LibDir : directory where aspic_runtime.pi is written (must be
+%              on the module search path; web build: "/lib2")
+%     Out    : where the final source is written
+%     Tmpl   : the runtime template (holds ASPIC_CONSTRAINTS_LIB)
+%     Constr : sat (default) or cp
+
+main=>
+  R="/user_code_raw.pi",L2="/",O="/user_code_final.pi",
+  T="/aspic_runtime_template.pi",C="sat",
+  aspic_prep(R,L2,O,T,C).
+main(["pre",Src,LibDir,Out,Tmpl,Constr]) =>
+  aspic_prep(Src,LibDir,Out,Tmpl,Constr).
+main(["pre",Src,LibDir,Out]) =>
+  aspic_prep(Src,LibDir,Out,"aspic_runtime_template.pi","sat").
+
+ aspic_prep(Src,LibDir,Out,Tmpl,Constr)=>
+  L0=read_file_lines(Src),
+  [L1,C0]=define_pass0(L0,Constr),
+  S=L1.join("\n"),
+  blocks(S,[S1,Bl]),
+  N=Bl.len,
+  % ALL the islands contribute to ONE asp text: their contents are JOINED
+  % and transpiled as a SINGLE island (the one predicate aspic_1). The
+  % FIRST block in source order is replaced by aspic_startlearning() - the
+  % learning bracket opens at that position and stays open while the
+  % surrounding Picat code injects facts with aspic_holds; every other
+  % block is replaced by true. aspic_solve_sub runs the joined island
+  % aspic_1(ASPIC_OPT) at solve time. The blocks may sit at different
+  % positions in the enclosing computation; the join makes the position
+  % irrelevant, which is semantically safe because rule order does not
+  % matter in ASP.
+  Joined=[Ln: B in Bl,
+  Ct=content_of(S,B[1],B[2]),
+  Ln in Ct.split("\n")],
+  Snip=aspic_gen("1",C0,Joined),
+  ar0(S,[[B[1],B[2],B[3]] : B in Bl],S1a),
+  L2=S1a.split("\n"),
+  P=inspos(L2,C0),
+  Insl=inslines(C0,[Snip],L2),
+  OutL=take(L2,P)++Insl++drop(L2,P),
+  writetext(Out,OutL.join("\n")),
+  T0=read_file_lines(Tmpl),
+  T0s=T0.join("\n"),
+  sub1(T0s,"ASPIC_CONSTRAINTS_LIB",C0,T1),
+  writetext(LibDir++"/aspic_runtime.pi",T1),
+  N2=cond(N==1," ASP block"," ASP blocks (joined into one)"),
+  O2="aspic_prep: "++N.to_string()++N2++" on "++C0++" -> "++Out,
+  println(O2)
+  .
+
+writetext(P,T)=>
+  F=open(P,write),
+  print(F,T),
+  F.close()
+  .
+
+sub1(S,Old,New,T), S=Old++J => T=New++J.
+sub1([H|T0],Old,New,T) =>
+  sub1(T0,Old,New,T2),
+  T=[H|T2]
+  .
+
+% ---- #define pass --------------------------------------------------------
+
+wordchar(H)=>
+  (ascii_lowercase(H);ascii_uppercase(H);ascii_digit(H);(H='_'))
+  .
+
+takew2([],S,R)=>R=[S,[]].
+takew2([H|T],S,R), wordchar(H)=>takew2(T,S++[H],R).
+takew2(C,S,R)=>R=[S,C].
+
+define_parse(L,N,V)=>
+  C=lstrip(L),
+  C[1..7]="#define",
+  (C.len==7 ; C[8]=' ' ; C[8]='\t'),
+  C2=lstrip(drop(C,7)),
+  takew2(C2,[],[W,Rest]),
+  N=W.to_string(),
+  V=rstrip(lstrip(Rest)).to_string()
+  .
+
+isdefine(C) =>
+  C.len>=7
+  ,C[1..7]="#define"
+  .
+ baddir(C) =>
+  C.len>=3
+  ,C[1..3]=="#if"
+  .
+ includes(C) =>
+  C.len>=8
+  ,C[1..8]=="#include"
+  .
+ % "#constr sat|cp" (outside any asp block) selects the constraint
+ % library, overriding the backend passed to aspic_prep.  Useful in
+ % the browser, where the stage-1 driver is fixed to sat but large
+ % instances may exceed the built-in kissat's 1 GB clause arena on
+ % 32-bit (wasm32) builds, which the picat cp solver does not have.
+ isconstr(C) =>
+  C.len>=7
+  ,C[1..7]=="#constr"
+  ,(C.len==7 ; C[8]=' ' ; C[8]='\t')
+  .
+ constrval(C,W) =>
+  W=rstrip(lstrip(drop(C,7))).to_string()
+  .
+
+ define_pass0(Ls,D0)=[R,K]=>
+  M=new_map(),
+  define_pass(Ls,M,D0,[],R2,K),
+  R=reverse(R2)
+  .
+ define_pass([],M,D,Acc,R,D0)=>R=Acc,D0=D.
+ define_pass([L|T],M,D0,Acc,R,D) =>
+  C=lstrip(L),
+  (isdefine(C)
+  -> define_parse(L,N,V),
+   M.put(N,V),
+   define_pass(T,M,D0,Acc,R,D)
+  ;baddir(C)
+  -> handle_exception($cpreprocessor_directive_not_supported(L),aspic_prep)
+  ;includes(C)
+  -> handle_exception($cpreprocessor_directive_not_supported(L),aspic_prep)
+  ;isconstr(C)
+  -> constrval(C,W),
+   (W=="sat" ; W=="cp"
+   ; handle_exception($asp_constraint_library_not_supported(W),aspic_prep)),
+   define_pass(T,M,W,Acc,R,D)
+  ;Line=applyw(M,L),
+   define_pass(T,M,D0,[Line|Acc],R,D))
+  .
+
+applyw(M,Cs)=R=>
+  (Cs.len==0 -> R="" ; apms(Cs,M,[])=A, R=A.to_string())
+  .
+apms(Cs,M,Ac)=R=>
+  apm0(Cs,M,Ac,R2),
+  R=R2
+  .
+apm0([],M,A,E)=>E=A.
+apm0([H|T],M,A,E), not wordchar(H)=>apm0(T,M,A++[H],E).
+apm0([H|T],M,A,E), wordchar(H)=>
+  takew2([H|T],[],[W,Rest]),
+  (M.has_key(W) -> Nw=M.get(W)
+   ; Nw=W),
+  apm0(Rest,M,A++Nw,E)
+  .
+
+% ---- asp ... end block scan (1-based char offsets on C) ------------------
+
+nextword(C,From,A,E,W), From>C.len => fail.
+nextword(C,From,A,E,W), C[From]=H, wordchar(H),
+  (From==1 -> true; C[From-1]=P, not wordchar(P))
+ =>
+  takew2(slice(C,From),[],[Wc,_]),
+  A=From,
+  E=From+Wc.len-1,
+  W=Wc.to_string()
+  .
+nextword(C,From,A,E,W) =>
+  nextword(C,From+1,A,E,W).
+
+find_end(C,From,A,E) =>
+  (nextword(C,From,A2,E2,W2)
+   -> (W2="end" -> A=A2,E=E2
+       ; find_end(C,E2+1,A,E))
+   ; handle_exception($asp_block_not_closed,aspic_prep))
+  .
+
+ scan(C,From,Acc,R) =>
+  (nextword(C,From,A,E,W)
+   -> (W="asp"
+      , aspmarker(C,E)
+       -> find_end(C,E+1,A2,E2),
+          scan(C,E2+1,[[A,E2]|Acc],R)
+       ; scan(C,E+1,Acc,R))
+   ; R=reverse(Acc))
+   .
+
+% aspmarker(C,E): the word ending at 1-based offset E is the last word
+% on its line.  The block syntax in an embedded source is a bare "asp"
+% as the final word of a line (",asp" before the newline; trailing
+% blanks and CR are tolerated); an asp(...) predicate call (PICASP
+% library style) must not be taken as a marker.  The blank check is a
+% separate predicate, because this picat does not accept a character
+% disjunction on an unification RHS (C[K]=(' ' ; '\t')); the plain
+% goal form, as used by the #define / #constr checks, does work.
+aspmarker(C,E) =>
+  aspmarker(C,E+1,C.len).
+aspmarker(C,K,L) =>
+  (K>L -> true
+   ; C[K]='\n' -> true
+   ; wspc(C,K) -> aspmarker(C,K+1,L))
+  .
+wspc(C,K) =>
+  (C[K]=' ' ; C[K]='\t' ; C[K]='\r')
+  .
+
+numbl(Pr,Bl) =>
+  numbl0(Pr,1,[],Bl)   % blocks are numbered from 1, matching the picasp flow
+  .
+numbl0([],K,Acc,Bl)=>Bl=Acc.
+numbl0([P|T],K,Acc,Bl)=>numbl0(T,K+1,[[P[1],P[2],K]|Acc],Bl).
+
+repltext(1)=S=>S="aspic_startlearning()".
+repltext(_K)=S=>S="true".
+  % the first asp block (block 1) is replaced by the learning-bracket opener
+  % plus the joined-island call, so the island runs at that position with
+  % learning on; the remaining blocks are replaced by true, nothing more
+
+ar0(C,[],R)=>R=C.
+ar0(C,[P|T],R)=>
+  % the head block is replaced FIRST: its offsets are valid on C, and the
+  % remaining (earlier-source) blocks' offsets are unaffected by a
+  % replacement that lies entirely after them - replacing the tail first
+  % would shift the head block's offsets and lose the string's tail
+  R2=take(C,P[1]-1)++repltext(P[3])++drop(C,P[2]),
+  ar0(R2,T,R)
+  .
+
+% The extracted content starts AFTER the marker line's trailing blanks
+% and newline, so the first "line" of the block is its first real
+% clause whatever blanks surround the asp marker word (a leftover
+% "\t" first line would otherwise survive aspic_gen's elimws and
+% poison the whole parse).
+content_of(S,A,A2)=T=>
+  T=drop(take(S,A2-3),nextline(S,A+3)-1).
+nextline(S,K)=K2=>
+  (S[K]=' ' -> nextline(S,K+1)=K2
+   ;S[K]='\t' -> nextline(S,K+1)=K2
+   ;S[K]='\r' -> nextline(S,K+1)=K2
+   ;S[K]='\n' -> K2=K+1)
+  .
+
+blocks(S,[S1,Bl])=>
+  S2=blankcom(S),
+  scan(S2,1,[],Pr),
+  numbl(Pr,Bl),
+  ar0(S,Bl,S1l),
+  S1=S1l.to_string()
+  .
+
+% ---- comment blanking -----------------------------------------------------
+% blankcom(S)=R: S with every comment character (a '%' outside
+% string/char literals through the end of its line) replaced by a
+% space; length and line structure are preserved, so word scans on R
+% locate the same words at the same 1-based offsets as in S, except
+% that comment text is never interpreted.  State: 0 code, 1 comment,
+% 2 single-quoted, 3 double-quoted; Esc: 1 when a backslash inside a
+% quote marks an escaped character.
+
+blankcom(S)=R =>
+  bcomC(S,1,0,0,[],R).
+% the single-quote character, without a ' literal in the source
+% (this picat lexes ' in that context unreliably):
+squote(Q) =>
+  S="'",
+  Q=S[1].
+bcomC(S,K,Sq,Es,Acc,R), Sq==1 =>
+  (K>S.len
+   -> R=Acc.to_string()
+   ; C=S[K],
+    (C=='\n'
+     -> bcomC(S,K+1,0,0,Acc++[C],R)
+     ; bcomC(S,K+1,1,0,Acc++[' '],R)))
+  .
+bcomC(S,K,Sq,1,Acc,R), Sq>0 =>
+  (K>S.len
+   -> R=Acc.to_string()
+   ; C=S[K],
+    bcomC(S,K+1,Sq,0,Acc++[C],R))
+  .
+bcomC(S,K,Sq,0,Acc,R), Sq>0 =>
+  (K>S.len
+   -> R=Acc.to_string()
+   ; C=S[K],
+    (C=='\\'
+     -> bcomC(S,K+1,Sq,1,Acc++[C],R)
+     ; Sq==2, squote(Q), C==Q
+     -> bcomC(S,K+1,0,0,Acc++[C],R)
+     ; Sq==3, Bq='"', C==Bq
+     -> bcomC(S,K+1,0,0,Acc++[C],R)
+     ; bcomC(S,K+1,Sq,0,Acc++[C],R)))
+  .
+bcomC(S,K,0,0,Acc,R) =>
+  (K>S.len
+   -> R=Acc.to_string()
+   ; C=S[K],
+    (C=='%'
+     -> bcomC(S,K+1,1,0,Acc++[' '],R)
+     ; squote(Q), C==Q
+     -> bcomC(S,K+1,2,0,Acc++[C],R)
+     ; Dq='"', C==Dq
+     -> bcomC(S,K+1,3,0,Acc++[C],R)
+     ; bcomC(S,K+1,0,0,Acc++[C],R)))
+  .
+
+% ---- splicing -------------------------------------------------------------
+
+isimport(L,C) =>
+  X=rstrip(lstrip(L)),
+  X="import "++C++"."
+  .
+
+inslines(Constr,Snips,Ls)=R=>
+  Has=[1:X in Ls,isimport(X,Constr)],
+  Ifs=cond(Has=[],["import "++Constr++"."],[]),
+  Has2=[1:X in Ls,isimport(X,"aspic_runtime")],
+  Ifs2=cond(Has2=[],["import aspic_runtime."],[]),
+  R=Ifs++Ifs2++[L: Sp in Snips, L in Sp.split("\n")]
+  .
+
+lastimp([],I,Acc,P)=>P=Acc.
+lastimp([L|T],I,Acc,P) =>
+  X=rstrip(lstrip(L)),
+  (isimportish(X) -> P2=I+1 ; P2=Acc),
+  lastimp(T,I+1,P2,P)
+  .
+isimportish(X) =>
+  X.len>=7
+  ,X[1..7]=="import "
+  .
+
+inspos(Ls,Constr)=P=>
+  (Ls=[] -> P=0
+  ;lastimp(Ls,0,0,P0),
+   if(P0>0) then P=P0
+   else
+     X=lstrip(Ls[1]),
+     isimportish2(X)
+     -> P=1
+     ;P=0
+   end)
+  .
+isimportish2(X) =>
+  X.len>=7
+  ,X[1..7]=="module "
+  .

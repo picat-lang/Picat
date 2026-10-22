@@ -1,0 +1,70 @@
+%% exp14.pi -- the single-dollar claim: you never need to use nested $ or
+%% more than one $ per expression, because inside a $-term an UNMARKED
+%% nested call behaves exactly like the marked form (the inner $ is
+%% redundant: a $-term is a term constructor, its arguments are never
+%% evaluated automatically).  A $-term still cannot FOLLOW an operator
+%% (established in exp13), so the multi-call form is ONE $-term containing
+%% the unmarked calls.  Each check prints "ok <name>" or FAIL; run with:
+%%   PICATPATH=.:../../lib2 picat exp14.pi
+import cp.
+import udf.
+
+'#='(L,R)  => cp.'#='(udf.flatten(L), udf.flatten(R)).
+'#<='(L,R) => cp.'#=<'(udf.flatten(L), udf.flatten(R)).
+
+main =>
+    % two simple registered functions: g wraps its argument in +10,
+    % f doubles it
+    udf.define($g(X), $(X + 10)),
+    udf.define($f(X), $(X * 2)),
+    % h's BODY contains the UNMARKED nested call g(X); k's body contains
+    % TWO unmarked nested calls in one $-term (never more than one $ per
+    % expression)
+    udf.define($h(X), $(g(X) + 1)),
+    udf.define($k(X), $(g(X) + f(X))),
+
+    % 1. the documented marked-nested form: $f($g(A)) = (A+10)*2
+    A :: 1..5,  Y1 #= $f($g(A)),
+
+    % 2. the claim: the UNMARKED form $f(g(A)) is the same term and the
+    %    same result - g is not evaluated automatically, f's body binds
+    %    its X to the TERM g(A) leaving g(A)*2, which the walker then
+    %    expands to (A+10)*2
+    Y2 #= $f(g(A)),
+
+    % 3. a body with the unmarked nested call
+    Y3 #= $h(A),                       % (A+10)+1
+
+    % 4. two unmarked nested calls in ONE $-term
+    Y4 #= $k(A),                       % (A+10) + A*2
+
+    % 5. the $-term as the LEFT operand of + (one $ per subexpression; a
+    %    $-term cannot follow an operator, so it can only stand first)
+    Y5 #= $g(A) + 1,                   % (A+10)+1
+
+    % 6. the ground-evaluate path: evaluate of the unmarked nested forms
+    E1 = udf.evaluate($h(3)),          % (3+10)+1 = 14
+    E2 = udf.evaluate($f(g(3))),       % (3+10)*2 = 26
+
+    solve([], [A,Y1,Y2,Y3,Y4,Y5]),
+    % the checks: 1 and 2 agree (the marked and unmarked nested forms are
+    % the same term), 3-5 are the expected values, the evaluates are ground
+    check("marked == unmarked nested", Y1 = (A+10)*2),
+    check("unmarked nested same result", Y2 = (A+10)*2),
+    check("body with unmarked call", Y3 = A+11),
+    check("two calls in one term", Y4 = A+10+A*2),
+    check("one $ per subexpression", Y5 = A+11),
+    check("evaluate unmarked nested", E1 = 14),
+    check("evaluate nested in arg", E2 = 26),
+    % 7. the operator case: $f(1) + $f(2) is a syntax error (established
+    %    in exp13); the ONE-$ workaround - one $-term containing both
+    %    unmarked calls - compiles and expands.  (A 0-arity $-term is not
+    %    possible: the $ constructor needs a compound term, so a udf
+    %    function must take at least one argument.)
+    B :: 1..5,
+    Y7 #= $(f(1) + f(2)),              % f(1)=1*2=2, f(2)=2*2=4, sum 6
+    solve([], [B,Y7]),
+    check("one $ around an operator", Y7 = 6),
+    println(done).
+
+check(Name, Goal) => (Goal -> printf("ok %w%n",Name) ; printf("FAIL %w%n",Name)).

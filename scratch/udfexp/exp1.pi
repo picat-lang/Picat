@@ -1,0 +1,116 @@
+%% exp1.pi -- udf-construct experiments for the aspic rewrite.
+%% Each test prints "ok <name>" or throws; run with:
+%%   PICATPATH=.:../../lib2 picat exp1.pi
+import cp.
+import udf.
+
+% the '#=' shim (what the rewritten transpiler would emit in the program)
+'#='(L,R)  => cp.'#='(udf.flatten(L), udf.flatten(R)).
+'#<='(L,R) => cp.'#=<'(udf.flatten(L), udf.flatten(R)).
+'#>='(L,R) => cp.'#>='(udf.flatten(L), udf.flatten(R)).
+
+% ---- the udf layer the generated program would define ----
+aspic_udf_init =>
+    udf.define($when(C,V),   $(cond(C,V,0))),
+    udf.define($when1(C,V),  $(cond(C,V,1))),
+    udf.define($suml([]), 0),
+    udf.define($suml([H|T]), $(H + suml(T))),
+    udf.define($conj([]), 1),
+    udf.define($conj([H|T]), $(H #/\ conj(T))),
+    udf.define($or([]), 0),
+    udf.define($or([H|T]), $(H #\/ or(T))),
+    udf.define($impl(A,B), $(cond(A,B,1))),
+    udf.define($notb(A), $(1 - A)).
+
+% ---- a minimal slice of the aspic runtime (atom map etc.) ----
+aspic_seedctr_get()=S=>S=get_heap_map(aspic_seedctr).get(n,1).
+aspic_m(B)=N=>N=to_atom(B.to_string()++"_"++aspic_seedctr_get().to_string()).
+aspic_var(X)=Y=>
+    M=get_heap_map(aspic_m(aspic_atoms)),
+    (M.has_key(X) -> Y=M.get(X)
+    ; Z::0..1, Y=Z, M.put(X,Y)).
+aspic_markfact(A) => M=get_heap_map(aspic_m(aspic_atoms)), M.put(A,1).
+aspic_instances(P,N,I)=L=>
+    M=get_heap_map(aspic_m(aspic_atoms)),
+    L=[A : K in M.keys, K=..[FP|Args], FP==P, Args.len==N, A=Args[I]].remove_dups().
+logprod([])=Z=>Z#=1.
+logprod([X])=Z=>Z#=X.
+logprod([H|T])=Z=>if(H==0) Z=0 else if(H==1) Z=logprod(T) else T2=logprod(T),Z=(H#/\T2) end end.
+aspic_member(V,[H|_]),V==H=>true.
+aspic_member(V,[_|T])=>aspic_member(V,T).
+aspic_conj(X)=Y=>X2=[Y:Y in X,not(Y==1)],Y=cond(aspic_member(0,X2),0,logprod(X2)).
+aspic_disj(X)=Y=>X2=[Y:Y in X,not(Y==0)],Y=cond(aspic_member(1,X2),1,logsum(X2)).
+logsum([])=Z=>Z=0.
+logsum([X])=Z=>Z=X.
+logsum([H|T])=Z=>if(H==1) Z=1 else if(H==0) Z=logsum(T) else T2=logsum(T),Z=(H#\/T2) end end.
+aspic_gt(A,B)=Y=>Y#=(A#>B).
+universe0=L=>M=get_heap_map(aspic_m(aspic_atoms)),L=[Z:K in M.keys,K=..[_|Y],Z in Y].remove_dups.
+
+item(1,3,15)=1.
+item(2,5,20)=1.
+item(3,2,14)=1.
+item(_,_,_)=0.
+capacity(5)=1.
+sel(X1)=aspic_var($sel(X1)).
+
+check(R,Name), R => println("ok: "++Name).
+check(R,Name) => throw($exp1_failed(Name)).
+
+main =>
+    aspic_udf_init(),
+    aspic_markfact($item(1,3,15)),
+    aspic_markfact($item(2,5,20)),
+    aspic_markfact($item(3,2,14)),
+    aspic_markfact($capacity(5)),
+    _=[sel(I) : I in aspic_instances(item,3,1)],
+
+    % T1: the objective as ONE udf term: $suml of $when over pre-evaluated
+    % atoms (aspic_conj binding), instance enumeration instead of universe().
+    ASPIC_OPT #= $suml([$when(WC, V) : V in aspic_instances(item,3,3), I in aspic_instances(sel,1,1), AR1 in aspic_instances(item,3,2), WC = aspic_conj([sel(I), item(I,AR1,V)])]),
+    solve([$max(ASPIC_OPT)]),
+    printf("ok: T1 objective evaluates to %w (expect 29)%n", ASPIC_OPT),
+    MS=[S : K in get_heap_map(aspic_m(aspic_atoms)).keys, K=$sel(_), get_heap_map(aspic_m(aspic_atoms)).get(K)==1],
+    check(length(MS)==2, "T1 two choice atoms true"),
+
+    % T2: $conj/$or recursion (symbolic #/\ #\/ chains) inside '#='
+    A :: 0..1, B :: 0..1, C :: 0..1,
+    A #= 1, B #= 0,
+    1 #= $or([$conj([A,B]), C]),
+    solve([C]),
+    check(C==1, "T2 or/conj recursion (C forced true)"),
+
+    % T3: $impl posted as 1 #= $impl(P,G) with values
+    P :: 0..1, G :: 0..1, P #= 1,
+    1 #= $impl(P, G),
+    solve([G]),
+    check(G==1, "T3 impl forces G"),
+
+    % T4: nested Boolean in cond: 1 #= cond(K, $or([x,y]), 1)
+    K :: 0..1, X :: 0..1, Y2 :: 0..1, K #= 1, X #= 0, Y2 #= 1,
+    1 #= $impl(K, $or([X, Y2])),
+    solve([]),
+    println("ok: T4 nested or in cond accepted"),
+
+    % T5: direct cond-as-expression binding in a comprehension:
+    % [W3 #= cond(aspic_conj(...), elem, 0)] -- one aux var per element
+    S2 = $suml([W3 : W in aspic_instances(item,3,2), I in aspic_instances(sel,1,1), AR4 in aspic_instances(item,3,3), WC = aspic_conj([sel(I), item(I,W,AR4)]), W3 #= cond(WC, W, 0)]),
+    CAP :: 0..100,
+    CAP #= S2,
+    CAP #=< 5,
+    CAP #= 29,
+    solve([CAP]),
+    printf("ok: T5 constraint-sum evaluates, CAP=29 feasible (weight 3+2)%n", CAP),
+
+    % T6: max/min of fd vars inside a constraint (for #max aggregates)
+    M1 :: 0..5, M2 :: 0..5, M1 #= 3, M2 #= 4, M3 :: 0..5,
+    M3 #= max([M1,M2]),
+    solve([M3]),
+    check(M3==4, "T6 max of fd vars"),
+
+    % T7: multiple objectives joined with + through the shim
+    O1 #= $suml([$when(WC2, 1) : I2 in aspic_instances(sel,1,1), WC2 = aspic_conj([sel(I2)])]),
+    O2 #= $suml([$when(WC3, 2) : I3 in aspic_instances(sel,1,1), WC3 = aspic_conj([sel(I3)])]),
+    TOTAL #= O1 + O2,
+    solve([$max(TOTAL)]),
+    printf("ok: T7 joined objectives = %w (expect 9: three atoms x (1+2))%n", TOTAL),
+    true.

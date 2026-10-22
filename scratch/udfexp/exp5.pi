@@ -1,0 +1,29 @@
+%% exp5.pi -- does $max propagate through cond(free fd var) in a + chain?
+import cp.
+import udf.
+
+'#='(L,R)  => cp.'#='(udf.flatten(L), udf.flatten(R)).
+
+aspic_udf_init =>
+    udf.define($when(C,V),   $(cond(C,V,0))),
+    udf.define($suml([]), 0),
+    udf.define($suml([H|T]), $(H + suml(T))).
+
+main =>
+    aspic_udf_init(),
+    % 1: free fd-var condition, maximize
+    W :: 0..1, A :: 0..100,
+    A #= $suml([$when(W, 5), $when(0, 7)]),
+    solve([$max(A)]),
+    printf("A(no W in solve)=%w%n", A),
+    W2 :: 0..1, B :: 0..100,
+    B #= cond(W2, 5, 0),
+    solve([$max(B), W2]),
+    printf("B=%w (expect 5)%n", B),
+    % 3: plain reified max: B2 #= W2c*5
+    W3 :: 0..1, C :: 0..100,
+    C #= $suml([$when(W3, 5)]),
+    W3 #>= 0,
+    solve([$max(C), W3]),
+    printf("C=%w (expect 5)%n", C),
+    true.

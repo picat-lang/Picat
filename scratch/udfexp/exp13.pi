@@ -1,0 +1,7 @@
+%% exp12.pi -- is X = $f(1) + $f(2) valid Picat?
+f(1)=10.
+f(2)=20.
+main =>
+    X = $f(1) + $f(2),
+    println(X),
+    true.

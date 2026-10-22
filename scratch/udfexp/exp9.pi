@@ -1,0 +1,26 @@
+%% exp9.pi -- bisect the hoistaggs clause body.
+m(T) = R,functor(T,$aspic_agval,2)
+=>
+ M=new_map(),
+ N=M.get(n,0)+1,M.put(n,N),
+ NAME="ASPIC_AGVAR"++N.to_string(),
+ T=..[_,Op,VALSET],
+ V=getsetvars(VALSET).compactvars,
+ T2=replacevars(V,[X[1]:X in V],T),T2=..[_,Op,VALSET2],VALSET2=..[_,L1,L2],
+ EV=cond(Op.to_string()=="count","1",cond(member(L1[1],[X[1]:X in V]),L1[1].to_string(),"EA")),
+ EABIND=cond(Op.to_string()=="count","",cond(member(L1[1],[X[1]:X in V]),"","EA = "++L1[1].to_string()++",")),
+ ,COMPR="aspic_"++Op.to_string()++"([W3 : " ++ join([X[1].to_string()++" in "++cond(X[2]=[],institer(L2,X[1]),showrange(X[2])):X in V],',')
+ ++cond(V!=[],"","_ in 1..1")
+ ++", "++EABIND++"WC = "++L2.to_string()++", W3 #= cond(WC, "++EV++", 0)])",
+ LS=cond(M.has_key(lines),M.get(lines),[]),
+ M.put(lines,LS++[NAME++":: -100000..100000",NAME++"="++COMPR,"get_heap_map(aspic_m(aspic_aggrvars)).put(aspic_aggr_"++N.to_string()++","++NAME++")"]),
+ R=to_atom("aspic_aggr_"++N.to_string()).
+m(T)=R=>R=T.
+getsetvars(T)=R=>T=..L,R=[Y:X in tail(L)].compactvars.
+replacevars(V,A,T)=R=>R=T.
+institer(L3,X)=S=>S="universe()".
+showrange(X)="?".
+aspic_m(B)=N=>N=B.
+main =>
+    println(m($aspic_agval(count,valset([v(1)],conj([]))))),
+    true.

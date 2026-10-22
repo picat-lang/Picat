@@ -1,0 +1,32 @@
+%% exp15.pi -- the 0-arity / operator forms: $f+$g is never needed, the
+%% form is $(f+g) - ONE $-term wrapping the whole expression with the
+%% unmarked calls inside.  Also: a 0-arity udf function cannot be defined
+%% at all (the $ constructor needs a compound term, so a $-term of an atom
+%% like $f throws struct_expected at compile time).  Run with:
+%%   PICATPATH=.:../../lib2 picat exp15.pi
+import cp.
+import udf.
+
+'#='(L,R)  => cp.'#='(udf.flatten(L), udf.flatten(R)).
+'#<='(L,R) => cp.'#=<'(udf.flatten(L), udf.flatten(R)).
+
+main =>
+    % two DIFFERENT registered functions joined inside ONE $-term
+    udf.define($f(X), $(X * 2)),
+    udf.define($g(X), $(X + 10)),
+
+    % 1. $f(1) + $g(1) is a syntax error (a $-term cannot follow an
+    %    operator); ONE $-term containing both unmarked calls works
+    B :: 1..5,
+    Y1 #= $(f(1) + g(1)),              % (1*2) + (1+10) = 13
+    solve([], [B,Y1]),
+    check("one $ around f(1)+g(1)", Y1 = 13),
+
+    % 2. the $-term as the LEFT operand still works (a $-term cannot
+    %    follow an operator, so it can only stand first in a sum)
+    Y2 #= $(f(1) + g(1)) + 5,          % 13 + 5 = 18
+    solve([], [B,Y2]),
+    check("one $ term plus a constant", Y2 = 18),
+    println(done).
+
+check(Name, Goal) => (Goal -> printf("ok %w%n",Name) ; printf("FAIL %w%n",Name)).

@@ -1,0 +1,39 @@
+%% exp3.pi -- cond over fd variables nested in arithmetic, and the conj.
+import cp.
+import udf.
+
+'#='(L,R)  => cp.'#='(udf.flatten(L), udf.flatten(R)).
+
+aspic_udf_init =>
+    udf.define($when(C,V),   $(cond(C,V,0))),
+    udf.define($suml([]), 0),
+    udf.define($suml([H|T]), $(H + suml(T))).
+
+main =>
+    aspic_udf_init(),
+    % 1: one $when with an fd-var condition, direct
+    W1 :: 0..1, A :: 0..20,
+    A #= $suml([$when(W1, 5)]),
+    W1 #= 1,
+    solve([A]),
+    printf("A=%w (expect 5)%n", A),
+    % 2: two $when with fd-var conditions, nested in +
+    W2 :: 0..1, W3 :: 0..1, B :: 0..20,
+    B #= $suml([$when(W2, 5), $when(W3, 7)]),
+    W2 #= 1, W3 #= 0,
+    solve([B]),
+    printf("B=%w (expect 5)%n", B),
+    % 3: the condition itself produced by #/\ (like aspic_conj)
+    P :: 0..1, Q :: 0..1, WC :: 0..1,
+    P #= 1, Q #= 1,
+    WC #= (P #/\ Q),
+    C :: 0..20,
+    C #= $suml([$when(WC, 9)]),
+    solve([C]),
+    printf("C=%w (expect 9)%n", C),
+    % 4: cond arg produced by a function call (aspic_conj style), bound first
+    W4 :: 0..1,
+    W4 #= $when(WC, 1),
+    solve([W4]),
+    printf("W4=%w (expect 1)%n", W4),
+    true.
