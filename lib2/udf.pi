@@ -14,9 +14,18 @@ module udf.
 
         define(Head, Body)
             Register a user function.  Head is a pattern  $f(Arg,...)  and
-            Body is the body as a TERM (prefix $).  Because the arguments
-            of a predicate call are evaluated, both the head and any nested user
-            function call inside a body must be prefixed with $.
+            Body is the body as a TERM (prefix $).  The head must be
+            written with $ (a $-term of an atom like $f throws
+            struct_expected, so a registered function takes at least one
+            argument).  ONE $ per expression suffices: a $-term is a term
+            constructor whose arguments are never evaluated automatically,
+            so an UNMARKED nested user function call inside a body behaves
+            exactly like the marked form ($f(g(X)) is the same term as
+            $f($g(X))), and the expansion walker expands the unmarked
+            nested calls as it encounters them.  A $-term cannot follow an
+            operator ($f(1)+$g(1) is a syntax error), so the multi-call
+            form is ONE $-term wrapping the whole expression with the
+            unmarked calls inside: $(f(1)+g(1)).
 
             A function may have several (pattern) rules, and a body may call
             other user functions or itself (recursion), up to a configurable

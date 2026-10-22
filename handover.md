@@ -112,6 +112,19 @@ aggregate/objective posted through a shimmed `'#='`.
 
 ## Gotchas learned this phase (worth keeping)
 
+- **One `$` per expression suffices** (scratch/udfexp/exp14.pi, exp15.pi;
+  10 checks): a `$`-term is a term constructor whose arguments are never
+  evaluated automatically, so an UNMARKED nested call inside a `$`-term
+  behaves exactly like the marked form — `$f(g(X))` is the same term as
+  `$f($g(X))`, and the walker expands the unmarked nested calls as it
+  encounters them.  A `$`-term still cannot FOLLOW an operator
+  (`$f(1)+$g(1)` is a syntax error), so the multi-call form is ONE
+  `$`-term wrapping the whole expression with the unmarked calls inside:
+  `$(f+g)`, `$(f(1)+g(1))` — never `$f+$g`.  A 0-arity udf function cannot
+  be defined at all (`$f` throws `struct_expected` at compile time), so
+  registered functions take at least one argument.  The docstring of
+  lib2/udf.pi and doc/udf.tex were corrected accordingly (they used to
+  require the `$` on nested calls).
 - In this Picat build, defining additional PUBLIC functions in the runtime
   template (e.g. `aspic_flatten`/`aspic_udf_init`) does NOT affect the
   embedded flow — earlier suspicion was wrong; the failures were harness

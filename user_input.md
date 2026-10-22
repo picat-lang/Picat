@@ -85,3 +85,30 @@ single commit on the aspicudf branch.
 transpiler regenerates aspic_runtime.pi (via sed from aspic_runtime_template.pi
 in its CWD) on every transpile run; the comparison scripts must copy the
 version-matched template into the transpile working dir first.
+
+## Entry 13 (Thu Oct 22 2026)
+
+List the limitations of the udf feature (lib2/udf.pi) and how each affects
+aspic (the translated programs / the transpiler design).
+
+## Entry 14 (Thu Oct 22 2026)
+
+Question: what are the limitations of udf and how do they affect aspic?
+(Answered with the structured list below, from doc/udf.tex's Limitations
+subsubsection, the lib2/udf.pi docstring, and this project's experiments
+scratch/udfexp/exp1-exp13.)
+
+## Entry 15 (Thu Oct 22 2026)
+
+Claim to verify: you never need to use nested $ or more than one $ per
+expression - $f(g(X)) should be the same as $f($g(X)) (the inner $ is
+redundant, g is not evaluated automatically inside a $-term). Verify
+empirically and update the limitation list accordingly.
+
+## Entry 16 (Thu Oct 22 2026)
+
+"also $f+$g is never needed, this is $(f+g)" - refinement of the single-
+dollar claim: the multi-call form is ONE $-term wrapping the whole
+expression with the unmarked calls inside ($(f+g), $(f(1)+g(1))), never
+two $-terms joined by an operator.  Verified with exp15 (also: a 0-arity
+udf function cannot be defined - $f throws struct_expected).

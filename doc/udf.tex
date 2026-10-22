@@ -31,6 +31,18 @@ be written with the term constructor \texttt{\$}.  Only the constraint
 operators (\texttt{\#=}, etc.) treat expressions as terms, and re-implementing
 those operators is precisely what the \texttt{udf.ops.pi} shims do.
 
+One \texttt{\$} per expression suffices.  A \texttt{\$}-term is a term
+constructor: its arguments are never evaluated automatically, so an
+unmarked nested call inside a \texttt{\$}-term behaves exactly like the
+marked form --- \texttt{\$f(g(X))} is the same term as
+\texttt{\$f(\$g(X))}, and the expansion walker expands the unmarked
+nested calls as it encounters them.  In particular a \texttt{\$}-term
+cannot follow an operator (\texttt{\$f(1)+\$g(1)} is a syntax error), so
+the multi-call form is ONE \texttt{\$}-term wrapping the whole expression
+with the unmarked calls inside: \texttt{\$(f(1)+g(1))}.  A \texttt{\$}
+of an atom (\texttt{\$f}) is rejected with \texttt{struct\_expected} at
+compile time, so a registered function must take at least one argument.
+
 \subsubsection{The built-ins of the \texttt{udf} module}
 
 \begin{itemize}
