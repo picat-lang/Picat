@@ -263,6 +263,8 @@ power_expression ->
 
 primary_expression ->
     "(" goal ")"
+    anonymous_function
+    anonymous_predicate
     variable "[" argument {"," argument} "]"       % subscript notation
     variable "@" term ["@"]                        % as-pattern
     atom_or_call
@@ -303,16 +305,56 @@ array_expression_suffix ->
 function_call ->
     [primary_expression "."] atom_token "(" [argument {"," argument}] ")"
 
-variable_list ->
-    "[" [variable {"," variable}] "]"
+/* Anonymous functions and predicates are closure-valued expressions.
+   Their outer parentheses and bracketed parameter lists are required.
+   An empty parameter list is written as "[]". */
+
+anonymous_function ->
+    "(" anonymous_head "->" expression ["," body] ")"
+
+anonymous_predicate ->
+    "(" anonymous_head "=>" body ")"
+
+anonymous_head ->
+     lambda_parameters
+
+lambda_parameters ->
+    "[]"
+    "[" term {"," term} "]"
+
+/* In an anonymous function, the first comma following the return expression
+   separates that expression from the body. The body has the full goal syntax.
+   Omitting the body is equivalent to using the body true.
+
+   A parenthesized form beginning with lambda_parameters followed by "->",
+   or "=>" is parsed as a lambda expression, rather than as an ordinary
+   parenthesized goal. In particular, "([X] -> E)" is an anonymous function,
+   not a Prolog-style if-then.
+
+   Variables in parameter terms introduce bindings local to the lambda.
+   Parameter terms follow the same matching rules as named head arguments.
+   Other references
+   to enclosing lexical bindings are captured; remaining variables are local
+   to each invocation. Anonymous occurrences of _ are fresh independently.
+   Nested lambdas obey the same lexical scope rules.
+
+   Creating a lambda constructs a closure; it does not execute its body or
+   evaluate its return expression. An anonymous function is invoked in a
+   function context, and an anonymous predicate in a predicate context, using
+   the existing higher_order_call syntax (or apply/call).
+
+   An anonymous predicate has one rule, using =>. A function lambda
+   follows ordinary function-rule behavior; its return expression is evaluated
+   after its body. Calls within a lambda retain the defining module context.
+   These scope and execution requirements are semantic, not grammar rules. */
 
 term_constructor ->
     "$" goal ["$"]
 
 /* A term has the same form as a goal except that it cannot contain assignments,
    loops or if statements. Note that subscript notations, range expressions, dot
-   notations, list comprehensions, and higher-order function calls are still 
-   treated as functions in term constructors */
+   notations, list comprehensions, anonymous definitions, and higher-order function 
+   calls are still treated as functions in term constructors */
 
 \end{verbatim}
 \end{scriptsize}

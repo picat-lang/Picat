@@ -521,6 +521,129 @@ The Picat module system is static, meaning that the binding of normal calls to t
 \item The global module.
 \end{enumerate}
 
+\section{Higher-order Calls and Anonymous Definitions}
+\label{section:overview-higher-order}
+\subsection{Higher-order Call Conventions}
+A predicate or function is said to be \emph{higher-order}\index{higher-order call} if it takes calls as arguments. The built-ins \texttt{call}\index{\texttt{call}}, \texttt{apply}\index{\texttt{apply}}, and \texttt{find\_all}\index{\texttt{find\_all/2}} are higher-order\index{higher-order call}. The predicate \texttt{call($S$, $Arg_1$, $\ldots$, $Arg_n$)}\index{\texttt{call}}, where $S$ is an atom\index{atom} or a structure naming a callable, calls the predicate named by $S$ with the arguments that are specified in $S$ together with extra arguments $Arg_1$, $\ldots$, $Arg_n$. The function \texttt{apply($S$,} \texttt{$Arg_1$,} \texttt{$\ldots$,} \texttt{$Arg_n$)}\index{\texttt{apply}} is similar to \texttt{call}\index{\texttt{call}}, except that \texttt{apply}\index{\texttt{apply}} returns a value. The function \texttt{findall($Template$, $S$)}\index{\texttt{findall/2}} returns a list of all possible solutions of \texttt{call($S$)}\index{\texttt{call}} in the form of $Template$. Other higher-order predicates and functions include:
+\begin{multicols}{2}
+\begin{itemize}
+\item \verb-\+/1-\index{{\verb-\+/1-}} (not)
+\item \texttt{call\_cleanup/2}\index{\texttt{call\_cleanup/2}}
+\item \texttt{catch/3}\index{\texttt{catch/3}}
+\item \texttt{count\_all/1}\index{\texttt{count\_all/1}}
+\item \texttt{freeze/2}\index{\texttt{freeze/2}}
+\item \texttt{maxof/2-3}\index{\texttt{maxof/2}}\index{\texttt{maxof/3}}
+\item \texttt{maxof\_inc/2-3}\index{\texttt{maxof\_inc/2}}\index{\texttt{maxof\_inc/3}}
+\item \texttt{minof/2-3}\index{\texttt{minof/2}}\index{\texttt{minof/3}}
+\item \texttt{minof\_inc/2-3}\index{\texttt{minof\_inc/2}}\index{\texttt{minof\_inc/3}}
+\item \texttt{not/1}\index{\texttt{not/1}}
+\item \texttt{once/1}\index{\texttt{once/1}}
+\item \texttt{time/1}\index{\texttt{time/1}}
+\item \texttt{time2/1}\index{\texttt{time/1}}
+\item \texttt{time\_out/3}\index{\texttt{time\_out/3}}
+\end{itemize}
+\end{multicols}
+All of these higher-order built-ins are defined in the {\tt basic} module, except for \texttt{time/1}, \texttt{time2/1}, and \texttt{time\_out/3}, which are defined in the {\tt sys} module. Literal callable terms cannot contain assignments or loops; compiled anonymous bodies can contain both.
+
+The higher-order predicate call \texttt{call($S$, $Arg_1$, $\ldots$, $Arg_n$)} and the function call \newline \texttt{apply($S$, $Arg_1$, $\ldots$, $Arg_n$)}, where $S$ is a variable at compile time, can both be written as \texttt{$S$($Arg_1$, $\ldots$, $Arg_n$)}. Picat translates this notation into a \texttt{call} or \texttt{apply} invocation depending on the context. Higher-order calls can also be module-qualified: \texttt{m.$S$($Arg_1$, $\ldots$, $Arg_n$)} invokes the function or predicate defined in module \texttt{m} whose symbol is referenced by $S$. Within a term constructor, a higher-order call whose name is a variable is always treated as a function call.
+
+\subsection*{Example}
+\begin{verbatim}
+Picat> S = $member(X), S([1,2,3])
+X = 1;
+X = 2;
+X = 3;
+no
+
+Picat> L = findall(X, member(X, [1,2,3])).
+L = [1,2,3]
+
+Picat> Z = apply('+', 1, 2)
+Z = 3
+
+Picat> F = $'*'(2), Z = F(2)
+F = '*'(2)
+Z = 4
+
+Picat> F = $'*'(2), Z = $p(F(2))
+F = '*'(2)
+Z = p(4)
+\end{verbatim}
+
+\subsection{Anonymous Definitions}
+\label{section:overview-anonymous}
+\index{anonymous function}\index{anonymous predicate}\index{lambda expression}
+An anonymous definition creates a function or predicate without giving it a
+name. An anonymous function, also called a lambda expression, has the form
+\begin{verbatim}
+([A1,A2,...,An] -> Res, B1,B2,...,Bm)
+\end{verbatim}
+where the bracketed list contains parameter patterns, \texttt{Res} is the
+return expression, and the remaining goals form the body. The body is
+executed before the return expression is evaluated. If no body is needed,
+the comma and body can be omitted. An anonymous predicate has the form
+\begin{verbatim}
+([A1,A2,...,An] => B1,B2,...,Bm)
+\end{verbatim}
+It has a body but no return expression. Parameters are terms, as in named
+rule heads, and follow the same pattern-matching conventions. An empty
+parameter list denotes a definition with no explicit arguments.
+
+Evaluating an anonymous definition creates a callable value, called a
+\emph{closure}; its body is executed only when it is invoked. Closures use the same variable-call conventions described above. For example:
+\begin{verbatim}
+Offset = 10,
+Add = ([X] -> X+Offset),
+Offset := 20,
+Y = Add(5),                 % Y = 15
+Print = ([X] => println(X)),
+Print(Y)
+\end{verbatim}
+The function closure captures the value \texttt{10} of \texttt{Offset} when
+it is created. The later assignment to \texttt{Offset} does not change that
+captured value. The predicate closure prints \texttt{15} when invoked.
+
+An anonymous definition forms a name scope, like a \texttt{foreach} loop.
+Variables that have already occurred in the enclosing scope are global to
+the definition; variables that first occur inside the definition are fresh
+locals. In the example, \texttt{Offset} is a context variable of
+\texttt{Add}, while each parameter \texttt{X} is local to its definition.
+The body can contain the usual goals, including assignments, conditionals,
+and loops. An anonymous predicate uses a single \texttt{=>} rule; no
+\texttt{?=>} form is needed.
+
+The compiler introduces a unique dummy name in the global module and
+compiles the anonymous definition like a named definition. Its body is
+compiled in the defining module, preserving that module's call resolution.
+The closure can consequently be passed to another module and invoked
+without importing its defining module. Chapter~\ref{chapter:higher-order}
+describes anonymous definitions and higher-order call conventions in detail.
+
+\subsection{Higher-order Routines}
+Among the higher-order built-ins, \texttt{findall}\index{\texttt{findall/2}} is special in that it forms a name scope like a loop. Local variables that occur in a \texttt{findall} call are not visible to subsequent calls in the body or query.
+
+The call \texttt{apply}\index{\texttt{apply}} never returns a partially evaluated function. If the number of arguments does not match the required number, then it throws an exception.
+
+\subsection*{Example}
+\begin{verbatim}
+map(F, []) = [].
+map(F, [X|Xs]) = [F(X) | map(F, Xs)].
+
+map2(F, [], []) = [].
+map2(F, [X|Xs], [Y|Ys]) = [F(X,Y) | map2(F,Xs,Ys)].
+
+fold(F, Acc, []) = Acc.
+fold(F, Acc, [H|T]) = fold(F, F(H, Acc), T).
+\end{verbatim}
+
+For example, the definitions above accept anonymous functions:
+\begin{verbatim}
+Ys = map(([X] -> X*X),[1,2,3]),    % Ys = [1,4,9]
+S = fold(([X,A] -> X+A),0,Ys)      % S = 14
+\end{verbatim}
+
+For named higher-order calls whose targets are unknown at compile time, runtime resolution can require a search of loaded modules. Such calls can incur additional overhead compared with direct calls.
+
 \section{\label{section:Constraints}Constraints}
 Picat can be used as a modeling and solving language for constraint\index{constraint} satisfaction and optimization problems.  A constraint\index{constraint} program normally poses a problem in three steps: (1) generate variables; (2) generate constraints\index{constraint} over the variables; and (3) call \texttt{solve}\index{\texttt{solve/1}}\index{\texttt{solve/2}} to find a valuation for the variables that satisfies the constraints\index{constraint}, and possibly optimizes an objective function. Picat provides four solver modules, including \texttt{cp}, \texttt{sat}, \texttt{smt}, and \texttt{mip}.
 
@@ -587,77 +710,6 @@ All exceptions, including those raised by built-ins and interruptions, can be ca
 The call \texttt{call\_cleanup($Goal$, $Cleanup$)} is equivalent to {\tt call($Goal$)}, except that \texttt{$Cleanup$} is called when \texttt{$Goal$} succeeds deterministically (i.e., with no remaining choice point), when \texttt{$Goal$} fails, or when \texttt{$Goal$} raises an exception.
 \index{\texttt{call\_cleanup/2}}
 
-
-\section{Higher-order Calls}
-A predicate or function is said to be \emph{higher-order}\index{higher-order call} if it takes calls as arguments. The built-ins \texttt{call}\index{\texttt{call}}, \texttt{apply}\index{\texttt{apply}}, and \texttt{find\_all}\index{\texttt{find\_all/2}} are higher-order\index{higher-order call}. The predicate \texttt{call($S$, $Arg_1$, $\ldots$, $Arg_n$)}\index{\texttt{call}}, where $S$ is an atom\index{atom} or a structure, calls the predicate named by $S$ with the arguments that are specified in $S$ together with extra arguments $Arg_1$, $\ldots$, $Arg_n$. The function \texttt{apply($S$,} \texttt{$Arg_1$,} \texttt{$\ldots$,} \texttt{$Arg_n$)}\index{\texttt{apply}} is similar to \texttt{call}\index{\texttt{call}}, except that \texttt{apply}\index{\texttt{apply}} returns a value. The function \texttt{findall($Template$, $S$)}\index{\texttt{findall/2}} returns a list of all possible solutions of \texttt{call($S$)}\index{\texttt{call}} in the form of $Template$. Other higher-order predicates and functions include:
-\begin{multicols}{2}
-\begin{itemize}
-\item \verb-\+/1-\index{{\verb-\+/1-}} (not)
-\item \texttt{call\_cleanup/2}\index{\texttt{call\_cleanup/2}}
-\item \texttt{catch/3}\index{\texttt{catch/3}}
-\item \texttt{count\_all/1}\index{\texttt{count\_all/1}}
-\item \texttt{freeze/2}\index{\texttt{freeze/2}}
-\item \texttt{maxof/2-3}\index{\texttt{maxof/2}}\index{\texttt{maxof/3}}
-\item \texttt{maxof\_inc/2-3}\index{\texttt{maxof\_inc/2}}\index{\texttt{maxof\_inc/3}}
-\item \texttt{minof/2-3}\index{\texttt{minof/2}}\index{\texttt{minof/3}}
-\item \texttt{minof\_inc/2-3}\index{\texttt{minof\_inc/2}}\index{\texttt{minof\_inc/3}}
-\item \texttt{not/1}\index{\texttt{not/1}}
-\item \texttt{once/1}\index{\texttt{once/1}}
-\item \texttt{time/1}\index{\texttt{time/1}}
-\item \texttt{time2/1}\index{\texttt{time/1}}
-\item \texttt{time\_out/3}\index{\texttt{time\_out/3}}
-\end{itemize}
-\end{multicols}
-All of these higher-order built-ins are defined in the {\tt basic} module, except for \texttt{time/1}, \texttt{time2/1}, and \texttt{time\_out/3}, which are defined in the {\tt sys} module. Higher-order calls cannot contain assignments or loops.
-
-The higher-order predicate call \texttt{call($S$, $Arg_1$, $\ldots$, $Arg_n$)} and the function call \newline \texttt{apply($S$, $Arg_1$, $\ldots$, $Arg_n$)}, where $S$ is a variable at compile time, can both be written as \texttt{$S$($Arg_1$, $\ldots$, $Arg_n$)}. Picat translates this notation into a \texttt{call} or \texttt{apply} invocation depending on the context. Higher-order calls can also be module-qualified: \texttt{m.$S$($Arg_1$, $\ldots$, $Arg_n$)} invokes the function or predicate defined in module \texttt{m} whose symbol is referenced by $S$. Within a term constructor, a higher-order call whose name is a variable is always treated as a function call.
-
-\subsection*{Example}
-\begin{verbatim}
-Picat> S = $member(X), S([1,2,3])
-X = 1;
-X = 2;
-X = 3;
-no
-
-Picat> L = findall(X, member(X, [1,2,3])).
-L = [1,2,3]
-
-Picat> Z = apply('+', 1, 2)
-Z = 3
-
-Picat> F = $'*'(2), Z = F(2)
-F = '*'(2)
-Z = 4
-
-Picat> F = $'*'(2), Z = $p(F(2))
-F = '*'(2)
-Z = p(4)
-\end{verbatim}
-\ignore{
-A lambda term in the form \texttt{lambda($VList$, $Exp$)}, where $VList$ is a list of input variables, and $Exp$ is an expression, denotes an anonymous function. The last command in the example is the same as \texttt{Z = apply(add, 1, 2)}\index{\texttt{apply}}, where \texttt{add} is a function defined as follows:
-\begin{verbatim}
-add(X, Y) = Z => Z = X+Y.
-\end{verbatim}
-}
-
-Among the higher-order built-ins, \texttt{findall}\index{\texttt{findall/2}} is special in that it forms a name scope like a loop. Local variables that occur in a \texttt{findall} call are not visible to subsequent calls in the body or query.
-
-The call \texttt{apply}\index{\texttt{apply}} never returns a partially evaluated function. If the number of arguments does not match the required number, then it throws an exception.
-
-\subsection*{Example}
-\begin{verbatim}
-map(F, []) = [].
-map(F, [X|Xs]) = [F(X) | map(F, Xs)].
-
-map2(F, [], []) = [].
-map2(F, [X|Xs], [Y|Ys]) = [F(X,Y) | map2(F,Xs,Ys)].
-
-fold(F, Acc, []) = Acc.
-fold(F, Acc, [H|T]) = fold(F, F(H, Acc), T).
-\end{verbatim}
-
-For a higher-order call, the runtime system searches loaded modules for a definition. Due to the overhead of runtime search, the use of higher-order calls is discouraged. Whenever possible, recursion, loops, or list and array comprehensions should be used instead.
 
 \section{Action Rules}
 Picat provides action rules\index{action rule} for describing event-driven actors\index{action rule}. An actor\index{action rule} is a predicate call that can be delayed, and can be activated later by events. Each time an actor\index{action rule} is activated, an action can be executed. A predicate for actors\index{action rule} contains at least one \emph{action rule}\index{action rule} in the form:
