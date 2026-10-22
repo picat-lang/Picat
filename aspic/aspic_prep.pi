@@ -343,7 +343,12 @@ inslines(Constr,Snips,Ls)=R=>
   Ifs=cond(Has=[],["import "++Constr++"."],[]),
   Has2=[1:X in Ls,isimport(X,"aspic_runtime")],
   Ifs2=cond(Has2=[],["import aspic_runtime."],[]),
-  R=Ifs++Ifs2++[L: Sp in Snips, L in Sp.split("\n")]
+  % the '#=' shim (v0.4.0): the generated islands post their objective
+  % through $suml/$when udf terms, expanded by the runtime's aspic_flatten;
+  % the shim must live in the CALLING module to take precedence over the
+  % imported solver's own '#='
+  Shim=["'#='(L,R)  => "++Constr++".'#='(aspic_flatten(L), aspic_flatten(R))."],
+  R=Ifs++Ifs2++Shim++[L: Sp in Snips, L in Sp.split("\n")]
   .
 
 lastimp([],I,Acc,P)=>P=Acc.

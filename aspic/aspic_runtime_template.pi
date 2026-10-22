@@ -1,10 +1,43 @@
 import ASPIC_CONSTRAINTS_LIB.
+import udf.
 import datetime.
 import util.
 import os.
 import math.
 import ordset.
 import datetime.
+
+% ---------------------------------------------------------------------------
+%  The udf layer of the generated programs (v0.4.0).
+%
+%  ASP aggregates are translated into ONE udf term per aggregate instead of
+%  the old chain of supplementary variables (ASPIC_OPTCOND1/2/3,
+%  ASPIC_AGVAL1/2).  The generated program posts its constraints through the
+%  shimmed '#=' (emitted next to the program), whose arguments are expanded
+%  here before the solver sees them:
+%
+%      $suml([$when(C,V), ...])   the value of the aggregate: V when the
+%                                 0/1 condition C holds, 0 otherwise
+%
+%  $when/$suml are registered once per load by aspic_udf_init (called at the
+%  head of every generated main/island predicate); aspic_flatten is the
+%  wrapper the emitted '#=' shim calls, so the generated program itself never
+%  references udf directly and needs no "import udf.".
+% ---------------------------------------------------------------------------
+aspic_flatten(E)=F => F=udf.flatten(E).
+
+aspic_udf_init =>
+    S=get_heap_map(aspic_udfinit),
+    (S.get(done,0)==0 ->
+        udf.define($when(C,V), $(cond(C,V,0))),
+        udf.define($nwhen(C,V), $(cond(C, 0 - V, 0))),
+        udf.define($suml([]), 0),
+        udf.define($suml([H|T]), $(H + suml(T))),
+        % the recursive $suml expansion descends one level per element, so a
+        % large objective exceeds the default depth limit of 100
+        udf.set_max_depth(1000),
+        S.put(done,1)
+    ; true).
 
 % Every (re)load of a program that uses an embedded ASP block must get
 % fresh heap maps: the atom->fdvar maps persist in the same interpreter

@@ -74,7 +74,7 @@ end
 % is generated as the zero-argument aspic_completion_1; aspic_solve_sub
 % turns learning off and calls it directly against the final universe,
 % then solves.
-,genprintln("aspic_"++ID++"(ASPIC_OPT)=>ASPIC_SEARCH:="++Constr.to_string()++",")
+,genprintln("aspic_"++ID++"(ASPIC_OPT)=>aspic_udf_init(),ASPIC_SEARCH:="++Constr.to_string()++",")
 ,genprintln("aspic_startlearning(),")
 ,translate_rules(T,1) %facts, definite rules, equivalences
 ,translate_rules(T,11) %choice rules, after the atom-creating rules
@@ -232,12 +232,13 @@ d(rsmini=T),
 V=getsetvars(T).compactvars
 %,d(setvarsmini=V)
 ,T2=replacevars(V,[X[1]:X in V],T),T2=..[_|L]
-,d(t2=T2)
-,d(l=L)
-,d(l11=L[1,1])
-,R="([ASPIC_OPTCOND3:" ++ join([X[1].to_string()++" in "++cond(X[2]=[],"universe()",showrange(X[2])):X in V],',')
+%ELEM/EV/EABIND and the bracket text: kept in sync with aspic_transpiler.pi
+,ELEM=L[1,1]
+,EV=cond(member(ELEM,[X[1]:X in V]),ELEM.to_string(),"EA")
+,EABIND=cond(member(ELEM,[X[1]:X in V]),"","EA = "++ELEM.to_string()++",")
+,R="[$when(WC, "++EV++") : " ++ join([X[1].to_string()++" in "++cond(X[2]=[],institer(L[2],X[1]),showrange(X[2])):X in V],',')
 ++cond(V!=[],"","_ in 1..1")
-++",ASPIC_OPTCOND1="++L[2].to_string()++",ASPIC_OPTCOND2#=ASPIC_OPTCOND1,ASPIC_AGVAL1= "++L[1,1].to_string()++",ASPIC_AGVAL2#=ASPIC_AGVAL1,ASPIC_OPTCOND3#=cond(ASPIC_OPTCOND2,ASPIC_AGVAL2,0)])"
+++","++EABIND++"WC = "++L[2].to_string()++"]"
 ,d(r=R)
 ,d(rsmini_done_for=T)
 .
@@ -245,7 +246,10 @@ V=getsetvars(T).compactvars
 % op decides the aggregated value: the count aggregates 1 per true
 % condition (the elements can be non-numeric symbols, which the fd
 % constraint store rejects with invalid_constraint_exp), the others
-% aggregate the element itself
+% aggregate the element itself.
+% v0.4.0: the minimal two-locals-per-instance chain (WC the condition, W3
+% the contribution) over the instances of the binding body atom; kept in
+% sync with aspic_transpiler.pi
 replacesetmini(T)=R,functor(T,$aspic_agval,2)
 =>
 d(rsmini=T),
@@ -253,9 +257,11 @@ T=..[_,Op,VALSET],
 V=getsetvars(VALSET).compactvars
 ,T2=replacevars(V,[X[1]:X in V],T),T2=..[_,Op,VALSET2],VALSET2=..[_,L1,L2]
 ,d({op=Op,l1=L1,l2=L2})
-,R="aspic_"++Op.to_string()++"([ASPIC_OPTCOND3:" ++ join([X[1].to_string()++" in "++cond(X[2]=[],"universe()",showrange(X[2])):X in V],',')
+,EV=cond(Op.to_string()=="count","1",cond(member(L1[1],[X[1]:X in V]),L1[1].to_string(),"EA"))
+,EABIND=cond(Op.to_string()=="count","",cond(member(L1[1],[X[1]:X in V]),"","EA = "++L1[1].to_string()++","))
+,R="aspic_"++Op.to_string()++"([W3 : " ++ join([X[1].to_string()++" in "++cond(X[2]=[],institer(L2,X[1]),showrange(X[2])):X in V],',')
 ++cond(V!=[],"","_ in 1..1")
-++",ASPIC_OPTCOND1="++L2.to_string()++",ASPIC_OPTCOND2#=ASPIC_OPTCOND1,ASPIC_AGVAL1= "++cond(Op.to_string()=="count","1",L1[1].to_string())++",ASPIC_AGVAL2#=ASPIC_AGVAL1,ASPIC_OPTCOND3#=cond(ASPIC_OPTCOND2,ASPIC_AGVAL2,0)])"
+++", "++EABIND++"WC = "++L2.to_string()++", W3 #= cond(WC, "++EV++", 0)])"
 ,d(r=R)
 ,d(rsmini_done_for=T)
 .
@@ -297,9 +303,12 @@ NAME="ASPIC_AGVAR"++N.to_string(),
 T=..[_,Op,VALSET],
 V=getsetvars(VALSET).compactvars,
 T2=replacevars(V,[X[1]:X in V],T),T2=..[_,Op,VALSET2],VALSET2=..[_,L1,L2],
-COMPR="aspic_"++Op.to_string()++"([ASPIC_OPTCOND3:" ++ join([X[1].to_string()++" in "++cond(X[2]=[],"universe()",showrange(X[2])):X in V],',')
+% kept in sync with aspic_transpiler.pi (the minimal chain)
+EV=cond(Op.to_string()=="count","1",cond(member(L1[1],[X[1]:X in V]),L1[1].to_string(),"EA")),
+EABIND=cond(Op.to_string()=="count","",cond(member(L1[1],[X[1]:X in V]),"","EA = "++L1[1].to_string()++",")),
+COMPR="aspic_"++Op.to_string()++"([W3 : " ++ join([X[1].to_string()++" in "++cond(X[2]=[],institer(L2,X[1]),showrange(X[2])):X in V],',')
 ++cond(V!=[],"","_ in 1..1")
-++",ASPIC_OPTCOND1="++L2.to_string()++",ASPIC_OPTCOND2#=ASPIC_OPTCOND1,ASPIC_AGVAL1= "++cond(Op.to_string()=="count","1",L1[1].to_string())++",ASPIC_AGVAL2#=ASPIC_AGVAL1,ASPIC_OPTCOND3#=cond(ASPIC_OPTCOND2,ASPIC_AGVAL2,0)])",
+++", "++EABIND++"WC = "++L2.to_string()++", W3 #= cond(WC, "++EV++", 0)])",
 LS=cond(M.has_key(lines),M.get(lines),[]),
 M.put(lines,LS++[NAME++":: -100000..100000",NAME++"="++COMPR,"get_heap_map(aspic_m(aspic_aggrvars)).put(aspic_aggr_"++N.to_string()++","++NAME++")"]),
 R=to_atom("aspic_aggr_"++N.to_string()).
@@ -749,7 +758,7 @@ MiniText:=[X:X in L[10..L.len],X!=' ',ord(X)>32],
 d(topt=TOpt)
 ,TOpt:=TOpt.allvariants
 ,TOpt:=TOpt[1]
-,Terms:=[(1,"sum"++replacesetmini(TOpt))|Terms]
+,Terms:=[(1,replacesetmini(TOpt))|Terms]
 ,d(mini_terms=Terms)
 ;Dr:=[("invalid #minimize (expected one-line { Weight,Terms : Body }.): "++L)|Dr])
 ;Dr:=[("invalid #minimize (expected a { ... } set after the directive): "++L)|Dr])
@@ -760,7 +769,7 @@ MiniText:=[X:X in L[10..L.len],X!=' ',ord(X)>32],
 d(topt=TOpt)
 ,TOpt:=TOpt.allvariants
 ,TOpt:=TOpt[1]
-,Terms:=[(-1,"sum"++replacesetmini(TOpt))|Terms]
+,Terms:=[(-1,replacesetmini(TOpt))|Terms]
 ,d(maxi_terms=Terms)
 ;Dr:=[("invalid #maximize (expected one-line { Weight,Terms : Body }.): "++L)|Dr])
 ;Dr:=[("invalid #maximize (expected a { ... } set after the directive): "++L)|Dr])
@@ -809,31 +818,46 @@ end
 % unify the weak constraints and the #minimize/#maximize directives into
 % ONE signed objective (clingo: a #minimize element IS a weak constraint
 % :~ body. [w@l,t], a #maximize element IS :~ body. [-w@l,t] - the weight
-% sign distinguishes them). Terms is a list of (Sign,SumString) pairs:
-% +1 for #minimize and weak constraints, -1 for #maximize. All-positive or
-% all-negative objectives keep the plain join with Dir=min or Dir=max
+% sign distinguishes them). Terms is a list of (Sign,BracketText) pairs;
+% each BracketText is a comprehension contributing $when terms (v0.4.0).
+% All-positive or all-negative objectives wrap the JOINED element lists in
+% ONE $suml (a $-term cannot follow the + operator in Picat, so the lists
+% are concatenated with ++ inside a comprehension) with Dir=min or Dir=max
 % (backward compatible with the single-directive behavior: a pure
-% #maximize objective stays positive and maximized); a mixed-sign
-% objective is the signed join, minimized.  Kept in sync with
-% aspic_transpiler.pi.
+% #maximize objective stays positive and maximized). A mixed-sign
+% objective negates the contributions of the -1 terms ($nwhen instead of
+% $when) and is minimized.  Kept in sync with aspic_transpiler.pi.
 ,(Terms==[] ->
    ObjMin="0",ObjDir=min
  ; Ts=[P[2]:P in Terms],Sg=[P[1]:P in Terms],
    (not(member(1,Sg)) ->
-      ObjMin=join(Ts,"+"),ObjDir=max
+      ObjMin="$suml([X : X in "++join(Ts," ++ ")++"])",ObjDir=max
    ; not(member(-1,Sg)) ->
-      ObjMin=join(Ts,"+"),ObjDir=min
-   ;  % mixed signs: the signed join in program order; a space before each
-      % sign (the picat tokenizer rejects the sequence #=- with the minus
-      % directly after the =, while #= -sum(...) is fine)
-      ObjStr="",I=0,
-      foreach(P in Terms)
-        I:=I+1,
-        Pfx=cond(I=1,cond(P[1]=1,""," -"),cond(P[1]=1," +"," -")),
-        ObjStr:=ObjStr++Pfx++P[2]
-      end,
-      ObjMin=ObjStr,ObjDir=min))
+      ObjMin="$suml([X : X in "++join(Ts," ++ ")++"])",ObjDir=min
+   ;  % mixed signs: the -1 terms contribute NEGATED values ($nwhen);
+      % the token carries the $ ("$when(" is not a substring of "$nwhen(",
+      % so the replacement cannot loop)
+      Ts2=[cond(P[1]=1,P[2],replaceallin(P[2],"$when(","$nwhen(")):P in Terms],
+      ObjMin="$suml([X : X in "++join(Ts2," ++ ")++"])",ObjDir=min))
+ .
+
+% replaceallin(S,Old,New)=R: every occurrence of the token Old in the
+% string S replaced by New (used to turn the emitted $when terms of a
+% negative-sign aggregate into $nwhen terms); kept in sync with
+% aspic_transpiler.pi
+replaceallin(S,Old,New)=R,Old=[]=>R=S.
+replaceallin(S,Old,New)=R =>
+    (find_sub(S,Old,1,I) ->
+        Len=Old.length,
+        replaceallin(S[1..I-1]++New++S[I+Len..S.length],Old,New)=R
+    ; R=S)
 .
+
+% find_sub(S,Old,From,I): the position of the first occurrence of Old in S
+% at or after the 1-based position From; fails when there is none
+find_sub(S,Old,From,I),From+Old.length-1>S.len=>fail.
+find_sub(S,Old,From,I),S[From..From+Old.length-1]==Old=>I=From.
+find_sub(S,Old,From,I)=>find_sub(S,Old,From+1,I).
 
 % weakline(L)=MiniSet: parse one ":~ Body. [Weight@Level,Terms]" line and
 % return the equivalent #minimize set text with the @Level part removed
@@ -875,7 +899,7 @@ end
 ,p(mini,Set,ROpt,TOpt)
 ,TOpt:=TOpt.allvariants
 ,TOpt:=TOpt[1]
-,MiniText="sum"++replacesetmini(TOpt)
+,MiniText=replacesetmini(TOpt)
 .
 
 % matchopen(L,J)=I: position of the '[' matching the ']' at position J

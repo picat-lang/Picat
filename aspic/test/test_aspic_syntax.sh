@@ -28,6 +28,11 @@ if ! command -v picat >/dev/null 2>&1; then
     exit 1
 fi
 
+# The generated programs use the runtime's udf layer (aspic_runtime.pi imports
+# udf, which lives in lib2, one level above this repo's aspic/ folder): put
+# that lib2 on the module search path for every run step.
+export PICATPATH="$ASPIC_DIR/../lib2${PICATPATH:+:$PICATPATH}"
+
 TMP="$(mktemp -d "$ASPIC_DIR/test/tmp_XXXXXX")"
 trap 'rm -rf "$TMP"; rm -f t.pi t2.pi' EXIT
 
@@ -73,7 +78,7 @@ for f in test/cases/ok_*.lp; do
     fi
     case "$name" in
     ok_minimize.lp)
-        if ! grep -q 'ASPIC_OPT#=sum(' "$TMP/err.txt"; then
+        if ! grep -q 'ASPIC_OPT#=\$suml(' "$TMP/err.txt"; then
             bad "$name: generated code lacks the #minimize objective"
             continue
         fi ;;
@@ -101,7 +106,7 @@ for f in test/cases/ok_*.lp; do
             continue
         fi ;;
     ok_weak.lp)
-        if ! grep -q 'ASPIC_OPT#=sum(' "$TMP/err.txt"; then
+        if ! grep -q 'ASPIC_OPT#=\$suml(' "$TMP/err.txt"; then
             bad "$name: the weak constraint did not produce the penalty objective"
             continue
         fi
@@ -110,7 +115,7 @@ for f in test/cases/ok_*.lp; do
             continue
         fi ;;
     ok_weak_multi.lp)
-        if ! grep -q 'ASPIC_OPT#=sum(.*)+sum(' "$TMP/err.txt"; then
+        if ! grep -q 'ASPIC_OPT#=\$suml(\[X : X in .*\+\+ ' "$TMP/err.txt"; then
             bad "$name: the two weak constraints were not merged into one summed objective"
             continue
         fi ;;
@@ -168,7 +173,7 @@ for f in test/cases/run_*.lp; do
         continue
     fi
     # keep only the generated program (drop picat compile messages)
-    awk '/^import (sat|cp)\./{found=1} found' "$TMP/gen.txt" > "$TMP/gen.pi"
+    awk '/^import (sat|cp|aspic_runtime)\./{found=1} found' "$TMP/gen.txt" > "$TMP/gen.pi"
     picat -log -s 1234567890 "$TMP/gen.pi" >"$TMP/run_out.txt" 2>&1
     case "$name" in
     run_negation.lp)

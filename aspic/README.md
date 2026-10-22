@@ -317,7 +317,13 @@ the card's bounds arguments.
 
 # Requirements
 
-- you do have Picat installed (tested with 3.9)
+- you do have Picat installed (tested with the experimental build 4.0b8)
+
+- the generated programs import `udf` (the user-defined-functions layer in
+  constraints), which lives in `lib2` one level above this folder: running a
+  converted program needs `PICATPATH` to include that `lib2`, e.g.
+  `PICATPATH=<repo>/lib2 picat t.pi`. The test battery
+  (`test/test_aspic_syntax.sh`) sets this itself.
 
 - for the optional script "show", one needs to have python3 installed 
 
@@ -328,6 +334,43 @@ the card's bounds arguments.
 - so far only tested on Linux 
 
 # Version history
+
+v0.4.0 (the udf rewrite of the generated code):
+
+- the translated programs use the udf machinery (lib2/udf.pi, user-defined
+  functions in constraints) instead of the old chains of supplementary
+  variables (`ASPIC_OPTCOND1/2/3`, `ASPIC_AGVAL1/2`, hand-rolled `aspic_sum`
+  chains, universe-wide enumeration). The generated code is much shorter and
+  reads like the source ASP:
+  - every aggregate/objective is ONE udf term posted through the shimmed
+    `'#=`: `ASPIC_OPT #= $suml([X : X in C1 ++ C2])` (a `$`-term cannot
+    follow the `+` operator in Picat, so the element lists are concatenated
+    with `++` inside one comprehension). The `$when(C,V)` primitive
+    contributes V when the 0/1 condition C holds, 0 otherwise; an
+    all-negative objective flips the direction instead of negating terms; a
+    mixed-sign objective turns the -1 terms' `$when` into `$nwhen`
+    (`$nwhen(C,V) = cond(C, 0-V, 0)`) and minimizes.
+  - aggregate comprehensions enumerate over `aspic_instances(P,N,I)` (the
+    binding atom's instances) instead of the whole `universe()`.
+  - rule-body aggregates use the minimal two-locals-per-instance chain
+    `[W3 : X in ..., WC = <cond>, W3 #= cond(WC, <elem>, 0)]`.
+  - the generated program carries no scaffolding predicates: the runtime
+    (`aspic_runtime_template.pi`) defines the udf layer (`import udf.`, the
+    `aspic_flatten` wrapper and the idempotent `aspic_udf_init` registering
+    `$when/$nwhen/$suml`), called at the head of every generated
+    main/island predicate, and the objective/constraint goes through the
+    shim line `'#='(L,R) => <solver>.'#='(aspic_flatten(L), aspic_flatten(R)).`
+    emitted next to the program (the embedded flow splices it into the
+    calling module — a module's own definitions beat an imported solver's).
+- verification: `test/test_aspic_syntax.sh` — 88 passed, 0 failed;
+  `test/compare_baseline.sh` — every shipped example's answers equal the
+  unmodified upstream transpiler's (objectives all match; 0 differences);
+  `test/speed_baseline.sh` — overall run time within 1% of the unmodified
+  transpiler (backpack 2.2x faster, the largest queens example ~8% slower).
+- harness fixes the rewrite required: the battery's `PICATPATH` now points
+  at `<repo>/lib2` (the old `aspic/lib2` never existed), and the awk that
+  extracts the generated program from the transpiler's stderr also matches
+  `import aspic_runtime.` (v0.4.0 emits it first, before `import sat.`).
 
 v0.3.27:
 
