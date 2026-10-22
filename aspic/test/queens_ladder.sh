@@ -63,7 +63,7 @@ gen() {
     sed "s/^#const n = 128\./#const n = $n./" examples/queens5.lp > "$dir/queens.lp"
     ( cd "$dir" \
       && PICATPATH="$REPO_DIR/lib2" timeout $TMO picat -log "$src/aspic_transpiler.pi" run queens.lp >/dev/null 2>gen.txt \
-      && awk '/^import (sat|cp|aspic_runtime)\./{found=1} found' gen.txt > gen.pi ) || return 1
+      && awk '/^import (sat2|cp2|sat|cp|aspic_runtime)\./{found=1} found' gen.txt > gen.pi ) || return 1
 }
 
 # run_timed DIR N OUT: run the generated program once as a warmup (the first

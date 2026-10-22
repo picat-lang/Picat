@@ -651,13 +651,13 @@ end
 ,if Extra==subcp then Constr:=cp,end,
 _=command("sed s/ASPIC_CONSTRAINTS_LIB/"++Constr.to_string()++"/g aspic_runtime_template.pi>aspic_runtime.pi")
 ,if ((Extra!=subsat, Extra!=subcp)) then
-println(stderr,"import "++Constr.to_string()++".\nimport aspic_runtime"++cond(Extra==debug,"_debug","")++".")
+println(stderr,"import "++Constr.to_string()++"2.\nimport aspic_runtime"++cond(Extra==debug,"_debug","")++".")
 end
 ,println(stderr,"var(X,_)=X.\nrange(_,_)=0.")
-% the '#=' shim (v0.4.0): expands udf terms (the $suml/$when aggregates)
-% through the runtime wrapper and delegates back to the solver; the
-% generated program itself never references udf
-,println(stderr,"'#='(L,R)  => "++Constr.to_string()++".'#='(aspic_flatten(L), aspic_flatten(R)).")
+% v0.4.1: the '#=' shim comes from the sat2/cp2 lib (imported above) - no
+% per-program shim line is defined; the lib's shim expands udf terms (the
+% $suml/$when aggregates) through its uf_flatten wrapper and delegates back
+% to the solver
 ,H=get_heap_map(asp_atoms)
 ,Native=get_heap_map(native_atoms)
 ,foreach(P in H.keys())

@@ -112,3 +112,12 @@ dollar claim: the multi-call form is ONE $-term wrapping the whole
 expression with the unmarked calls inside ($(f+g), $(f(1)+g(1))), never
 two $-terms joined by an operator.  Verified with exp15 (also: a 0-arity
 udf function cannot be defined - $f throws struct_expected).
+
+## Entry 17 (Thu Oct 22 2026)
+
+"don't keep defining shims, they are all in cp2 and sat2 libs, just import
+those instead of cp and sat" + "they are in lib2, pay attention to picat's
+-path arg" - the generated programs import sat2/cp2 (the lib2 shim
+libraries) instead of sat/cp; the per-program '#=' shim lines and the
+runtime's aspic_flatten wrapper are removed; lib2 must be on the module
+search path (PICATPATH or picat's -path argument).

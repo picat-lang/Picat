@@ -76,7 +76,7 @@ run_lp() {
     [ -f examples/edges.txt ] && cp examples/edges.txt "$dir/"
     ( cd "$dir" \
       && timeout $TMO picat -log aspic_transpiler.pi run "$file" >/dev/null 2>gen.txt \
-      && awk '/^import (sat|cp|aspic_runtime)\./{found=1} found' gen.txt > gen.pi \
+      && awk '/^import (sat2|cp2|sat|cp|aspic_runtime)\./{found=1} found' gen.txt > gen.pi \
       && timeout $TMO picat -log -s 1234567890 gen.pi >run_out.txt 2>&1 )
 }
 
@@ -163,8 +163,11 @@ for f in examples/picasp_backpack.pi examples/asp_embedded_in_picat.pi examples/
     # counts which differ by design - the new emitter introduces fewer -, and
     # the timestamp lines)
     filt() { grep -vE '^(satext: |\*\*\* lint:|cpvars = |cprules = |date_time|Compiling::|\*\* Warning)' "$1" 2>/dev/null; }
-    filt "$WORK/pi_new_$name/run_out.txt" > "$WORK/pi_new_$name/filt.txt"
-    filt "$WORK/pi_old_$name/run_out.txt" > "$WORK/pi_old_$name/filt.txt"
+    # the semantic output only, order-insensitive: a multi-solution example
+    # may print the same solutions in a different order between the versions
+    # (the backtracking order varies with the solver's search)
+    filt "$WORK/pi_new_$name/run_out.txt" | sort > "$WORK/pi_new_$name/filt.txt"
+    filt "$WORK/pi_old_$name/run_out.txt" | sort > "$WORK/pi_old_$name/filt.txt"
     if diff -q "$WORK/pi_new_$name/filt.txt" "$WORK/pi_old_$name/filt.txt" >/dev/null 2>&1; then
         echo "  MATCH $name"
         ok

@@ -37,19 +37,24 @@ aggregate/objective posted through a shimmed `'#='`.
     `$nwhen` (negated contribution), Dir=min
   - enumerations use `aspic_instances(P,N,I)` (the binding atom's instances)
     instead of `universe()`
-  - the generated program defines no scaffolding predicates itself; it gets
-    `main=>aspic_udf_init(),ASPIC_SEARCH:=<solver>,...` and one shim line
-    `'#='(L,R) => <solver>.'#='(aspic_flatten(L), aspic_flatten(R)).`
+  - the generated program defines no scaffolding predicates and no shims: it
+    imports **sat2/cp2** (the lib2 shim libraries, whose `'#=` expands udf
+    terms through `uf_flatten`), gets
+    `main=>aspic_udf_init(),ASPIC_SEARCH:=<solver>,...` and no shim line
+    (v0.4.1 removed the emitted `'#='` shim and the runtime's
+    `aspic_flatten` wrapper — the sat2/cp2 libs provide the shims; they
+    live in lib2, so the runs need lib2 on the module path: `PICATPATH` or
+    picat's `-path` argument)
 - `aspic/aspic_gen.pi` — the in-process twin, kept in sync (same clause
   bodies; island predicate head `aspic_<ID>(ASPIC_OPT)=>aspic_udf_init(),...`).
-- `aspic/aspic_prep.pi` — the embedded flow splices the same `'#='` shim
-  after the imports of the calling module (a module's own definitions beat an
-  imported solver's `'#='`).
+- `aspic/aspic_prep.pi` — the embedded flow splices `import sat2.`/`import
+  cp2.` after the imports of the calling module (no shim line since v0.4.1).
 - `aspic/aspic_runtime_template.pi` — the runtime defines the udf layer:
-  `import udf.`, the wrapper `aspic_flatten(E)=F => F=udf.flatten(E).` and the
-  idempotent `aspic_udf_init` registering `$when(C,V)=$(cond(C,V,0))`,
-  `$nwhen(C,V)=$(cond(C,0-V,0))`, `$suml([])=0`, `$suml([H|T])=$(H+suml(T))`.
-  Generated code never references `udf` directly.
+  `import udf.` and the idempotent `aspic_udf_init` registering
+  `$when(C,V)=$(cond(C,V,0))`, `$nwhen(C,V)=$(cond(C,0-V,0))`,
+  `$suml([])=0`, `$suml([H|T])=$(H+suml(T))`, and raising the expansion
+  depth limit (`udf.set_max_depth(1000)`).  Generated code never references
+  `udf` directly.
 - Battery `aspic/test/test_aspic_syntax.sh`: **88 passed, 0 failed**
   (as of Thu Oct 22 2026). Two harness fixes were needed for v0.4.0:
   - `PICATPATH="$ASPIC_DIR/../lib2..."` (lib2 is one level ABOVE the repo's

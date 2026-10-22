@@ -319,11 +319,12 @@ the card's bounds arguments.
 
 - you do have Picat installed (tested with the experimental build 4.0b8)
 
-- the generated programs import `udf` (the user-defined-functions layer in
-  constraints), which lives in `lib2` one level above this folder: running a
-  converted program needs `PICATPATH` to include that `lib2`, e.g.
-  `PICATPATH=<repo>/lib2 picat t.pi`. The test battery
-  (`test/test_aspic_syntax.sh`) sets this itself.
+- the generated programs import the sat2/cp2 lib and `udf`, which live in
+  `lib2` one level above this folder: running a converted program needs that
+  `lib2` on the module search path, either through the `PICATPATH`
+  environment variable (e.g. `PICATPATH=<repo>/lib2 picat t.pi`) or through
+  picat's `-path` argument (e.g. `picat -path <repo>/lib2 t.pi`).  The test
+  battery (`test/test_aspic_syntax.sh`) sets this itself.
 
 - for the optional script "show", one needs to have python3 installed 
 
@@ -354,14 +355,14 @@ v0.4.0 (the udf rewrite of the generated code):
     binding atom's instances) instead of the whole `universe()`.
   - rule-body aggregates use the minimal two-locals-per-instance chain
     `[W3 : X in ..., WC = <cond>, W3 #= cond(WC, <elem>, 0)]`.
-  - the generated program carries no scaffolding predicates: the runtime
-    (`aspic_runtime_template.pi`) defines the udf layer (`import udf.`, the
-    `aspic_flatten` wrapper and the idempotent `aspic_udf_init` registering
-    `$when/$nwhen/$suml`), called at the head of every generated
-    main/island predicate, and the objective/constraint goes through the
-    shim line `'#='(L,R) => <solver>.'#='(aspic_flatten(L), aspic_flatten(R)).`
-    emitted next to the program (the embedded flow splices it into the
-    calling module — a module's own definitions beat an imported solver's).
+  - the generated program carries no scaffolding predicates and defines no
+    shims: it imports the **sat2/cp2 lib** (the lib2 shim libraries, whose
+    `'#=` expands its arguments through `uf_flatten` and delegates back to
+    the solver), the runtime (`aspic_runtime_template.pi`) defines the udf
+    layer (`import udf.` and the idempotent `aspic_udf_init` registering
+    `$when/$nwhen/$suml`), called at the head of every generated main/island
+    predicate.  The embedded flow splices `import sat2.`/`import cp2.`
+    into the calling module the same way.
 - verification: `test/test_aspic_syntax.sh` — 88 passed, 0 failed;
   `test/compare_baseline.sh` — every shipped example's answers equal the
   unmodified upstream transpiler's (objectives all match; 0 differences);

@@ -173,7 +173,7 @@ for f in test/cases/run_*.lp; do
         continue
     fi
     # keep only the generated program (drop picat compile messages)
-    awk '/^import (sat|cp|aspic_runtime)\./{found=1} found' "$TMP/gen.txt" > "$TMP/gen.pi"
+    awk '/^import (sat2|cp2|sat|cp|aspic_runtime)\./{found=1} found' "$TMP/gen.txt" > "$TMP/gen.pi"
     picat -log -s 1234567890 "$TMP/gen.pi" >"$TMP/run_out.txt" 2>&1
     case "$name" in
     run_negation.lp)

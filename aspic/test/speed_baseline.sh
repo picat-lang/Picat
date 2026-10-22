@@ -62,7 +62,7 @@ run_lp() {
     local t0 t1
     ( cd "$dir" \
       && timeout $TMO picat -log aspic_transpiler.pi run "$file" >/dev/null 2>gen.txt \
-      && awk '/^import (sat|cp|aspic_runtime)\./{found=1} found' gen.txt > gen.pi \
+      && awk '/^import (sat2|cp2|sat|cp|aspic_runtime)\./{found=1} found' gen.txt > gen.pi \
       && t0=$(now_ms) \
       && timeout $TMO picat -log -s 1234567890 gen.pi >run_out.txt 2>&1 \
       && t1=$(now_ms) \
