@@ -1,0 +1,25 @@
+import cp.
+import udf.
+
+'#='(L,R)  => cp.'#='(udf.flatten(L), udf.flatten(R)).
+
+main =>
+    udf.define($when(C,V), $(C*V)),
+
+    % the runtime shape: L1/L2 are variables holding lists of when-TERMS,
+    % built before the objective line; the objective sums their concatenation
+    C1 :: 0..1, C2 :: 0..1, X :: 0..10,
+    L1 = [$when(C1,2), $when(C2,3)],
+    L2 = [],
+    (catch(X #= sum(L1 ++ L2), E1, true) ->
+        solve([$max(X),rand],[X,C1,C2]),
+        println($sum_list([X,C1,C2]))
+    ;
+        println(sum_list_failed)),
+
+    C3 :: 0..1, C4 :: 0..1, Y :: 0..10,
+    M1 = [$when(C3,2), $when(C4,3)],
+    M2 = [],
+    Y #= sum([Z : Z in M1 ++ M2]),
+    solve([$max(Y),rand],[Y,C3,C4]),
+    println($comprehension([Y,C3,C4])).
