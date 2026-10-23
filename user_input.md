@@ -154,3 +154,16 @@ copies and one historical handover note.
 rebuilt dist, rc=0, valid 8-queens board) was already done; the
 stdout-passing variant of the headless harness (scratch/wasmshow/show.js)
 is committed.
+
+## Entry 22 (Fri Oct 23 2026)
+
+"in hk_jobs the transformation of plain facts to function configurations
+returning 1 misses the ones with options (semicolon). e.g. person, job.
+examine how male and female work and these other ones miss" then "yes" -
+examination: collecthead_choice marked ALL the cardinality set's arguments
+as atom-generating, so the enumeration domain (person/job) lost the
+fact-function classification and became fd variables. Fix (v0.4.3):
+collecthead_choice marks only the set element (Es[1]); person/job now get
+person(roberta)=1./person(_)=0. and the choice rules enumerate over
+aspic_instances instead of universe(). Battery 88/0, baseline comparison
+31 matched / 0 differ.

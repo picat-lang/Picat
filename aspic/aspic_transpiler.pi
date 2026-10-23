@@ -416,7 +416,11 @@ collecthead_gen(L),L=..[F|Args],F==aspic_card=>collecthead_choice(Args[1]).
 collecthead_gen(L),L=..[F|_]=>get_heap_map(asp_genheads).put(F,1).
 
 collecthead_choice(S),var(S)=>true.
-collecthead_choice(S),S=..[_|Es]=>foreach(E in Es) collecthead_gen(E) end.
+% only the SET ELEMENT (Es[1]) is an atom-generating choice: the enumeration
+% DOMAIN (Es[2], e.g. person in 1{has_job(P,J):person(P)}1) must NOT be
+% marked - a fact-only domain then keeps its fact functions P(args)=1./P(_)=0.
+% (a derived domain is still caught by its own rule-head occurrences)
+collecthead_choice(S),S=..[_|Es]=>collecthead_gen(Es[1]).
 
 groundargs([])=>true.
 groundargs([A|Args])=>groundterm(A),groundargs(Args).

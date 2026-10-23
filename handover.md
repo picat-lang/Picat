@@ -50,6 +50,13 @@ aggregate/objective posted through a shimmed `'#='`.
   bodies; island predicate head `aspic_<ID>(ASPIC_OPT)=>aspic_udf_init(),...`).
 - `aspic/aspic_prep.pi` — the embedded flow splices `import sat2.`/`import
   cp2.` after the imports of the calling module (no shim line since v0.4.1).
+- `collecthead_choice` (both translators, v0.4.3) marks only the SET ELEMENT
+  of a choice-rule enumeration as atom-generating, not the enumeration
+  domain: a fact-only domain (e.g. `person` in
+  `1{has_job(P,J):person(P)}1`) keeps its fact functions
+  `person(roberta)=1. person(_)=0.` and the choice rules enumerate over
+  `aspic_instances(person,1,1)` instead of `universe()` (a derived domain is
+  still caught by its own rule-head occurrences).
 - `aspic/aspic_runtime_template.pi` — the runtime defines the udf layer:
   `import udf.` and the idempotent `aspic_udf_init` registering
   `when(C,V)=$(cond(C,V,0))` and `nwhen(C,V)=$(cond(C,0-V,0))`.  The
