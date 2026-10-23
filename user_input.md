@@ -141,3 +141,9 @@ $max(X) option). v0.4.2: the generated objective is
 ASPIC_OPT#=sum([X : X in C1++C2]); the $suml registration and the expansion
 depth raise are dropped from aspic_udf_init; battery 88/0, baseline
 comparison 31 matched / 0 differ.
+
+## Entry 20 (Fri Oct 23 2026)
+
+"commit" - the working tree was already clean (v0.4.2 committed as 2aca7ce);
+$suml appears in no live source or test script, only in stale scratch
+copies and one historical handover note.
