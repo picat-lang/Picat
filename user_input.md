@@ -147,3 +147,10 @@ comparison 31 matched / 0 differ.
 "commit" - the working tree was already clean (v0.4.2 committed as 2aca7ce);
 $suml appears in no live source or test script, only in stale scratch
 copies and one historical handover note.
+
+## Entry 21 (Fri Oct 23 2026)
+
+"commit" - the headless wasm verification (x_asp_queens.pi works on the
+rebuilt dist, rc=0, valid 8-queens board) was already done; the
+stdout-passing variant of the headless harness (scratch/wasmshow/show.js)
+is committed.
