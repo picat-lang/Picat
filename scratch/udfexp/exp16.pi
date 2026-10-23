@@ -1,0 +1,21 @@
+%% exp16.pi -- why the builtin sum() cannot replace $suml for the udf
+%% objective.  Run with:
+%%   PICATPATH=.:../../lib2 picat exp16.pi
+import cp.
+import udf.
+
+'#='(L,R)  => cp.'#='(udf.flatten(L), udf.flatten(R)).
+
+main =>
+    udf.define($when(C,V), $(C*V)),
+    udf.define($suml([]), 0),
+    udf.define($suml([H|T]), $(H + suml(T))),
+
+    % 1. the builtin sum() EVALUATES its list at posting time; the
+    %    elements are when(C,V) calls with C an unbound fd variable -
+    %    when/2 is not an evaluable Picat function, so sum() fails with
+    %    "Undefined procedure: when/2" (the call escapes catch too: the
+    %    failure is in the evaluation of sum's argument list)
+    C1 :: 0..1, C2 :: 0..1, X :: 0..10,
+    X #= sum([when(C1,2), when(C2,3)]),
+    println(never_reached).

@@ -129,3 +129,15 @@ backpack.lp translation (v0.4.1: import sat2, the $suml objective, the
 minimal two-locals-per-instance constraint chain) was walked through and
 verified (maximization(29), sel(1), sel(3)); the verification experiments in
 scratch/ and the walkthrough files are committed.
+
+## Entry 19 (Fri Oct 23 2026)
+
+"why is suml necessary?" / "why not just sum?" / "not = but #=" / "after
+solve, the value is in var" - experiments exp16a-f showed the #= operator
+passes its operands unevaluated, so the builtin sum() folds the expanded
+when() contributions and $suml is NOT necessary (the earlier 0 results were
+a test bug: max(X) without the $ is evaluated instead of passed as the
+$max(X) option). v0.4.2: the generated objective is
+ASPIC_OPT#=sum([X : X in C1++C2]); the $suml registration and the expansion
+depth raise are dropped from aspic_udf_init; battery 88/0, baseline
+comparison 31 matched / 0 differ.

@@ -8,20 +8,24 @@ import ordset.
 import datetime.
 
 % ---------------------------------------------------------------------------
-%  The udf layer of the generated programs (v0.4.0, shim via sat2/cp2 in
-%  v0.4.1).
+%  The udf layer of the generated programs (v0.4.0; sat2/cp2 shims and the
+%  builtin sum() objective in v0.4.1).
 %
-%  ASP aggregates are translated into ONE udf term per aggregate instead of
-%  the old chain of supplementary variables (ASPIC_OPTCOND1/2/3,
-%  ASPIC_AGVAL1/2).  The generated program imports the sat2/cp2 lib (the
-%  lib2 shim libraries), whose '#=' expands its arguments through
-%  uf_flatten before the solver sees them:
+%  ASP aggregates are translated into ONE term per aggregate instead of the
+%  old chain of supplementary variables (ASPIC_OPTCOND1/2/3,
+%  ASPIC_AGVAL1/2).  The objective is posted as
 %
-%      $suml([$when(C,V), ...])   the value of the aggregate: V when the
-%                                 0/1 condition C holds, 0 otherwise
+%      ASPIC_OPT #= sum([when(WC,V), ...])
 %
-%  $when/$suml are registered once per load by aspic_udf_init (called at the
-%  head of every generated main/island predicate); the generated program
+%  through the sat2/cp2 lib (the lib2 shim libraries), whose '#=' passes its
+%  operands unevaluated to uf_flatten, which expands the registered calls
+%  before the builtin sum() folds the contributions:
+%
+%      when(C,V)    the contribution: V when the 0/1 condition C holds,
+%                   0 otherwise
+%
+%  $when/$nwhen are registered once per load by aspic_udf_init (called at
+%  the head of every generated main/island predicate); the generated program
 %  itself never references udf directly and needs no "import udf.".
 % ---------------------------------------------------------------------------
 
@@ -30,11 +34,6 @@ aspic_udf_init =>
     (S.get(done,0)==0 ->
         udf.define($when(C,V), $(cond(C,V,0))),
         udf.define($nwhen(C,V), $(cond(C, 0 - V, 0))),
-        udf.define($suml([]), 0),
-        udf.define($suml([H|T]), $(H + suml(T))),
-        % the recursive $suml expansion descends one level per element, so a
-        % large objective exceeds the default depth limit of 100
-        udf.set_max_depth(1000),
         S.put(done,1)
     ; true).
 

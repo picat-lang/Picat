@@ -343,26 +343,27 @@ v0.4.0 (the udf rewrite of the generated code):
   variables (`ASPIC_OPTCOND1/2/3`, `ASPIC_AGVAL1/2`, hand-rolled `aspic_sum`
   chains, universe-wide enumeration). The generated code is much shorter and
   reads like the source ASP:
-  - every aggregate/objective is ONE udf term posted through the shimmed
-    `'#=`: `ASPIC_OPT #= $suml([X : X in C1 ++ C2])` (a `$`-term cannot
-    follow the `+` operator in Picat, so the element lists are concatenated
-    with `++` inside one comprehension). The `$when(C,V)` primitive
-    contributes V when the 0/1 condition C holds, 0 otherwise; an
-    all-negative objective flips the direction instead of negating terms; a
-    mixed-sign objective turns the -1 terms' `$when` into `$nwhen`
-    (`$nwhen(C,V) = cond(C, 0-V, 0)`) and minimizes.
+  - every objective is ONE posting through the shimmed `'#=`:
+    `ASPIC_OPT #= sum([X : X in C1 ++ C2])` (the `#=` operand is passed
+    unevaluated to the flattening, so the element lists are concatenated
+    with `++` inside one comprehension and the builtin `sum()` folds the
+    expanded contributions). The `when(C,V)` primitive contributes V when
+    the 0/1 condition C holds, 0 otherwise; an all-negative objective flips
+    the direction instead of negating terms; a mixed-sign objective turns
+    the -1 terms' `when` into `nwhen` (`nwhen(C,V) = cond(C, 0-V, 0)`) and
+    minimizes.
   - aggregate comprehensions enumerate over `aspic_instances(P,N,I)` (the
     binding atom's instances) instead of the whole `universe()`.
   - rule-body aggregates use the minimal two-locals-per-instance chain
     `[W3 : X in ..., WC = <cond>, W3 #= cond(WC, <elem>, 0)]`.
   - the generated program carries no scaffolding predicates and defines no
     shims: it imports the **sat2/cp2 lib** (the lib2 shim libraries, whose
-    `'#=` expands its arguments through `uf_flatten` and delegates back to
-    the solver), the runtime (`aspic_runtime_template.pi`) defines the udf
-    layer (`import udf.` and the idempotent `aspic_udf_init` registering
-    `$when/$nwhen/$suml`), called at the head of every generated main/island
-    predicate.  The embedded flow splices `import sat2.`/`import cp2.`
-    into the calling module the same way.
+    `'#=` passes its operands unevaluated to `uf_flatten` and delegates
+    back to the solver), the runtime (`aspic_runtime_template.pi`) defines
+    the udf layer (`import udf.` and the idempotent `aspic_udf_init`
+    registering `when/nwhen`), called at the head of every generated
+    main/island predicate.  The embedded flow splices
+    `import sat2.`/`import cp2.` into the calling module the same way.
 - verification: `test/test_aspic_syntax.sh` — 88 passed, 0 failed;
   `test/compare_baseline.sh` — every shipped example's answers equal the
   unmodified upstream transpiler's (objectives all match; 0 differences);

@@ -1,0 +1,10 @@
+import cp.
+import udf.
+
+'#='(L,R)  => cp.'#='(udf.flatten(L), udf.flatten(R)).
+
+main =>
+    udf.define($when(C,V), $(C*V)),
+    C1 :: 0..1, C2 :: 0..1,
+    V = sum([when(C1,2), when(C2,3)]),
+    println(V).

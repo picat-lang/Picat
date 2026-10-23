@@ -1,0 +1,19 @@
+import cp.
+import udf.
+
+'#='(L,R)  => cp.'#='(udf.flatten(L), udf.flatten(R)).
+
+main =>
+    udf.define($when(C,V), $(C*V)),
+    udf.define($suml([]), 0),
+    udf.define($suml([H|T]), $(H + suml(T))),
+
+    C1 :: 0..1, C2 :: 0..1, X :: 0..10,
+    X #= sum([when(C1,2), when(C2,3)]),
+    solve([$max(X),rand],[X,C1,C2]),
+    println($sum_lit([X,C1,C2])),
+
+    C3 :: 0..1, C4 :: 0..1, Y :: 0..10,
+    Y #= $suml([$when(C3,2), $when(C4,3)]),
+    solve([$max(Y),rand],[Y,C3,C4]),
+    println($suml_result([Y,C3,C4])).

@@ -819,9 +819,9 @@ end
 % ONE signed objective (clingo: a #minimize element IS a weak constraint
 % :~ body. [w@l,t], a #maximize element IS :~ body. [-w@l,t] - the weight
 % sign distinguishes them). Terms is a list of (Sign,BracketText) pairs;
-% each BracketText is a comprehension contributing $when terms (v0.4.0).
+% each BracketText is a comprehension contributing when() terms (v0.4.0).
 % All-positive or all-negative objectives wrap the JOINED element lists in
-% ONE $suml (a $-term cannot follow the + operator in Picat, so the lists
+% ONE sum() (the #= operand is passed unevaluated, so the lists
 % are concatenated with ++ inside a comprehension) with Dir=min or Dir=max
 % (backward compatible with the single-directive behavior: a pure
 % #maximize objective stays positive and maximized). A mixed-sign
@@ -831,14 +831,14 @@ end
    ObjMin="0",ObjDir=min
  ; Ts=[P[2]:P in Terms],Sg=[P[1]:P in Terms],
    (not(member(1,Sg)) ->
-      ObjMin="$suml([X : X in "++join(Ts," ++ ")++"])",ObjDir=max
+      ObjMin="sum([X : X in "++join(Ts," ++ ")++"])",ObjDir=max
    ; not(member(-1,Sg)) ->
-      ObjMin="$suml([X : X in "++join(Ts," ++ ")++"])",ObjDir=min
+      ObjMin="sum([X : X in "++join(Ts," ++ ")++"])",ObjDir=min
    ;  % mixed signs: the -1 terms contribute NEGATED values ($nwhen);
       % the token carries the $ ("$when(" is not a substring of "$nwhen(",
       % so the replacement cannot loop)
       Ts2=[cond(P[1]=1,P[2],replaceallin(P[2],"$when(","$nwhen(")):P in Terms],
-      ObjMin="$suml([X : X in "++join(Ts2," ++ ")++"])",ObjDir=min))
+      ObjMin="sum([X : X in "++join(Ts2," ++ ")++"])",ObjDir=min))
  .
 
 % replaceallin(S,Old,New)=R: every occurrence of the token Old in the

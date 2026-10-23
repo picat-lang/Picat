@@ -31,10 +31,11 @@ aggregate/objective posted through a shimmed `'#='`.
     - rule-body aggregates (inside `aspic_sum`): the minimal two-locals-per-
       instance chain `[W3 : X in aspic_instances(...), WC = <cond>, W3 #= cond(WC, EV, 0)]`
   - objectives (`#minimize`/`#maximize`/weak) are assembled as ONE
-    `$suml([X : X in C1 ++ C2])` (a `$`-term cannot follow `+` in Picat, so
-    the element lists are concatenated with `++` inside a comprehension);
-    all-negative → Dir=max; mixed-sign → the -1 terms' `$when` becomes
-    `$nwhen` (negated contribution), Dir=min
+    `sum([X : X in C1 ++ C2])` (the `#=` operand is passed unevaluated, so
+    the element lists are concatenated with `++` inside a comprehension and
+    the builtin sum() folds the expanded `when()` contributions);
+    all-negative → Dir=max; mixed-sign → the -1 terms' `when` becomes
+    `nwhen` (negated contribution), Dir=min
   - enumerations use `aspic_instances(P,N,I)` (the binding atom's instances)
     instead of `universe()`
   - the generated program defines no scaffolding predicates and no shims: it
@@ -51,10 +52,11 @@ aggregate/objective posted through a shimmed `'#='`.
   cp2.` after the imports of the calling module (no shim line since v0.4.1).
 - `aspic/aspic_runtime_template.pi` — the runtime defines the udf layer:
   `import udf.` and the idempotent `aspic_udf_init` registering
-  `$when(C,V)=$(cond(C,V,0))`, `$nwhen(C,V)=$(cond(C,0-V,0))`,
-  `$suml([])=0`, `$suml([H|T])=$(H+suml(T))`, and raising the expansion
-  depth limit (`udf.set_max_depth(1000)`).  Generated code never references
-  `udf` directly.
+  `when(C,V)=$(cond(C,V,0))` and `nwhen(C,V)=$(cond(C,0-V,0))`.  The
+  objective fold is the builtin `sum()` (the `#=` operand is passed
+  unevaluated, so `sum([when(...),...])` works without a udf fold — v0.4.2
+  dropped `$suml` and the expansion depth raise).  Generated code never
+  references `udf` directly.
 - Battery `aspic/test/test_aspic_syntax.sh`: **88 passed, 0 failed**
   (as of Thu Oct 22 2026). Two harness fixes were needed for v0.4.0:
   - `PICATPATH="$ASPIC_DIR/../lib2..."` (lib2 is one level ABOVE the repo's
@@ -92,15 +94,16 @@ aggregate/objective posted through a shimmed `'#='`.
   satisfaction examples with several solutions the SPECIFIC solution may
   differ run-to-run (the satext portfolio races its solvers), which is why
   the script compares objectives/solution-existence, not solutions. One fix
-  came out of it: `aspic_udf_init` now raises the udf expansion depth limit
-  (`udf.set_max_depth(1000)`) — tsp's 36-term `$suml` objective exceeded the
-  default limit of 100 (`udf_expansion_too_deep`).
+  came out of it: `aspic_udf_init` used to raise the udf expansion depth
+  limit (`udf.set_max_depth(1000)`) — tsp's 36-element objective exceeded
+  the default limit of 100 (`udf_expansion_too_deep`) — v0.4.2 made this
+  moot (the builtin `sum()` folds without udf expansion).
 - **Speed comparison (test/speed_baseline.sh)**: median of 3 runs per
   example, both versions — TOTAL 101% (no systematic slowdown). The large
   searches are unchanged (vl_schur 97%, hanoi 98%, queens5 97%,
   hk_queens 100%); backpack is 2.2x FASTER (45%); the one reproducible
   slowdown is ts_queens_adapted ~+8% (74.6s vs 69s, re-verified with fresh
-  runs — the expanded `$when/$suml` formulation searches slightly longer
+  runs — the expanded `when()` formulation searches slightly longer
   than the old flat chain); the ms-scale ratios on the tiny examples are
   startup noise.
 

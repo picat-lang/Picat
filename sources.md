@@ -28,7 +28,7 @@ project). Nothing here is vendored code; the project builds on the Picat
     shimmed `'#='`)
   - `aspic/aspic_prep.pi` — shim splicing for the embedded flow
   - `aspic/aspic_runtime_template.pi` — `import udf.`, `aspic_flatten`,
-    `aspic_udf_init` ($when/$nwhen/$suml definitions)
+    `aspic_udf_init` (when/nwhen definitions)
   - `aspic/test/test_aspic_syntax.sh` — PICATPATH + awk harness fixes
 - The udf construct experiments (scratch/udfexp/exp1–exp13.pi) are original
   test programs written for this project, exercising documented udf behavior

@@ -78,7 +78,7 @@ for f in test/cases/ok_*.lp; do
     fi
     case "$name" in
     ok_minimize.lp)
-        if ! grep -q 'ASPIC_OPT#=\$suml(' "$TMP/err.txt"; then
+        if ! grep -q 'ASPIC_OPT#=sum(' "$TMP/err.txt"; then
             bad "$name: generated code lacks the #minimize objective"
             continue
         fi ;;
@@ -106,7 +106,7 @@ for f in test/cases/ok_*.lp; do
             continue
         fi ;;
     ok_weak.lp)
-        if ! grep -q 'ASPIC_OPT#=\$suml(' "$TMP/err.txt"; then
+        if ! grep -q 'ASPIC_OPT#=sum(' "$TMP/err.txt"; then
             bad "$name: the weak constraint did not produce the penalty objective"
             continue
         fi
@@ -115,7 +115,7 @@ for f in test/cases/ok_*.lp; do
             continue
         fi ;;
     ok_weak_multi.lp)
-        if ! grep -q 'ASPIC_OPT#=\$suml(\[X : X in .*\+\+ ' "$TMP/err.txt"; then
+        if ! grep -q 'ASPIC_OPT#=sum(\[X : X in .*\+\+ ' "$TMP/err.txt"; then
             bad "$name: the two weak constraints were not merged into one summed objective"
             continue
         fi ;;
