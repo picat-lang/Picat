@@ -37,5 +37,9 @@ aspic/test/tmp_*
 # local PDF rendering of the pvm README (personal, not to be committed)
 exs/parallel/pvm/README.pdf
 
+# local scratch: temporary files, experiments and one-off artifacts (never
+# committed; reusable test scripts live in test/)
+scratch/
+
 __pycache__/
 smoke/.smoke

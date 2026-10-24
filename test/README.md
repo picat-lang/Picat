@@ -117,3 +117,19 @@ or the comparison tests a stale `dist/`.
 | the fp library (`lib2/fp.pi`) | `test/fp_check.sh` (composition over function-terms, mapped in one pass), `exs/fp/elegant.pi` (the worked example: Newton's method, a derivative operator, an integral, a pipeline) |
 | any other C change (`emu/*.c`) | `exs/deviation_check.sh`, `webasm/headless/compare.py` (after rebuilding `dist/`) |
 | shell tools (`tools/`) | `tools/test_picat_run.sh` |
+
+## 5. Verification probes in this folder
+
+- `udfexp/` — 26 `.pi` experiments (exp1-17, plus probes) that pin down
+  the udf `$`-term semantics of `lib2/udf.pi`: one `$` per expression
+  suffices (an unmarked nested call inside a `$`-term behaves exactly
+  like the marked form), a `$`-term cannot follow an operator (exp13),
+  the multi-call form is one `$`-term `$(f+g)`, 0-arity functions are
+  impossible, and the interaction of `$when`/`$nwhen` with `#=`. Each
+  file is standalone: run with `emu/picat test/udfexp/expN.pi` and check
+  the printed claim. `exp14`/`exp15` back up the udf doc corrections.
+- `wasmshow/show.js` — a stdout-passing variant of
+  `webasm/headless/run_asp_pi.js` for the aspic (embedded `asp...end`)
+  two-shot flow on the webasm runtime under node; that variant runs the
+  generated program with its stdout swallowed, this one shows the
+  solution line. Usage: `node test/wasmshow/show.js <file.pi>`.
