@@ -1,0 +1,557 @@
+% common definitions of built-ins shared by cp, sat, mip, and smt.
+
+% fd_disjoint(DVar1,DVar2) => fd_disjoint(DVar1,DVar2).
+fd_disjoint(DVar1,DVar2), dvar_or_int(DVar1), dvar_or_int(DVar2) => bp.b_DM_DISJOINT_cc(DVar1,DVar2).
+fd_disjoint(DVar1,DVar2) =>
+    Source = fd_disjoint,
+    (dvar_or_int(DVar1) -> handle_exception($dvar_expected(DVar2), Source); handle_exception($dvar_expected(DVar1), Source)).
+
+% new_fd_var() = new_fd_var().
+new_fd_var() = FDVar =>
+    bp.fd_new_var(FDVar).
+
+new_dvar() = FDVar =>
+    bp.fd_new_var(FDVar).
+
+% fd_dom(FDVar) = fd_dom(FDVar).
+fd_dom(FDVar) = List, integer(FDVar) => List = [FDVar].
+fd_dom(FDVar) = List, dvar(FDVar) => bp.domain_min_max(FDVar,Min,Max), bp.fd_domain(FDVar,List,Min,Max).
+fd_dom(FDVar) = _List => 
+    handle_exception($dvar_expected(FDVar), fd_dom).
+
+% fd_false(FDVar,Elm) => fd_false(FDVar,Elm).
+fd_false(FDVar,Elm),
+    dvar_or_int(FDVar),
+    integer(Elm)
+ =>
+    bp.b_DM_FALSE_cc(FDVar,Elm).
+fd_false(FDVar,Elm) =>
+    bp.expect_dvar_int(FDVar,Elm,fd_false).
+
+% fd_max(FDVar) = fd_max(FDVar).
+fd_max(VarOrVars) = Max =>
+    bp.fd_min_max(VarOrVars,_,Max).
+
+% fd_min(FDVar) = fd_min(FDVar).
+fd_min(VarOrVars) = Min =>
+    bp.fd_min_max(VarOrVars,Min,_).    
+
+% fd_min_max(FDVar,Min,Max) => fd_min_max(FDVar,Min,Max).
+fd_min_max(VarOrVars,Min,Max) =>
+    bp.fd_min_max(VarOrVars,Min,Max).
+
+% fd_next(FDVar,Elm) = fd_next(FDVar,Elm).
+fd_next(FDVar,Elm) = NextElm, 
+    dvar(FDVar), integer(Elm) 
+ =>
+    (bp.domain_next_inst(FDVar,Elm, NextElm) -> true; handle_exception(failed,fd_next)).
+fd_next(FDVar,Elm) = _NextElm =>
+    bp.expect_dvar_int(FDVar,Elm,fd_next).
+
+% fd_prev(FDVar,Elm) = fd_prev(FDVar,Elm).
+fd_prev(FDVar,Elm) = PrevElm,
+    dvar(FDVar), integer(Elm) 
+ =>
+    (bp.b_DM_PREV_ccf(FDVar,Elm, PrevElm) -> true; handle_exception(failed,fd_prev)).
+fd_prev(FDVar,Elm) = _PrevElm =>
+    bp.expect_dvar_int(FDVar,Elm,fd_prev).
+
+% fd_size(FDVar) = fd_size(FDVar).
+fd_size(FDVar) = Size =>
+    (dvar(FDVar) -> 
+    bp.b_DM_COUNT_cf(FDVar,Size)
+    ; integer(FDVar) ->
+        Size = 1
+    ;
+        handle_exception($dvar_expected(FDVar), fd_size)
+    ).
+    
+% fd_true(FDVar,Elm) => fd_true(FDVar,Elm).
+fd_true(FDVar,Elm),
+    dvar_or_int(FDVar),
+    integer(Elm)
+ =>
+    bp.b_DM_TRUE_cc(FDVar,Elm).
+fd_true(FDVar,Elm) =>
+    bp.expect_dvar_int(FDVar,Elm,fd_true).
+
+fd_vector_min_max(Min,Max) =>
+    bp.fd_vector_min_max(Min,Max).
+
+%
+all_equal(A), array(A) =>
+    all_equal(to_list(A)).
+all_equal([X|Xs]) =>
+    all_equal(X,Xs).
+all_equal([X]) => true.
+all_equal([]) => true.    
+    
+    
+all_equal(X,[]) => true.
+all_equal(X,[Y|Ys]) =>
+    X #= Y,
+    all_equal(X,Ys).
+
+% Ensure that L[Z] the first maximum element of L.
+argmax(A, I) =>
+    argmax(A, 1, I).
+
+argmax(L, StartI, I), list(L) =>
+    A = to_array(L),
+    argmax_arr(A, StartI, I).
+argmax(A, StartI, I), array(A) =>
+    argmax_arr(A, StartI, I).
+argmax(A, StartI, I) =>
+    handle_exception($dvar_or_int_collection_expected(A), argmax).
+    
+argmax_arr(A, StartI, I) =>
+    N = len(A),
+    N > 0,
+    StartI :: 1..N,
+    I :: 1..N,
+    I #>= StartI,
+    element(I, A.to_list(), M),
+    foreach (J in 1..N)
+        (J #>= StartI) #=> (A[J] #=< M),
+        ((J #>= StartI) #/\ (J #< I)) #=> (A[J] #< M)
+    end.
+
+%
+% The sum of the weights of the items in each bin does not exceed the capacity C.
+% For each item I, Bin[I] indicates the bin to which item I is put, and W[i] is the weight of item I.
+%
+bin_packing(C,Bin,W) =>
+    fd_min_max(Bin,BinMin,BinMax),
+    N = Bin.len,
+    foreach(BN in BinMin..BinMax) 
+        sum([W[I] * (Bin[I] #= BN) : I in 1..N]) #=< C
+    end.
+
+%
+% The sum of the weights of the items in each bin BN is equal to Load[BN].
+% For each item I, Bin[I] indicates the bin to which item I is put, and W[i] is the weight of item I.
+%
+bin_packing_load(Load, Bin, W) =>
+    sum(Load) #= sum(W),
+    LoadLen = Load.len,
+    BinLen = Bin.len,
+    Bin :: 1..LoadLen,
+    foreach(B in 1..LoadLen) 
+        Load[B] #= sum([W[I] * (Bin[I] #= B) : I in 1..BinLen])
+    end.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% A is a two-dimensional array. All the non-zero cells of A form a Hamiltonian cycle
+% A[R,C] is filled with 0 if it's known to be not in the cycle.
+% The total number of non-zero cells is K
+%
+subcircuit_grid(A) =>
+    hcp_grid(A,_).
+
+subcircuit_grid(A,K) =>
+    hcp_grid(A,_,K).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+hcp_grid(G) =>
+    grid_check_matrix(G,hcp_grid,NRows,NCols),
+    Vs = [{(R,C), G[R,C]} : R in 1..NRows, C in 1..NCols],
+    Es = [{(R,C), (R1,C1), _} : R in 1..NRows, C in 1..NCols, grid_neibs(G,NRows,NCols,R,C,Neibs), (R1,C1) in Neibs],
+    hcp(Vs,Es).
+
+hcp_grid(G,Es) =>
+    grid_check_matrix(G,hcp_grid,NRows,NCols),
+    Vs = [{(R,C), G[R,C]} : R in 1..NRows, C in 1..NCols],    
+    (var(Es) ->
+        Es = [{(R,C), (R1,C1), _} : R in 1..NRows, C in 1..NCols, grid_neibs(G,NRows,NCols,R,C,Neibs), (R1,C1) in Neibs]
+    ;    
+        hcp_grid_check_es(NRows,NCols,Es,hcp_grid)
+    ),
+    hcp(Vs,Es).
+
+hcp_grid(G,Es,K) =>
+    grid_check_matrix(G,hcp_grid,NRows,NCols),
+    Vs = [{(R,C), G[R,C]} : R in 1..NRows, C in 1..NCols],
+    (var(Es) ->
+        Es = [{(R,C), (R1,C1), _} : R in 1..NRows, C in 1..NCols, grid_neibs(G,NRows,NCols,R,C,Neibs), (R1,C1) in Neibs]
+    ;    
+        hcp_grid_check_es(NRows,NCols,Es,hcp_grid)
+    ),
+    hcp(Vs,Es,K).
+
+hcp_grid_check_es(_NRows,_NCols,[],_Source) => true.
+hcp_grid_check_es(NRows,NCols, [{(R1,C1), (R2,C2), _B}|Es],Source) =>
+    (R1 >= 1, R1 <= NRows, C1 >= 1, C1 <= NCols ->
+        true
+    ;
+        handle_exception($invalid_grid_coordinate(R1,C1), Source)
+    ),
+    (R2 >= 1, R2 <= NRows, C2 >= 1, C2 <= NCols ->
+        true
+    ;
+        handle_exception($invalid_grid_coordinate(R2,C2), Source)
+    ),
+    hcp_grid_check_es(NRows,NCols,Es,Source).
+hcp_grid_check_es(_NRows,_NCols,[E|_Es],Source) =>
+    handle_exception($invalid_triplet(E), Source).
+hcp_grid_check_es(_NRows,_NCols,Es,Source) =>
+    handle_exception($list_expected(Es), Source). 
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+scc_grid(G) =>
+    scc_grid(G,_K).
+
+scc_grid(G,K) =>
+    grid_check_matrix(G,scc_grid,NRows,NCols),
+    Vs = [{(R,C), G[R,C]} : R in 1..NRows, C in 1..NCols],
+    Es = [{Pos,Pos1,_} : R in 1..NRows, C in 1..NCols,
+                         Pos = (R,C),
+                         grid_neibs(G,NRows,NCols,R,C,Neibs),
+                         Pos1 in Neibs,
+                         Pos @=< Pos1],
+    scc(Vs,Es,K).
+
+grid_check_matrix(A,Source,NRows,NCols) =>
+    (array(A) -> true; handle_exception($array_expected(A), Source)),
+    NRows = len(A),
+    foreach (R in 1..NRows)
+        (array(A[R]) -> true; handle_exception($array_expected(A[R]), Source))
+    end,
+    NCols = len(A[1]).
+
+grid_neibs(A,NRows,NCols,R,C,Neibs) =>
+        Neibs = [(R1, C1) : (R1, C1) in [(R-1,C), (R+1,C), (R,C-1), (R,C+1)],
+                            R1 >= 1, R1 =< NRows, C1 >= 1, C1 =< NCols, A[R1,C1] !== 0].
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%    
+scc_d_grid(G) =>
+    scc_d_grid(G,_K).
+
+scc_d_grid(G,K) =>
+    grid_check_matrix(G,scc_grid,NRows,NCols),
+    Vs = [{(R,C), G[R,C]} : R in 1..NRows, C in 1..NCols],
+    Es = [{Pos,Pos1,_} : R in 1..NRows, C in 1..NCols,
+                         Pos = (R,C),
+                         grid_neibs(G,NRows,NCols,R,C,Neibs),
+                         Pos1 in Neibs],
+    scc_d(Vs,Es,K).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+global_cardinality(List,Keys,Cards) =>
+    N = len(List),
+    foreach (Card in Cards)
+        Card :: 0..N
+    end,
+    LB = sum([fd_min(Card) : Card in Cards]),
+    SumCards :: LB..N,
+    SumCards #= sum(Cards),
+    (LB == N, ground(Keys) ->
+        List :: Keys
+    ;
+        true
+    ),
+    foreach ({Key,Card} in zip(Keys,Cards))
+      count(Key,List, #= ,Card)
+    end.
+
+global_cardinality_closed(List,Keys,Cards) =>
+    global_cardinality(List,Keys,Cards),
+    foreach (X in List)
+        fd_member(X,Keys)
+    end.
+
+fd_member(X,L), ground(L) =>
+    X :: L.
+fd_member(X,L) =>
+    sum([X #= E : E in L]) #>= 1.
+    
+global_cardinality(List,Keys,Lows,Ups) =>
+    N = len(List),
+    M = len(Keys),
+    Cards = new_list(M),
+    global_cardinality(List,Keys,Cards),
+    foreach ({Low,Up,Card} in zip(Lows,Ups,Cards))
+        Low :: 0..N,
+    Up :: 0..N,
+        Low #=< Card,
+        Card #=< Up
+    end.
+        
+global_cardinality_closed(List,Keys,Lows,Ups) =>
+    global_cardinality(List,Keys,Lows,Ups),
+    foreach (X in List)
+        fd_member(X,Keys)
+    end.
+
+global_cardinality_low_up(X,Cover,LBound,UBound) =>
+    N = len(Cover),
+    T = new_array(N),
+    foreach(I in 1..N)
+        T[I] :: LBound[I]..UBound[I],
+        count(Cover[I], X, #=, T[I])
+    end.
+
+global_cardinality_low_up_closed(X,Cover,LBound,UBound) =>
+    N = len(X),
+    CoverList = to_list(Cover),
+    X :: CoverList,
+    global_cardinality_low_up(X, Cover, LBound, UBound),
+    % Implied condition
+    N #>= sum(LBound),
+    N #=< sum(UBound).
+    
+%
+% Scalar product of the list A and X
+%
+scalar_product(A, X, Product) => 
+    scalar_product(A, X, '#=', Product).
+
+%
+% scalar product of List A and X, with one of the relations: 
+% 
+%   #=, #<, #>, #<=, #>=, #!=
+%
+scalar_product(A, X, '#=', Product) => 
+   check_scalars(A,X),
+   sum([A[I]*X[I] : I in 1..A.length]) #= Product.
+
+scalar_product(A, X, '#!=', Product) => 
+   check_scalars(A,X),
+   sum([A[I]*X[I] : I in 1..A.length]) #!= Product.
+
+scalar_product(A, X, '#>=', Product) => 
+   check_scalars(A,X),
+   sum([A[I]*X[I] : I in 1..A.length]) #>= Product.
+
+scalar_product(A, X, '#>', Product) => 
+   check_scalars(A,X),
+   sum([A[I]*X[I] : I in 1..A.length]) #> Product.
+
+scalar_product(A, X, '#<=', Product) => 
+   check_scalars(A,X),
+    scalar_product(A, X, '#=<', Product).
+
+scalar_product(A, X, '#=<', Product) => 
+   check_scalars(A,X),
+   sum([A[I]*X[I] : I in 1..A.length]) #=< Product.
+
+scalar_product(A, X, '#<', Product) => 
+   check_scalars(A,X),
+   sum([A[I]*X[I] : I in 1..A.length]) #< Product.
+
+%
+% exactly(?N,?X,?V)
+%
+% Requires that exactly N variables in X take the value V.
+%
+exactly(N, X, V) =>
+  count(V,X, #= ,N).
+
+%
+% at_most(?N,?X,?V)
+%
+% Requires that atmost N variables in X take the value V.
+%
+at_most(N,X,V) => 
+  count(V,X, #=< ,N).
+
+%
+% at_least(?N,?X,?V)
+%
+% Requires that atleast N variables in X take the value V.
+%
+at_least(N,X,V) => 
+  count(V,X, #>= ,N).
+
+% count(V,FDVars,Rel,N) => count(V,FDVars,Rel,N).
+count(V,FDVars,Rel,N) =>
+    (array(FDVars) -> to_list(FDVars) = List; List = FDVars),
+    bp.length(List,Len),
+    (Rel == '#=' ->
+        bp.domain(N,0,Len)
+    ;Rel == '#>=' ->
+        N #=< Len
+    ; Rel == '#=<' ->
+        N #>= 0
+    ;
+        true
+    ),    
+    bp.domain_min_max(N,MinN,_),
+    (MinN > 0, Rel == '#=' ->
+        bp.fd_min_max(List,LB,UB),
+        bp.domain(V,LB,UB)
+    ;
+        true
+    ),
+    reified_bool_vars(List,V,Bs),
+    count_aux(Bs,Rel,N).
+
+reified_bool_vars([],_V,Bs) => Bs = [].
+reified_bool_vars([E|List],V,Bs) =>
+    Bs = [B|BsR],
+    B #<=> (V #= E),
+    reified_bool_vars(List,V,BsR).
+
+count_aux(Bs,'#=', N) => sum(Bs) #= N.
+count_aux(Bs,'#!=', N) => sum(Bs) #!= N.
+count_aux(Bs,'#\\=', N) => sum(Bs) #!= N.
+count_aux(Bs,'#>', N) => sum(Bs) #> N.
+count_aux(Bs,'#>=', N) => sum(Bs) #>= N.
+count_aux(Bs,'#<', N) => sum(Bs) #< N.
+count_aux(Bs,'#=<', N) => sum(Bs) #=< N.
+count_aux(Bs,'#<=', N) => sum(Bs) #=< N.
+
+count(V,FDVars,N) =>
+    count(V,FDVars,'#=',N).
+
+count_eq_reif(List,V,N,B) =>
+    Ni :: 0..length(List),
+    count(V,List,#=,Ni),
+    B #<=> (N #= Ni).
+    
+%
+% Ensure that List is increasing
+%
+increasing(FDVars), array(FDVars) =>
+   foreach(I in 2..length(FDVars)) FDVars[I-1] #=< FDVars[I] end.
+increasing(FDVars), list(FDVars) =>
+   increasing_list(FDVars).
+increasing(FDVars) =>
+   handle_exception($list_or_array_expected(FDVars), increasing).
+
+increasing_list([]) => true.
+increasing_list([_]) => true.
+increasing_list([X|T@[Y|_]]) => 
+    X #=< Y,
+    increasing_list(T).
+
+increasing_strict(FDVars), array(FDVars) =>
+   foreach(I in 2..length(FDVars)) FDVars[I-1] #< FDVars[I] end.
+increasing_strict(FDVars), list(FDVars) =>
+   increasing_strict_list(FDVars).
+increasing_strict(FDVars) =>
+   handle_exception($list_or_array_expected(FDVars), increasing_strict).
+
+increasing_strict_list([]) => true.
+increasing_strict_list([_]) => true.
+increasing_strict_list([X|T@[Y|_]]) => 
+    X #< Y,
+    increasing_strict_list(T).
+
+%
+% Ensure that FDVars is decreasing
+%
+decreasing(FDVars), array(FDVars) =>
+   foreach(I in 2..length(FDVars)) FDVars[I-1] #>= FDVars[I] end.
+decreasing(FDVars), list(FDVars) =>
+   decreasing_list(FDVars).
+decreasing(FDVars) =>
+   handle_exception($list_or_array_expected(FDVars), decreasing).
+
+decreasing_list([]) => true.
+decreasing_list([_]) => true.
+decreasing_list([X|T@[Y|_]]) => 
+    X #>= Y,
+    decreasing_list(T).
+
+decreasing_strict(FDVars), array(FDVars) =>
+   foreach(I in 2..length(FDVars)) FDVars[I-1] #> FDVars[I] end.
+decreasing_strict(FDVars), list(FDVars) =>
+   decreasing_strict_list(FDVars).
+decreasing_strict(FDVars) =>
+   handle_exception($list_or_array_expected(FDVars), decreasing_strict).
+
+decreasing_strict_list([]) => true.
+decreasing_strict_list([_]) => true.
+decreasing_strict_list([X|T@[Y|_]]) => 
+    X #> Y,
+    decreasing_strict_list(T).
+    
+%
+% A network flow constraint with cost.
+% Arcc = [(Source1,Sink1), ... ]
+% balance[j] is the balance of node j.
+% weight[i] is the weight of arc i.
+% assert: |arc| = |weight| = |flow|, 
+%
+network_flow_cost(Arcs,Balance,Weight,Flow, Cost) =>
+    N_arcs = length(Flow),
+    N_nodes = length(Balance),
+    Cost #=  sum([Flow[I]*Weight[I] : I in 1..N_arcs]),
+    foreach (I in 1..N_nodes)
+        Inflow = [Flow[J] : J in 1..N_arcs, Arcs[J,1] == I],
+        Outflow = [Flow[J] : J in 1..N_arcs, Arcs[J,2] == I],
+        sum(Inflow) - sum(Outflow) #= Balance[I]
+    end.
+
+knapsack(WVec, PVec, XVec, W, P) =>    
+    N = XVec.len,
+    foreach(I in 1..N)
+      XVec[I] #>= 0
+    end,
+    W #>= 0,
+    P #>= 0,
+    P #= sum([XVec[I]*PVec[I] : I in 1..N]),
+    W #= sum([XVec[I]*WVec[I] : I in 1..N]).
+
+%
+% For each subsequence vs[i],..., vs[i+seq-1], the sum of the values belongs to the interval [low,up].
+%
+sliding_sum(Low,Up,Seq,Vs) =>
+    N = length(Vs),
+    S = new_array(N),
+    S[1] = Vs[1],
+    foreach (I in 2..N)
+        S[I] #= S[I-1] + Vs[I]
+    end,
+    Low #=< S[Seq],
+    S[Seq] #=< Up,
+    foreach (I in (Seq+1)..(N-Seq+1))
+        T #= S[I] - S[I-Seq],
+        Low #=< T,
+        T #=< Up
+    end.
+
+value_precede(S,T,X), list(X) =>
+    value_precede(S,T,to_array(X)).
+value_precede(S,T,X), array(X) =>
+    XLen = X.length,
+    B = new_array(XLen+1),
+    B :: 0..1,
+    foreach(I in 1..XLen)
+        Xis #= (X[I] #= S),
+        Xis #=> (B[I+1] #= 1),
+        #~ Xis #=> (B[I] #= B[I+1]),
+        #~ B[I] #=> (X[I] #!= T)
+    end,
+    B[1] #= 0.
+value_precede(S,T,X) =>
+   handle_exception($list_or_array_expected(X), value_precede).
+
+value_precede_chain(C, X), array(C) =>
+    foreach(I in 2..C.length)
+        value_precede(C[I-1], C[I], X)
+    end.
+value_precede_chain(C, X), list(C) =>
+    A = to_array(C),
+    value_precede_chain(A, X).
+value_precede_chain(C, X) =>
+   handle_exception($list_or_array_expected(X), value_precede_chain).
+        
+seq_precede_chain(X), list(X) =>
+    seq_precede_chain(to_array(X)).
+seq_precede_chain(X), array(X) =>    
+    N = len(X),
+    fd_min_max(X,Low,Up),
+    F = 1, % min ( index_set (X ))
+    H = new_array(N),
+    H :: Low..Up,    
+    H[F] #<= 1,
+    H[F] #= max(X[F], 0),
+    foreach(I in 1..N, I !== F) 
+       H[I] #<= H[I-1] + 1,
+       H[I] #= max(X[I], H[I-1])
+    end.
+seq_precede_chain(X) =>
+   handle_exception($list_or_array_expected(X), seq_precede_chain).
+
