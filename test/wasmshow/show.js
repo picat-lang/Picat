@@ -9,7 +9,12 @@
 //            (a fresh instance also re-creates the filesystem from the
 //            preload image, so the stage-1 outputs are carried over)
 //
-//   node headless/run_asp_pi.js <file.pi>
+//   node test/wasmshow/show.js <file.pi>
+//
+// A stdout-passing variant of webasm/headless/run_asp_pi.js (that variant
+// runs the generated program with its stdout swallowed; this one shows the
+// solution line). The original headless harness lives in
+// webasm/headless/.
 //
 // Prints one line:
 //   rc=<rc> instantiate_ms=<N> boot_ms=<N> pre_ms=<N> run_ms=<N>

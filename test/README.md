@@ -126,8 +126,9 @@ or the comparison tests a stale `dist/`.
   like the marked form), a `$`-term cannot follow an operator (exp13),
   the multi-call form is one `$`-term `$(f+g)`, 0-arity functions are
   impossible, and the interaction of `$when`/`$nwhen` with `#=`. Each
-  file is standalone: run with `emu/picat test/udfexp/expN.pi` and check
-  the printed claim. `exp14`/`exp15` back up the udf doc corrections.
+  file is standalone: run with `PICATPATH=.:./lib2 emu/picat
+  test/udfexp/expN.pi` and check the printed claim. `exp14`/`exp15`
+  back up the udf doc corrections.
 - `wasmshow/show.js` — a stdout-passing variant of
   `webasm/headless/run_asp_pi.js` for the aspic (embedded `asp...end`)
   two-shot flow on the webasm runtime under node; that variant runs the
