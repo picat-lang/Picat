@@ -1,0 +1,1029 @@
+Version 4.0b11 (10/23/2026)
+=================================
++ Updated the parser to allow higher-order variable calls of the form S(A1,A2,...,An), where S is a variable at compile time and refers to a callable term at runtime. Picat translates this notation into a call or apply invocation, depending on the context. Higher-order calls can also be module-qualified: m.S(A1,A2,...,An) invokes the function or predicate defined in module m whose symbol is referenced by S.
+
++ Updated the parser and preprocessor to allow anonymous function and predicate definitions.
+
+    anonymous_function ->
+        "(" lambda_parameters "->" expression ["," body] ")"
+
+    anonymous_predicate ->
+        "(" lambda_parameters "=>" body ")"    
+
++ Updated the parser to allow terms of the form +(num) and -(num) (in early versions, +(num) and -(num) are always numbers).
+
++ Updated the planner module to allow a planning model to be reused with different initial states.
+
++ Updated "table.c" to fix potential memory leaks.
+
++ Added the reset_store built-in to the constraint modules to clear the constraint store, allowing multiple constraint problems to be posted and solved sequentially.
+
++ Replaced the propagators for the table_in and table_notin constraints in the cp module.
+
++ Improved the hcp, scc, scc_d, acyclic, acyclic_d, path, and path_d graph constraints.
+
++ Fixed a bug in delete/2 in the ordset module.
+
++ Added the binom(N,K) function to the math module.
+
++ Reimplemented big-integer multiplication and division, making both operations more than 10 times as fast.
+
++ Changed the command used to invoke the Cbc mip solver to:
+
+    cbc __tmp.lp -solve -solution __tmp.sol
+
++ Removed the C interface to SCIP. Picat now invokes SCIP with the following command:
+
+    scip -q -c "read model.lp optimize write solution model.sol quit"
+
++ Improved the parser's error messages for unmatched quotation marks in strings.
+
++ Changed the debugger to read commands from the console so that it works even when stdin is redirected to a file.
+
++ Added a preprocessing algorithm for the hcp constraint.
+
++ Added an algorithm for decomposing PB constraints that exploits the presence of at-most-one constraints.
+
++ Added hybridization strategies for combining BDD, binary-adder, and Espresso encodings of PB constraints.
+
++ Added support for specifying the objective to be minimized or maximized in the sat module's solve/2 predicate as a bit-vector.
+
++ Improved the implementation of the branch-and-bound algorithm in the SAT compiler.
+
++ Adopted a BDD-based encoding for medium-sized PB constraints.
+
++ Adopted a dynamic-programming encoder for translating SCM constraints into SAT, providing efficient, near-optimal encodings.
+
++ Added the mmin and mmax table modes to instruct Picat to table all optimal answers.
+
++ Changed best_plan_nondet to use depth-unbounded search to find all optimal answers. Its implementation uses the mmin table mode.
+
++ Refined the BDD encoding for table constraints.
+
++ Extended aggregate functions in arithmetic constraints, including sum(E), min(E), max(E), prod(E), and count(V,E), to support nested collections in E.
+
++ Extended aggregate functions in arithmetic expressions, including sum(E), min(E), max(E), and prod(E), to support nested collections in E.
+
++ Updated X**0 to return 1 when X is a big integer.
+
+Version 3.9 (8/22/2025)
+=================================
++ Made numerous improvements to the SAT compiler for solver competitions, especially the XCSP'25 competition.
+
++ Improved the interaction between tabled calls and throw, allowing multiple calls to best_plan*** in one program.
+
++ Added the following bit-vector constraints to the sat module:
+    bv_add(A,B,C)
+    bv_and(A,B,C)
+    bv_div(A,B,C)
+    bv_drop(A,N)
+    bv_eq(A,B)
+    bv_ge(A,B)
+    bv_gt(A,B)
+    bv_mod(A,B,C)
+    bv_mul(A,B,C)
+    bv_neq(A,B)
+    bv_or(A,B,C)
+    bv_pow(A,B,C)
+    bv_sum(As,B)
+    bv_take(A,N)
+    bv_to_int(A)
+    bv_xor(A,B,C)
+    int_to_bv(C)
+    new_bv(N)
+
++ Fixed a segmentation fault caused by c_INITIALIZE_TABLE.
+
++ Improved the SAT encoder for SCM constraints.
+
++ Fixed a bug in c_CLPFD_SUB_AC_ccc() in "domain.c".
+
+Version 3.8 (1/31/2025)
+=================================
++ Added a more efficient SAT encoder for the C*X=Y constraint, where C is an integer.
+
++ Added the between(From,Step,To,X) built-in to the basic module.
+
++ Fixed a bug in the encoder for the mod constraint that occurred when an optimization option was used in solve.
+
++ Updated best_plan, best_plan_bb, and best_plan_bin to initialize the table area after each call to plan/n.
+
++ Fixed a bug in "table.c" by adding the following check:
+
+    if (TAG(t1) != TAG(t2)) return 0;
+
++ Updated the syntax rules:
+    + Made the "then" keyword optional in if-then-else constructs when the condition is enclosed in parentheses.
+    + Removed warnings for an extra comma before "end", "then", "else", or "elseif".
+
++ Changed count(V,L, #= ,N) to restrict N to the domain 0..len(L).
+
++ Improved error reporting.
+
++ Added the -d command-line option to start Picat in debug mode:
+
+    picat -d Arg1 Arg2 ... Argn
+
+  This command calls main([Arg1,Arg2,...,Argn]) and traces its execution.
+
++ Updated Picat to output a stack trace when an error occurs in debug mode.
+
++ Extended the del/2 built-in to work with global and table maps.
+
+Version 3.7 (8/26/2024)
+=================================
++ Fixed a bug in :=.
+
++ Improved the MIP translator.
+
++ Fixed a bug in the MIP translator.
+
++ Fixed a bug in the implementation of the acyclic_d constraint.
+
++ Fixed a bug in the SAT compiler.
+
++ Improved the reasoner for log-encoded domain variables.
+
++ Extended the include directive to support nested file inclusion. For example, "a.pi" can include "b.pi", which in turn includes "c.pi".
+
++ Improved the SAT compiler's preprocessor.
+
++ Added a new implementation of the hcp constraint.
+
+Version 3.6 (1/11/2024)
+=================================
++ Added an interface to SCIP, which outperforms other solvers on some integer programming problems. The interface is not included in the default binary executable; it must be installed from source by following the instructions in INSTALL.
+
++ Added the include directive to allow a large program to be split into multiple files.
+
++ Ported several global constraints from the sat module to the cp, mip, and smt modules.
+
++ Updated solve/1-2 in the cp module to instantiate all constrained variables, including hidden variables used in propagators. This change eliminates the need to call solve_suspended.
+
++ Added the del(Map,Key) built-in to delete the pair with key Key from Map.
+
++ Fixed a bug in the cumulative global constraint that occurred when tasks had zero durations.
+
++ Fixed a bug in the SAT compiler that affected domain variables with mixed signed values in certain contexts.
+
++ Added the maxsat solver option to the sat module. Picat communicates with MaxSAT through files. When this option is used for a constraint optimization problem, the maxsat OS command must be available to Picat.
+
+Version 3.5 (7/2/2023)
+=================================
++ Added the following constraints to the sat module:
+    acyclic_d(Vs,Es): The directed graph represented by Vs and Es is acyclic.
+    path_d(Vs,Es,Src,Dest): The directed graph represented by Vs and Es is a path from Src to Dest.
+    scc_d(Vs,Es): The directed graph represented by Vs and Es is strongly connected.
+
++ Fixed a bug in the SAT compiler.
+
+Version 3.4 (3/11/2023)
+=================================
++ Improved the implementations of print, println, printf, write, writeln, and writef.
+
++ Improved syntax error messages.
+
++ Fixed a bug in acyclic.
+
++ Fixed a bug in the SAT compiler.
+
++ Changed the definition of the path constraint.
+
++ Changed solve/2 to issue warnings instead of errors for unsupported options.
+
++ Made several improvements to the SAT compiler.
+
++ Improved two functions in "picat_utilities.c".
+
+Version 3.3 (9/6/2022)
+=================================
++ Fixed a bug in the replace/3 function in the util module.
+
++ Added an optimization to the SAT compiler to convert more PB constraints into cardinality constraints.
+
++ Improved the encodings of the Z = min(X,Y) and Z = max(X,Y) constraints in the sat module.
+
++ Added the following global constraints to the sat module:
+    acyclic(Vs,Es): The undirected graph represented by Vs and Es is acyclic.
+    path(Vs,Es,Src,Dest)
+
++ Fixed a bug in reading non-printable ASCII characters.
+
++ Improved the preprocessor for reification and implication constraints.
+
++ Improved the linearized MIP code for min(X,Y) and max(X,Y) when both X and Y are Boolean variables.
+
++ Changed domain variable declarations to treat L..U as an unevaluated range expression.
+
++ Changed singleton-variable warnings to apply to variables occurring in bodies rather than heads.
+
++ Added nolog to the sys module.
+
+Version 3.2 (3/12/2022)
+=================================
++ Improved the compiler to evaluate constant function calls at compile time. For example, given the following function definition:
+
+    f(a) = 1.
+    f(b) = 2.
+
+  The compiler replaces f(a) with 1 and f(b) with 2 at compile time, provided that the calls occur after the definition in the same file.
+
++ Added break(Cond) to foreach loops and list/array comprehensions:
+
+    Picat> foreach (I in 1..10, break(I > 3)) writeln(I) end
+    1
+    2
+    3
+
+    Picat> L = [I : I in 1..10, break(I > 3)]
+    L = [1,2,3]
+
++ Added the following built-ins to the sat module:
+    tree(Vs,Es)
+    tree(Vs,Es,K)
+
++ Fixed a bug in printf that occurred when printing excessively long strings.
+
++ Changed write/1 to enclose an atom in single quotes unless it matches [a-z][a-zA-Z0-9_]*.
+
++ Improved the loader to avoid program area overflow.
+
++ Added command-line options for customizing memory settings:
+    -p P: Size of the program area.
+    -s S: Size of the stack/heap.
+    -b B: Size of the trail stack.
+
++ Improved the encoding of scc.
+
++ Adopted Kissat as the default SAT solver.
+
++ Fixed a bug in printf/n and to_fstring/n that occurred when the format specifier was %s and the argument was "".
+
+Version 3.1 (5/6/2021)
+=================================
++ Made several improvements to the SAT compiler.
+
++ Added the limit(N) solve option to limit the number of solutions to search for.
+
++ Added the following built-ins to the sat module:
+    hcp(Vs,Es)
+    hcp(Vs,Es,K)
+    hcp_grid(A)
+    hcp_grid(A,Es)
+    hcp_grid(A,Es,K)
+    scc(Vs,Es)
+    scc(Vs,Es,K)
+    scc_grid(A)
+    scc_grid(A,K)
+
++ Improved error messages for table_in and table_notin.
+
++ Improved the MIP translation of entailment constraints.
+
++ Fixed a bug in X #<=> Y that occurred when X or Y was 1.
+
++ Fixed a bug in best_plan_nondet.
+
++ Fixed a bug in c_MUL_MOD.
+
++ Fixed a bug that affected programs containing a certain range of big integers in rule heads.
+
++ Added support for tracing calls in guards.
+
++ Made extended math functions available in both debug and normal execution modes.
+
++ Fixed a bug in the debugger that occurred when programs involving modules were compiled and used in debug mode.
+
+Version 3.0 (September 26, 2020)
+=================================
++ Made numerous improvements to the SAT compiler.
+
++ Reimplemented the circuit constraint in the sat module, as reported in the CP'20 paper.
+
++ Added support for Horn clauses. Picat translates Horn clauses into pattern-matching rules using user-supplied or automatically generated index declarations.
+
++ Added support for DCG rules. Picat translates DCG rules into pattern-matching rules via Horn clauses.
+
++ Added the following built-in predicates from Prolog:
+    arg(I,T,A)
+    functor(T,F,N)
+    '=..'(X,Y)
+    \+
+    !
+
++ Changed the binding rules for higher-order calls.
+
++ Improved the implementation of higher-order calls.
+
++ Improved the debugger to exclude private and compiler-generated calls from tracing.
+
++ Fixed a bug in big-integer compilation.
+
++ Improved the implementation of the multiplication constraint in the cp module.
+
++ Fixed a bug in the preprocessor for nonlinear constraints using //, div, mod, or abs.
+
++ Fixed a bug in listdir/1 on Windows.
+
++ Changed open(File,Mode) to return a new stream even if the file is already open.
+
++ Improved the translation of functions into tail-recursive predicates.
+
++ Improved the handling of the power function in constraints to reduce the likelihood of overflow.
+
++ Fixed a bug in the vars/1 functions.
+
++ Reformatted the C source code.
+
+Version 2.8 (December 5, 2019)
+=================================
++ Added the following built-in constraints to the sat module:
+    subcircuit_grid(A)
+    subcircuit_grid(A,K)
+
++ Improved SAT encodings for at-most-k constraints.
+
++ Improved error messages.
+
++ Added the nn (Neural Network) module:
+    new_nn(Layers) = NN
+    new_sparse_nn(Layers) = NN
+    new_sparse_nn(Layers,Rate) = NN
+    new_standard_nn(Layers) = NN
+    nn_destroy(NN)
+    nn_destroy_all
+    nn_load(File) = NN
+    nn_print(NN)
+    nn_run(NN, Input) = Output
+    nn_run(NN, Input, Opts) = Output
+    nn_save(NN,File)
+    nn_set_activation_function_hidden(NN, Func)
+    nn_set_activation_function_layer(NN, Func, Layer)
+    nn_set_activation_function_output(NN, Func)
+    nn_set_activation_steepness_hidden(NN, Steepness)
+    nn_set_activation_steepness_layer(NN, Steepness, Layer)
+    nn_set_activation_steepness_output(NN, Steepness)
+    nn_train(NN,Data)
+    nn_train(NN,Data,Opts)
+    nn_train_data_get(Data, I) = Pair
+    nn_train_data_load(File) = Data
+    nn_train_data_save(Data, File)
+    nn_train_data_size(Data) = Size
+
++ Added support for Cbc as an underlying MIP solver. The cbc option in the mip module's solve predicate instructs Picat to invoke Cbc with the following command:
+
+    cbc TmpFile solve solu SolFile
+
+  SolFile stores the solution, and TmpFile stores the constraints in CPLEX format. Picat throws existence_error if the cbc command is unavailable.
+
++ Significantly improved the SAT compiler:
+    + Added direct encoding for arithmetic constraints involving no variables.
+    + Added hybrid encodings for table constraints.
+    + Added encodings for small-domain arithmetic constraints.
+    + Reimplemented the branch-and-bound algorithm for optimization problems.
+    + Added decomposers for circuit, subcircuit, and regular constraints.
+
++ Added built-ins for ASCII characters:
+    ascii_digit(Char) => ascii_digit(Char).
+    ascii_alpha(Char) => ascii_alpha(Char).
+    ascii_alpha_digit(Char) => ascii_alpha_digit(Char).
+    ascii_lowercase(Char) => ascii_lowercase(Char).
+    ascii_uppercase(Char) => ascii_uppercase(Char).
+
++ Changed the implementation of log(Base,X).
+
++ Fixed a bug in big-integer multiplication.
+
+Version 2.6 (February 7, 2019)
+=================================
++ Extended table constraints to support short tuples, in which values can be the don't-care symbol *.
+
++ Added the bigint(X) built-in predicate to the basic module.
+
++ Improved error messages.
+
++ Added BDD encoding for table constraints.
+
++ Changed table constraints to require tuples of the form {a1,...,an}. The form (a1,...,an) is no longer supported for tuples in table constraints.
+
+Version 2.5 (October 8, 2018)
+=================================
++ Added the smt module for constraint solving. It requires z3 or cvc4 as the SMT solver.
+
++ Added support for ranges in subscripts: A[From..To] is equivalent to slice(A,From,To).
+
++ Added the following function:
+    copy_term_shalow(T) = copy_term_shalow(T).
+
++ Fixed a bug in the regular constraint.
+
++ Fixed bugs in the SAT encoder.
+
++ Fixed a bug in big-integer arithmetic.
+
+Version 2.4 (April 15, 2018)
+=================================
++ Added support for the heap data structure:
+    heap_is_empty(Heap) => heap_is_empty(Heap).
+    heap_pop(Heap) = heap_pop(Heap).
+    heap_push(Heap,Elm) => heap_push(Heap,Elm).
+    heap_size(Heap) = heap_size(Heap).
+    heap_to_list(Heap) = heap_to_list(Heap).
+    heap_top(Heap) = heap_top(Heap).
+    new_max_heap(IntOrList) = new_max_heap(IntOrList).
+    new_min_heap(IntOrList) = new_min_heap(IntOrList).
+
++ Changed dot notation to be treated as function calls in term constructors and constraints. Examples:
+
+    X = $f(math.pi)
+    R = new_rectangle(), R.x #= R.y, R.width #= R.height, R.color #= cg.red
+
++ Improved the SAT compiler's handling of pseudo-Boolean and global constraints.
+
++ Added color to error messages on Unix.
+
++ Added a specialized comparator for arrays.
+
++ Added a 64-bit executable for Windows.
+
++ Fixed bugs in round and **.
+
+Version 2.3 (February 1, 2018)
+=================================
++ Incorporated new SAT encodings for the element, regular, circuit, subcircuit, table_in, and table_notin global constraints.
+
++ Added the best_plan_bin built-in to the planner module. It uses branch-and-bound and binary search to find a best plan.
+
++ Updated the compiler to unfold higher-order calls to map/2, map/3, reduce/2, and reduce/3, improving efficiency and ensuring that the calls follow module name-resolution rules.
+
++ Made minor improvements to sort, the SAT compiler, tabling, and the planner.
+
++ Fixed bugs in map/1 and the SAT compiler.
+
+Version 2.2 (August 10, 2017)
+=================================
++ Extended the mip module to support the same constraints as the sat and cp modules, including global constraints.
+
++ Made the mip module's solve/1-2 predicates nondeterministic, allowing them to return all solutions.
+
++ Added the $threads(N) labeling option to the sat module to solve the generated CNF code using plingeling with N threads. The threads option is equivalent to $threads(8).
+
++ Added the following constraint to the cp, sat, and mip modules:
+    count(V,FDVars,N): V occurs in FDVars N times.
+
++ Significantly improved the SAT compiler. The PicatSAT solver submitted to the MiniZinc Challenge 2017 is based on this version.
+
++ Added the following functions to the math module:
+    acosh(X)
+    acoth(X)
+    acsch(X)
+    asech(X)
+    asinh(X)
+    atanh(X)
+    cosh(X)
+    coth(X)
+    csch(X)
+    frand(Low,High)
+    random(Low,High)
+    sech(X)
+    tanh(X)
+    sinh(X)
+
++ Fixed several bugs.
+
+Version 2.1 (March 12, 2017)
+=================================
++ Added support for count(V,L) in constraint expressions.
+
++ Improved the SAT compiler:
+    + Added constant propagation, which can reduce code size.
+    + Improved the preprocessor to exclude more no-good values.
+
++ Fixed bugs affecting:
+    + Comparisons of integers in the ranges -2^56..-2^28 and 2^28..2^56.
+    + The pow function when its operands are floats.
+    + Large domains in the SAT compiler.
+
+Version 2.0 (November 17, 2016)
+=================================
++ Improved the sat module:
+    + Added new implementations of the circuit, subcircuit, and regular constraints.
+    + Improved the order in which constraints are decomposed into primitive constraints.
+
++ Extended the planner module to accept heuristic(S) and sequence(P,A), in addition to final/1 (or final/3) and action/4. The planner uses the heuristic(S) function to check the heuristic value before each state expansion. The sequence/2 predicate determines the next set of actions based on the current partial plan.
+
++ Added an interface to Gurobi. The gurobi option in the mip module's solve predicate instructs Picat to invoke Gurobi with the following command:
+
+    gurobi_cl ResultFile=SolFile TmpFile
+
+  SolFile stores the solution, and TmpFile stores the constraints in CPLEX format. Picat throws existence_error if the gurobi_cl command is unavailable.
+
++ Replaced the tightly coupled GLPK interface with a file-based interface. The glpk option in the mip module's solve predicate instructs Picat to invoke GLPK with the following command:
+
+    glpsol --lp -o SolFile TmpFile
+
+  SolFile stores the solution, and TmpFile stores the constraints in CPLEX format. Picat throws existence_error if the glpsol command is unavailable.
+
++ Extended the compiler to support programs containing large structures and arrays, removing the previous limit of 255.
+
++ Updated exception handling for the math functions asin(X), acos(X), X**Y, log(X), log10(X), log2(X), and log(B,X).
+
++ Cleaned up exception handling.
+
++ Added zip(Lists) to the basic module.
+
++ Added to_number(NumOrCharOrStr) to the basic module.
+
++ Added cl_facts_table(Facts) and cl_facts_table(Facts,IndexInfo) to the sys module.
+
++ Added the following math functions:
+    acot(X) = acot(X).
+    acsc(X) = acsc(X).
+    asec(X) = asec(X).
+    cot(X) = cot(X).
+    csc(X) = csc(X).
+    sec(X) = sec(X).
+
++ Added the --v and --version command-line options.
+
++ Added the -s Size command-line option to specify the initial stack/heap size.
+
++ Added the take(L,N), drop(L,N), and chunks_of(L,N) built-in functions to the util module.
+
+Version 1.9 (April 3, 2016)
+=================================
++ Improved the sat module:
+    + Added more compact encodings for PB and all_different constraints.
+    + Added an algorithm for decomposing arithmetic constraints.
+    + Added binary search for optimization.
+
++ Added binary search for optimization in best_plan and best_plan_bb in the planner module.
+
++ Added the following built-in functions to the basic module:
+    maxint_small() = maxint_small().
+    minint_small() = minint_small().
+
++ Removed best_plan_downward/n from the planner module.
+
+Version 1.8 (February 18, 2016)
+=================================
++ Added the following built-ins:
+    math:
+        pow_mod(X,Y,Z) = pow_mod(X,Y,Z).
+            Equivalent to X**Y mod Z, but more efficient.
+    basic:
+        to_radix_string(Val,Base) = to_radix_string(Val,Base).
+        parse_radix_string(String,Base) = parse_radix_string(String,Base).
+        put_attr(AttrVar,Key,Val) => put_attr(AttrVar,Key,Val).
+        get_attr(AttrVar,Key) = get_attr(AttrVar,Key)
+        get_attr(AttrVar,Key,DefaultVal) = get_attr(AttrVar,Key,DefaultVal)
+    cp:
+        solve_suspended => solve_suspended.
+        solve_suspended(Options) => solve_suspended(Options).
+
++ Improved big-integer multiplication and mod operations.
+
++ Improved tabling for functions and single-answer predicates.
+
++ Fixed the matrix_element constraint to support non-ground matrices.
+
++ Added the missing internal predicate '$bc_clause'/1.
+
+Version 1.7 (January 3, 2016)
+=================================
++ Added the following built-in functions to the basic module:
+    get_heap_map(ID)
+    get_global_map(ID)
+    get_table_map(ID)
+
++ Improved operations on global and table maps.
+
++ Improved maxof and minof.
+
+Version 1.6 (December 13, 2015)
+=================================
++ Added the following built-ins to the basic module:
+    int(Term) => int(Term).
+    sorted(ListOrArray) => sorted(ListOrArray).
+    sorted_down(ListOrArray) => sorted_down(ListOrArray).
+    to_float(NumOrString) = to_float(NumOrString).
+    to_int(NumOrCharOrString) = to_int(NumOrCharOrString).
+
++ Added the following global constraints to the cp and sat modules:
+    decreasing(FDVars) => decreasing(FDVars).
+    decreasing_strict(FDVars) => decreasing_strict(FDVars).
+    increasing(FDVars) => increasing(FDVars).
+    increasing_strict(FDVars) => increasing_strict(FDVars).
+
++ Overloaded the following built-ins to support arrays:
+    avg(ListOrArray)
+    max(ListOrArray)
+    min(ListOrArray)
+    prod(ListOrArray)
+    sort(ListOrArray)
+    sort(ListOrArray,Index)
+    sort_down(ListOrArray)
+    sort_down(ListOrArray,Index)
+    sort_down_remove_dups(ListOrArray)
+    sort_down_remove_dups(ListOrArray,Index)
+    sort_remove_dups(ListOrArray)
+    sort_remove_dups(ListOrArray,Index)
+    sum(ListOrArray)
+
++ Fixed bugs affecting:
+    + to_integer(String) when String begins with a sign.
+    + f(X) = 1..X.
+    + f(X,Y) = X++Y.
+
+Version 1.5 (November 23, 2015)
+=================================
++ Added support for nested as-patterns in rule heads.
+
++ Added the following built-in functions and predicates to the basic module:
+    count_all(Goal) = Count
+        Returns the number of instances of Goal that are true.
+    new_set() = Map
+        Returns a set represented as a map in which all keys map to the atom not_a_value.
+    put(Map,Key)
+        Equivalent to put(Map,Key,not_a_value).
+
++ Fixed bugs.
+
+Version 1.4 (September 28, 2015)
+=================================
++ Changed the representation of integers in the range -2^56-1 to 2^56-1 to use one word on 64-bit platforms.
+
++ Set the default lower and upper domain bounds to -2^56-1 and 2^56-1, respectively, on 64-bit platforms.
+
++ Improved the SAT encoding for entailment constraints.
+
++ Improved the propagator for the multiplication constraint.
+
++ Added support for iterating over arrays in foreach loops without converting them to lists.
+
++ Fixed a bug in tabling.
+
++ Suppressed output logs from GLPK.
+
++ Added more library modules to the "lib" directory, including:
+    fzn_picat_cp.pi: A FlatZinc interpreter in Picat using the cp module.
+    fzn_picat_sat.pi: A FlatZinc interpreter in Picat using the sat module.
+    gen_indent_all.pi: A generator of command lines for indenting C files using Stan Warford's function.
+    json.pi: A JSON encoder and decoder by Mike Bionchik.
+    sugar2pi.pi: A converter from Sugar's CSP format to Picat.
+    xcsp2pi.pi: A converter from XCSP to Picat.
+
+Version 1.3 (August 1, 2015)
+=================================
++ Improved the sort functions.
+
++ Fixed a parser bug that caused errors when parsing unary operators as atoms.
+
++ Improved the SAT encoding of the circuit constraint.
+
++ Improved the min(L) and max(L) constraint expressions.
+
+Version 1.2 (June 12, 2015)
+=================================
++ Made the following predicates in the planner module polymorphic:
+    plan/3: plan(S,Limit,Plan) and plan(S,Plan,PlanCost)
+    best_plan/3: best_plan(S,Limit,Plan) and best_plan(S,Plan,PlanCost)
+    best_plan_nondet/3: best_plan_nondet(S,Limit,Plan) and best_plan_nondet(S,Plan,PlanCost)
+    best_plan_upward/3: best_plan_upward(S,Limit,Plan) and best_plan_upward(S,Plan,PlanCost)
+    plan_unbounded/3: plan_unbounded(S,Limit,Plan) and plan_unbounded(S,Plan,PlanCost)
+
++ Renamed best_plan_upward to best_plan_bb and deprecated best_plan_upward.
+
++ Added the following predicates:
+    sort(List,KeyIndex)
+    sort_remove_dups(List,KeyIndex)
+    sort_down(List,KeyIndex)
+    sort_down_remove_dups(List,KeyIndex)
+
++ Extended min and max to accept arbitrary terms:
+    min(X,Y) and max(X,Y): X and Y can be any terms.
+    min(L) and max(L): L can be a list of any terms.
+
++ Updated the compiler to compute min([Elm : ...]) and max([Elm : ...]) without creating a list.
+
++ Removed the requirement that argument lists passed to zip have the same length.
+
++ Updated the compiler to avoid creating a zipped list for the foreach iterator {E1,E2} in zip(L1,L2).
+
++ Reimplemented the built-ins in the os module to avoid creating temporary symbols.
+
++ Fixed bugs in find_first_of/2 and find_last_of/2 in the util module.
+
+Version 1.1 (May 11, 2015)
+=================================
++ Changed the garbage collection policy.
+
++ Fixed a bug in the global table map that could affect some planning programs.
+
++ Fixed a bug in the dump option in solve/2.
+
++ Improved the SAT compiler.
+
++ Improved the implementation of len(_) and its alias length(_).
+
+Version 1.0 (April 3, 2015)
+=================================
++ Added an external language interface to C. Users must download the C source code to use this interface.
+
++ Improved the compiler to support huge rules containing tens of thousands of subgoals and variables.
+
++ Added array comprehensions. An array comprehension {E : Iterator, ...} is equivalent to to_array([E : Iterator, ...]).
+
++ Added the insert_ordered_down(OrderedList,Elm) built-in function.
+
++ Added best_plan_nondet/2-4 to the planner module to return multiple plans through backtracking.
+
++ Added the datetime module with the following functions:
+    current_datetime()
+    current_date()
+    current_day()
+    current_time()
+
++ Added the -g InitGoal command-line option to execute a specified goal instead of the default main/0 or main/1.
+
++ Changed redundant commas and semicolons in if-then-else constructs and loops to produce warnings instead of errors.
+
++ Changed the evaluation_error(undefined) exception to evaluation_error(undefined,error_value).
+
++ Changed the evaluation_error(zero_divisor) exception to zero_divisor.
+
++ Improved the SAT compiler.
+
++ Added the following global constraints to the cp and sat modules:
+    matrix_element(M,I,J,V)
+    scalar_product(A, X, Product)
+    scalar_product(A, X, Rel, Product)
+    all_different_except_0(Xs)
+    exactly(N, X, V)
+    at_most(N,X,V)
+    at_least(N,X,V)
+
++ Changed the "picat File" command to return 1 if a runtime or syntax error occurs while executing File, and 0 otherwise.
+
+Version 0.9 (March 1, 2015)
+=================================
++ Extended table constraints to accept arrays as tuples, as in table_in({V1,V2},[{1,2},{2,3}]). The tuple form (a1,a2,...,an) remains supported but is obsolete.
+
++ Adopted Espresso to generate compact CNF code for domain, table, element, and regular constraints.
+
++ Removed SAT support from the MSV version. Windows users must use the Cygwin version for SAT support.
+
++ Improved the error message for a Prolog-style if-then construct (A -> B) with no else branch.
+
++ Fixed bugs, including those reported by Sergii Dymchenko.
+
++ Removed all global constraints from the mip module, leaving support for linear constraints only.
+
+Version 0.8 (January 24, 2015)
+=================================
++ Updated the spacing and parenthesis rules for printing expressions.
+
++ Significantly improved the SAT compiler, especially its handling of arithmetic, reified arithmetic, table, cumulative, and all_different constraints.
+
++ Extended the SAT solver to support multiple calls and backtracking within one program execution.
+
++ Added support for reifying count(V,L,Rel,Count) in the cp, sat, and mip modules.
+
++ Added the dump(File) option to solve/2 in the sat module to write the generated CNF code to File.
+
++ Updated cp/2 in the os module to prevent a file from being copied onto itself.
+
++ Added type checking to several built-ins.
+
++ Added bool_dvar(X) to the basic module and nvalue(N,L) to the sat and cp modules.
+
++ Improved the evaluation of tabled programs that require only one answer.
+
+Version 0.7 (November 13, 2014)
+=================================
++ Changed insert_ordered(L,T) to require L to be a proper list.
+
++ Adopted the two-product encoding for the at-most-one constraint in the sat module.
+
++ Improved the efficiency of translating X #=> Y in the sat module.
+
++ Added len(Term) as an alias of length(Term).
+
++ Added the len attribute as an alias of length, as in [1,2].len = L.
+
++ Changed the default labeling strategy for max/min back to maxof/minof. Version 0.6 used maxof_inc/minof_inc.
+
++ Disallowed dot and index notation in objective expressions for minof, maxof, minof_inc, and maxof_inc.
+
++ Improved the debugger.
+
++ Fixed a bug in read_file_lines(File) that affected reading UTF-8 characters.
+
++ Standardized the behavior of mod/2 and div/2 across the cp, sat, and mip modules. The // operator is equivalent to div.
+
+Version 0.6 (August 15, 2014)
+=================================
++ Improved the SAT compiler's handling of reified constraints, X #=< Y, and other constraints.
+
++ Added a decomposition algorithm for the cumulative constraint.
+
++ Added a linear-time algorithm for vars(Term)=Vs.
+
++ Added minof_inc/2-3 and maxof_inc/2-3 to the basic module.
+
++ Extended maxof/2-3, minof/2-3, maxof_inc/2-3, and minof_inc/2-3 to accept real-number objective expressions.
+
++ Extended nth(I,S,V) to allow S to be a structure, including an array.
+
++ Changed negative numbers such as -1 to be treated as numbers even in patterns, so integer($-1) succeeds.
+
+Version 0.5 (July 16, 2014)
+=================================
++ Improved the SAT compiler.
+
++ Standardized the behavior of mod/2 and div/2 across the cp, sat, mip, and basic modules.
+
++ Improved the implementation of X #= max(L) and X #= min(L) in the cp module.
+
+Version 0.4 (July 2, 2014)
+=================================
++ Added get_table_map() to the basic module. A table map is stored in the table area, and both its keys and values are hash-consed.
+
++ Added is_tabled_state(S) and current_resource_plan_cost(Amount,Plan,Cost) to the planner module.
+
++ Added the subcircuit/1, lex_le/2, lex_lt/2, and regular/6 global constraints to the cp and sat modules.
+
++ Reimplemented cp/2 for copying files in the os module.
+
++ Added the table_blocks statistics flag.
+
++ Made several significant improvements to the SAT compiler.
+
++ Fixed bugs, including those affecting neqs/1 and inserting non-ground pairs into the global map.
+
+Version 0.3 (May 23, 2014)
+=================================
++ Added the mip module to connect Picat to GLPK. In addition to the integer-domain linear constraints supported by cp and sat, mip supports real-domain linear constraints. Example MIP models are available at http://www.hakank.org/picat/#mip.
+
++ Made solve(Options,Vars) nondeterministic in the sat and mip modules.
+
++ Added the rand, rand_var, and rand_val labeling options to the cp module.
+
++ Added support for the reifications B #<=> X :: Y and B #<=> X notin Y in all three constraint modules.
+
++ Changed the ++ operator to be right-associative.
+
+Version 0.2#1 (April 1, 2014)
+=================================
++ Added the prism module, with the executable picat_prism.
+
++ Added the following built-ins to the basic module:
+    new_list(N,InitVal) = new_list(N,InitVal).
+    bind_vars(Term,Val) => bind_vars(Term,Val).
+
++ Fixed bugs affecting big-integer arithmetic, FD backtrack statistics, fd_degree, between/3, and other functionality.
+
+Version 0.1 (stable) (Feb. 3, 2014)
+=================================
++ Added command(String)=Status to the sys module.
+
++ Changed length(Atom) to return the number of UTF-8 characters in Atom when Atom is an atom.
+
++ Added the following built-in to the ordset module:
+    ordset(Term) => ordset(Term).
+
++ Removed sublist/3 from the basic module. Use slice/2-3 instead.
+
++ Improved the multiplication constraint X #= Y*Z in the cp module.
+
++ Added the following functions to the io module:
+    read_picat_token() = TokenValue
+    read_picat_token(FD) = TokenValue
+
++ Fixed bugs affecting attributed variables, @>=/2, @<=/2, writable/1, and the user's guide.
+
+Version 0.1 beta-10 (Jan. 15, 2014)
+=================================
++ Added UTF-8 support.
+
++ Replaced char_code(Char) with ord(Char).
+
++ Replaced code_char(Code) with chr(Code).
+
++ Added the following built-ins to the basic module:
+    '@>'(X,Y) => X @> Y.
+    '@>='(X,Y) => X @>= Y.
+    '@<'(X,Y) => X @< Y.
+    '@<='(X,Y) => X @=< Y.
+    '@=<'(X,Y) => X @=< Y.
+    list_to_and(L) = list_to_and(L).
+    and_to_list(And) = and_to_list(And).
+
++ Added the following built-ins to the io module:
+    read_char_code() = read_char_code(stdin).
+    read_char_code(FD,N) = read_char_code(FD,N).
+    read_char_code(FD) = read_char_code(FD).
+    write_char(Chars) => write_char(stdout,Chars).
+    write_char(FD,Chars) => write_char(FD,Chars).
+    write_char_code(Codes) => write_char_code(stdout,Codes).
+    write_char_code(FD,Codes) => write_char_code(FD,Codes).
+
++ Fixed bugs in the module system, printf, and writef.
+
+Version 0.1 beta-8 (Dec. 15, 2013)
+=================================
++ Added support for defining final-state conditions with final(+S,-Plan,-Cost).
+
++ Added the following functions and predicates to the planner module:
+    current_plan()
+    current_resource_plan(Resource,Plan)
+
++ Changed best_plan(...) to use the downward algorithm.
+
++ Added an exception when a Picat application's top-level main predicate fails.
+
++ Added size(Map) to return the size of Map.
+
+Version 0.1 beta-7 (Nov. 25, 2013)
+=================================
++ Changed the compilation of length([X : Iterator,...]) to produce a loop without creating a list.
+
++ Added the ordset module.
+
++ Added the circuit constraint to the sat module.
+
++ Improved the SAT compiler's handling of reification and element constraints.
+
++ Fixed bugs in compiling list comprehensions within disjunctions and in module lookup.
+
+Version 0.1 beta-6 (Nov. 10, 2013)
+=================================
++ Added current_resource/0 to the planner module.
+
++ Added '::'/2 to the cp and sat modules.
+
++ Removed in/2 and notin/2 from the basic module.
+
++ Improved operations on maps.
+
++ Fixed a bug in indomain(X) in the cp module.
+
+Version 0.1 beta-5 (Nov. 3, 2013)
+=================================
++ Changed X in D to require D to be a list of integers.
+
++ Changed X notin D to require D to be a list of integers.
+
++ Added table_in(VarTuples,ValTuples) and table_notin(VarTuples,ValTuples) to the cp and sat modules.
+
++ Added assignment and cumulative to the sat module.
+
++ Added slice/1-2 to the basic module: L.slice(StartIndex) and L.slice(FromIndex,ToIndex).
+
++ Fixed module-qualified names to allow pre-imported modules, as in math.pi.
+
++ Added the false built-in.
+
++ Added support for Boolean expressions in arithmetic constraints in the sat module.
+
+Version 0.1 beta-4 (Oct. 5, 2013)
+=================================
++ Added the following operators:
+    (A && B): Equivalent to (A,B).
+    (A || B): Equivalent to (A;B).
+
++ Added the cl predicate to the sys module to read a program from the console.
+
++ Updated the following built-ins in the basic module:
+    array(Term): array({}) now succeeds.
+    to_list(Term): to_list({}) now returns [].
+    delete(List,X) = NewList: Uses = instead of == for equality tests.
+    delete_all(List,X) = NewList: Uses = instead of == for equality tests.
+    find(String, Substring, From, To): Moved to the util module.
+    find_ignore_case(String, Substring, From, To): Moved to the util module.
+    replace(T,Old,New) = CopyT: Changed the signature.
+
++ Added the following predicates to the util module:
+    find(String, Substring, From, To)    (Moved from the basic module.)
+    find_first_of(T,Pattern)=Index
+    find_ignore_case(String, Substring, From, To)    (Moved from the basic module.)
+    find_last_of(T,Pattern)=Index
+    lstrip(L)
+    lstrip(L,Elms)
+    replace_at(T,I,New)=CopyT
+    rstrip(L)
+    rstrip(L,Elms)
+    strip(L)
+    strip(L,Elms)
+
++ Changed (sum(a++b) #= 1) to raise an exception instead of failing.
+
++ Documented the report option for solve/2 in the sat module.
+
++ Improved the element constraint in the sat module.
+
++ Changed the precedence of := so that it cannot be part of an expression.
+
++ Changed X[...] := Exp to raise an error if the updated term is not on the heap.
+
++ Fixed bugs in read_int(FD), read_int(), and the loop compiler.
