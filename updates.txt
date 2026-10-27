@@ -1,4 +1,4 @@
-Version 4.0b11 (10/23/2026)
+Version 4.0b12 (10/24/2026)
 =================================
 + Updated the parser to allow higher-order variable calls of the form S(A1,A2,...,An), where S is a variable at compile time and refers to a callable term at runtime. Picat translates this notation into a call or apply invocation, depending on the context. Higher-order calls can also be module-qualified: m.S(A1,A2,...,An) invokes the function or predicate defined in module m whose symbol is referenced by S.
 
@@ -11,6 +11,12 @@ Version 4.0b11 (10/23/2026)
         "(" lambda_parameters "=>" body ")"    
 
 + Updated the parser to allow terms of the form +(num) and -(num) (in early versions, +(num) and -(num) are always numbers).
+
++ Add the ext(Command) solver option into the sat module to allow use of an extenal sat solver.
+
++ Removed the maxsat solver option in the sat module.
+
++ Changed the temporary file name creator to avoid name collision. All temporary file names have the format "__tmp***", where *** is the running process id.
 
 + Updated the planner module to allow a planning model to be reused with different initial states.
 
