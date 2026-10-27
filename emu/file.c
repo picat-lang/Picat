@@ -491,7 +491,7 @@ char *get_file_name(BPLONG op) {
     if (ISATOM(op)) {
         namestring(GET_SYM_REC(op), s1);
     } else {
-        picat_str_to_c_str(op, s1, MAX_STR_LEN);
+        pp_str_to_c_str(op, s1, MAX_STR_LEN);
     }
     return expand_file_name(s1);
 }
@@ -3232,14 +3232,18 @@ void c_str_to_picat_str(CHAR_PTR str, BPLONG lst, BPLONG lstr) {
     ASSIGN_v_heap_term(lstr, (BPLONG)ret_lst_ptr);
 }
 
-/* change Picat string (lst) to a C string (buf) */
-void picat_str_to_c_str(BPLONG lst, char *buf, BPLONG buf_size) {
+/* change a Picat or Prolog string (atom or lst) to a C string (buf) */
+void pp_str_to_c_str(BPLONG lst, char *buf, BPLONG buf_size) {
     CHAR_PTR ch_ptr = buf;
     CHAR_PTR s;
     int j, len, i = 0;
 
-    //  printf("=>picat_str_to_c_str "); write_term(lst); printf("\n");
-
+    //  printf("=>pp_str_to_c_str "); write_term(lst); printf("\n");
+    if (ISATOM(lst)) {
+        sym_ptr = GET_ATM_SYM_REC(lst);
+        namestring(sym_ptr, buf);
+        return;
+    }        
     while (ISLIST(lst)) {
         BPLONG_PTR lst_ptr;
         BPLONG car;
@@ -3248,18 +3252,21 @@ void picat_str_to_c_str(BPLONG lst, char *buf, BPLONG buf_size) {
         lst_ptr = (BPLONG_PTR)UNTAGGED_ADDR(lst);
         lst = FOLLOW(lst_ptr+1); DEREF(lst);
         car = FOLLOW(lst_ptr); DEREF(car);  /* car must be a single-char atom */
-        sym_ptr = (SYM_REC_PTR)GET_ATM_SYM_REC(car);
-        s = GET_NAME(sym_ptr);
-        len = GET_LENGTH(sym_ptr);
-        if (i+len >= buf_size) {
-            quit("buff overfolow in picat_str_to_c_str");
-        }
-        for (j = 0; j < len; j++) {
-            *(ch_ptr+i) = *(s+j);
-            i++;
+        if (ISATOM(car)){
+            sym_ptr = (SYM_REC_PTR)GET_ATM_SYM_REC(car);
+            s = GET_NAME(sym_ptr);
+            len = GET_LENGTH(sym_ptr);
+            if (i+len >= buf_size) {
+                quit("buff overfolow in pp_str_to_c_str");
+            }
+            for (j = 0; j < len; j++) {
+                *ch_ptr++ = *(s+j);
+            }
+        } else if (ISINT(car)){
+            *ch_ptr++ = (char)INTVAL(car);
         }
     }
-    *(ch_ptr+i) = '\0';
+    *ch_ptr = '\0';
 }
 
 /* term must be one of the following: variable, atom, integer, and real */
@@ -3340,7 +3347,7 @@ int c_PICAT_FORMAT_TO_STRING_ccff() {
     Str = ARG(3, 4); DEREF(Str);
     StrR = ARG(4, 4); DEREF(StrR);
 
-    picat_str_to_c_str(Format, format_str, MAX_STR_LEN);
+    pp_str_to_c_str(Format, format_str, MAX_STR_LEN);
     ch_ptr = bp_buf;
     if (ISINT(Val)) {
         sprintf(ch_ptr, format_str, INTVAL(Val));
@@ -3350,7 +3357,7 @@ int c_PICAT_FORMAT_TO_STRING_ccff() {
         sprintf(ch_ptr, format_str, bp_bigint_to_int(Val));
     } else {  /* Val must be a Picat string */
         char *str = (CHAR_PTR)heap_top+10000;
-        picat_str_to_c_str(Val, str, MAX_STR_LEN);
+        pp_str_to_c_str(Val, str, MAX_STR_LEN);
         sprintf(ch_ptr, format_str, str);
     }
     c_str_to_picat_str(ch_ptr, Str, StrR);

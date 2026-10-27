@@ -1952,7 +1952,7 @@ int b_NEXT_TOKEN_ff(BPLONG op1, BPLONG op2)
             char c;
             fprintf(stderr, "*** error until line %d\n", (int)curr_line_no);
             if (i == LISQT){
-                picat_str_to_c_str(list_p, chars_pool, MAX_CHARS_IN_POOL);
+                pp_str_to_c_str(list_p, chars_pool, MAX_CHARS_IN_POOL);
                 chars_pool[MAX_CHARS_IN_POOL-1] = '\0';
                 fputs(chars_pool,stderr);
             }

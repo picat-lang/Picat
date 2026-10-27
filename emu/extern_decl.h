@@ -851,7 +851,7 @@ extern int c_FORMAT_PRINT_INTEGER(void);
 extern int c_FORMAT_PRINT_FLOAT(void);
 extern char *format_comma_separated_int(BPLONG amt);
 extern int b_NAME0_cf(BPLONG op1, BPLONG op2);  /* op2 is made to be the string of the name of op1*/
-extern void picat_str_to_c_str(TERM lst, char *s, BPLONG len);
+extern void pp_str_to_c_str(TERM lst, char *s, BPLONG len);
 extern int c_PICAT_FORMAT_TO_STRING_ccff();
 extern int c_PICAT_GETENV_cf();
 extern int c_PICAT_GET_CWD_f();
@@ -1202,6 +1202,7 @@ extern int b_INSERT_ORDERED_DOWN_ccf(BPLONG lst, BPLONG t, BPLONG ret_lst);
 extern int b_INSERT_ORDERED_DOWN_NO_DUP_ccf(BPLONG lst, BPLONG t, BPLONG ret_lst);
 extern int b_INSERT_STATE_LIST_ccf(BPLONG lst, BPLONG t, BPLONG ret_lst);
 extern int b_PICAT_LENGTH_cf(BPLONG term, BPLONG len);
+extern int c_GET_PID_f();
 
 //[]
 //      numbervars.c prototypes

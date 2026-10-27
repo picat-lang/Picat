@@ -807,33 +807,7 @@ int b_SYSTEM0_cf(BPLONG op1, BPLONG op2)  /* op1: a list of int (string) for CSh
     SYM_REC_PTR sym_ptr;
     CHAR s[MAX_STR_LEN];
 
-    DEREF(op1);
-    if (ISATOM(op1)) {
-        sym_ptr = GET_ATM_SYM_REC(op1);
-        namestring(sym_ptr, s);
-    } else if (b_IS_STRING_c(op1)) {
-        CHAR_PTR ch_ptr = s;
-        BPLONG_PTR lst_ptr;
-
-        while (ISLIST(op1)) {
-            BPLONG elm;
-            lst_ptr = (BPLONG_PTR)UNTAGGED_ADDR(op1);
-            elm = FOLLOW(lst_ptr); DEREF(elm);
-            op1 = FOLLOW(lst_ptr+1); DEREF(op1);
-            sym_ptr = GET_ATM_SYM_REC(elm);
-            if (ch_ptr+GET_LENGTH(sym_ptr) >= s+MAX_STR_LEN) {
-                bp_exception = et_STRING_TOO_LONG;
-                return BP_ERROR;
-            }
-            ch_ptr = namestring(sym_ptr, ch_ptr);
-        }
-    } else {
-#ifdef PICAT
-        bp_exception = string_expected; return BP_ERROR;
-#else
-        bp_exception = atom_expected; return BP_ERROR;
-#endif
-    }
+    pp_str_to_c_str(op1, s, MAX_STR_LEN);
     ASSIGN_f_atom(op2, MAKEINT(system(s)));
     return BP_TRUE;
 }
@@ -2791,6 +2765,16 @@ int c_fetch_stacktrace(){
     return unify(op, bp_stacktrace_lst);
 }
   
+int c_GET_PID_f(){
+    BPLONG Pid = ARG(1, 1);
+#ifdef WIN32
+    unify(Pid, MAKEINT(GetCurrentProcessId()));
+#else
+    unify(Pid, MAKEINT(getpid()));
+#endif
+    return BP_TRUE;
+}
+
 void Cboot_mic()
 {
     greater_than_sym = ADDTAG(BP_NEW_SYM(">", 0), ATM);
@@ -2859,6 +2843,7 @@ void Cboot_mic()
     insert_cpred("c_module_qualified_func_name", 3, c_module_qualified_func_name);
     insert_cpred("c_is_picat_public_name", 1, c_is_picat_public_name);
     insert_cpred("c_fetch_stacktrace", 1, c_fetch_stacktrace);
+    insert_cpred("c_GET_PID_f", 1, c_GET_PID_f);
 }
 
 #if defined(_MSC_VER)
