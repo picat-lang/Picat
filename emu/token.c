@@ -1,9 +1,9 @@
 /********************************************************************
     File        : token.c
     Author      : Richard A. O'Keefe
-    Modified by : Deeporn H. Beardsley & Saumya Debray & Neng-Fa Zhou
-    Updated     : Sep. 2006
-    Purpose     : Tokenizer for B-Prolog.
+    Modified by : Deeporn H. Beardsley & Saumya Debray & Neng-Fa Zhou & CodeX
+    Updated     : Oct. 2026
+    Purpose     : Tokenizer for B-Prolog & Picat.
 ********************************************************************/
 
 #include <stdlib.h>
