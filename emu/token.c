@@ -300,7 +300,7 @@ int next_token_index = 0;
 
 #ifdef BPSOLVER
 #define BP_GETC_STRING(c) {                     \
-        c = *string_in;                         \
+        c = (unsigned char)*string_in;          \
         if (c != 0) {                           \
             string_in++;                        \
         }                                       \
@@ -319,7 +319,7 @@ int next_token_index = 0;
     }
 #else
 #define BP_GETC_STRING(c) {                             \
-        c = *string_in;                                 \
+        c = (unsigned char)*string_in;                  \
         if (c != 0) {                                   \
             string_in++;                                \
             if (chars_pool_index >= MAX_CHARS_IN_POOL){ \
@@ -352,26 +352,34 @@ int next_token_index = 0;
     }
 #endif
 
-/* convert a code point to char array s, which has n remaining slots */
-#define UTF8_CODEPOINT_TO_STR(code, s, n) {             \
-        if (code <= 127) {                              \
-            n--;                                        \
-            if (n < 0) {                                \
-                printAtomStr(tok2long);                 \
-            } else {                                    \
-                *s++ = (BYTE)code;                      \
-            }                                           \
-        } else {                                        \
-            if (n < 4) {                                \
-                printAtomStr(tok2long);                 \
-            } else {                                    \
-                CHAR_PTR s1;                            \
-                s1 = utf8_codepoint_to_str(code, s);    \
-                n -= (s1-s);                            \
-                s = s1;                                 \
-            }                                           \
-        }                                               \
-    }
+/* Keep one slot for the terminating NUL; stop before writing on overflow. */
+#define TOKEN_APPEND_BYTE(ch) do {                          \
+        if (n == 0) {                                      \
+            *s = '\0';                                    \
+            SyntaxError(tok2long);                         \
+            return BP_ERROR;                               \
+        }                                                  \
+        --n;                                               \
+        *s++ = (CHAR)(ch);                                  \
+    } while (0)
+
+/* n excludes the slot reserved for the terminating NUL. */
+#define UTF8_CODEPOINT_TO_STR(code, s, n) do {              \
+        int utf8_len = ((code) <= 127 ? 1 :                 \
+                        (code) < 0x800 ? 2 :               \
+                        (code) < 0x10000 ? 3 : 4);          \
+        if (n < utf8_len) {                                \
+            *s = '\0';                                    \
+            SyntaxError(tok2long);                         \
+            return BP_ERROR;                               \
+        }                                                  \
+        if (utf8_len == 1) {                               \
+            *s++ = (CHAR)(code);                            \
+        } else {                                           \
+            s = utf8_codepoint_to_str((code), s);           \
+        }                                                  \
+        n -= utf8_len;                                     \
+    } while (0)
 
 CHAR AtomStr[MAX_STR_LEN];
 BPLONG list_p;
@@ -385,7 +393,42 @@ CHAR badexpt[] = "bad exponent";
 CHAR badradix[] = "radix > 36";
 
 
+/* Unicode scalar values exclude UTF-16 surrogates. */
+static int unicode_scalar_valid(BPLONG code) {
+    return code >= 0 && code <= 0x10ffff &&
+        !(code >= 0xd800 && code <= 0xdfff);
+}
+
+static int utf8_lead_length(int c) {
+    if (c >= 0xc2 && c <= 0xdf) return 2;
+    if (c >= 0xe0 && c <= 0xef) return 3;
+    if (c >= 0xf0 && c <= 0xf4) return 4;
+    return 0;
+}
+
+static int utf8_decoded_valid(int code, int len) {
+    return code >= (len == 2 ? 0x80 : len == 3 ? 0x800 : 0x10000) &&
+        unicode_scalar_valid(code);
+}
+
+static int unicode_character_error(void) {
+    bp_exception = c_syntax_error(et_IN_CHARACTER);
+    return BP_ERROR;
+}
+
+/* Check before arithmetic, including on platforms with 32-bit BPLONG. */
+#define ESCAPE_ACCUMULATE(value, digit_char, base) do {      \
+        int escape_digit = DigVal(digit_char);              \
+        if ((digit_char) == '_' || escape_digit >= (base) || \
+            (value) > (0x10ffff - escape_digit) / (base)) {  \
+            return unicode_character_error();              \
+        }                                                  \
+        (value) = (value) * (base) + escape_digit;           \
+    } while (0)
+
 char *utf8_codepoint_to_str(int code, CHAR_PTR s) {
+    /* Public callers cannot handle a NULL result; encode replacement on error. */
+    if (!unicode_scalar_valid(code)) code = 0xfffd;
     if (code < 0x80) {
         *s++ = code;
     } else if (code < 0x800) {
@@ -404,165 +447,62 @@ char *utf8_codepoint_to_str(int code, CHAR_PTR s) {
     return s;
 }
 
-/* return the codepoint of the current utf-8 char, setting s_ptr to the beginning of the next char */
+/* Decode a NUL-terminated byte string. Malformed UTF-8 becomes U+FFFD.
+ * Do not consume a non-continuation byte, including the terminating NUL. */
 int utf8_char_to_codepoint(CHAR_PTR *s_ptr) {
-    CHAR_PTR s;
-    int c, b2, b3, b4;
-
-    s = *s_ptr;
-    //  printf(" utf8_char_to_codepoint %s\n",s);
-    c = *s++;
-
-    if (c & 0x80) {  /* leading byte of a utf8 char? */
-        if ((c & 0xe0) == 0xc0) {  /* 110xxxxx */
-            b2 = *s++;
-            if ((b2 & 0xc0) == 0x80) {  /* 110xxxxx 10xxxxxx */
-                c = (((c & 0x1f) << 6) | (b2 & 0x3f));
-            } else {
-                s--;
-            }
-        } else if ((c & 0xf0) == 0xe0) {  /* 1110xxxx */
-            b2 = *s++;
-            if ((b2 & 0xc0) == 0x80) {  /* 1110xxxx 10xxxxxx */
-                b3 = *s++;
-                if ((b3 & 0xc0) == 0x80) {  /* 1110xxxx 10xxxxxx 10xxxxxx */
-                    c = (((c & 0xf) << 12) | ((b2 & 0x3f) << 6) | (b3 & 0x3f));
-                } else {
-                    s--;
-                    s--;
-                }
-            } else {
-                s--;
-            }
-        } else if ((c & 0xf8) == 0xf0) {  /* 11110xxx */
-            b2 = *s++;
-            if ((b2 & 0xc0) == 0x80) {  /* 11110xxx 10xxxxxx */
-                b3 = *s++;
-                if ((b3 & 0xc0) == 0x80) {  /* 11110xxx 10xxxxxx 10xxxxxx */
-                    b4 = *s++;
-                    if ((b4 & 0xc0) == 0x80) {  /* 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx */
-                        c = (((c & 0xf) << 18) | ((b2 & 0x3f) << 12) | ((b3 & 0x3f) << 6) | (b4 & 0x3f));
-                    } else {
-                        s--;
-                        s--;
-                        s--;
-                    }
-                } else {
-                    s--;
-                    s--;
-                }
-            } else {
-                s--;
-            }
-        }
+    const unsigned char *s = (const unsigned char *)*s_ptr;
+    int c = *s;
+    int len, code, i;
+    if (c < 0x80) {
+        *s_ptr = (CHAR_PTR)(s + (c != 0));
+        return c;
     }
-    *s_ptr = s;
-    return c;
+    ++s;
+    len = utf8_lead_length(c);
+    if (!len) {
+        *s_ptr = (CHAR_PTR)s;
+        return 0xfffd;
+    }
+    code = c & (len == 2 ? 0x1f : len == 3 ? 0x0f : 0x07);
+    for (i = 1; i < len; ++i) {
+        int next = *s;
+        if ((next & 0xc0) != 0x80) {
+            *s_ptr = (CHAR_PTR)s;
+            return 0xfffd;
+        }
+        ++s;
+        code = (code << 6) | (next & 0x3f);
+    }
+    *s_ptr = (CHAR_PTR)s;
+    return utf8_decoded_valid(code, len) ? code : 0xfffd;
 }
 
-
-/* read a utf8 char whose leading byte is c */
+/* General character I/O replaces malformed UTF-8 rather than returning an
+ * invalid scalar. One-byte pushback preserves non-continuations, even NUL. */
 int utf8_getc(FILE *curr_in, int c) {
-    int b2, b3, b4;
-
-    if ((c & 0xe0) == 0xc0) {  /* 110xxxxx */
-        b2 = getc(curr_in);
-        if ((b2 & 0xc0) == 0x80) {  /* 110xxxxx 10xxxxxx */
-            return (((c & 0x1f) << 6) | (b2 & 0x3f));
-        } else {  /* not utf8 char */
-            if (b2 > 0) {ungetc((char)b2, curr_in);} /* don't unget EOF */
+    int len, code, i;
+    if (c < 0x80) return c;  /* Includes EOF. */
+    len = utf8_lead_length(c);
+    if (!len) return 0xfffd;
+    code = c & (len == 2 ? 0x1f : len == 3 ? 0x0f : 0x07);
+    for (i = 1; i < len; ++i) {
+        int next = getc(curr_in);
+        if (next == EOF || (next & 0xc0) != 0x80) {
+            if (next != EOF) ungetc(next, curr_in);
+            return 0xfffd;
         }
-    } else if ((c & 0xf0) == 0xe0) {  /* 1110xxxx */
-        b2 = getc(curr_in);
-        if ((b2 & 0xc0) == 0x80) {  /* 1110xxxx 10xxxxxx */
-            b3 = getc(curr_in);
-            if ((b3 & 0xc0) == 0x80) {  /* 1110xxxx 10xxxxxx 10xxxxxx */
-                return (((c & 0xf) << 12) | ((b2 & 0x3f) << 6) | (b3 & 0x3f));
-            } else {
-                if (b3 > 0) {ungetc((char)b3, curr_in);}
-                ungetc((char)b2, curr_in);
-            }
-        } else {
-            if (b2 > 0) {ungetc((char)b2, curr_in);}
-        }
-    } else if ((c & 0xf8) == 0xf0) {  /* 11110xxx */
-        b2 = getc(curr_in);
-        if ((b2 & 0xc0) == 0x80) {  /* 11110xxx 10xxxxxx */
-            b3 = getc(curr_in);
-            if ((b3 & 0xc0) == 0x80) {  /* 11110xxx 10xxxxxx 10xxxxxx */
-                b4 = getc(curr_in);
-                if ((b4 & 0xc0) == 0x80) {  /* 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx */
-                    return (((c & 0xf) << 18) | ((b2 & 0x3f) << 12) | ((b3 & 0x3f) << 6) | (b4 & 0x3f));
-                } else {
-                    if (b4 > 0) {ungetc((char)b4, curr_in);}
-                    ungetc((char)b3, curr_in);
-                    ungetc((char)b2, curr_in);
-                }
-            } else {
-                if (b3 > 0) {ungetc((char)b3, curr_in);}
-                ungetc((char)b2, curr_in);
-            }
-        } else {
-            if (b2 > 0) {ungetc((char)b2, curr_in);}
-        }
+        code = (code << 6) | (next & 0x3f);
     }
-    return c;  /* an ASCII char or a char in a different encoding */
+    return utf8_decoded_valid(code, len) ? code : 0xfffd;
 }
 
-/* Return the number of utf-8 chars in s. */
+/* Count with the same malformed-sequence policy as the string decoder. */
 int utf8_nchars(char *s) {
-    unsigned int c;
     int count = 0;
-
-    //  printf("utf8_nchars(%s) %x\n",s,s);
-
-    c = *s++;
-    while (c != '\0') {
-        count++;
-        if (c & 0x80) {  /* leading byte of a utf8 char? */
-            if ((c & 0xe0) == 0xc0) {  /* 110xxxxx */
-                c = *s++;
-                if ((c & 0xc0) == 0x80) {  /* 110xxxxx 10xxxxxx */
-                    /* two bytes, but one char */
-                } else {
-                    s--;  /* not utf8, couting bytes instead */
-                }
-            } else if ((c & 0xf0) == 0xe0) {  /* 1110xxxx */
-                c = *s++;
-                if ((c & 0xc0) == 0x80) {  /* 1110xxxx 10xxxxxx */
-                    c = *s++;
-                    if ((c & 0xc0) == 0x80) {  /* 1110xxxx 10xxxxxx 10xxxxxx */
-                        /* three bytes, but one char */
-                    } else {
-                        s--;
-                        s--;
-                    }
-                } else {
-                    s--;
-                }
-            } else if ((c & 0xf8) == 0xf0) {  /* 11110xxx */
-                c = *s++;
-                if ((c & 0xc0) == 0x80) {  /* 11110xxx 10xxxxxx */
-                    c = *s++;
-                    if ((c & 0xc0) == 0x80) {  /* 11110xxx 10xxxxxx 10xxxxxx */
-                        c = *s++;
-                        if ((c & 0xc0) == 0x80) {  /* 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx */
-                            /* four bytes, but one char */
-                        } else {
-                            s--;
-                            s--;
-                            s--;
-                        }
-                    } else {
-                        s--;
-                        s--;
-                    }
-                } else {
-                    s--;
-                }
-            }
-        }
-        c = *s++;
+    while (*s != '\0') {
+        if ((unsigned char)*s < 0x80) ++s;
+        else utf8_char_to_codepoint(&s);
+        ++count;
     }
     return count;
 }
@@ -630,15 +570,14 @@ int handleEndInQuoted()
  */
 
 int read_utf8_character(FILE * card, int q) {
-    int c, b2, b3, b4;
+    int c;
 
     BP_GETC(card, c);
-    if (c < 0) {  /* EOF */
-        lastc = c;
-        // return handleEndInQuoted();
-        return c;
-    }
     if (q == -1) return c;
+    if (c == EOF) {
+        lastc = c;
+        return handleEndInQuoted();
+    }
     if (c == q) {
         BP_GETC(card, c);
         if (c == q) return c;  /* q is also used as an escape */
@@ -648,51 +587,23 @@ int read_utf8_character(FILE * card, int q) {
 
     if (c == '\n') {INC_LINE_NO;}
 
-    if (c != '\\') {  /* not the escape char */
-        if (c & 0x80) {  /* leading byte of a utf8 char? */
-            if ((c & 0xe0) == 0xc0) {  /* 110xxxxx */
-                BP_GETC(card, b2);
-                if ((b2 & 0xc0) == 0x80) {  /* 110xxxxx 10xxxxxx */
-                    return (((c & 0x1f) << 6) | (b2 & 0x3f));
-                } else {  /* not utf8 char */
-                    if (b2 > 0) {BP_UNGETC(b2, card);} /* don't unget EOF */
-                }
-            } else if ((c & 0xf0) == 0xe0) {  /* 1110xxxx */
-                BP_GETC(card, b2);
-                if ((b2 & 0xc0) == 0x80) {  /* 1110xxxx 10xxxxxx */
-                    BP_GETC(card, b3);
-                    if ((b3 & 0xc0) == 0x80) {  /* 1110xxxx 10xxxxxx 10xxxxxx */
-                        return (((c & 0xf) << 12) | ((b2 & 0x3f) << 6) | (b3 & 0x3f));
-                    } else {
-                        if (b3 > 0) {BP_UNGETC(b3, card);}
-                        BP_UNGETC(b2, card);
-                    }
-                } else {
-                    if (b2 > 0) {BP_UNGETC(b2, card);}
-                }
-            } else if ((c & 0xf8) == 0xf0) {  /* 11110xxx */
-                BP_GETC(card, b2);
-                if ((b2 & 0xc0) == 0x80) {  /* 11110xxx 10xxxxxx */
-                    BP_GETC(card, b3);
-                    if ((b3 & 0xc0) == 0x80) {  /* 11110xxx 10xxxxxx 10xxxxxx */
-                        BP_GETC(card, b4);
-                        if ((b4 & 0xc0) == 0x80) {  /* 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx */
-                            return (((c & 0xf) << 18) | ((b2 & 0x3f) << 12) | ((b3 & 0x3f) << 6) | (b4 & 0x3f));
-                        } else {
-                            if (b4 > 0) {BP_UNGETC(b4, card);}
-                            BP_UNGETC(b3, card);
-                            BP_UNGETC(b2, card);
-                        }
-                    } else {
-                        if (b3 > 0) {BP_UNGETC(b3, card);}
-                        BP_UNGETC(b2, card);
-                    }
-                } else {
-                    if (b2 > 0) {BP_UNGETC(b2, card);}
-                }
+    if (c != '\\') {
+        int len, code, i;
+        if (c < 0x80) return c;
+        len = utf8_lead_length(c);
+        if (!len) return unicode_character_error();
+        code = c & (len == 2 ? 0x1f : len == 3 ? 0x0f : 0x07);
+        for (i = 1; i < len; ++i) {
+            int next;
+            BP_GETC(card, next);
+            if ((next & 0xc0) != 0x80) {
+                if (next != EOF) {BP_UNGETC(next, card);}
+                return unicode_character_error();
             }
+            code = (code << 6) | (next & 0x3f);
         }
-        return c;  /* an ASCII char or a char in a different encoding */
+        if (!utf8_decoded_valid(code, len)) return unicode_character_error();
+        return code;
     }
 
     /*  If we get here, we have read the "\" of an escape sequence  */
@@ -701,9 +612,8 @@ int read_utf8_character(FILE * card, int q) {
     switch (c) {
     case EOF:
         clearerr(curr_in);
-        //    return handleEndInQuoted(q,-1);
-        //    return handleEndInQuoted();
-        return EOF;
+        lastc = EOF;
+        return handleEndInQuoted();
     case '\r':
     {
         char dummy;
@@ -737,18 +647,17 @@ int read_utf8_character(FILE * card, int q) {
             BP_GETC(card, c);
             while (c != '\'' && c != '\\' && c != '\n' && c != -1) {
                 if (DigVal(c) <= 15) {
-                    n = (n << 4) + DigVal(c);
+                    ESCAPE_ACCUMULATE(n, c, 16);
                     BP_GETC(card, c);
                 } else {
-                    bp_exception = c_syntax_error(et_IN_CHARACTER);
-                    return n;
+                    return unicode_character_error();
                 }
             }
             if (c != '\\') {
-                bp_exception = c_syntax_error(et_IN_CHARACTER);
-                return n;
+                return unicode_character_error();
             }
-            return n;
+            if (!unicode_scalar_valid(n)) return unicode_character_error();
+            return (int)n;
     }
 
     case 'u': case 'U':  /* utf-8 escape */
@@ -757,28 +666,27 @@ int read_utf8_character(FILE * card, int q) {
         for (i = 1; i <= 4; i++) {  /* \uxxxx */
             BP_GETC(card, c);
             if (DigVal(c) <= 15 && c != '_') {
-                n = (n << 4) + DigVal(c);
+                ESCAPE_ACCUMULATE(n, c, 16);
             } else {
-                bp_exception = c_syntax_error(et_IN_CHARACTER);
-                return n;
+                return unicode_character_error();
             }
         }
         BP_GETC(card, c);
         if (DigVal(c) <= 15 && c != '_') {  /* \uxxxxxxxx */
-            n = (n << 4) + DigVal(c);
+            ESCAPE_ACCUMULATE(n, c, 16);
             for (i = 1; i <= 3; i++) {
                 BP_GETC(card, c);
                 if (DigVal(c) <= 15 && c != '_') {
-                    n = (n << 4) + DigVal(c);
+                    ESCAPE_ACCUMULATE(n, c, 16);
                 } else {
-                    bp_exception = c_syntax_error(et_IN_CHARACTER);
-                    return n;
+                    return unicode_character_error();
                 }
             }
         } else {
-            if (c > 0) {BP_UNGETC(c, card);}
+            if (c != EOF) {BP_UNGETC(c, card);}
         }
-        return n;
+        if (!unicode_scalar_valid(n)) return unicode_character_error();
+        return (int)n;
     }
 
     case '0': case '1': case '2': case '3':
@@ -788,18 +696,17 @@ int read_utf8_character(FILE * card, int q) {
         BP_GETC(card, c);
         while (c != '\'' && c != '\\' && c != '\n' && c != -1) {
             if (DigVal(c) <= 7) {
-                n = (n << 3) + DigVal(c);
+                ESCAPE_ACCUMULATE(n, c, 8);
                 BP_GETC(card, c);
             } else {
-                bp_exception = c_syntax_error(et_IN_CHARACTER);
-                return n;
+                return unicode_character_error();
             }
         }
         if (c != '\\') {
-            bp_exception = c_syntax_error(et_IN_CHARACTER);
-            return n;
+            return unicode_character_error();
         }
-        return n;
+        if (!unicode_scalar_valid(n)) return unicode_character_error();
+        return (int)n;
     }
     default:
         fprintf(stderr, "*** invalid escape character\n");
@@ -816,7 +723,7 @@ int handleEolInQuoted2()
 }
 
 int read_utf8_character_string(int q) {
-    int c, b2, b3, b4;
+    int c;
 
     BP_GETC_STRING(c);
     if (c == '\0') return handleEolInQuoted2();
@@ -829,52 +736,25 @@ int read_utf8_character_string(int q) {
         return -1;
     }
 
-    if (c != '\\') {  /* escape char */
-        if (c & 0x80) {  /* leading byte of a utf8 char? */
-            if ((c & 0xe0) == 0xc0) {  /* 110xxxxx */
-                BP_GETC_STRING(b2);
-                if ((b2 & 0xc0) == 0x80) {  /* 110xxxxx 10xxxxxx */
-                    return (((c & 0x1f) << 6) | (b2 & 0x3f));
-                } else {  /* not utf8 char */
-                    if (b2 != 0) {BP_UNGETC_STRING;} /* do't unget '\0' */
-                }
-            } else if ((c & 0xf0) == 0xe0) {  /* 1110xxxx */
-                BP_GETC_STRING(b2);
-                if ((b2 & 0xc0) == 0x80) {  /* 1110xxxx 10xxxxxx */
-                    BP_GETC_STRING(b3);
-                    if ((b3 & 0xc0) == 0x80) {  /* 1110xxxx 10xxxxxx 10xxxxxx */
-                        return (((c & 0xf) << 12) | ((b2 & 0x3f) << 6) | (b3 & 0x3f));
-                    } else {
-                        if (b3 > 0) { BP_UNGETC_STRING;}
-                        BP_UNGETC_STRING;
-                    }
-                } else {
-                    if (b2 > 0) {BP_UNGETC_STRING;}
-                }
-            } else if ((c & 0xf8) == 0xf0) {  /* 11110xxx */
-                BP_GETC_STRING(b2);
-                if ((b2 & 0xc0) == 0x80) {  /* 11110xxx 10xxxxxx */
-                    BP_GETC_STRING(b3);
-                    if ((b3 & 0xc0) == 0x80) {  /* 11110xxx 10xxxxxx 10xxxxxx */
-                        BP_GETC_STRING(b4);
-                        if ((b4 & 0xc0) == 0x80) {  /* 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx */
-                            return (((c & 0xf) << 18) | ((b2 & 0x3f) << 12) | ((b3 & 0x3f) << 6) | (b4 & 0x3f));
-                        } else {
-                            if (b4 > 0) {BP_UNGETC_STRING;}
-                            BP_UNGETC_STRING;
-                            BP_UNGETC_STRING;
-                        }
-                    } else {
-                        if (b3 > 0) {BP_UNGETC_STRING;}
-                        BP_UNGETC_STRING;
-                    }
-                } else {
-                    if (b2 > 0) {BP_UNGETC_STRING;}
-                }
+    if (c != '\\') {
+        int len, code, i;
+        if (c < 0x80) return c;
+        len = utf8_lead_length(c);
+        if (!len) return unicode_character_error();
+        code = c & (len == 2 ? 0x1f : len == 3 ? 0x0f : 0x07);
+        for (i = 1; i < len; ++i) {
+            int next;
+            BP_GETC_STRING(next);
+            if ((next & 0xc0) != 0x80) {
+                if (next != 0) {BP_UNGETC_STRING;}
+                return unicode_character_error();
             }
+            code = (code << 6) | (next & 0x3f);
         }
-        return c;
+        if (!utf8_decoded_valid(code, len)) return unicode_character_error();
+        return code;
     }
+
     /*  If we get here, we have read the "\" of an escape sequence  */
 
     BP_GETC_STRING(c);
@@ -907,19 +787,18 @@ int read_utf8_character_string(int q) {
             BP_GETC_STRING(c);
             while (c != '\0' && c != '\'' && c != '\\' && c != '\n') {
                 if (DigVal(c) <= 15) {
-                    n = (n << 4) + DigVal(c);
+                    ESCAPE_ACCUMULATE(n, c, 16);
                     BP_GETC_STRING(c);
                 } else {
-                    bp_exception = c_syntax_error(et_IN_CHARACTER);
-                    return n;
+                    return unicode_character_error();
                 }
             }
             if (c == '\n') BP_UNGETC_STRING;
             if (c != '\\') {
-                bp_exception = c_syntax_error(et_IN_CHARACTER);
-                return n;
+                return unicode_character_error();
             }
-            return n;
+            if (!unicode_scalar_valid(n)) return unicode_character_error();
+            return (int)n;
     }
 
     case 'u': case 'U':  /* unicode (utf-8) escape */
@@ -928,28 +807,27 @@ int read_utf8_character_string(int q) {
         for (i = 1; i <= 4; i++) {  /* \uxxxx */
             BP_GETC_STRING(c);
             if (DigVal(c) <= 15 && c != '_') {
-                n = (n << 4) + DigVal(c);
+                ESCAPE_ACCUMULATE(n, c, 16);
             } else {
-                bp_exception = c_syntax_error(et_IN_CHARACTER);
-                return n;
+                return unicode_character_error();
             }
         }
         BP_GETC_STRING(c);
         if (DigVal(c) <= 15 && c != '_') {  /* \uxxxxxxxx */
-            n = (n << 4) + DigVal(c);
+            ESCAPE_ACCUMULATE(n, c, 16);
             for (i = 1; i <= 3; i++) {
                 BP_GETC_STRING(c);
                 if (DigVal(c) <= 15 && c != '_') {
-                    n = (n << 4) + DigVal(c);
+                    ESCAPE_ACCUMULATE(n, c, 16);
                 } else {
-                    bp_exception = c_syntax_error(et_IN_CHARACTER);
-                    return n;
+                    return unicode_character_error();
                 }
             }
         } else {
             if (c > 0) {BP_UNGETC_STRING;}
         }
-        return n;
+        if (!unicode_scalar_valid(n)) return unicode_character_error();
+        return (int)n;
     }
 
     case '0': case '1': case '2': case '3':
@@ -959,20 +837,19 @@ int read_utf8_character_string(int q) {
         BP_GETC_STRING(c);
         while (c != '\0' && c != '\'' && c != '\\' && c != '\n') {
             if (DigVal(c) <= 7) {
-                n = (n << 3) + DigVal(c);
+                ESCAPE_ACCUMULATE(n, c, 8);
                 BP_GETC_STRING(c);
             } else {
-                bp_exception = c_syntax_error(et_IN_CHARACTER);
-                return n;
+                return unicode_character_error();
             }
         }
         if (c == '\n') BP_UNGETC_STRING;
         if (c != '\\') {
-            bp_exception = c_syntax_error(et_IN_CHARACTER);
-            return n;
+            return unicode_character_error();
         }
         // printf("char = %d\n",n);
-        return n;
+        if (!unicode_scalar_valid(n)) return unicode_character_error();
+        return (int)n;
     }
     default:
         fprintf(stderr, "*** invalid escape character\n");
@@ -1102,13 +979,15 @@ int GetToken()
     FILE *card = curr_in;
     CHAR_PTR s = AtomStr;
     int c, d;
-    BPLONG n = MAX_STR_LEN;
+    BPLONG n = MAX_STR_LEN - 1;
     BPLONG_PTR newpair, list_head;
     BPLONG oldv, newv;
 
     c = lastc;
 
 START:
+    s = AtomStr;
+    n = MAX_STR_LEN - 1;
     switch (InType(c)) {
     case DIGIT:
         /* The FOLLOWing kinds of numbers exist:
@@ -1167,12 +1046,12 @@ START:
                 lastc = c;
                 return RDIGIT;
             } else {
-                *s++ = c; c = d;
+                TOKEN_APPEND_BYTE(c); c = d;
             }
         }
 #endif
         while (InType(c) == DIGIT || c == '_') {
-            if (c != '_') *s++ = c;
+            if (c != '_') TOKEN_APPEND_BYTE(c);
             BP_GETC(card, c);
         }
         if (c == intab.radix) {  /* ' */
@@ -1186,7 +1065,7 @@ START:
             }
             if (d == 0) {  /*  0'c['] is a character code  */
                 d = read_utf8_character(card, '\'');
-                //                TOKEN_CHECK_EXCEPTION();
+                TOKEN_CHECK_EXCEPTION();
                 rad_int = d;
                 BP_GETC(card, d);
                 if (d == intab.radix) {
@@ -1240,17 +1119,17 @@ START:
         } else  if (c == intab.dpoint) {  /* . */
             BP_GETC(card, d);
             if (InType(d) == DIGIT) {
-                *s++ = '.';
+                TOKEN_APPEND_BYTE('.');
                 do {
                     if (d != '_')
-                        *s++ = (BYTE)d;
+                        TOKEN_APPEND_BYTE((BYTE)d);
                     BP_GETC(card, d);
                 } while (InType(d) <= BREAK);
                 if ((d | 32) == 'e') {
-                    *s++ = 'E';
+                    TOKEN_APPEND_BYTE('E');
                     BP_GETC(card, d);
                     if (d == '-') {
-                        *s++ = (BYTE)d;
+                        TOKEN_APPEND_BYTE((BYTE)d);
                         BP_GETC(card, d);
                     } else if (d == '+')
                         BP_GETC(card, d);
@@ -1260,7 +1139,7 @@ START:
                     }
                     do {
                         if (d != '_')
-                            *s++ = (BYTE)d;
+                            TOKEN_APPEND_BYTE((BYTE)d);
                         BP_GETC(card, d);
                     } while (InType(d) <= BREAK);
                 }
@@ -1286,8 +1165,7 @@ START:
     case BREAK:
     case UPPER:
         do {
-            if (--n < 0) printAtomStr(tok2long);
-            *s++ = (BYTE)c;
+            TOKEN_APPEND_BYTE((BYTE)c);
             BP_GETC(card, c);
         } while (InType(c) <= LOWER);
         *s = 0;
@@ -1298,8 +1176,7 @@ START:
     case LOWER:
     lab_lower_case:
         do {
-            if (--n < 0) printAtomStr(tok2long);
-            *s++ = (BYTE)c;
+            TOKEN_APPEND_BYTE((BYTE)c);
             BP_GETC(card, c);
         } while (InType(c) <= LOWER);
         *s = 0;
@@ -1325,7 +1202,7 @@ START:
 #ifdef BPSOLVER
         if (c == '?') c = '.';
 #endif
-        *s = (BYTE)c;
+        TOKEN_APPEND_BYTE(c);
         BP_GETC(card, d);
     lab_sign_stream:
         if (c == intab.begcom && d == intab.astcom) {
@@ -1333,8 +1210,7 @@ START:
             if (com2plain(card, d, intab.endcom) == BP_ERROR) return BP_ERROR;
             BP_GETC(card, c);
             goto START;
-            /*                  
-                                } else if (c == '&' && d == '&') {
+            /*                                      } else if (c == '&' && d == '&') {
                                 *s++ = '&';
                                 *s++ = '&';
                                 *s = '\0';
@@ -1344,26 +1220,24 @@ START:
             */
         } else if (c == '.') {
             if (d == '.') {  /* .. */
-                *++s = (BYTE)d;
+                TOKEN_APPEND_BYTE(d);
                 BP_GETC(card, d);
                 if (d == '+' || d == '-') {
                     lastc = c = d;
-                    *++s = 0;
+                    *s = 0;
                     rtnint = (BPLONG)(s - AtomStr);
                     return LOWER;
                 }
             }
         } else if (c == '#' && d == '!') {   // e.g., #!=
-            if (--n == 0) printAtomStr(tok2long);
-            *++s = (BYTE)d;
+            TOKEN_APPEND_BYTE(d);
             BP_GETC(card, d);
         }
         while (InType(d) == SIGN) {   
-            if (--n == 0) printAtomStr(tok2long);
-            *++s = (BYTE)d;
+            TOKEN_APPEND_BYTE(d);
             BP_GETC(card, d);
         }
-        *++s = 0;
+        *s = 0;
         if (InType(d) >= SPACE && c == intab.termin && AtomStr[1] == 0) {
             lastc = d;
             return ENDCL;  /* i.e. '.' FOLLOWed by layout */
@@ -1382,12 +1256,12 @@ START:
             goto START;
 #endif
         }
-        *s = (BYTE)c;
+        TOKEN_APPEND_BYTE(c);
         BP_GETC(card, d);
         if (d == '='){     // e.g., !=
             goto lab_sign_stream;
         }
-        *++s = 0;
+        *s = 0;
         c = d;
         lastc = d;
         goto SYMBOL;
@@ -1407,8 +1281,8 @@ START:
         if (c == intab.begcom && d == intab.astcom)
             goto ASTCOM;
         if (c == '|' && d == '|') {
-            *s++ = '|';
-            *s++ = '|';
+            TOKEN_APPEND_BYTE('|');
+            TOKEN_APPEND_BYTE('|');
             *s = '\0';
             lastc = ' ';
             rtnint = 2;
@@ -1419,19 +1293,20 @@ START:
 
 #ifdef PICAT
 #else
-        if (c == '(') *s++ = ' ';  /* need to distingusih between atom( and atom ( */
+        if (c == '(') TOKEN_APPEND_BYTE(' ');  /* need to distingusih between atom( and atom ( */
 #endif
         lastc = d;
-        *s++ = c;
+        TOKEN_APPEND_BYTE(c);
         *s = 0;
         rtnint = (BPLONG)(s - AtomStr);
         return PUNCT;
 
     case ATMQT:
         while ((d = read_utf8_character(card, c)) >= 0) {
+            TOKEN_CHECK_EXCEPTION();
             UTF8_CODEPOINT_TO_STR(d, s, n);
         }
-        //              TOKEN_CHECK_EXCEPTION();
+        TOKEN_CHECK_EXCEPTION();
         *s = '\0';
         //    rtnint = (BPLONG) (s - AtomStr);
         c = lastc;
@@ -1441,6 +1316,7 @@ START:
         /* check for potential heap overflow */
         list_head = newpair = heap_top;
         while ((d = read_utf8_character(card, c)) >= 0) {
+            TOKEN_CHECK_EXCEPTION();
             if (local_top-heap_top <= LARGE_MARGIN) {
                 myquit(STACK_OVERFLOW, "tk");
             }
@@ -1448,14 +1324,14 @@ START:
             if (double_quotes_flag == 0)  /* codes */
                 *newpair++ = MAKEINT(d);
             else {  /* chars */
-                s = AtomStr; n = MAX_STR_LEN;
+                s = AtomStr; n = MAX_STR_LEN - 1;
                 UTF8_CODEPOINT_TO_STR(d, s, n);
                 *s = '\0';
                 *newpair++ = ADDTAG(insert_sym((CHAR_PTR)AtomStr, (s-AtomStr), 0), ATM);
             }
             *newpair++ = ADDTAG(heap_top, LST);
         }
-        //              TOKEN_CHECK_EXCEPTION();
+        TOKEN_CHECK_EXCEPTION();
         if (list_head == heap_top)  /* null string */
             list_p = nil_sym;
         else {
@@ -1478,20 +1354,19 @@ START:
     case DOLLAR:  /* $ if the next char is lower then $ is treated as LOWER otherwise as SIGN */
 #ifdef PICAT
         lastc = ' ';
-        *s++ = c;
+        TOKEN_APPEND_BYTE(c);
         *s = 0;
         rtnint = (BPLONG)(s - AtomStr);
         return PUNCT;
 #else
         {int next_char_type;
-            char next_c;
+            int next_c;
 
             BP_GETC(card, next_c);
             next_char_type = InType(next_c);
             while (next_char_type == DOLLAR)  //branch
             {  //branch
-                if (--n < 0) printAtomStr(tok2long);  //branch
-                *s++ = (BYTE)next_c;  //branch
+                TOKEN_APPEND_BYTE((BYTE)next_c);  //branch
                 BP_GETC(card, next_c);  //branch
                 next_char_type = InType(next_c);  //branch
             }  //branch
@@ -1507,8 +1382,7 @@ START:
     return BP_ERROR;
     /*
       fprintf(stderr, "Internal error: InType(%d)==%d\n", c, InType(c));
-      abort();               
-    */
+      abort();       */
 
 end_of_clause:
     AtomStr[0] = '.'; AtomStr[1] = '\0'; lastc = ' '; return ENDCL;
@@ -1527,12 +1401,14 @@ int GetTokenString()
 {
     CHAR_PTR s = AtomStr;
     int c, d;
-    BPLONG n = MAX_STR_LEN;
+    BPLONG n = MAX_STR_LEN - 1;
     BPLONG_PTR newpair, list_head;
     BPLONG oldv, newv;
 
     c = lastc;
 START:
+    s = AtomStr;
+    n = MAX_STR_LEN - 1;
     if (c == '\0') goto end_of_clause;
     switch (InType(c)) {
     case DIGIT:
@@ -1594,11 +1470,11 @@ START:
                 lastc = c;
                 return RDIGIT;
             } else {
-                *s++ = c; c = d;
+                TOKEN_APPEND_BYTE(c); c = d;
             }
         }
         while (InType(c) == DIGIT || c == '_') {
-            if (c != '_') *s++ = c;
+            if (c != '_') TOKEN_APPEND_BYTE(c);
             BP_GETC_STRING(c);
         }
         if (c == intab.radix) {
@@ -1612,7 +1488,7 @@ START:
             }
             if (d == 0) {  /*  0'c['] is a character code  */
                 d = read_utf8_character_string('\'');
-                //                TOKEN_CHECK_EXCEPTION_STRING();
+                TOKEN_CHECK_EXCEPTION_STRING();
                 rad_int = d;
                 BP_GETC_STRING(d);
                 if (d == intab.radix) {
@@ -1668,17 +1544,17 @@ START:
         } else if (c == intab.dpoint) {
             BP_GETC_STRING(d);
             if (InType(d) == DIGIT) {
-                *s++ = '.';
+                TOKEN_APPEND_BYTE('.');
                 do {
                     if (d != '_')
-                        *s++ = d;
+                        TOKEN_APPEND_BYTE(d);
                     BP_GETC_STRING(d);
                 } while (InType(d) <= BREAK);
                 if ((d | 32) == 'e') {
-                    *s++ = 'E';
+                    TOKEN_APPEND_BYTE('E');
                     BP_GETC_STRING(d);
                     if (d == '-') {
-                        *s++ = d;
+                        TOKEN_APPEND_BYTE(d);
                         BP_GETC_STRING(d);
                     } else if (d == '+')
                         BP_GETC_STRING(d);
@@ -1688,7 +1564,7 @@ START:
                     }
                     do {
                         if (d != '_')
-                            *s++ = d;
+                            TOKEN_APPEND_BYTE(d);
                         BP_GETC_STRING(d);
                     } while (InType(d) <= BREAK);
                 }
@@ -1696,8 +1572,9 @@ START:
                 *s = 0;
                 lastc = c;
                 return REALO;
-            } else  /* c has not changed */
+            } else if (d != '\0') {  /* NUL lookahead did not advance string_in */
                 BP_UNGETC_STRING;
+            }
         }
         *s = 0;
         lastc = c;
@@ -1706,8 +1583,7 @@ START:
     case BREAK:
     case UPPER:
         do {
-            if (--n < 0) printAtomStr(tok2long);
-            *s++ = c;
+            TOKEN_APPEND_BYTE(c);
             BP_GETC_STRING(c);
         } while (InType(c) <= LOWER);
         *s = 0;
@@ -1718,8 +1594,7 @@ START:
     case LOWER:
     lab_lower_case:
         do {
-            if (--n < 0) printAtomStr(tok2long);
-            *s++ = c;
+            TOKEN_APPEND_BYTE(c);
             BP_GETC_STRING(c);
         } while (InType(c) <= LOWER);
         *s = 0;
@@ -1742,7 +1617,7 @@ START:
 
     case SIGN:
     lab_sign_case:
-        *s = (char)c;
+        TOKEN_APPEND_BYTE(c);
         BP_GETC_STRING(d);
     lab_sign_string:
         if (c == intab.begcom && d == intab.astcom) {
@@ -1750,8 +1625,7 @@ START:
             if (com2plain_string(d, intab.endcom) == BP_ERROR) return BP_ERROR;
             BP_GETC_STRING(c);
             goto START;
-            /*                  
-                                } else if (c == '&' && d == '&') {
+            /*                                      } else if (c == '&' && d == '&') {
                                 *s++ = '&';
                                 *s++ = '&';
                                 *s = '\0';
@@ -1761,26 +1635,24 @@ START:
             */
         } else if (c == '.') {
             if (d == '.') {  /* .. */
-                *++s = (BYTE)d;
+                TOKEN_APPEND_BYTE(d);
                 BP_GETC_STRING(d);
                 if (d == '+' || d == '-') {
                     lastc = c = d;
-                    *++s = 0;
+                    *s = 0;
                     rtnint = (BPLONG)(s - AtomStr);
                     return LOWER;
                 }
             }
         } else if (c == '#' && d == '!') {   // e.g., #!=
-            if (--n == 0) printAtomStr(tok2long);
-            *++s = (BYTE)d;
+            TOKEN_APPEND_BYTE(d);
             BP_GETC_STRING(d);
         }
         while (InType(d) == SIGN) {
-            if (--n == 0) printAtomStr(tok2long);
-            *++s = (char)d;
+            TOKEN_APPEND_BYTE(d);
             BP_GETC_STRING(d);
         }
-        *++s = 0;
+        *s = 0;
         if (InType(d) >= SPACE && c == intab.termin && AtomStr[1] == 0) {
             lastc = d;
             return ENDCL;  /* i.e. '.' FOLLOWed by layout */
@@ -1798,12 +1670,12 @@ START:
             goto START;
 #endif
         }
-        *s = (char)c;
+        TOKEN_APPEND_BYTE(c);
         BP_GETC_STRING(d);
         if (d == '='){     // e.g., !=
             goto lab_sign_string;
         }
-        *++s = 0;
+        *s = 0;
         c = d;
         lastc = d;
         goto SYMBOL;
@@ -1822,8 +1694,8 @@ START:
         if (c == intab.begcom && d == intab.astcom)
             goto ASTCOM;
         if (c == '|' && d == '|') {
-            *s++ = '|';
-            *s++ = '|';
+            TOKEN_APPEND_BYTE('|');
+            TOKEN_APPEND_BYTE('|');
             *s = '\0';
             lastc = ' ';
             rtnint = 2;
@@ -1834,19 +1706,20 @@ START:
 
 #ifdef PICAT
 #else
-        if (c == '(') *s++ = ' ';  /* need to distingusih between atom( and atom ( */
+        if (c == '(') TOKEN_APPEND_BYTE(' ');  /* need to distingusih between atom( and atom ( */
 #endif
         lastc = d;
-        *s++ = (char)c;
+        TOKEN_APPEND_BYTE((char)c);
         *s = 0;
         rtnint = (BPLONG)(s - AtomStr);
         return PUNCT;
 
     case ATMQT:
         while ((d = read_utf8_character_string(c)) >= 0) {
+            TOKEN_CHECK_EXCEPTION_STRING();
             UTF8_CODEPOINT_TO_STR(d, s, n);
         }
-        //  TOKEN_CHECK_EXCEPTION_STRING();
+        TOKEN_CHECK_EXCEPTION_STRING();
         *s = '\0';
         c = lastc;
         goto SYMBOL;
@@ -1855,6 +1728,7 @@ START:
         /* check for potential heap overflow */
         list_head = newpair = heap_top;
         while ((d = read_utf8_character_string(c)) >= 0) {
+            TOKEN_CHECK_EXCEPTION_STRING();
             if (local_top - heap_top <= LARGE_MARGIN) {
                 myquit(STACK_OVERFLOW, "tk");
             }
@@ -1862,14 +1736,14 @@ START:
             if (double_quotes_flag == 0)  /* codes */
                 *newpair++ = MAKEINT(d);
             else {  /* chars */
-                s = AtomStr; n = MAX_STR_LEN;
+                s = AtomStr; n = MAX_STR_LEN - 1;
                 UTF8_CODEPOINT_TO_STR(d, s, n);
                 *s = '\0';
                 *newpair++ = ADDTAG(insert_sym((CHAR_PTR)AtomStr, (s-AtomStr), 0), ATM);
             }
             *newpair++ = ADDTAG(heap_top, LST);
         }
-        // TOKEN_CHECK_EXCEPTION_STRING();
+        TOKEN_CHECK_EXCEPTION_STRING();
         if (list_head == heap_top)  /* null string */
             list_p = nil_sym;
         else {
@@ -1893,23 +1767,22 @@ START:
     case DOLLAR:  /* $ if the next char is lower the $ is lower otherwise treat $ as SIGN */
 #ifdef PICAT
         lastc = ' ';
-        *s++ = c;
+        TOKEN_APPEND_BYTE(c);
         *s = 0;
         rtnint = (BPLONG)(s - AtomStr);
         return PUNCT;
 #else
         {int next_char_type;
-            char next_c;
+            int next_c;
 
             BP_GETC_STRING(next_c);
             next_char_type = InType(next_c);
             while (next_char_type == DOLLAR) {
-                if (--n < 0) printAtomStr(tok2long);  //branch
-                *s++ = (BYTE)next_c;
+                TOKEN_APPEND_BYTE((BYTE)next_c);
                 BP_GETC_STRING(next_c);
                 next_char_type = InType(next_c);
             }  //branch
-            BP_UNGETC_STRING;
+            if (next_c != '\0') {BP_UNGETC_STRING;}
             if (next_char_type == LOWER)
                 goto lab_lower_case;
             else
@@ -1949,12 +1822,14 @@ int b_NEXT_TOKEN_ff(BPLONG op1, BPLONG op2)
     if (string_in == NULL) i = GetToken(); else i = GetTokenString();
     if (bp_exception != (BPLONG)NULL) {
         if (string_in == NULL) {
-            char c;
+            int c;
             fprintf(stderr, "*** error until line %d\n", (int)curr_line_no);
             if (i == LISQT){
-                pp_str_to_c_str(list_p, chars_pool, MAX_CHARS_IN_POOL);
-                chars_pool[MAX_CHARS_IN_POOL-1] = '\0';
-                fputs(chars_pool,stderr);
+                BPLONG saved_exception = bp_exception;
+                if (pp_str_to_c_str(list_p, chars_pool, MAX_CHARS_IN_POOL) != BP_ERROR) {
+                    fputs(chars_pool, stderr);
+                }
+                bp_exception = saved_exception;
             }
             BP_GETC(card, c);
             while (c != -1 && c != '\n' && c != '\r') {

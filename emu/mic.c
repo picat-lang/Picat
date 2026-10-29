@@ -807,7 +807,7 @@ int b_SYSTEM0_cf(BPLONG op1, BPLONG op2)  /* op1: a list of int (string) for CSh
     SYM_REC_PTR sym_ptr;
     CHAR s[MAX_STR_LEN];
 
-    pp_str_to_c_str(op1, s, MAX_STR_LEN);
+    if (pp_str_to_c_str(op1, s, MAX_STR_LEN) == BP_ERROR) return BP_ERROR;
     ASSIGN_f_atom(op2, MAKEINT(system(s)));
     return BP_TRUE;
 }
