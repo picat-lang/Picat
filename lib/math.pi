@@ -1,5 +1,63 @@
 module math.   % imported by default
 
+% abs(X) = Val
+% acos(X) = Val
+% acosh(X) = Val
+% acot(X) = Val
+% acoth(X) = Val
+% acsc(X) = Val
+% acsch(X) = Val
+% asec(X) = Val
+% asech(X) = Val
+% asin(X) = Val
+% asinh(X) = Val
+% atan(X) = Val
+% atan2(Y, X) = Val
+% atanh(X) = Val
+% binom(N, K) = Val
+% ceiling(X) = Val
+% cos(X) = Val
+% cosh(X) = Val
+% cot(X) = Val
+% coth(X) = Val
+% csc(X) = Val
+% csch(X) = Val
+% e() = 2.71828182845904523536
+% even(N)
+% exp(X) = Val
+% floor(X) = Val
+% frand() = Val
+% frand(Low, High) = Val
+% gcd(A, B) = Val
+% log(X) = Val
+% log(B, X) = Val
+% log10(X) = Val
+% log2(X) = Val
+% modf(X) = (IntVal, FractVal)
+% odd(N)
+% pi() = 3.14159265358979323846
+% pow(X, Y) = Val
+% pow_mod(X, Y, Z) = Val
+% prime(N)
+% primes(N) = List
+% rand_max() = Val
+% random() = Val
+% random(Low, High) = Val
+% random(Seed) = Val
+% random2() = Val
+% round(X) = Val
+% sec(X) = Val
+% sech(X) = Val
+% sign(X) = Val
+% sin(X) = Val
+% sinh(X) = Val
+% sqrt(X) = Val
+% tan(X) = Val
+% tanh(X) = Val
+% to_degrees(Radian) = Degree
+% to_radians(Degree) = Radian
+% truncate(X) = Val
+
 abs(X) = abs(X).
 acos(X) = acos(X).
 acosh(X) = acosh(X).
@@ -12,8 +70,9 @@ asech(X) = asech(X).
 asin(X) = asin(X).
 asinh(X) = asinh(X).
 atan(X) = atan(X).
-atan2(X, Y) = atan2(X,Y).
+atan2(Y, X) = atan2(Y, X).
 atanh(X) = atanh(X).
+binom(N,K) = binom(N,K).
 ceiling(X) = ceiling(X).
 cos(X) = cos(X).
 cosh(X) = cosh(X).

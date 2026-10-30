@@ -593,7 +593,7 @@ extern int count_domain_elms(BPLONG_PTR dv_ptr, BPLONG from, BPLONG to);
 extern int exclude_domain_elms(BPLONG_PTR dv_ptr, BPLONG from, BPLONG to);
 extern int c_reachability_test(void);
 extern int c_path_from_to_reachability_test(void);
-extern int path_from_to_reachable(BPLONG from, BPLONG to, BPLONG_PTR var_vector, BPLONG_PTR visited);
+extern int path_from_to_reachable(BPLONG from, BPLONG to, BPLONG_PTR var_vector, BPLONG_PTR visited, BPLONG_PTR queue);
 extern int b_PATH_FROM_TO_REACHABLE(void);
 extern int check_reach_cuts_in_one_connection(BPLONG n, BPLONG Start, BPLONG End, BPLONG Lab, BPLONG TaggedLab,
                                               BPLONG_PTR LabVarArray, BPLONG_PTR SuccVarArray, BPLONG_PTR VisitedArray);
@@ -608,7 +608,7 @@ extern void check_two_cuts_in_two_connections(BPLONG n, BPLONG firstCon, BPLONG 
                                               BPLONG_PTR LabVarArray, BPLONG_PTR SuccVarArray, BPLONG_PTR VisitedArray);
 extern void check_cuts_in_another_connection(BPLONG v1, BPLONG v2, BPLONG n, BPLONG firstCon, BPLONG firstLab,
                                              BPLONG nConnections, BPLONG_PTR ConStartArray, BPLONG_PTR ConEndArray,
-                                             BPLONG_PTR ConLabArray, BPLONG_PTR LabVarArray,
+                                             BPLONG_PTR ConLabArray, BPLONG_PTR ConFlagArray, BPLONG_PTR LabVarArray,
                                              BPLONG_PTR SuccVarArray, BPLONG_PTR VisitedArray);
 extern void check_reach_with_two_cuts(BPLONG Start, BPLONG Lab, BPLONG TaggedLab,
                                       BPLONG_PTR LabVarArray, BPLONG_PTR SuccVarArray, BPLONG_PTR VisitedArray,
@@ -758,8 +758,8 @@ extern int bp_write_pname_update_pos(CHAR_PTR name_ptr, BPLONG length);
 extern int graphic_char(char ch);
 extern int single_quote_needed(CHAR_PTR name_ptr, BPLONG length);
 extern int strcpy_add_quote(CHAR_PTR buf, CHAR_PTR str, BPLONG len);
-extern void bp_write_qname_to_bp_buf(CHAR_PTR name_ptr, UW16 length);
-extern void bp_write_qname(CHAR_PTR name_ptr, BPLONG length);
+extern int bp_write_qname_to_bp_buf(CHAR_PTR name_ptr, UW16 length);
+extern int bp_write_qname(CHAR_PTR name_ptr, BPLONG length);
 extern int bp_write_qname_update_pos(CHAR_PTR name_ptr, BPLONG length);
 extern int bp_write_var_update_pos(BPLONG op);
 extern int bp_write_domain_update_pos(BPLONG_PTR dv_ptr);
@@ -855,7 +855,7 @@ extern int c_FORMAT_PRINT_INTEGER(void);
 extern int c_FORMAT_PRINT_FLOAT(void);
 extern char *format_comma_separated_int(BPLONG amt);
 extern int b_NAME0_cf(BPLONG op1, BPLONG op2);  /* op2 is made to be the string of the name of op1*/
-extern void picat_str_to_c_str(TERM lst, char *s, BPLONG len);
+extern int pp_str_to_c_str(TERM lst, char *s, BPLONG len);
 extern int c_PICAT_FORMAT_TO_STRING_ccff();
 extern int c_PICAT_GETENV_cf();
 extern int c_PICAT_GET_CWD_f();
@@ -885,7 +885,7 @@ extern int b_READ_CHAR_CODE_ccf(BPLONG FDIndex, BPLONG, BPLONG Lst);
 extern int b_PEEK_CHAR_CODE_cf(BPLONG FDIndex, BPLONG Ch);
 extern int b_put_char(FILE *tmp_curr_out, BPLONG op);
 extern int b_WRITE_CHAR_cc(BPLONG FDIndex, BPLONG op);
-extern void b_put_char_code(FILE *tmp_curr_out, BPLONG op);
+extern int b_put_char_code(FILE *tmp_curr_out, BPLONG op);
 extern int b_WRITE_CHAR_CODE_cc(BPLONG FDIndex, BPLONG op);
 extern int c_CP_FILE_cc();
 extern void print_cnf_header(int sat_nvars, int num_cls);
@@ -1209,6 +1209,7 @@ extern int b_INSERT_ORDERED_DOWN_ccf(BPLONG lst, BPLONG t, BPLONG ret_lst);
 extern int b_INSERT_ORDERED_DOWN_NO_DUP_ccf(BPLONG lst, BPLONG t, BPLONG ret_lst);
 extern int b_INSERT_STATE_LIST_ccf(BPLONG lst, BPLONG t, BPLONG ret_lst);
 extern int b_PICAT_LENGTH_cf(BPLONG term, BPLONG len);
+extern int c_GET_PID_f();
 
 //[]
 //      numbervars.c prototypes

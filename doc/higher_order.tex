@@ -1,0 +1,322 @@
+% Proposed chapter for the Picat User's Guide, Version 4.0.
+% Insert after predfunc.tex. The anonymous forms describe the proposed extension;
+% parser support alone does not provide the compiler/runtime implementation.
+\chapter{Higher-order Calls and Anonymous Definitions}
+\label{chapter:higher-order}
+
+A higher-order predicate or function takes a callable value as an argument.
+Picat supports callable values that name predicates or functions, optionally
+with arguments already supplied. Anonymous functions and anonymous predicates
+provide callable values without requiring named definitions.
+
+\section{Higher-order Call Conventions}
+\index{higher-order call}
+\label{section:higher-order-conventions}
+
+The predicate \texttt{call($S$, $Arg_1$, $\ldots$, $Arg_n$)} invokes a
+predicate, while the function \texttt{apply($S$, $Arg_1$, $\ldots$, $Arg_n$)}
+returns the value of a function call. For a named callable, $S$ is an atom or
+a structure. If $S$ is an atom, it supplies the name of the predicate or
+function. If $S$ is a structure, its name supplies the callable name and its
+arguments precede the additional arguments. For example:
+\begin{verbatim}
+F = $'*'(2),
+Y = apply(F,5)              % Y = 10
+\end{verbatim}
+The resulting function call is \texttt{'*'(2,5)}. The dollar symbol constructs
+a structure instead of evaluating a function call. A bare atom can also name
+a callable:
+\begin{verbatim}
+F = '+',
+Y = apply(F,3,4)            % Y = 7
+\end{verbatim}
+
+When $S$ is a variable at compile time, both call conventions can be written
+as \texttt{$S$($Arg_1$, $\ldots$, $Arg_n$)}. The context determines whether
+this notation denotes a predicate call or a function call:
+\begin{verbatim}
+P = $member(X),
+P([1,2,3]),                % predicate context: call(P,[1,2,3])
+F = $'*'(2),
+Y = F(5)                   % function context: apply(F,5)
+\end{verbatim}
+An occurrence used as a goal invokes a predicate; an occurrence used as a
+value-producing expression invokes a function. The result variable of a
+function call is not an additional explicit argument.
+
+Within a term constructor, a higher-order call whose name is a variable is
+also treated as a function call:
+\begin{verbatim}
+F = $'*'(2),
+T = $p(F(5))               % T = p(10)
+\end{verbatim}
+Here, the value of \texttt{F(5)} becomes an argument of the constructed term.
+The higher-order call is not preserved as literal syntax in that term.
+
+\subsection{Arity and Supplying Arguments}
+The supplied arguments must select a predicate or function of the appropriate
+arity. In particular, \texttt{apply} does not return a partially evaluated
+function when too few arguments are supplied; an incorrect arity raises an
+exception. A structure such as \texttt{\$'*'(2)} explicitly stores a supplied
+argument. Constructing that structure is different from invoking a function
+with too few arguments.
+
+An anonymous definition has the explicit arity given by its parameter list.
+All of those arguments must be supplied when it is invoked. To return a
+function that takes further arguments, write a nested anonymous function
+explicitly, as illustrated below.
+
+\section{Anonymous Functions}
+\index{anonymous function}\index{lambda expression}
+\label{section:anonymous-functions}
+
+An anonymous function, also called a lambda expression, has the form
+\begin{verbatim}
+([A1,A2,...,An] -> Res, B1,B2,...,Bm)
+\end{verbatim}
+The outer parentheses are required. The bracketed list contains the parameter
+patterns, \texttt{Res} is the return expression, and the goals following the
+first comma form the body. The body is executed before the return expression
+is evaluated. When no body is needed, the function can be written as
+\begin{verbatim}
+([A1,A2,...,An] -> Res)
+\end{verbatim}
+Omitting the body is equivalent to using the body \texttt{true}.
+
+Evaluating a lambda expression constructs a callable value, called a
+\emph{closure}; it does not execute the body or evaluate the return expression.
+No dollar symbol is needed to construct this value. For example:
+\begin{verbatim}
+F = ([X,Y] -> X+Y),
+Z = F(3,4)                 % Z = 7
+\end{verbatim}
+The invocation \texttt{F(3,4)} can also be written as
+\texttt{apply(F,3,4)}. A function with a body can compute its result using
+intermediate variables:
+\begin{verbatim}
+F = ([X,Y] -> Z, T = X*X, Z = T+Y),
+R = F(3,4)                 % R = 13
+\end{verbatim}
+The body has the usual goal syntax, including conjunctions, disjunctions,
+conditionals, and loops. For example:
+\begin{verbatim}
+Sum = ([Xs] -> Total,
+    Total = 0,
+    foreach (X in Xs)
+        Total := Total+X
+    end),
+S = Sum([1,2,3])           % S = 6
+\end{verbatim}
+The function follows the execution conventions of an ordinary named function.
+It is not a generator of multiple return values.
+
+\subsection{Parameter Patterns}
+The parameters are terms, just like the arguments of a named rule head; they
+are not restricted to variables. Their matching follows the ordinary head
+pattern-matching conventions. For example:
+\begin{verbatim}
+First = ([[X|_]] -> X),
+H = First([a,b,c])         % H = a
+\end{verbatim}
+The outer bracketed list contains one parameter, whose pattern is a nonempty
+list. Matching does not instantiate the caller's argument merely to make a
+pattern applicable. The same restrictions on head patterns apply here;
+parameter patterns are not evaluated as function calls.
+
+A parameter list must be a proper list of patterns. Its length determines the
+arity. An empty list denotes a function with no explicit arguments:
+\begin{verbatim}
+F = ([] -> 42),
+Y = F()                    % Y = 42
+\end{verbatim}
+
+\section{Anonymous Predicates}
+\index{anonymous predicate}
+\label{section:anonymous-predicates}
+
+An anonymous predicate has the form
+\begin{verbatim}
+([A1,A2,...,An] => B1,B2,...,Bm)
+\end{verbatim}
+Its parameter list has the same interpretation as that of an anonymous
+function. The body is a goal, and there is no return expression. For example:
+\begin{verbatim}
+Print = ([X] => println(X)),
+Print(hello)
+\end{verbatim}
+The invocation \texttt{Print(hello)} can also be written as
+\texttt{call(Print,hello)}. An anonymous predicate with no explicit arguments
+uses \texttt{[]} as its parameter list and is invoked with \texttt{P()} or
+\texttt{call(P)}.
+
+An anonymous predicate consists of one rule, written with \texttt{=>}; there
+is no anonymous \texttt{?=>} form. There is no alternative rule to try on
+backtracking. This does not require every goal in the body to be globally
+deterministic: a goal such as \texttt{member} can still supply multiple
+solutions within the body. For example:
+\begin{verbatim}
+Choose = ([X] => member(X,[a,b,c])),
+L = findall(X,Choose(X))   % L = [a,b,c]
+\end{verbatim}
+Use an anonymous predicate when success, failure, or bindings are the desired
+result; use an anonymous function when an expression must return a value.
+
+\section{Context Variables and Nested Definitions}
+\index{closure}\index{context variable}\index{name scope}
+
+An anonymous definition forms a \emph{name scope}, just like a
+\texttt{foreach} loop. A variable that has occurred before the anonymous
+definition in the enclosing scope is \emph{global} to the anonymous
+definition and refers to the existing variable. A variable whose first
+occurrence is inside the anonymous definition is a fresh \emph{local}
+variable of that definition. This rule applies to variables in parameter
+patterns, the return expression, and the body. Here, ``global'' describes
+visibility across the scope boundary; it does not mean a module-global
+variable. A prior occurrence counts even if the variable is still unbound.
+
+Local variables are fresh for each invocation and are not made visible to
+subsequent goals outside the definition. For example:
+\begin{verbatim}
+Offset = 10,
+F = ([X] -> R, T = X+Offset, R = T*T),
+A = F(1),                 % A = 121
+B = F(2)                  % B = 144
+\end{verbatim}
+The variable \texttt{Offset} is global to the anonymous definition, while
+\texttt{X}, \texttt{R}, and \texttt{T} first occur inside it and are local.
+The two invocations use fresh local variables. Nested anonymous definitions
+follow the same scope rule: a variable introduced in an outer definition can
+be global to an inner definition.
+
+An anonymous definition can refer to variables from the enclosing context.
+A closure carries the values of these context variables at the time the
+closure is created. Subsequent changes to the context variables do not affect
+the values captured by that closure. This capture convention applies to both
+anonymous functions and anonymous predicates. For example:
+\begin{verbatim}
+Offset = 10,
+AddOffset = ([X] -> X+Offset),
+Offset := 20,
+Y = AddOffset(5),         % Y = 15
+NewAddOffset = ([X] -> X+Offset),
+Z = NewAddOffset(5)       % Z = 25
+\end{verbatim}
+The parameter \texttt{X} is supplied at invocation, while \texttt{Offset}
+comes from the context in which the closure is constructed. The captured
+variables are not additional arguments that the caller must supply.
+The first closure retains the captured value \texttt{10}, even after
+\texttt{Offset} is assigned \texttt{20}. The second closure is created after
+the assignment and therefore captures \texttt{20}. Invoking either closure
+does not recapture the current value of \texttt{Offset}.
+
+An anonymous function can return another anonymous function:
+\begin{verbatim}
+MakeAdder = ([A] -> ([B] -> A+B)),
+Add10 = MakeAdder(10),
+Y = Add10(5)               % Y = 15
+\end{verbatim}
+The returned closure retains the context needed to use \texttt{A} after the
+outer invocation finishes. This example uses two explicit invocations rather
+than an implicit partial application.
+
+\section{Passing Anonymous Definitions as Arguments}
+A higher-order routine can invoke an anonymous definition using the same
+conventions as a named callable. For example:
+\begin{verbatim}
+transform(F,[]) = [].
+transform(F,[X|Xs]) = [F(X)|transform(F,Xs)].
+
+visit(P,[]) => true.
+visit(P,[X|Xs]) =>
+    P(X),
+    visit(P,Xs).
+\end{verbatim}
+These definitions can be used as follows:
+\begin{verbatim}
+Ys = transform(([X] -> X*X),[1,2,3]),
+visit(([X] => println(X)),Ys)
+\end{verbatim}
+The transformation returns \texttt{[1,4,9]}, and the visit prints those values.
+Neither routine needs to know whether its argument was constructed from a
+named callable or an anonymous definition.
+
+\section{Modules and Call Resolution}
+\index{higher-order call!module resolution}
+For an ordinary named higher-order call whose target is not known at compile
+time, the runtime system searches the implicitly imported built-in modules
+\texttt{basic}, \texttt{io}, \texttt{math}, and \texttt{sys}, followed by the
+other loaded modules in the order returned by \texttt{loaded\_modules()}, and
+then the global module. If the compiler knows the callable name, it binds the
+call using the ordinary compile-time resolution conventions.
+
+A variable call can be module-qualified, as in \texttt{m.F(X,Y)}. For this
+form, lookup starts in \texttt{m}, followed by the implicitly imported
+built-in modules and the global module. The module qualifier is an atom,
+not a variable. The restriction on constructing literal dot-notation terms
+still applies; qualification is call syntax rather than a module-qualified
+structure that can be constructed as data. Ordinary named higher-order terms
+cannot reference private symbols, which are compiled away at compile time.
+
+A closure is associated with its defining code and captured context. Passing
+it to another module must preserve that association: calls written inside an
+anonymous body use the defining module's resolution context. The receiving
+module can invoke the closure without importing the defining module.
+
+\section{Implementation of Anonymous Definitions}
+\index{anonymous definition!implementation}
+The compiler introduces a unique dummy name for each anonymous definition
+and compiles the definition just like a named function or predicate. The
+dummy name belongs to the global module. The body, however, is compiled in
+the module in which the anonymous definition occurs. Thus, calls in the
+body are resolved using the defining module's definitions and imports,
+including its private definitions, just as in an ordinary named definition
+in that module. The return expression of an anonymous function is compiled
+in the same defining context.
+
+The closure carries the generated name together with the values of the
+captured context variables. Conceptually, an anonymous function such as
+\begin{verbatim}
+Offset = 10,
+F = ([X] -> X+Offset)
+\end{verbatim}
+is replaced by a closure of the form
+\begin{verbatim}
+F = $lam999([Offset])
+\end{verbatim}
+and the compiler introduces the function
+\begin{verbatim}
+lam999([Offset],X) = X+Offset => true.
+\end{verbatim}
+Here, \texttt{lam999} stands for a unique compiler-generated name, and the
+first argument carries the captured environment. Invoking \texttt{F(5)}
+supplies the explicit argument after that environment argument. An anonymous
+predicate is translated in the same way, using a generated predicate rather
+than a function. For example, the anonymous predicate
+\begin{verbatim}
+([X] => println(X+Offset))
+\end{verbatim}
+has a corresponding generated definition of the form
+\begin{verbatim}
+lam1000([Offset],X) => println(X+Offset).
+\end{verbatim}
+Its closure is conceptually \texttt{\$lam1000([Offset])}.
+
+Placing the generated name in the global module allows a receiving module
+to invoke the closure without importing the defining module. Compiling the
+body in the defining module preserves the meaning of calls within the body.
+The generated name is unique, so separately compiled anonymous definitions
+do not share a dummy name. The names and environment lists shown here
+illustrate the translation; programs should not depend on their particular
+spelling or representation.
+
+\section{Compiled Bodies and Callable Terms}
+Anonymous bodies are compiled code. They can contain assignments, loops, and
+conditionals, even though these constructs cannot be preserved as literal
+callable terms for general \texttt{call} interpretation. An anonymous
+predicate is therefore useful for passing such a computation to another
+routine.
+
+The printed representation and generated name of a closure are implementation
+details. Programs should construct, pass, and invoke the closure rather than
+inspect or reconstruct its generated representation. No particular runtime
+lookup strategy or performance guarantee is implied by the anonymous syntax.

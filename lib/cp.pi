@@ -1,6 +1,8 @@
 module cp.
-import common_constr.
 
+import common_constr, graph_constrs.
+
+% #~X
 % X #!= Y
 % X #/\ Y
 % X #< Y
@@ -13,85 +15,135 @@ import common_constr.
 % X #>= Y
 % X #\/ Y
 % X #^ Y
-%  #~ X
-% Vars::Exp
+% Vars :: Exp
 % Vars notin Exp
-% acyclic(Vs,Es)
-% acyclic_d(Vs,Es)
+% acyclic(Vs, Es)
+% acyclic_d(Vs, Es)
 % all_different(FDVars)
 % all_different_except_0(FDVars)
 % all_distinct(FDVars)
-% assignment(FDVars1,FDVars2)
-% at_least(N,L,V)
-% at_most(N,L,V)
+% assignment(FDVars1, FDVars2)
+% at_least(N, L, V)
+% at_most(N, L, V)
 % circuit(FDVars)
-% count(V,FDVars,N)
-% count(V,FDVars,Rel,N)
-% cumulative(Ss,Ds,Rs,Limit)
+% count(V, FDVars, N)
+% count(V, FDVars, Rel, N)
+% cumulative(Ss, Ds, Rs, Limit)
 % decreasing(L)
 % decreasing_strict(L)
 % diffn(RectangleList)
-% disjunctive_tasks(Tasks)(cp only)
-% element(I,List,V)
-% element0(I,List,V)
-% exactly(N,L,V):
-% fd_degree(FDVar)=Degree(cp only)
-% fd_disjoint(DVar1,DVar2)
+% disjunctive_tasks(Tasks) (cp only)
+% element(I, List, V)
+% element0(I, List, V)
+% exactly(N, L, V)
+% fd_degree(FDVar) = Degree (cp only)
+% fd_disjoint(DVar1, DVar2)
 % fd_dom(FDVar) = List
-% fd_false(FDVar,Elm)
+% fd_false(FDVar, Elm)
 % fd_max(FDVar) = Max
 % fd_min(FDVar) = Min
-% fd_min_max(FDVar,Min,Max)
-% fd_next(FDVar,Elm) = NextElm
-% fd_prev(FDVar,Elm) = PrevElm
-% fd_set_false(FDVar,Elm)(cp only)
+% fd_min_max(FDVar, Min, Max)
+% fd_next(FDVar, Elm) = NextElm
+% fd_prev(FDVar, Elm) = PrevElm
+% fd_set_false(FDVar, Elm) (cp only)
 % fd_size(FDVar) = Size
-% fd_true(FDVar,Elm)
-% fd_vector_min_max(Min,Max)
-% global_cardinality(List,Pairs)
-% hcp(Vs,Es)
-% hcp(Vs,Es,K)
+% fd_true(FDVar, Elm)
+% fd_vector_min_max(Min, Max)
+% global_cardinality(List, Pairs)
+% hcp(Vs, Es)
+% hcp(Vs, Es, K)
 % hcp_grid(A)
-% hcp_grid(A,Es)
-% hcp_grid(A,Es,K)
+% hcp_grid(A, Es)
+% hcp_grid(A, Es, K)
 % increasing(L)
 % increasing_strict(L)
-% indomain(Var)(nondet)(cp only)
-% indomain_down(Var)(nondet)(cp only)
-% lex_le(L_1,L_2)
-% lex_lt(L_1,L_2)
-% matrix_element(Matrix,I,J,V)
-% matrix_element0(Matrix,I,J,V)
-% neqs(NeqList)(cp only)
+% indomain(Var) (nondet) (cp only)
+% indomain_down(Var) (nondet) (cp only)
+% lex_le(L1, L2)
+% lex_lt(L1, L2)
+% matrix_element(Matrix, I, J, V)
+% matrix_element0(Matrix, I, J, V)
+% neqs(NeqList) (cp only)
 % new_dvar() = FDVar
-% new_fd_var() = FDVar
-% path(Vs,Es,Src,Dest)
-% path_d(Vs,Es,Src,Dest)
-% regular(X,Q,S,D,Q0,F)
-% scalar_product(A,X,Product)
-% scalar_product(A,X,Rel,Product)
-% scc(Vs,Es)
-% scc(Vs,Es,K)
-% scc_d(Vs,Es)
-% scc_d(Vs,Es,K)
+% nvalue(N, List)
+% path(Vs, Es, Src, Dest)
+% path_d(Vs, Es, Src, Dest)
+% regular(L, Q, S, M, Q0, F)
+% reset_store
+% scalar_product(A, X, Product)
+% scalar_product(A, X, Rel, Product)
+% scc(Vs, Es)
+% scc(Vs, Es, K)
+% scc_d(Vs, Es)
+% scc_d(Vs, Es, K)
 % scc_grid(A)
-% scc_grid(A,K)
-% serialized(Starts,Durations)
-% solve(Opts,Vars)(nondet)
-% solve(Vars)(nondet)
-% solve_all(Opts,Vars) = List
+% scc_grid(A, K)
+% serialized(Starts, Durations)
+% solve(Opts, Vars) (nondet)
+% solve(Vars) (nondet)
+% solve_all(Opts, Vars) = List
 % solve_all(Vars) = List
-% solve_suspended(Opt)(cp only)
-% solve_suspended(cp only)
+% solve_suspended(Opts) (cp only)
+% solve_suspended (cp only)
 % subcircuit(FDVars)
 % subcircuit_grid(A)
-% subcircuit_grid(A,K)
-% table_in(DVars,R)
-% table_notin(DVars,R)
-% tree(Vs,Es)
-% tree(Vs,Es,K)
+% subcircuit_grid(A, K)
+% table_in(DVars, R)
+% table_notin(DVars, R)
+% tree(Vs, Es)
+% tree(Vs, Es, K)
 
 include "cp_sat_mip_smt.pi". % common built-ins for cp, sat, mip, and smt
+
+hcp(Vs,Es) =>
+    eahc_sat(Vs, Es, cp, auto).
+
+hcp(Vs,Es,K) =>
+    K #= sum([B : {_,B} in Vs]),
+    eahc_sat(Vs, Es, cp, auto).
+   
+scc(Vs,Es) =>
+    graph_constrs.scc(Vs, Es, cp).
+
+scc(Vs,Es,K) =>
+    K #= sum([B : {_,B} in Vs]),
+    graph_constrs.scc(Vs, Es, cp).
+
+scc_d(Vs,Es) =>
+    graph_constrs.scc_d(Vs, Es, cp).
+
+scc_d(Vs,Es,K) =>
+    K #= sum([B : {_,B} in Vs]),
+    graph_constrs.scc_d(Vs, Es, cp).
+
+tree(Vs,Es) =>
+    graph_constrs.tree(Vs, Es, cp).
+
+tree(Vs,Es,K) =>
+    K #= sum([B : {_,B} in Vs]),
+    graph_constrs.tree(Vs, Es, cp).
+
+acyclic(Vs,Es) =>
+    graph_constrs.acyclic(Vs, Es, cp).
+
+acyclic(Vs,Es,K) =>
+    K #= sum([B : {_,B} in Vs]),
+    graph_constrs.acyclic(Vs, Es, cp).
+
+acyclic_d(Vs,Es) =>
+    graph_constrs.acyclic_d(Vs, Es, cp).
+
+acyclic_d(Vs,Es,K) =>
+    K #= sum([B : {_,B} in Vs]),
+    graph_constrs.acyclic_d(Vs, Es, cp).
+
+path(Vs,Es,Src,Dest) =>
+    graph_constrs.path(Vs,Es,Src,Dest,cp).
+
+path_d(Vs,Es,Src,Dest) =>
+    graph_constrs.path_d(Vs,Es,Src,Dest,cp).
+ 
+% include "hcp.pi".
 
 '::'(Vars,Domain) =>
     bp.'_$_picat_in'(cp,Vars,Domain).
@@ -170,6 +222,12 @@ solve_all(Vars) =
 % solve_all(Options,Vars) = solve_all(Options,Vars).
 solve_all(Options,Vars) =
     findall(Vars, solve(Options,Vars)).
+
+solve_once(Vs) =>
+    solve_once([],Vs).
+
+solve_once(Options,Vs) =>
+    once solve(Options,Vs).
 
 % solve_suspended => solve_suspended.
 solve_suspended =>
@@ -460,6 +518,10 @@ matrix_element(M,I,J,MIJ) =>
     check_matrix(M,NRows,NCols),
     matrix_element(M,NRows,NCols,I,J,MIJ,cp).
 
+matrix_element0(M,I,J,MIJ) =>
+    check_matrix(M,NRows,NCols),
+    matrix_element0(M,NRows,NCols,I,J,MIJ,cp).
+
 %
 % Requires that all non-zero values in Xs are distinct.
 %
@@ -482,3 +544,5 @@ all_different_except_0_aux(Xs) =>
         Xs[I] #= 0 #\/ Xs[J] #= 0 #\/ Xs[I] #!= Xs[J]
     end.
 
+reset_store =>
+    bp.c_reset_store().

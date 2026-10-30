@@ -16,7 +16,25 @@ the Picat `experimental` branch and makes them work together:
    a registered Picat function be used inside constraint expressions
    (`$f(X) #= 6`) by expanding it into primitive arithmetic.
 
-**Current task (COMPLETE):** the Picat 4.0b13 anonymous-defs investigation.
+**Current task (COMPLETE):** the main-branch integration. A local branch
+`integrate-main` was created from `experimental` (2c2bd2b) and merged with
+origin/main (a137b2a, past 4.0b13).  11 conflicts resolved: the 5 emu
+C-interface files (glpk/maple/java/qc/cgevent - mode-only changes on our
+side) took main's deletion; lib2/common_constr.pi + pb.pi kept ours (main
+deleted lib2/ - ~90 unchanged lib2 conversion tools staged for deletion,
+the 21 modules we modified survive); README.md kept ours; emu/clpfd.c kept
+our dense-cache block; emu/file.c combined main's NULL-checks +
+next_file_index() pre-allocation with our PICATPATH fallback and atomic
+.qi writes (plus two leak fixes on merged code); emu/init.c kept our
+experimental banner (based on Picat 4.0b13).  Three pre-existing parvm.c
+warnings fixed, including a REAL BUG in pvm_segv_dump (for (k=k0; k<0;
+k--) loops forever - fixed to k++).  Rebuilt zero-warning (fdn linked).
+All suites green: pigeon_hole 720, fp_check, udf_check, aspic battery 88,
+reif, ext_check 5/5, deviation_check 0 DIVERGES.  Native lambdas now
+PARSE on the merged binary (elegant_native.pi runs; a lambda after #= is
+still rejected - main's limitation).  Branch is local (not pushed).
+
+Previous task (COMPLETE): the Picat 4.0b13 anonymous-defs investigation.
 Main (4.0b13) was cloned to /home/jovyan/snapshotable/q38fokus/scratch/mainpull
 and its binary built (scratch/mainpull/emu/picat, zero errors, one
 pre-existing upstream warning in init.c).  Findings: (1) anonymous functions

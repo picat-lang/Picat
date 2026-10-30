@@ -5,6 +5,30 @@
 
 module nn.
 
+% new_nn(Layers) = NN
+% new_sparse_nn(Layers) = NN
+% new_sparse_nn(Layers, Rate) = NN
+% new_standard_nn(Layers) = NN
+% nn_destroy(NN)
+% nn_destroy_all
+% nn_load(File) = NN
+% nn_print(NN)
+% nn_run(NN, Input) = Output
+% nn_run(NN, Input, Opts) = Output
+% nn_save(NN, File)
+% nn_set_activation_function_hidden(NN, Func)
+% nn_set_activation_function_layer(NN, Func, Layer)
+% nn_set_activation_function_output(NN, Func)
+% nn_set_activation_steepness_hidden(NN, Steepness)
+% nn_set_activation_steepness_layer(NN, Steepness, Layer)
+% nn_set_activation_steepness_output(NN, Steepness)
+% nn_train(NN, Data)
+% nn_train(NN, Data, Opts)
+% nn_train_data_get(Data, I) = Pair
+% nn_train_data_load(File) = Data
+% nn_train_data_save(Data, File)
+% nn_train_data_size(Data) = Size
+
 %
 % Creates a standard fully connected backpropagation neural network.
 %

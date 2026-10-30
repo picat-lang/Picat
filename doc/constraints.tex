@@ -474,8 +474,9 @@ The \texttt{cp} module also accepts the following options:
 
 \subsection{Solving Options for \texttt{sat}}
 \begin{itemize}
-\item \texttt{dump}: Dump the CNF code to \texttt{stdout}.
+\item \texttt{dump}: Dump the CNF code to \texttt{stdout}.\index{\texttt{dump}}
 \item \texttt{dump($File$)}: Dump the CNF code to $File$.
+\item \texttt{ext($Command$)}:  Save the CNF code to a temporary file, then solve it using the external solver specified by the OS command $Command$. For example, \texttt{ext("cadical --quiet --factor=true")}.\index{\texttt{ext}}
 \item \texttt{seq}: Use sequential search to find an optimal answer.
 \item \texttt{split}: Use binary search to find an optimal answer (default).
 \item \texttt{\$nvars$(NVars)$}: The number of variables in the CNF code is $NVars$.

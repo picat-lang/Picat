@@ -1,5 +1,69 @@
 module io.    % imported by default
 
+% at_end_of_stream(FD)
+% close(FD)
+% flush(FD)
+% flush()
+% nl(FD)
+% nl()
+% open(Name) = FD
+% open(Name, Mode) = FD
+% peek_byte(FD) = Int
+% peek_char(FD) = Val
+% print(FD, Term)
+% print(Term)
+% printf(FD, Format, Args...)
+% println(FD, Term)
+% println(Term)
+% read_atom(FD) = Atom
+% read_atom() = Atom
+% read_byte(FD) = Int
+% read_byte(FD, N) = List
+% read_byte() = Int
+% read_char(FD) = Char
+% read_char(FD, N) = String
+% read_char() = Char
+% read_char_code(FD) = Int
+% read_char_code(FD, N) = List
+% read_char_code() = Int
+% read_file_bytes(File) = List
+% read_file_bytes() = List
+% read_file_chars(File) = String
+% read_file_chars() = String
+% read_file_codes(File) = List
+% read_file_codes() = List
+% read_file_lines(File) = Lines
+% read_file_lines() = Lines
+% read_file_terms(File) = Terms
+% read_file_terms() = Terms
+% read_int(FD) = Int
+% read_int() = Int
+% read_line(FD) = String
+% read_line() = String
+% read_number(FD) = Num
+% read_number() = Num
+% read_picat_token(FD) = TokenValue
+% read_picat_token(FD, TokenType, TokenValue)
+% read_picat_token(TokenType, TokenValue)
+% read_picat_token() = TokenValue
+% read_real(FD) = Real
+% read_real() = Real
+% read_term(FD) = Term
+% read_term() = Term
+% readln(FD) = String
+% readln() = String
+% write(FD, Term)
+% write(Term)
+% write_byte(Bytes)
+% write_byte(FD, Bytes)
+% write_char(Chars)
+% write_char(FD, Chars)
+% write_char_code(Codes)
+% write_char_code(FD, Codes)
+% writef(FD, Format, Args...)
+% writeln(FD, Term)
+% writeln(Term)
+
 at_end_of_stream(FD) => at_end_of_stream(FD).
 close(FD) => close(FD).
 flush() => flush(stdout).

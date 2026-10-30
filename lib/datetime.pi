@@ -1,5 +1,10 @@
 module datetime.
 
+% current_date() = Date
+% current_datetime() = DateTime
+% current_day() = WDay
+% current_time() = Time
+
 current_datetime() = $date_time(Year,Month,Day,Hour,Min,Sec) =>
     bp.c_TIME_ffffff(Year,Month,Day,Hour,Min,Sec).
 

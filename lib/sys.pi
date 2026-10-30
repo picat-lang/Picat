@@ -1,5 +1,38 @@
 module sys.  % imported by default
 
+% abort
+% cl
+% cl(File)
+% cl_facts(Facts)
+% cl_facts(Facts, IndexInfo)
+% cl_facts_table(Facts)
+% cl_facts_table(Facts, IndexInfo)
+% command(String) = Int
+% compile(File)
+% compile_bp(File)
+% debug
+% exit
+% garbage_collect
+% garbage_collect(Size)
+% halt
+% help
+% initialize_table
+% load(File)
+% loaded_modules() = List
+% nodebug
+% nolog
+% nospy
+% notrace
+% picat_path() = String
+% spy Functor
+% statistics
+% statistics(Key, Value) (nondet)
+% statistics_all() = List
+% time(Goal)
+% time2(Goal)
+% time_out(Goal, Limit, Result)
+% trace
+
 abort => abort.
 cl(File) => cl(File).
 cl_facts(Facts) => cl_facts(Facts,[]).

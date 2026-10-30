@@ -16,7 +16,7 @@
 #include "event.h"
 #include "clpfd.h"
 
-/* for CP solver competition */
+/* functor k/2, used to build hash keys in cpcon_decrement_counter (CP solver competition) */
 static SYM_REC_PTR cpcon_k2_ptr;
 
 #define DOMAIN_INCLUDE(dv_ptr1, dv_ptr2) (DV_size(dv_ptr1) >= DV_size(dv_ptr2) && \
@@ -25,6 +25,7 @@ static SYM_REC_PTR cpcon_k2_ptr;
                                           (IS_IT_DOMAIN(dv_ptr1) || domain_include_bv(dv_ptr1, dv_ptr2)))
 
 /******** c_DM_CREATE *************/
+/* Var :: From..To, creating the domain directly as a bit vector. */
 int c_DM_CREATE_BV_DVAR() {
     BPLONG Var, From, To;
     BPLONG_PTR top;
@@ -43,6 +44,7 @@ int c_DM_CREATE_BV_DVAR() {
     }
 }
 
+/* C-callable wrapper for b_DM_CREATE_DVAR/3. */
 int c_DM_CREATE_DVAR() {
     BPLONG Var, From, To;
 
@@ -53,6 +55,8 @@ int c_DM_CREATE_DVAR() {
     return b_DM_CREATE_DVAR(Var, From, To);
 }
 
+/* Var :: From..To. A non-integer bound means unbounded (BP_MININT_1W or BP_MAXINT_1W);
+   From == To binds Var. */
 int b_DM_CREATE_DVAR(BPLONG Var, BPLONG From, BPLONG To)
 {
     BPLONG_PTR top;
@@ -78,6 +82,7 @@ int b_DM_CREATE_DVAR(BPLONG Var, BPLONG From, BPLONG To)
     return aux_create_domain_var(Var, From, To);
 }
 
+/* Vars :: From..To for every variable in the list Vars. */
 int c_DM_CREATE_DVARS() {
     BPLONG Vars, From, To, Var;
     BPLONG_PTR sreg;
@@ -116,6 +121,9 @@ int c_DM_CREATE_DVARS() {
     return BP_ERROR;
 }
 
+/* Gives Var the interval domain from..to: creates a domain variable from a plain
+   variable or a suspension variable without a domain, intersects an existing domain,
+   or checks an integer. The Prolog callers ensure from < to. */
 int aux_create_domain_var(BPLONG Var, BPLONG from, BPLONG to)
 {
     BPLONG_PTR dv_ptr;
@@ -148,6 +156,7 @@ int aux_create_domain_var(BPLONG Var, BPLONG from, BPLONG to)
     }
 }
 
+/* Same as aux_create_domain_var, but a new domain is created as a bit vector. */
 int aux_create_bv_domain_var(BPLONG Var, BPLONG from, BPLONG to)
 {
     BPLONG_PTR dv_ptr;
@@ -178,7 +187,8 @@ int aux_create_bv_domain_var(BPLONG Var, BPLONG from, BPLONG to)
     }
 }
 
-/* make a copy of the fd var pointed to by dv_ptr, without copying cs lists */
+/* Makes a copy of the domain variable at dv_ptr on the heap, sharing its bit vector and
+   attributes but with empty constraint lists. Used when two domain variables are unified. */
 BPLONG_PTR dm_clone(BPLONG_PTR dv_ptr)
 {
     BPLONG_PTR dv_ptr_cp;
@@ -198,6 +208,7 @@ BPLONG_PTR dm_clone(BPLONG_PTR dv_ptr)
     return dv_ptr_cp;
 }
 
+/* C-callable wrapper for create_susp_var/1. */
 int c_create_susp_var() {
     BPLONG Var;
 
@@ -205,6 +216,8 @@ int c_create_susp_var() {
     return create_susp_var(Var);
 }
 
+/* Turns a plain variable into a suspension variable (no domain, no constraints).
+   Fails if Var is not a plain variable. */
 int create_susp_var(BPLONG Var)
 {
     BPLONG_PTR dv_ptr;
@@ -217,6 +230,8 @@ int create_susp_var(BPLONG Var)
         return 0;
 }
 
+/* fd_vector_min_max(Low,Up): widens the range (fd_region_low..fd_region_up) of
+   domains considered small; unbound arguments are bound to the current range. */
 int fd_vector_min_max() {
     BPLONG low, up;
     BPLONG_PTR top;
@@ -239,6 +254,8 @@ int fd_vector_min_max() {
     return 1;
 }
 
+/* Converts the interval domain at dv_ptr to a bit vector with all its values present.
+   The bit vector covers whole words, so it may extend beyond first..last. */
 void it_to_bv(BPLONG_PTR dv_ptr)
 {
     BPLONG from, to, i, size;
@@ -275,6 +292,8 @@ void it_to_bv(BPLONG_PTR dv_ptr)
 }
 
 
+/* Converts the interval domain at dv_ptr to a bit vector with elm removed, posting a
+   dom event. Precondition: DV_first(dv_ptr) < elm < DV_last(dv_ptr). */
 void it_to_bv_with_hole(BPLONG_PTR dv_ptr, BPLONG elm)
 {
     BPLONG from, to, i, size;
@@ -322,7 +341,9 @@ void it_to_bv_with_hole(BPLONG_PTR dv_ptr, BPLONG elm)
     UPDATE_SIZE(dv_ptr, size, size-1);
 }
 
-/* interval_start > DV_first(dv_ptr) && interval_end<DV_last(dv_ptr) */
+/* Converts an interval domain to a bit vector with interval_start..interval_end removed,
+   posting a dom event for each removed value.
+   Precondition: DV_first(dv_ptr) < interval_start <= interval_end < DV_last(dv_ptr). */
 void it_to_bv_with_interval_holes(BPLONG_PTR dv_ptr, BPLONG interval_start, BPLONG interval_end)
 {
     BPLONG from, to, i, size;
@@ -369,6 +390,7 @@ void it_to_bv_with_interval_holes(BPLONG_PTR dv_ptr, BPLONG interval_start, BPLO
     UPDATE_SIZE(dv_ptr, size, size-(interval_end-interval_start+1));
 }
 
+/* Succeeds if Var1 and Var2 (domain variables or integers) have no common value. */
 int b_DM_DISJOINT_cc(BPLONG Var1, BPLONG Var2)
 {
     BPLONG_PTR dv_ptr1, dv_ptr2;
@@ -390,11 +412,12 @@ int b_DM_DISJOINT_cc(BPLONG Var1, BPLONG Var2)
         dv_ptr2 = (BPLONG_PTR)UNTAGGED_TOPON_ADDR(Var2);
         return (dm_true(dv_ptr2, INTVAL(Var1)) ? BP_FALSE : BP_TRUE);
     }
-    /* Var 2 must be an int */
+    /* Var2 must be an int */
     return (Var1 == Var2 ? BP_FALSE : BP_TRUE);
 }
 
 /******** domain_include  *************/
+/* C-callable wrapper for b_DM_INCLUDE/2. */
 int c_DM_INCLUDE() {
     BPLONG Var1, Var2;
 
@@ -404,7 +427,7 @@ int c_DM_INCLUDE() {
     return b_DM_INCLUDE(Var1, Var2);
 }
 
-/* Var1's domain is a superset of Var2's domain */
+/* Succeeds if Var1's domain is a superset of Var2's domain (either may be an integer). */
 int b_DM_INCLUDE(BPLONG Var1, BPLONG Var2)
 {
     BPLONG_PTR dv_ptr1, dv_ptr2;
@@ -424,9 +447,11 @@ int b_DM_INCLUDE(BPLONG Var1, BPLONG Var2)
     return Var1 == Var2 ? BP_TRUE : BP_FALSE;
 }
 
-/* preconditions: (1) dv_ptr1 has at least the same size as dv_ptr2;
-   (2) dv_ptr1 has at least the same range as dv_ptr2; and
-   (3) dv_ptr1 is a bit vector 
+/* Succeeds if every element of dv_ptr2's domain is in dv_ptr1's domain.
+   Preconditions: (1) dv_ptr1 has at least the same size as dv_ptr2;
+   (2) dv_ptr1's range contains dv_ptr2's range; and
+   (3) dv_ptr1 is a bit vector.
+   When both bit vectors have the same base, whole words are compared at once.
 */
 int domain_include_bv(BPLONG_PTR dv_ptr1, BPLONG_PTR dv_ptr2)
 {
@@ -448,7 +473,7 @@ int domain_include_bv(BPLONG_PTR dv_ptr1, BPLONG_PTR dv_ptr2)
         WORD_OFFSET(bv_ptr2, last, last_w2, last_w_ptr2, last_offset);
         while (w_ptr2 != last_w_ptr2) {
             /* printf("w1 = %x w2 =%x (~w1 & w2)=%x\n",w1,w2,~w1&w2); */
-            if ((~w1 & w2) != 0) return 0;  /* not include */
+            if ((~w1 & w2) != 0) return 0;  /* not included */
             w_ptr1++; w1 = FOLLOW(w_ptr1);
             w_ptr2++; w2 = FOLLOW(w_ptr2);
         }
@@ -456,7 +481,7 @@ int domain_include_bv(BPLONG_PTR dv_ptr1, BPLONG_PTR dv_ptr2)
         w1 &= mask;
         w2 &= mask;
         /*    printf("w1 = %x w2 =%x (~w1 & w2)=%x\n",w1,w2,~w1&w2); */
-        if ((~w1 & w2) != 0) return 0;  /* not include  */
+        if ((~w1 & w2) != 0) return 0;  /* not included */
         return 1;
     } else {
         if (!(dm_true_bv_nbt(dv_ptr1, elm) && dm_true_bv_nbt(dv_ptr1, last))) return 0;
@@ -468,7 +493,7 @@ int domain_include_bv(BPLONG_PTR dv_ptr1, BPLONG_PTR dv_ptr2)
                 elm++;
             };
             return 1;
-        } else {  /* bv_bv */
+        } else {  /* both are bit vectors */
             while (elm < last) {
                 elm = domain_next_bv(dv_ptr2, elm);
                 if (!dm_true_bv_nbt(dv_ptr1, elm)) return 0;
@@ -480,7 +505,7 @@ int domain_include_bv(BPLONG_PTR dv_ptr1, BPLONG_PTR dv_ptr2)
 }
 
 /******** set_false *************/
-/* X must be either int or dvar */
+/* Excludes elm from X. X must be either an integer or a domain variable. */
 int varorint_set_false(BPLONG X, BPLONG elm)
 {
     BPLONG_PTR dv_ptr;
@@ -494,7 +519,8 @@ int varorint_set_false(BPLONG X, BPLONG elm)
 }
 
 
-/* Precondition: dv_ptr is not bound */
+/* Excludes elm from the domain at dv_ptr, posting the matching events.
+   Precondition: dv_ptr's variable is not bound. */
 void domain_set_false_noint(BPLONG_PTR dv_ptr, BPLONG elm)
 {
     BPLONG first, last, count;
@@ -543,7 +569,8 @@ void domain_set_false_noint(BPLONG_PTR dv_ptr, BPLONG elm)
     }
 }
 
-/* dv_ptr may be bound */
+/* Same as domain_set_false_noint, but dv_ptr's variable may be bound, in which case
+   the call fails if its value is elm. */
 int domain_set_false_aux(BPLONG_PTR dv_ptr, BPLONG elm)
 {
     BPLONG first, last, count;
@@ -596,7 +623,7 @@ int domain_set_false_aux(BPLONG_PTR dv_ptr, BPLONG elm)
     return 1;
 }
 
-/* dv_ptr is a bit vector, and may be bound */
+/* Same as domain_set_false_aux, for a bit-vector domain (dv_ptr's variable may be bound). */
 int domain_set_false_bv(BPLONG_PTR dv_ptr, BPLONG elm)
 {
     BPLONG first, last, count;
@@ -645,7 +672,8 @@ int domain_set_false_bv(BPLONG_PTR dv_ptr, BPLONG elm)
 }
 
 
-/* precondition: dv_ptr is not instantiated yet */
+/* Removes the smallest element of a bit-vector domain.
+   Precondition: dv_ptr's variable is not instantiated yet. */
 void domain_exclude_first_bv(BPLONG_PTR dv_ptr)
 {
     BPLONG count, elm, first;
@@ -665,7 +693,8 @@ void domain_exclude_first_bv(BPLONG_PTR dv_ptr)
     UPDATE_FIRST_SIZE(dv_ptr, first, elm, count-1);
 }
 
-/* precondition: dv_ptr is not instantiated yet */
+/* Removes the largest element of a bit-vector domain.
+   Precondition: dv_ptr's variable is not instantiated yet. */
 void domain_exclude_last_bv(BPLONG_PTR dv_ptr)
 {
     BPLONG count, elm, last;
@@ -685,6 +714,8 @@ void domain_exclude_last_bv(BPLONG_PTR dv_ptr)
     UPDATE_LAST_SIZE(dv_ptr, last, elm, count-1);
 }
 
+/* Clears the bit of elm in a bit-vector domain, posting a dom event if it was set.
+   Precondition: DV_first(dv_ptr) < elm < DV_last(dv_ptr). */
 void exclude_inner_elm_bv(BPLONG_PTR dv_ptr, BPLONG elm)
 {
     BPLONG count;
@@ -703,7 +734,7 @@ void exclude_inner_elm_bv(BPLONG_PTR dv_ptr, BPLONG elm)
     UPDATE_SIZE(dv_ptr, count, count-1);
 }
 
-/* for each element y in dev_ptr_y, if y is included in dv_ptr_x then exclude y */
+/* Removes from Y every element that is also in X (Y := Y minus X). */
 int exclude_dom_aux(BPLONG_PTR dv_ptr_x, BPLONG_PTR dv_ptr_y)
 {
     BPLONG first, last, first_y, last_y;
@@ -719,29 +750,38 @@ int exclude_dom_aux(BPLONG_PTR dv_ptr_x, BPLONG_PTR dv_ptr_y)
     if (first > last) return BP_TRUE;
     for (; ; ) {
         if (domain_set_false_aux(dv_ptr_y, first) == BP_FALSE) return BP_FALSE;
+        if (ISINT(FOLLOW(dv_ptr_y))) {  /* Y got instantiated: its value must not be in X */
+            return dm_true(dv_ptr_x, INTVAL(FOLLOW(dv_ptr_y))) ? BP_FALSE : BP_TRUE;
+        }
         if (first >= last) return BP_TRUE;
         first++;
         if (!IS_IT_DOMAIN(dv_ptr_x)) first = domain_next_bv(dv_ptr_x, first);
     }
 }
 
-/* for each element y in dev_ptr_y, if y is NOT included in dv_ptr_x then exclude y */
+/* Removes from Y every element that is not in X (Y := Y intersect X). Used when two domain
+   variables are unified. */
 int exclude_dom_comp_aux(BPLONG_PTR dv_ptr_x, BPLONG_PTR dv_ptr_y)
 {
     BPLONG first, last;
     /*  write_term(dv_ptr_x); write_term(dv_ptr_y); */
 
     first = DV_first(dv_ptr_y); last = DV_last(dv_ptr_y);
-    while (first <= last) {
+    for (; ; ) {  /* walk Y's elements only */
         if (!dm_true(dv_ptr_x, first)) {
-            if (domain_set_false_aux(dv_ptr_y, first) == 0) return 0;
+            if (domain_set_false_aux(dv_ptr_y, first) == BP_FALSE) return BP_FALSE;
+            if (ISINT(FOLLOW(dv_ptr_y))) {  /* Y got instantiated: its value must be in X */
+                return dm_true(dv_ptr_x, INTVAL(FOLLOW(dv_ptr_y)));
+            }
         }
+        if (first >= last) return BP_TRUE;
         first++;
+        if (!IS_IT_DOMAIN(dv_ptr_y)) first = domain_next_bv(dv_ptr_y, first);
     }
-    return BP_TRUE;
 }
 
 /******** next *************/
+/* NextE is the smallest element of DVar's domain greater than E; fails if there is none. */
 int b_DM_NEXT_ccf(BPLONG DVar, BPLONG E, BPLONG NextE)
 {
     BPLONG_PTR dv_ptr;
@@ -749,7 +789,6 @@ int b_DM_NEXT_ccf(BPLONG DVar, BPLONG E, BPLONG NextE)
     BPLONG_PTR top;
 
     DEREF(DVar); DEREF(E);
-    /*  if (!IS_SUSP_VAR(DVar)) {bp_exception = illegal_arguments; return BP_ERROR;}; */
     if (!IS_SUSP_VAR(DVar)) {
         bp_exception = illegal_arguments;
         return BP_ERROR;
@@ -771,6 +810,8 @@ int b_DM_NEXT_ccf(BPLONG DVar, BPLONG E, BPLONG NextE)
     return 1;
 }
 
+/* Returns the smallest element >= elm in a bit-vector domain. The caller must make sure
+   such an element exists (e.g. elm <= DV_last), or the scan runs past the bit vector. */
 BPLONG domain_next_bv(BPLONG_PTR dv_ptr, BPLONG elm)
 {
     BPLONG_PTR bv_ptr, w_ptr;
@@ -787,12 +828,14 @@ BPLONG domain_next_bv(BPLONG_PTR dv_ptr, BPLONG elm)
 }
 
 /******** prev *************/
+/* Same as b_DM_PREV_ccf, also counting a backtrack (used when labeling downwards). */
 int b_DM_PREV0_ccf(BPLONG DVar, BPLONG E, BPLONG PrevE)
 {
     n_backtracks++;
     return b_DM_PREV_ccf(DVar, E, PrevE);
 }
 
+/* PrevE is the largest element of DVar's domain smaller than E; fails if there is none. */
 int b_DM_PREV_ccf(BPLONG DVar, BPLONG E, BPLONG PrevE)
 {
     BPLONG_PTR dv_ptr;
@@ -800,7 +843,10 @@ int b_DM_PREV_ccf(BPLONG DVar, BPLONG E, BPLONG PrevE)
     BPLONG_PTR top;
 
     DEREF(DVar); DEREF(E);
-    /*  if (!IS_SUSP_VAR(DVar)) {bp_exception = illegal_arguments; return BP_ERROR;}; */
+    if (!IS_SUSP_VAR(DVar)) {
+        bp_exception = illegal_arguments;
+        return BP_ERROR;
+    }
     dv_ptr = (BPLONG_PTR)UNTAGGED_TOPON_ADDR(DVar);
     elm = INTVAL(E);
     if (elm > DV_last(dv_ptr)) {
@@ -817,6 +863,8 @@ int b_DM_PREV_ccf(BPLONG DVar, BPLONG E, BPLONG PrevE)
     return BP_TRUE;
 }
 
+/* Returns the largest element <= elm in a bit-vector domain. The caller must make sure
+   such an element exists (e.g. elm >= DV_first). */
 BPLONG domain_prev_bv(BPLONG_PTR dv_ptr, BPLONG elm)
 {
     BPLONG_PTR w_ptr, bv_ptr;
@@ -830,6 +878,7 @@ BPLONG domain_prev_bv(BPLONG_PTR dv_ptr, BPLONG elm)
 }
 
 /******** true *************/
+/* Succeeds if E is in Var's domain; if Var is not a domain variable, unifies it with E. */
 int b_DM_TRUE_cc(BPLONG Var, BPLONG E)
 {
     BPLONG_PTR dv_ptr;
@@ -844,6 +893,7 @@ int b_DM_TRUE_cc(BPLONG Var, BPLONG E)
     return dm_true(dv_ptr, INTVAL(E));
 }
 
+/* Succeeds if E is not in Var's domain (or differs from Var if Var is not a domain variable). */
 int b_DM_FALSE_cc(BPLONG Var, BPLONG E)
 {
     BPLONG_PTR dv_ptr;
@@ -858,7 +908,8 @@ int b_DM_FALSE_cc(BPLONG Var, BPLONG E)
     return !dm_true(dv_ptr, INTVAL(E));
 }
 
-/* an inner element that is true used in clpset.pl */
+/* Succeeds if E is in Var's domain and is neither its minimum nor its maximum
+   (used by CLP(Set), whose domains carry dummy end elements). */
 int b_DM_INNER_TRUE_cc(BPLONG Var, BPLONG E)
 {
     BPLONG_PTR dv_ptr;
@@ -874,7 +925,7 @@ int b_DM_INNER_TRUE_cc(BPLONG Var, BPLONG E)
             dm_true(dv_ptr, E));
 }
 
-/* X must be either an int or fd var */
+/* Tests if elm is in X. X must be either an integer or a domain variable. */
 int varorint_dm_true(BPLONG X, BPLONG elm)
 {
     BPLONG_PTR dv_ptr;
@@ -888,6 +939,7 @@ int varorint_dm_true(BPLONG X, BPLONG elm)
 }
 
 
+/* Returns 1 if elm is in the domain at dv_ptr (interval or bit vector). */
 int dm_true(BPLONG_PTR dv_ptr, BPLONG elm)
 {
     BPLONG_PTR w_ptr, bv_ptr;
@@ -911,6 +963,7 @@ int dm_true(BPLONG_PTR dv_ptr, BPLONG elm)
     return ((w & mask) != 0);
 }
 
+/* Same as dm_true, for a bit-vector domain. */
 int dm_true_bv(BPLONG_PTR dv_ptr, BPLONG elm)
 {
     BPLONG_PTR w_ptr, bv_ptr;
@@ -931,7 +984,7 @@ int dm_true_bv(BPLONG_PTR dv_ptr, BPLONG elm)
 }
 
 
-/* same as dm_true_bv but with no bound test */
+/* Same as dm_true_bv, but without the bound tests: elm must lie within the bit vector. */
 int dm_true_bv_nbt(BPLONG_PTR dv_ptr, BPLONG elm)
 {
     BPLONG_PTR w_ptr, bv_ptr;
@@ -944,6 +997,7 @@ int dm_true_bv_nbt(BPLONG_PTR dv_ptr, BPLONG elm)
 }
 
 /******** min_max *************/
+/* Min and Max are the bounds of Var's domain (Var itself if it is an integer). */
 int b_DM_MIN_MAX_cff(BPLONG Var, BPLONG Min, BPLONG Max)
 {
     BPLONG_PTR dv_ptr;
@@ -968,6 +1022,7 @@ int b_DM_MIN_MAX_cff(BPLONG Var, BPLONG Min, BPLONG Max)
 }
 
 /******** min *************/
+/* Min is the lower bound of Var's domain (Var itself if it is an integer). */
 int b_DM_MIN_cf(BPLONG Var, BPLONG Min)
 {
     BPLONG_PTR dv_ptr;
@@ -990,6 +1045,7 @@ int b_DM_MIN_cf(BPLONG Var, BPLONG Min)
 }
 
 /******** max *************/
+/* Max is the upper bound of Var's domain (Var itself if it is an integer). */
 int b_DM_MAX_cf(BPLONG Var, BPLONG Max)
 {
     BPLONG_PTR dv_ptr;
@@ -1012,6 +1068,7 @@ int b_DM_MAX_cf(BPLONG Var, BPLONG Max)
 }
 
 /******** count *************/
+/* Count is the size of Var's domain (1 if Var is an integer). */
 int b_DM_COUNT_cf(BPLONG Var, BPLONG Count)
 {
     BPLONG_PTR dv_ptr;
@@ -1032,28 +1089,42 @@ int b_DM_COUNT_cf(BPLONG Var, BPLONG Count)
     return BP_TRUE;
 }
 
+/* number of 1 bits in w */
+static int count_bits(BPULONG w)
+{
+#if defined(__GNUC__) || defined(__clang__)
+    return __builtin_popcountll((unsigned long long)w);
+#else
+    int n = 0;
+    while (w != 0) {w &= w-1; n++;}
+    return n;
+#endif
+}
+
+/* Returns the number of elements of a bit-vector domain within from..to (from <= to,
+   both within the bit vector), counting whole words at once. */
 int count_domain_elms(BPLONG_PTR dv_ptr, BPLONG from, BPLONG to)
 {
     BPLONG_PTR w_ptr, bv_ptr;
-    BPULONG w, mask, offset;
+    BPULONG w, offset, last_offset;
+    BPLONG_PTR last_w_ptr;
     int count;
 
-    count = 0;
     bv_ptr = (BPLONG_PTR)DV_bit_vector_ptr(dv_ptr);
     WORD_OFFSET(bv_ptr, from, w, w_ptr, offset);
-    mask = ((BPULONG)0x1 << offset);
-    while (from <= to) {
-        if ((w & mask) != 0) count++;
-        mask <<= 1;
-        if (mask == 0) {
-            mask = (BPULONG)0x1; w_ptr++; w = FOLLOW(w_ptr);
-        }
-        from++;
+    WORD_OFFSET(bv_ptr, to, w, last_w_ptr, last_offset);
+    w = FOLLOW(w_ptr) & (MASK_FF << offset);  /* drop the bits below from */
+    count = 0;
+    while (w_ptr != last_w_ptr) {
+        count += count_bits(w);
+        w_ptr++; w = FOLLOW(w_ptr);
     }
-    return count;
+    w &= ((BPULONG)MASK_FF >> (NBITS_IN_LONG-last_offset-1));  /* drop the bits above to */
+    return count + count_bits(w);
 }
 
-/* same as count_domain_elms but post dom_any(X,E) events */
+/* Same as count_domain_elms, but also posts an outer_dom event for each element counted
+   (the caller is about to remove them all). */
 int exclude_domain_elms(BPLONG_PTR dv_ptr, BPLONG from, BPLONG to)
 {
     BPLONG_PTR w_ptr, bv_ptr;
@@ -1065,6 +1136,11 @@ int exclude_domain_elms(BPLONG_PTR dv_ptr, BPLONG from, BPLONG to)
     WORD_OFFSET(bv_ptr, from, w, w_ptr, offset);
     mask = ((BPULONG)0x1 << offset);
     while (from <= to) {
+        if (mask == 1 && w == 0) {  /* skip a whole empty word */
+            from += NBITS_IN_LONG;
+            w_ptr++; w = FOLLOW(w_ptr);
+            continue;
+        }
         if ((w & mask) != 0) {
             count++;
             INSERT_TRIGGER_outer_dom0(dv_ptr, MAKEINT(from));
@@ -1079,8 +1155,9 @@ int exclude_domain_elms(BPLONG_PTR dv_ptr, BPLONG from, BPLONG to)
 }
 
 /*
-  c_reachability_test(VarsVect) 
-  the graph represented by the fd variables is a SCC.
+  c_reachability_test(VarsVect): VarsVect = {X1,...,Xn}, where Xi's domain holds the
+  possible successors of node i. Succeeds if every node can be reached from node 1
+  (breadth-first search), as required for the nodes to form a single circuit.
 */
 int c_reachability_test() {
     BPLONG N, VarsVect, i, count, var, elm, last;
@@ -1097,7 +1174,7 @@ int c_reachability_test() {
     scc_nodes = heap_top;
     scc_nodes[1] = 1;
     for (i = 2; i <= N; i++) {
-        scc_nodes[i] = 0;  /* 0 means not in scc */
+        scc_nodes[i] = 0;  /* 0 means not reached yet */
     }
     front = rear = heap_top+N+1;
     FOLLOW(rear++) = 1; count = 1;
@@ -1109,7 +1186,7 @@ int c_reachability_test() {
             elm = DV_first(dv_ptr);
             last = DV_last(dv_ptr);
             for (; ; ) {
-                if (scc_nodes[elm] == 0) {  /* not in scc */
+                if (scc_nodes[elm] == 0) {  /* not reached yet */
                     scc_nodes[elm] = 1;
                     FOLLOW(rear++) = elm; count++;
                     if (count == N) return BP_TRUE;
@@ -1132,8 +1209,8 @@ int c_reachability_test() {
 }
 
 /*
-  c_subcircuit_test(Begin,VarsVect).
-  nodes that are not reachable from Begin cannot be in the circuit.
+  c_subcircuit_test(Begin,VarsVect): nodes that are not reachable from Begin cannot be
+  in the circuit, so each such node i is fixed to point to itself (Xi = i).
 */
 int c_subcircuit_test() {
     BPLONG N, Begin, VarsVect, i, var, elm, last;
@@ -1200,8 +1277,8 @@ int c_subcircuit_test() {
 
 
 /*
-  c_path_from_to_reachability_test(f,t,Vector)
-  t can be reached from f. DFS is used.
+  c_path_from_to_reachability_test(F,T,Vector): succeeds if node T can be reached from
+  node F in the graph whose successor domains are in Vector.
 */
 int c_path_from_to_reachability_test() {
     BPLONG from, to, N, Vector;
@@ -1218,52 +1295,54 @@ int c_path_from_to_reachability_test() {
     sym_ptr = (SYM_REC_PTR)FOLLOW(var_vector);
     N = GET_ARITY(sym_ptr);
 
-    QUIT_IF_OVERFLOW_HEAP(N+100);
+    QUIT_IF_OVERFLOW_HEAP(2*N+100);
     visited = heap_top;
     for (i = 1; i <= N; i++) {  /* initialize the array */
         visited[i] = 0;
     }
     visited[0] = 1;  /* 0 is a dummy node */
     visited[from] = 1;
-    return path_from_to_reachable(from, to, var_vector, visited);
+    return path_from_to_reachable(from, to, var_vector, visited, visited+N+1);
 }
 
-int path_from_to_reachable(BPLONG from, BPLONG to, BPLONG_PTR var_vector, BPLONG_PTR visited)
+/* Breadth-first search from node from for node to. visited[] marks the nodes already
+   queued; queue must have room for all the nodes. */
+int path_from_to_reachable(BPLONG from, BPLONG to, BPLONG_PTR var_vector, BPLONG_PTR visited, BPLONG_PTR queue)
 {
     BPLONG var, next, last;
-    BPLONG_PTR dv_ptr;
+    BPLONG_PTR dv_ptr, front, rear;
 
-    var = FOLLOW(var_vector+from); DEREF_NONVAR(var);
-    if (IS_SUSP_VAR(var)) {
-        dv_ptr = (BPLONG_PTR)UNTAGGED_TOPON_ADDR(var);
-        next = DV_first(dv_ptr);
-        last = DV_last(dv_ptr);
+    front = rear = queue;
+    *rear++ = from;
+    while (front < rear) {
+        var = FOLLOW(var_vector + *front++); DEREF_NONVAR(var);
+        if (IS_SUSP_VAR(var)) {
+            dv_ptr = (BPLONG_PTR)UNTAGGED_TOPON_ADDR(var);
+            next = DV_first(dv_ptr);
+            last = DV_last(dv_ptr);
+        } else {
+            next = last = INTVAL(var);
+            dv_ptr = NULL;
+        }
         for (; ; ) {
             if (next == to) return BP_TRUE;
             if (visited[next] == 0) {  /* not yet visited */
                 visited[next] = 1;
-                if (path_from_to_reachable(next, to, var_vector, visited) == BP_TRUE) return BP_TRUE;
+                *rear++ = next;
             }
-            if (next == last) return BP_FALSE;
+            if (next == last) break;
             next++;
             if (!IS_IT_DOMAIN(dv_ptr)) next = domain_next_bv(dv_ptr, next);
-        }
-    } else {
-        next = INTVAL(var);
-        if (next == to) return BP_TRUE;
-        if (visited[next] == 0) {
-            visited[next] = 1;
-            if (path_from_to_reachable(next, to, var_vector, visited) == BP_TRUE) return BP_TRUE;
         }
     }
     return BP_FALSE;
 }
 
 /* A directed graph is given as a structure v(node(V1,Neibs_1),...,node(Vn,Neibs_n))
-   where Vi is a domain variable and Neibs_i is domain variable whose domain
-   contains the successors that can be directed reached from i. Mark each node with 
-   Lab such that there is a path from start to end in which all the nodes are marked
-   with Lab. The Prolog frame is as follows:
+   where Vi is a domain variable (the node's label) and Neibs_i is a domain variable
+   whose domain contains the successors that can be directly reached from i. For each
+   connection (Start,End,Lab), the nodes are labeled so that there is a path from Start
+   to End in which all the nodes are labeled Lab. The Prolog frame is as follows:
 
    paths_from_to_in_dgraph_propagator(ConnectionVec,Graph,Vars),{ins(Vars)} => b_PATH_FROM_TO_REACHABLE.
 */
@@ -1297,7 +1376,6 @@ int b_PATH_FROM_TO_REACHABLE()
     ConEndArray = ConStartArray-nConnections-1;
     ConLabArray = ConEndArray-nConnections-1;
     ConFlagArray = ConLabArray-nConnections-1;
-    //[]
     VisitedArray = ConFlagArray-n-1;
     LabVarArray = VisitedArray-n-1;
     SuccVarArray = LabVarArray-n-1;
@@ -1344,6 +1422,9 @@ int b_PATH_FROM_TO_REACHABLE()
 }
 
 
+/* For connection (Start,End,Lab): removes Lab from the labels of nodes that can't be
+   reached from Start through Lab-labeled nodes, and fixes to Lab every cutting node,
+   i.e. one whose removal disconnects End from Start. */
 int check_reach_cuts_in_one_connection(BPLONG n, BPLONG Start, BPLONG End, BPLONG Lab, BPLONG TaggedLab, BPLONG_PTR LabVarArray, BPLONG_PTR SuccVarArray, BPLONG_PTR VisitedArray)
 {
     BPLONG i;
@@ -1375,7 +1456,7 @@ int check_reach_cuts_in_one_connection(BPLONG n, BPLONG Start, BPLONG End, BPLON
         }
     }
 
-    /* checking cutting nodes */
+    /* check for cutting nodes: a node that every path from Start to End must go through */
     for (i = 1; i <= n; i++) {
         BPLONG LabVar;
         BPLONG_PTR dv_ptr;
@@ -1400,6 +1481,7 @@ int check_reach_cuts_in_one_connection(BPLONG n, BPLONG Start, BPLONG End, BPLON
     return BP_TRUE;
 }
 
+/* Returns the number of successors of node NodeNum that can still be labeled Lab. */
 int path_from_to_node_degree(BPLONG n, BPLONG NodeNum, BPLONG Lab, BPLONG TaggedLab, BPLONG_PTR LabVarArray, BPLONG_PTR SuccVarArray)
 {
     BPLONG LabVar, SuccVar;
@@ -1450,12 +1532,13 @@ int path_from_to_node_degree(BPLONG n, BPLONG NodeNum, BPLONG Lab, BPLONG Tagged
     }
 }
 
+/* Marks in VisitedArray the nodes reachable from Start through nodes that can be labeled Lab. */
 void check_reach_withno_cut(BPLONG Start, BPLONG Lab, BPLONG TaggedLab, BPLONG_PTR LabVarArray, BPLONG_PTR SuccVarArray, BPLONG_PTR VisitedArray)
 {
     BPLONG curNodeNum, LabVar, SuccVar;
     BPLONG_PTR q_front, q_rear;
 
-    q_front = q_rear = SuccVarArray-1;  /* reuse the control stack  for the queue */
+    q_front = q_rear = SuccVarArray-1;  /* use the free stack area below the arrays as the queue */
     FOLLOW(q_rear--) = Start;
     VisitedArray[Start] = 1;
     while (q_front > q_rear) {
@@ -1479,7 +1562,7 @@ void check_reach_withno_cut(BPLONG Start, BPLONG Lab, BPLONG TaggedLab, BPLONG_P
                     }
                 }
             }
-        } else {  /* multiple succesor nodes */
+        } else {  /* multiple successor nodes */
             BPLONG_PTR dv_ptr;
             BPLONG succNodeNum, lastNodeNum;
 
@@ -1513,12 +1596,13 @@ void check_reach_withno_cut(BPLONG Start, BPLONG Lab, BPLONG TaggedLab, BPLONG_P
     }
 }
 
+/* Same as check_reach_withno_cut, with node cutNodeNum removed from the graph. */
 void check_reach_with_one_cut(BPLONG Start, BPLONG Lab, BPLONG TaggedLab, BPLONG_PTR LabVarArray, BPLONG_PTR SuccVarArray, BPLONG_PTR VisitedArray, BPLONG cutNodeNum)
 {
     BPLONG curNodeNum, LabVar, SuccVar;
     BPLONG_PTR q_front, q_rear;
 
-    q_front = q_rear = SuccVarArray-1;  /* reuse the control stack  for the queue */
+    q_front = q_rear = SuccVarArray-1;  /* use the free stack area below the arrays as the queue */
     FOLLOW(q_rear--) = Start;
     VisitedArray[Start] = 1;
     while (q_front > q_rear) {
@@ -1542,7 +1626,7 @@ void check_reach_with_one_cut(BPLONG Start, BPLONG Lab, BPLONG TaggedLab, BPLONG
                     }
                 }
             }
-        } else {  /* multiple succesor nodes */
+        } else {  /* multiple successor nodes */
             BPLONG_PTR dv_ptr;
             BPLONG succNodeNum, lastNodeNum;
 
@@ -1576,7 +1660,8 @@ void check_reach_with_one_cut(BPLONG Start, BPLONG Lab, BPLONG TaggedLab, BPLONG
     }
 }
 
-/* consider firstCon connection */
+/* For connection firstCon, looks for pairs of nodes that together cut every path from
+   Start to End (currently disabled as too expensive). */
 void check_two_cuts_in_two_connections(BPLONG n, BPLONG firstCon, BPLONG nConnections, BPLONG_PTR ConStartArray, BPLONG_PTR ConEndArray, BPLONG_PTR ConLabArray, BPLONG_PTR ConFlagArray, BPLONG_PTR LabVarArray, BPLONG_PTR SuccVarArray, BPLONG_PTR VisitedArray)
 {
     BPLONG Start, End, Lab, TaggedLab, LabVar, v1, v2;
@@ -1605,7 +1690,7 @@ void check_two_cuts_in_two_connections(BPLONG n, BPLONG firstCon, BPLONG nConnec
                                     for (i = 1; i <= n; i++) VisitedArray[i] = 0;
                                     check_reach_with_two_cuts(Start, Lab, TaggedLab, LabVarArray, SuccVarArray, VisitedArray, v1, v2);
                                     if (VisitedArray[End] == 0) {  /* v1 and v2 are cutting nodes */
-                                        check_cuts_in_another_connection(v1, v2, n, firstCon, Lab, nConnections, ConStartArray, ConEndArray, ConLabArray, LabVarArray, SuccVarArray, VisitedArray);
+                                        check_cuts_in_another_connection(v1, v2, n, firstCon, Lab, nConnections, ConStartArray, ConEndArray, ConLabArray, ConFlagArray, LabVarArray, SuccVarArray, VisitedArray);
                                     }
                                 }
                             }
@@ -1617,17 +1702,17 @@ void check_two_cuts_in_two_connections(BPLONG n, BPLONG firstCon, BPLONG nConnec
     }
 }
 
-/* v1 and v2 have been found to be cutting nodes for the kth connection with l1,
-   check if they are cutting nodes for another connection with label l2. If so, 
+/* v1 and v2 have been found to be cutting nodes for connection firstCon with label l1.
+   Check if they are also cutting nodes for another connection with label l2. If so,
    then no labels other than l1 and l2 are allowed for v1 and v2.
 */
-void check_cuts_in_another_connection(BPLONG v1, BPLONG v2, BPLONG n, BPLONG firstCon, BPLONG firstLab, BPLONG nConnections, BPLONG_PTR ConStartArray, BPLONG_PTR ConEndArray, BPLONG_PTR ConLabArray, BPLONG_PTR LabVarArray, BPLONG_PTR SuccVarArray, BPLONG_PTR VisitedArray)
+void check_cuts_in_another_connection(BPLONG v1, BPLONG v2, BPLONG n, BPLONG firstCon, BPLONG firstLab, BPLONG nConnections, BPLONG_PTR ConStartArray, BPLONG_PTR ConEndArray, BPLONG_PTR ConLabArray, BPLONG_PTR ConFlagArray, BPLONG_PTR LabVarArray, BPLONG_PTR SuccVarArray, BPLONG_PTR VisitedArray)
 {
     BPLONG secondCon, LabVar, Start, End, Lab, TaggedLab, Flag;
     BPLONG_PTR dv_ptr1, dv_ptr2;
 
     for (secondCon = firstCon+1; secondCon <= nConnections; secondCon++) {
-        Flag = ConLabArray[secondCon];
+        Flag = ConFlagArray[secondCon];
         if (ISREF(Flag)) {
             Start = ConStartArray[secondCon];
             End = ConEndArray[secondCon];
@@ -1661,12 +1746,13 @@ void check_cuts_in_another_connection(BPLONG v1, BPLONG v2, BPLONG n, BPLONG fir
 }
 
 
+/* Same as check_reach_withno_cut, with nodes cutNodeNum1 and cutNodeNum2 removed. */
 void check_reach_with_two_cuts(BPLONG Start, BPLONG Lab, BPLONG TaggedLab, BPLONG_PTR LabVarArray, BPLONG_PTR SuccVarArray, BPLONG_PTR VisitedArray, BPLONG cutNodeNum1, BPLONG cutNodeNum2)
 {
     BPLONG curNodeNum, LabVar, SuccVar;
     BPLONG_PTR q_front, q_rear;
 
-    q_front = q_rear = SuccVarArray-1;  /* reuse the control stack  for the queue */
+    q_front = q_rear = SuccVarArray-1;  /* use the free stack area below the arrays as the queue */
     FOLLOW(q_rear--) = Start;
     VisitedArray[Start] = 1;
     while (q_front > q_rear) {
@@ -1690,7 +1776,7 @@ void check_reach_with_two_cuts(BPLONG Start, BPLONG Lab, BPLONG TaggedLab, BPLON
                     }
                 }
             }
-        } else {  /* multiple succesor nodes */
+        } else {  /* multiple successor nodes */
             BPLONG_PTR dv_ptr;
             BPLONG succNodeNum, lastNodeNum;
 
@@ -1724,7 +1810,7 @@ void check_reach_with_two_cuts(BPLONG Start, BPLONG Lab, BPLONG TaggedLab, BPLON
     }
 }
 
-/* exclude all elements but val1 and val2 (val1\=val2) */
+/* Excludes all elements but val1 and val2 (val1 != val2). */
 void domain_reduce_to_two(BPLONG_PTR dv_ptr, BPLONG val1, BPLONG val2)
 {
     BPLONG t;
@@ -1739,7 +1825,10 @@ void domain_reduce_to_two(BPLONG_PTR dv_ptr, BPLONG val1, BPLONG val2)
     //  printf("<=reduce_to_two %d %d ",val1,val2); write_term1(dv_ptr,stderr); printf("\n");
 }
 
-/*
+/* C implementation of the following Prolog code. X's domain is a Hall set if exactly
+   |dom(X)| variables in L and R (including X) have domains contained in it; its values
+   are then removed from all the other variables.
+
   $alldistinct_check_hall_var(X,NumElms,L,R):-
   dvar(X) :
   b_DM_COUNT_cf(X,Size),
@@ -1783,7 +1872,7 @@ int b_ALLDISTINCT_CHECK_HALL_VAR_cccc(BPLONG X, BPLONG NumElmsLeft, BPLONG L, BP
 
     L0 = L; NumElmsLeft0 = NumElmsLeft;
     ALIGN(CHAR_PTR, curr_fence);
-    flag_ptr = (BPLONG_PTR)curr_fence;  /* used to indicate which domain is a subset of X */
+    flag_ptr = (BPLONG_PTR)curr_fence;  /* scratch flags: which domains are subsets of X's */
 
     size = DV_size(dv_ptr1);
     count = 1;  /* X is a subset of itself */
@@ -1839,6 +1928,7 @@ start_exclude:
 }
 
 /******** misc *************/
+/* Debugging: prints the domain of op, if it is a domain variable. */
 void print_domain_var(BPLONG op)
 {
     BPLONG_PTR dv_ptr;
@@ -1852,6 +1942,7 @@ void print_domain_var(BPLONG op)
     }
 }
 
+/* Prints a domain as ::[a..b,c,...], merging consecutive values into intervals. */
 void print_domain(BPLONG_PTR dv_ptr)
 {
     BPLONG i, first, last;
@@ -1882,7 +1973,7 @@ void print_domain(BPLONG_PTR dv_ptr)
     }
 }
 
-/* X := (X intersect Y), either one could be a normal var */
+/* X := (X intersect Y). Each of X and Y may be an integer or a domain variable. */
 int b_DM_INTERSECT(BPLONG X, BPLONG Y)
 {
     DEREF(Y); DEREF(X);
@@ -1908,7 +1999,7 @@ int b_DM_INTERSECT(BPLONG X, BPLONG Y)
     return BP_FALSE;
 }
 
-/* X := (X /\ Y) */
+/* X := (X /\ Y) for two domain variables; fails if the result is empty. */
 int dm_intersect(BPLONG_PTR dv_ptr_x, BPLONG_PTR dv_ptr_y)
 {
     BPLONG first, last;
@@ -1922,16 +2013,23 @@ int dm_intersect(BPLONG_PTR dv_ptr_x, BPLONG_PTR dv_ptr_y)
     if (last > DV_last(dv_ptr_x)) last = DV_last(dv_ptr_x);
     if (first > last) return BP_FALSE;
     if (domain_region_noint(dv_ptr_x, first, last) == BP_FALSE) return BP_FALSE;
-    do {
+    if (ISINT(FOLLOW(dv_ptr_x))) return dm_true(dv_ptr_y, INTVAL(FOLLOW(dv_ptr_x)));
+    first = DV_first(dv_ptr_x);
+    last = DV_last(dv_ptr_x);
+    for (; ; ) {  /* walk X's elements only */
         if (!dm_true(dv_ptr_y, first)) {
             if (domain_set_false_aux(dv_ptr_x, first) == BP_FALSE) return BP_FALSE;
+            if (ISINT(FOLLOW(dv_ptr_x))) {  /* X got instantiated: its value must be in Y */
+                return dm_true(dv_ptr_y, INTVAL(FOLLOW(dv_ptr_x)));
+            }
         }
+        if (first >= last) return BP_TRUE;
         first++;
-    } while (first <= last);
-    return BP_TRUE;
+        if (!IS_IT_DOMAIN(dv_ptr_x)) first = domain_next_bv(dv_ptr_x, first);
+    }
 }
 
-/* X in [Low,Up], X must be a domain variable, Low<=Up. */
+/* X in {Low,Up}: restricts X to the two values Low and Up (Low <= Up). */
 int b_DM_INTERSECT2(BPLONG X, BPLONG Low, BPLONG Up)
 {
     BPLONG_PTR dv_ptr;
@@ -1973,7 +2071,7 @@ int b_DM_INTERSECT2(BPLONG X, BPLONG Low, BPLONG Up)
     }
 }
 
-/* dv_ptr1 and dv_ptr2 are both domain variables */
+/* Succeeds if the domains of dv_ptr1 and dv_ptr2 have no common element. */
 int dm_disjoint(BPLONG_PTR dv_ptr1, BPLONG_PTR dv_ptr2)
 {
     BPLONG min, max, min2, max2;
@@ -2011,7 +2109,7 @@ int dm_disjoint(BPLONG_PTR dv_ptr1, BPLONG_PTR dv_ptr2)
             return BP_TRUE;
         }
     }
-    /* bit vectors of different bases */
+    /* intervals, or bit vectors of different bases */
     for (; ; ) {
         if (dm_true(dv_ptr1, min) && dm_true(dv_ptr2, min)) return BP_FALSE;
         if (min >= max) break;
@@ -2021,6 +2119,7 @@ int dm_disjoint(BPLONG_PTR dv_ptr1, BPLONG_PTR dv_ptr2)
     return BP_TRUE;
 }
 
+/* C-callable wrapper for b_VAR_NOTIN_D_cc/2. */
 int c_var_notin_ints() {
     BPLONG X, D;
 
@@ -2030,8 +2129,8 @@ int c_var_notin_ints() {
 }
 
 /*
-  Exclude elements in List from the domain of X
-  where List is a list of integers or integer intervals
+  X notin List: excludes the elements in List from the domain of X,
+  where List is a list of integers and integer intervals L..U.
 */
 int b_VAR_NOTIN_D_cc(BPLONG X, BPLONG List)
 {
@@ -2069,6 +2168,7 @@ int b_VAR_NOTIN_D_cc(BPLONG X, BPLONG List)
     return BP_TRUE;
 }
 
+/* Succeeds if the integer x is not in List (integers and intervals L..U). */
 int check_var_notin_d(BPLONG x, BPLONG List)
 {
     BPLONG elm, low, up;
@@ -2099,13 +2199,14 @@ int check_var_notin_d(BPLONG x, BPLONG List)
 }
 
 /*
-  Enforce that tasks are disjunctive with this task (start,duration) 
+  Disjunctive scheduling: no two tasks (S,D) may overlap.
   est -- earliest start time
   lst -- latest start time
-  eet -- earliest end time
-  let -- latest end time
+  lct -- latest completion time (lst+duration)
 */
-/* if lst(S0)-est(S0)<D0+D then S notin lst(S0)-D+1..est(S0)+D0-1 */
+/* If task 0 is so tightly bounded that another task (S,D) can't fit inside its window
+   (lst0-est0 < D0+D-1), then S can't be in lst0-D+1 .. est0+D0-1:
+   wherever task 0 is placed, it occupies part of that range. */
 #define TASKS_ARC_CONSISTENT(est0, lst0, duration0, start, duration) {  \
         if (lst0-est0 < duration0+duration-1) {                         \
             if (ISINT(start)) {                                         \
@@ -2118,6 +2219,7 @@ int check_var_notin_d(BPLONG x, BPLONG List)
         }                                                               \
     }
 
+/* Applies TASKS_ARC_CONSISTENT between the task (start,duration) and each task in tasks. */
 int b_TASKS_EXCLUDE_NOGOOD_INTERVAL_ccc(BPLONG start, BPLONG duration, BPLONG tasks)
 {
     BPLONG_PTR dv_ptr, ptr;
@@ -2182,9 +2284,10 @@ int b_DISJUNCTIVE_TASKS_AC(BPLONG n)
     return BP_TRUE;
 }
 
-/* T0,T1,T
-   if (min(est0,est1)+duration0+duraiton1+duration>max(lct0,lct1,lct)  T << T0 T<<T1
-   if min(est0,est1,est)+duration0+duraiton1+duration>max(lct0,lct1) T0<<T T1<<T
+/* Edge finding with tasks T0, T1 and T:
+   if min(est0,est1)+duration0+duration1+duration > max(lct0,lct1,lct) then T << T0, T << T1
+   if min(est0,est1,est)+duration0+duration1+duration > max(lct0,lct1) then T0 << T, T1 << T
+   (A << B: A ends before B starts.)
 */
 #define EDGE_FINDER01(start, duration) {                                \
         BPLONG acc_est1, acc_lct1, acc_duration1, acc_est2, acc_lct2, acc_duration2; \
@@ -2218,9 +2321,10 @@ int b_DISJUNCTIVE_TASKS_AC(BPLONG n)
         }                                                               \
     }
 
-/* Q and T
-   if (acc_est+acc_duration1>acc_lct1)  T << Q 
-   if (acc_est1+acc_duration1>acc_lct)  Q << T 
+/* Edge finding with a set of tasks Q (accumulated in acc_est, acc_lct, acc_duration) and T:
+   if acc_est+acc_duration1 > acc_lct1 then T << Q
+   if acc_est1+acc_duration1 > acc_lct then Q << T
+   where the *1 values include T.
 */
 #define EDGE_FINDER(acc_est, acc_lct, acc_duration, start, duration) {  \
         if (ISINT(start)) {                                             \
@@ -2283,6 +2387,8 @@ int b_DISJUNCTIVE_TASKS_AC(BPLONG n)
         }                                                               \
     }
 
+/* Edge finding for $disjunctive_tasks (same frame layout as b_DISJUNCTIVE_TASKS_AC).
+   Handles at most 20 other tasks. */
 int b_DISJUNCTIVE_TASKS_EF(BPLONG n)
 {
     BPLONG_PTR dv_ptr;
@@ -2290,6 +2396,7 @@ int b_DISJUNCTIVE_TASKS_EF(BPLONG n)
     BPLONG starts[20], durations[20], t_starts[20], t_durations[20];
 
     n = INTVAL(n); m = n-1;  /* m : number of tasks except for the seed task */
+    if (m < 1 || m > 20) return BP_TRUE;  /* nothing to do, or too many tasks for the arrays below */
     start = FOLLOW(arreg+n); DEREF_NONVAR(start);  /* S0 */
     duration0 = FOLLOW(arreg+n+n);  /* D0 */
     DEREF_NONVAR(duration0); duration0 = INTVAL(duration0);
@@ -2310,9 +2417,10 @@ int b_DISJUNCTIVE_TASKS_EF(BPLONG n)
         t_durations[n-i-1] = INTVAL(duration);
     }
 
-/* edge finding: For each set Q={T1,T2,..T_{i-1}} where Ti=(Si,Di)
-   if est(Q)+d(Q)+Di > lct(Q U {Ti}) then Ti << Q (i.e., Si=<lct(Q)-Di-d(Q)) 
-   if est(Q U {Ti}) + d(Q) + Di > lct(Q) then Q << Ti (i.e., Si>=lst(Q)+d(Q))
+/* Edge finding: for each set Q={T1,T2,..T_{i-1}} where Ti=(Si,Di)
+   if est(Q)+d(Q)+Di > lct(Q U {Ti}) then Ti << Q (i.e., Si =< lct(Q)-Di-d(Q))
+   if est(Q U {Ti})+d(Q)+Di > lct(Q) then Q << Ti (i.e., Si >= est(Q)+d(Q))
+   The sets are built incrementally, so several task orders are tried below.
 */
 /* forward */
     for (i = 0; i < m; i++) {
@@ -2328,7 +2436,7 @@ int b_DISJUNCTIVE_TASKS_EF(BPLONG n)
     }
     FORWARD_EDGE_FINDER;
 
-// in-out 1
+/* in-out 1 */
     h = m/2;
     j = 0;
     for (i = h; i >= 0; i--) {
@@ -2343,7 +2451,7 @@ int b_DISJUNCTIVE_TASKS_EF(BPLONG n)
     }
     FORWARD_EDGE_FINDER;
 
-// in-out 2
+/* in-out 2 */
     j = 0;
     for (i = h+1; i < m; i++) {
         starts[j] = t_starts[i];
@@ -2367,8 +2475,10 @@ int b_DISJUNCTIVE_TASKS_EF(BPLONG n)
         durations[h] = t_durations[j];
         h++; i++; j--;
     }
-    starts[h] = t_starts[i];
-    durations[h] = t_durations[i];
+    if (i == j) {  /* odd m: the middle task */
+        starts[h] = t_starts[i];
+        durations[h] = t_durations[i];
+    }
     FORWARD_EDGE_FINDER;
 
 /* merge 2 */
@@ -2396,6 +2506,7 @@ int b_DISJUNCTIVE_TASKS_EF(BPLONG n)
     return BP_TRUE;
 }
 
+/* Excludes Low..Up from Var (Var may be an integer, in which case it is just checked). */
 int b_EXCLUDE_NOGOOD_INTERVAL_ccc(BPLONG Var, BPLONG Low, BPLONG Up)
 {
     BPLONG_PTR dv_ptr;
@@ -2414,8 +2525,9 @@ int b_EXCLUDE_NOGOOD_INTERVAL_ccc(BPLONG Var, BPLONG Low, BPLONG Up)
 }
 
 /*
-  X :: List 
-  where List is a sorted list of integers and integer intervals.
+  For X :: List, where List is a list of integers and integer intervals L..U:
+  computes Min and Max of the elements, and binds Unsorted to 1 if the list is not
+  sorted in ascending order. Fails if List is not such a list.
 */
 int c_integers_intervals_list() {
     BPLONG List, Min, Max, Unsorted;
@@ -2427,7 +2539,8 @@ int c_integers_intervals_list() {
     Max = ARG(3, 4);
     Unsorted = ARG(4, 4);
 
-    if (ISLIST(List)) {
+    if (!ISLIST(List)) return BP_FALSE;  /* an empty domain has no min/max */
+    {
         ptr = (BPLONG_PTR)UNTAGGED_ADDR(List);
         elm = FOLLOW(ptr); DEREF(elm);
         List = FOLLOW(ptr+1); DEREF(List);
@@ -2505,6 +2618,8 @@ int c_integers_intervals_list() {
     return BP_TRUE;
 }
 
+/* X :: List, where List is a sorted list of integers and intervals L..U: removes the gaps
+   between the elements of List from X's domain. X's bounds are restricted by the caller. */
 int b_VAR_IN_D_cc(BPLONG X, BPLONG List)
 {
     BPLONG elm, low, up, Min;
@@ -2544,6 +2659,7 @@ int b_VAR_IN_D_cc(BPLONG X, BPLONG List)
     return BP_TRUE;
 }
 
+/* Succeeds if the integer x is in List (integers and intervals L..U). */
 int check_var_in_d(BPLONG x, BPLONG List)
 {
     BPLONG elm, low, up;
@@ -2567,6 +2683,8 @@ int check_var_in_d(BPLONG x, BPLONG List)
     return BP_FALSE;
 }
 
+/* Clears the bits of from..to in a bit-vector domain, posting a dom event for each
+   element removed. Precondition: DV_first(dv_ptr) < from <= to < DV_last(dv_ptr). */
 void exclude_inner_interval_bv(BPLONG_PTR dv_ptr, BPLONG from, BPLONG to)
 {
     BPULONG w, mask, offset;
@@ -2577,6 +2695,11 @@ void exclude_inner_interval_bv(BPLONG_PTR dv_ptr, BPLONG from, BPLONG to)
     bv_ptr = (BPLONG_PTR)DV_bit_vector_ptr(dv_ptr);
     WORD_OFFSET(bv_ptr, from, w, w_ptr, offset);
     while (from <= to) {
+        if (offset == 0 && w == 0) {  /* skip a whole empty word */
+            from += NBITS_IN_LONG;
+            w_ptr++; w = FOLLOW(w_ptr);
+            continue;
+        }
         mask = ((BPULONG)0x1 << offset);
         if (w & mask) {
             if (last_trailed_addr != w_ptr) {
@@ -2596,6 +2719,7 @@ void exclude_inner_interval_bv(BPLONG_PTR dv_ptr, BPLONG from, BPLONG to)
     }
 }
 
+/* Excludes from..to from the domain at dv_ptr, whose variable may be bound. */
 int domain_exclude_interval_aux(BPLONG_PTR dv_ptr, BPLONG from, BPLONG to)
 {
     BPLONG val;
@@ -2620,7 +2744,8 @@ int domain_exclude_interval_aux(BPLONG_PTR dv_ptr, BPLONG from, BPLONG to)
     return BP_TRUE;
 }
 
-/* from must be le to */
+/* Excludes from..to from the domain at dv_ptr.
+   Preconditions: from <= to; dv_ptr's variable is not bound. */
 int domain_exclude_interval_noint(BPLONG_PTR dv_ptr, BPLONG from, BPLONG to)
 {
 
@@ -2639,7 +2764,7 @@ int domain_exclude_interval_noint(BPLONG_PTR dv_ptr, BPLONG from, BPLONG to)
     return BP_TRUE;
 }
 
-/* return a /< b (b!= 0) */
+/* returns floor(a/b) (b != 0) */
 BPLONG sound_low_div(BPLONG a, BPLONG b) {
     if (b < 0) {
         b = -b;
@@ -2654,7 +2779,7 @@ BPLONG sound_low_div(BPLONG a, BPLONG b) {
     }
 }
 
-/* return a /> b (b!= 0) */
+/* returns ceiling(a/b) (b != 0) */
 BPLONG sound_up_div(BPLONG a, BPLONG b) {
     if (b < 0) {
         b = -b;
@@ -2669,6 +2794,7 @@ BPLONG sound_up_div(BPLONG a, BPLONG b) {
     }
 }
 
+/* *p_low and *p_up are the smallest and the largest of the four values. */
 void min_max4(BPLONG val1, BPLONG val2, BPLONG val3, BPLONG val4, BPLONG_PTR p_low, BPLONG_PTR p_up) {
     BPLONG low, up;
 
@@ -2683,6 +2809,7 @@ void min_max4(BPLONG val1, BPLONG val2, BPLONG val3, BPLONG val4, BPLONG_PTR p_l
     *p_up = up;
 }
 
+/* Returns the smallest of the four values. */
 BPLONG min4(BPLONG val1, BPLONG val2, BPLONG val3, BPLONG val4) {
     BPLONG low;
 
@@ -2693,6 +2820,7 @@ BPLONG min4(BPLONG val1, BPLONG val2, BPLONG val3, BPLONG val4) {
     return low;
 }
 
+/* Returns the largest of the four values. */
 BPLONG max4(BPLONG val1, BPLONG val2, BPLONG val3, BPLONG val4) {
     BPLONG up;
 
@@ -2718,7 +2846,7 @@ void exclude_unsupported_y_constr_xy_eq_z(BPLONG_PTR dv_ptr_x, BPLONG_PTR dv_ptr
         supported = 0;
         if (eY == 0) {  /* 0 is supported if 0 is in Z's domain */
             if (dm_true(dv_ptr_z, 0)) supported = 1;
-        } if (dv_ptr_x == dv_ptr_y) {  /* X and Y are identical */
+        } else if (dv_ptr_x == dv_ptr_y) {  /* X and Y are identical */
             if (dm_true(dv_ptr_z, eY*eY)) supported = 1;
         } else {
             eX = minX;
@@ -2822,8 +2950,9 @@ void exclude_unsupported_z_constr_xy_eq_z(BPLONG_PTR dv_ptr_x, BPLONG_PTR dv_ptr
     }  /* end of loop_Z */
 }
 
-/* X+Y = Z, X is a bit-vector domain. The constraint is already interval consistent. 
-   Ensure that every element in Y's domain and Z's domain is supported.
+/* X+Y = Z, X is a bit-vector domain. The constraint is already interval consistent.
+   Removes from Z every inner value that is not the sum of a value of X and a value of Y.
+   Only done when Z's domain is small; minZ and maxZ are supported by interval consistency.
 */
 int c_CLPFD_ADD_AC_ccc() {
     BPLONG X, Y, Z, i, size;
@@ -2843,12 +2972,12 @@ int c_CLPFD_ADD_AC_ccc() {
     dv_ptr_z = (BPLONG_PTR)UNTAGGED_TOPON_ADDR(Z);
     if (!IS_SMALL_DOMAIN(dv_ptr_z)) return BP_TRUE;
 
-    // enforce AC on Z
+    /* enforce AC on Z */
     minZ = DV_first(dv_ptr_z);
     maxZ = DV_last(dv_ptr_z);
     size = maxZ-minZ+1;
     if (local_top - heap_top <= size) {
-        return BP_TRUE;  /* do not enforce AC on Z*/
+        return BP_TRUE;  /* not enough free space: do not enforce AC on Z */
     }
     ptr = local_top-size;
     for (i = 1; i < size-1; i++) {
@@ -2860,23 +2989,20 @@ int c_CLPFD_ADD_AC_ccc() {
         minY = DV_first(dv_ptr_y);
         maxY = DV_last(dv_ptr_y);
         for (; ; ) {  /* iterate over X */
+            /* only sums strictly between minZ and maxZ need marking */
+            BPLONG lowY = minZ+1-elmX, upY = maxZ-1-elmX;
+            if (lowY < minY) lowY = minY;
+            if (upY > maxY) upY = maxY;
             if (IS_IT_DOMAIN(dv_ptr_y)) {
-                for (elmY = minY; elmY <= maxY; elmY++) {
-                    elmZ = elmX+elmY;
-                    if (elmZ < maxZ){
-                        *(ptr+elmZ-minZ) = 1;
-                    }
+                for (elmY = lowY; elmY <= upY; elmY++) {
+                    *(ptr+elmX+elmY-minZ) = 1;
                 }
-            } else {
-                elmY = minY;
-                for (; ; ) {  /* iterate over Y */
-                    elmZ = elmX+elmY;
-                    if (elmZ < maxZ){
-                        *(ptr+elmZ-minZ) = 1;
-                    }
+            } else if (lowY <= upY) {
+                elmY = (lowY == minY) ? minY : domain_next_bv(dv_ptr_y, lowY);
+                while (elmY <= upY) {  /* iterate over Y */
+                    *(ptr+elmX+elmY-minZ) = 1;
                     if (elmY == maxY) break;  /* exit loop of Y */
-                    elmY++;
-                    elmY = domain_next_bv(dv_ptr_y, elmY);
+                    elmY = domain_next_bv(dv_ptr_y, elmY+1);
                 }
             }
             if (elmX == maxX) break;  /* exit loop of X */
@@ -2887,7 +3013,7 @@ int c_CLPFD_ADD_AC_ccc() {
         elmY = INTVAL(Y);
         for (; ; ) {  /* iterate over X */
             elmZ = elmX+elmY;
-            if (elmZ < maxZ){
+            if (elmZ > minZ && elmZ < maxZ) {
                 *(ptr+elmZ-minZ) = 1;
             }
             if (elmX == maxX) break;  /* exit loop of X */
@@ -2909,7 +3035,8 @@ int c_CLPFD_ADD_AC_ccc() {
     return BP_TRUE;
 }
 
-/* Const-X = Y, X is a bit-vector domain. The constraint is already interval consistent. */
+/* Const-X = Y, X is a bit-vector domain. The constraint is already interval consistent.
+   Removes from Y every inner value v for which Const-v is not in X. */
 int c_CLPFD_SUB_AC_ccc() {
     BPLONG Const, X, Y, i, sizeY;
     BPLONG_PTR dv_ptr_x, dv_ptr_y, ptr;
@@ -2929,7 +3056,7 @@ int c_CLPFD_SUB_AC_ccc() {
     maxY = DV_last(dv_ptr_y);
     sizeY = maxY-minY+1;
     if (local_top - heap_top <= sizeY || DV_size(dv_ptr_y) > 512) {
-        return BP_TRUE;  /* do not enforce AC on Z*/
+        return BP_TRUE;  /* do not enforce AC on Y */
     }
     ptr = local_top-sizeY;
     for (i = 1; i < sizeY-1; i++) {
@@ -2939,9 +3066,9 @@ int c_CLPFD_SUB_AC_ccc() {
     maxX = DV_last(dv_ptr_x);
     for (; ; ) {  /* iterate over X */
         elmY = Const-elmX;
-        if (elmY < maxY) {
+        if (elmY > minY && elmY < maxY) {
             *(ptr+(elmY-minY)) = 1;  /* elmY is supported in Y */
-        }    
+        }
         if (elmX == maxX) break;  /* exit loop of X */
         elmX++;
         elmX = domain_next_bv(dv_ptr_x, elmX);
@@ -2959,7 +3086,9 @@ int c_CLPFD_SUB_AC_ccc() {
     return BP_TRUE;
 }
 
-/* X*Y = Z */
+/* X*Y = Z: bounds reasoning on the three variables, plus value-level pruning when the
+   domains are small and one of them has holes. When X or Y is a constant a (other than
+   0, 1 and -1), only Z is pruned: every z needs z/a in Y. */
 int b_CLPFD_MULTIPLY_INT_ccc(BPLONG X, BPLONG Y, BPLONG Z)
 {
     BPLONG_PTR dv_ptr_x, dv_ptr_y, dv_ptr_z;
@@ -2974,12 +3103,15 @@ x_is_int:
             dv_ptr_y = (BPLONG_PTR)UNTAGGED_TOPON_ADDR(Y);
             dv_ptr_z = (BPLONG_PTR)UNTAGGED_TOPON_ADDR(Z);
             minZ = DV_first(dv_ptr_z); maxZ = DV_last(dv_ptr_z);
-            if (DV_size(dv_ptr_z) <= 100) {  // IS_SMALL_DOMAIN(dv_ptr_z)){
+            if (DV_size(dv_ptr_z) <= 100) {
                 for (; ; ) {
                     BPLONG elm = minZ/a;
-                    if (a*elm == minZ && dm_true(dv_ptr_y, elm)) {
-                    } else{
+                    if (a*elm != minZ || !dm_true(dv_ptr_y, elm)) {  /* minZ has no support in Y */
                         if (domain_set_false_aux(dv_ptr_z, minZ) == BP_FALSE) return BP_FALSE;
+                        if (ISINT(FOLLOW(dv_ptr_z))) {  /* Z got instantiated: check its value */
+                            BPLONG v = INTVAL(FOLLOW(dv_ptr_z));
+                            return (v % a == 0 && dm_true(dv_ptr_y, v/a)) ? BP_TRUE : BP_FALSE;
+                        }
                     }
                     if (minZ == maxZ) return BP_TRUE;
                     minZ++;
@@ -2994,7 +3126,7 @@ x_is_int:
         tmp = X; X = Y; Y = tmp;
         goto x_is_int;
     }
-    /* come here if both X and Y are dvar */
+    /* both X and Y are domain variables */
 
     //  printf("=> multi "); write_term(X); printf(" "); write_term(Y); printf(" "); write_term(Z); printf("\n");
 
@@ -3042,7 +3174,7 @@ x_is_int:
         if (domain_region_noint(dv_ptr_z, 0, DV_last(dv_ptr_z)) == BP_FALSE) return BP_FALSE;
     }
     if (minX >= -BP_MAXINT_1W_SQRT && maxX <= BP_MAXINT_1W_SQRT &&
-        minY >= -BP_MAXINT_1W_SQRT && maxY <= BP_MAXINT_1W_SQRT) {  // sqrt(BP_MAXINT_1W) = BP_MAXINT_1W_SQRT
+        minY >= -BP_MAXINT_1W_SQRT && maxY <= BP_MAXINT_1W_SQRT) {  /* products of the bounds can't overflow */
         if (minX >= 0 && minY >= 0) {
             lowZ = minX*minY;
             upZ = maxX*maxY;
@@ -3116,6 +3248,7 @@ x_is_int:
 
 /******************************************************************/
 /* For the CP solver competition                                  */
+/* Looks up key in a $hshtb(Count,Buckets) hash table. */
 BPLONG con05_hashtable_get(BPLONG table, BPLONG key)
 {
     SYM_REC_PTR sym_ptr;
@@ -3135,7 +3268,10 @@ BPLONG con05_hashtable_get(BPLONG table, BPLONG key)
     return hashtable_lookup_chain(FOLLOW(ptr+index), key);
 }
 
-/*
+/* C implementation of the following Prolog code. Es lists values (and intervals) that
+   lost a support; each decrement_counter reduces the support count of (J,E) and removes
+   E from Xj when no support is left.
+
   decrement_counters(Counters,J,_,Xj):-nonvar(Xj) : true.
   decrement_counters(Counters,J,[],Xj):-true : true.
   decrement_counters(Counters,J,[L..U|Es],Xj):-true :
@@ -3181,6 +3317,8 @@ int c_cpcon_decrement_counters() {
     return BP_TRUE;
 }
 
+/* If elm is in Xj's domain, decrements the support counter of (J,elm), removing elm
+   from the domain when it reaches 0. */
 int cpcon_decrement_counter(BPLONG Counters, BPLONG J, BPLONG elm, BPLONG_PTR dv_ptr)
 {
     BPLONG counter, count, p_key;
@@ -3207,7 +3345,7 @@ int cpcon_decrement_counter(BPLONG Counters, BPLONG J, BPLONG elm, BPLONG_PTR dv
     return BP_TRUE;
 }
 
-/* op is a boolean domain variable */
+/* Succeeds if op is a domain variable whose domain is 0..1. */
 int b_BOOL_DVAR_c(BPLONG op)
 {
     BPLONG_PTR dv_ptr;
@@ -3225,6 +3363,7 @@ int b_BOOL_DVAR_c(BPLONG op)
     return BP_FALSE;
 }
 
+/* Initializes the small-domain range and registers this file's C predicates. */
 void Cboot_domain() {
 
     fd_region_low = -3200;

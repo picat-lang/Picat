@@ -1,5 +1,15 @@
 module ordset.
 
+% delete(OSet, Elm) = OSet1
+% disjoint(OSet1, OSet2)
+% insert(OSet, Elm) = OSet1
+% intersection(OSet1, OSet2) = OSet3
+% new_ordset(List) = OSet
+% ordset(Term)
+% subset(OSet1, OSet2)
+% subtract(OSet1, OSet2) = OSet3
+% union(OSet1, OSet2) = OSet3
+
 delete(OSet, Elm) = OSet1 => bp.ord_del_element(OSet,Elm,OSet1).
 disjoint(OSet1, OSet2) => bp.ord_disjoint(OSet1,OSet2).
 insert(OSet, Elm) = OSet1 => bp.ord_insert(OSet,Elm,OSet1).

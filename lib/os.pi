@@ -128,7 +128,7 @@ file_directory_name(Atom) = Name, atom(Atom) =>
     file_directory_name(String) = Name.
 file_directory_name(String) = Name, string(String) =>
     ((append(Pre,['/'|Base],String), not member('/',Base), not member('\\',Base)) ->
-    Name = Pre
+        Name = Pre
     ; (append(Pre,['\\'|Base],String), not member('/',Base), not member('\\',Base)) ->
         Name = Pre
     ;
@@ -139,7 +139,9 @@ file_directory_name(String) = _Name =>
 
 % file_exists(Path) => file_exists(Path).
 file_exists(Path), check_path(Path) =>
-    bp.b_ACCESS_ccf(Path,0,0).
+    bp.b_ACCESS_ccf(Path,0,0),
+    bp.c_file_type(Path,Type),
+    Type !== directory.
 file_exists(String) =>
     handle_exception($string_expected(String), file_exists).
 
