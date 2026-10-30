@@ -61,6 +61,17 @@ workspace; override `HAKAN`/`TARGET` (the Hakan tree), `STOCK_PICAT`,
   timing/solver noise stripped. Verdicts: `DIVERGES (exp rc=N, stock
   rc=0)` is the regression class; `same (both timeout)` means raise
   `TIMEOUT` and re-run.
+- `divergence_reverify.sh TIMEOUT <example.pi> ...` — re-verify the
+  flaky candidates of a parallel sweep sequentially with a longer
+  timeout (120 s) and an output comparison: the documented follow-up
+  for timeout-based `DIVERGES` verdicts. Takes the example paths as
+  printed by the sweep (`root/x.pi` = the tree root, `ppl/x.pi` = a
+  subdirectory). Each side works on a fresh writable copy with `.qi`
+  deleted (a unique per-invocation workdir under the scratch area, so
+  no run shares bytecode and NFS stale-file locks cannot build up).
+  Verdicts: `same`, `exp-slower` (the stock finished, this build timed
+  out), `exp-fails`, `stock-fails`, `stock-timeout`, `both-fail`. Env:
+  `EXP`, `STOCK_PICAT`, `HAKAN`, `WORK`.
 - `divergence_parallel.sh [light|detailed] [JOBS]` — the same sweep
   through GNU parallel (`JOBS` in flight, default 32), plus the `pb`
   examples single-sided on this build. Needs GNU parallel and ≥90
