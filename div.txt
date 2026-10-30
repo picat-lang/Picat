@@ -1,0 +1,74 @@
+div.txt — divergences found on integrate-main (merge of origin/main a137b2a
+into experimental 2c2bd2b), 2026-10-30.
+
+== Exs tree (exs/deviation_check.sh, families cp sat mip smt planner euler
+== debug, this build vs stock Picat 3.9#12)
+
+0 DIVERGES (no regression).
+
+== Hakan tree (test/divergence_parallel.sh light 32, 3137 examples:
+root + ppl/ + nn_hakank/ + the pb examples; sweep timeout 30 s)
+
+27 DIVERGES + 2 RC-DIFFERS.  Re-verified at 120 s with
+test/divergence_reverify.sh; every case is upstream 4.0 behavior or an
+improvement.  ZERO regressions from the merge.
+
+-- Upstream 4.0 REGRESSIONS (fail/slow on all 4.0 binaries incl. main
+-- and ours with FDN=0; stock 3.9#12 fine)
+
+sat_solve_minimize_bv_sub/6 undefined at compile/run time (the sat
+module's bit-vector objective path references a predicate the 4.0
+preprocessor does not define):
+  root/coins_grid_bv.pi        exp rc=1, stock rc=0
+  root/send_most_money_bv.pi   exp rc=1, stock rc=0
+
+4.0b13 slower than 3.9#12 (timeout 120 s on main's binary AND ours with
+FDN=0; the fdn is not involved):
+  root/going_to_church.pi
+  root/how_many_routes.pi
+  root/instant_insanity.pi
+  root/movement_puzzle.pi
+  root/no_three_in_line.pi
+  root/tantalizer_45_logic_by_numbers.pi
+  root/utils_me_test.pi
+
+-- Improvements (stock fails or times out, this build passes)
+
+stock rc=1, exp rc=0 (4.0 fixes/propagators):
+  root/3_in_a_row.pi
+  root/shortest_path2.pi
+  root/test_euler.pi
+  root/wordle3.pi
+
+stock timeout 30 s, exp rc=0:
+  root/coins_grid.pi
+  root/low_autocorrelation_binary_sequences.pi
+  root/magic_square_and_cards.pi
+  root/mutant_words.pi
+  root/nonogram_regular.pi
+  root/sf_spin_v3.pi
+
+-- Both sides fail (no regression class)
+
+  root/run_program.pi                exp timeout, stock rc=1
+  root/rectangle_placement_optimal.pi both rc=1
+
+-- Same at 120 s (sweep artifacts only)
+
+  root/a_father_with_49_gold_coins.pi  both timeout
+  root/max_m_in_row.pi                 both timeout
+  root/number_lock_generate.pi         both timeout
+  root/optimal_grouping.pi             both pass
+  root/nurikabe.pi                     both pass
+  root/perfect_square_placement.pi     both pass
+
+== Also green on integrate-main
+
+pigeon_hole 720 solutions, fp_check, udf_check, aspic battery 88,
+reif_globals_check, ext_check 5/5, deviation_check (exs) 0 DIVERGES,
+native lambdas parse (elegant_native.pi runs).
+
+== Known pre-existing noise (not fdn/merge related)
+
+10 OUTPUT-DIFFERS in fdn_exs: nn/* training randomness, pb/parity random
+data, mip/bqueens solver nondeterminism, sat/marriage_roman_sat.

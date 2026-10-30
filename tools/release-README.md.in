@@ -1,7 +1,7 @@
 # Picat experimental — linux64 release (@COMMIT)
 
 This is the Linux x86-64 build of the `experimental` branch of
-[Picat](https://picat-lang.org) (commit @COMMIT), based on Picat 4.0b8.
+[Picat](https://picat-lang.org) (commit @COMMIT), based on Picat 4.0b13.
 The binary is **statically linked**: it runs on any x86-64 Linux,
 new or old, without installing any libraries, and it is built with the
 same `-O3` flags as the normal build, so it is no slower on newer
@@ -34,7 +34,7 @@ cd picat-experimental-linux64-@COMMIT
 The launcher prepends this distribution's `lib2` to `PICATPATH`; an
 existing `PICATPATH` is preserved after it.
 
-## What the experimental branch adds over the 4.0b8 base
+## What the experimental branch adds over the 4.0b13 base
 
 - **Check mode**: `./picat -c FILE.pi` compiles and lints the file
   (unbalanced brackets, keyword typos, duplicated clause groups,

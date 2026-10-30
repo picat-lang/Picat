@@ -213,3 +213,6 @@ aspic_instances instead of universe(). Battery 88/0, baseline comparison
 ## Entry 35 (Fri Oct 30 2026)
 
 "where is coins_grid_bv?" - /home/jovyan/snapshotable/q38fokus/hakan_examples/coins_grid_bv.pi (the local Hakan tree, not the repo; a verification copy lives in scratch/hkverify/).
+## Entry 36 (Fri Oct 30 2026)
+
+"do it" - merged integrate-main (58ffb7a after committing user_input 33-35) into experimental (fast-forward); ran fdn_exs.sh as the final fdn-transparency check (20:52, clean env): RC-DIFFERS 0, 20 OUTPUT-DIFFERS all noise (nn training randomness, pb/parity random data, mip bqueens nondeterminism, plus a new trivial class: the pid in the echoed cbc command line from the 4.0 __tmp<pid> temp-file naming); rebuilt the release tgz (58ffb7a) - found and fixed two stale "based on Picat 4.0b8" strings en route (emu/main.c:114 startup banner, tools/release-README.md.in); README link updated. Pushed.
