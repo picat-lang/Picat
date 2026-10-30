@@ -16,7 +16,28 @@ the Picat `experimental` branch and makes them work together:
    a registered Picat function be used inside constraint expressions
    (`$f(X) #= 6`) by expanding it into primitive arithmetic.
 
-**Current task (COMPLETE):** the aspic translator(s) were rewritten so the
+**Current task (COMPLETE):** the Picat 4.0b13 anonymous-defs investigation.
+Main (4.0b13) was cloned to /home/jovyan/snapshotable/q38fokus/scratch/mainpull
+and its binary built (scratch/mainpull/emu/picat, zero errors, one
+pre-existing upstream warning in init.c).  Findings: (1) anonymous functions
+([A1..An] -> Res, Body) and predicates ([A1..An] => Body) RUN on main - the
+doc/higher_order.tex header claiming parser-only is STALE (verified: lambdas,
+predicates, capture-at-creation, currying, pattern params, 0-arity, findall
+generators, map/fold passing); (2) our experimental branch forks at 4.0b8,
+four betas before the anonymous-def parser (4.0b12), so emu/picat rejects the
+syntax; (3) native closures CANNOT BE SELF-APPLIED - F(F,...) (the
+anonymous-recursion pattern) dies with "Undefined procedure: lam.../N" (the
+closure term is extended with itself, a circular term); closure-on-closure
+works; (4) udf.pi's constraint lambdas stay (main rejects a lambda after #=,
+and udf's solver-variable sharing is out of scope for host closures);
+fp.pi's $lambda is replaceable in principle after absorbing 4.0b9-4.0b13.
+Deliverable: exs/fp/elegant_native.pi - elegant.pi rewritten in native
+syntax (recursive lambdas restructured as iterations, foreach + := +
+convergence guard), output matching elegant.pi (the integral's last digits
+differ: summation order), exs/fp/README.md updated.  Uncommitted: the new
+file, the README, .gitignore (__tmp*), user_input.md (entries 23-30).
+
+Previous task (COMPLETE): the aspic translator(s) were rewritten so the
 translated programs use the udf machinery and are easier to read. The old
 generated code introduced awkward supplementary variables (`ASPIC_OPTCOND1/2/3`,
 `ASPIC_AGVAL1/2` per aggregate element, hand-rolled `aspic_sum` chains,
@@ -170,7 +191,11 @@ aggregate/objective posted through a shimmed `'#='`.
 
 ## How to build/run/test
 
-- Picat experimental binary at /home/jovyan/bin/picat (4.0b8, commit 9796071).
+- Picat experimental binary at /home/jovyan/bin/picat (4.0b8, commit 9796071);
+  also emu/picat in the repo (rebuilt as needed).
+- Picat 4.0b13 (upstream main) binary at
+  /home/jovyan/snapshotable/q38fokus/scratch/mainpull/emu/picat - runs
+  exs/fp/elegant_native.pi and all the anonymous-def examples.
 - Convert+run an ASP example:
   `cd scratch/<dir> && picat -log aspic.pi file.lp 2>&1`
   (needs aspic.pi, aspic_transpiler.pi, aspic_runtime_template.pi copied

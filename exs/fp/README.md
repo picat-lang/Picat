@@ -13,6 +13,19 @@ maps a composition pipeline over a list -- all with lambdas -- and
 the body of a user-defined function in constraints (the `udf` module's
 lambda extension, see the end of this file).
 
+[elegant_native.pi](elegant_native.pi) is the same program rewritten in
+Picat 4.0's NATIVE anonymous-function syntax (`([X] -> ...)`, added in
+4.0b12): it does not import `fp` and runs only on a Picat 4.0b12+ binary
+(our build forks at 4.0b8, before the anonymous-def parser, so
+`emu/picat` rejects it).  Two of its lambdas are restructured as
+iterations, because native closures CANNOT BE SELF-APPLIED: passing a
+closure as its own argument (the anonymous-recursion pattern,
+`NEWTON(NEWTON, ...)`) extends the closure term with itself and dies
+with `Undefined procedure: lam.../N`.  The derivative operator and the
+pipeline map one-to-one, with identical output; the integral's last
+digits differ because the summation order differs (ascending loop vs
+the recursion's unwind).
+
 ## Introduction and requirements
 
 **Function-terms** are the foundation.  In Picat, `$f` is the atom

@@ -167,3 +167,32 @@ collecthead_choice marks only the set element (Es[1]); person/job now get
 person(roberta)=1./person(_)=0. and the choice rules enumerate over
 aspic_instances instead of universe(). Battery 88/0, baseline comparison
 31 matched / 0 differ.
+## Entry 23 (Wed Oct 28 2026)
+
+"pull" - already up to date; only origin/main advanced (5d61e6d..be45127).
+
+## Entry 24 (Wed Oct 28 2026)
+
+"why is the scratch in the repo? move any tests that you need from it to tests and remove it from the repo, it should be in gitignore" - the parallel aspic/udf session had committed scratch/. Moved the reusable tests to test/ (udfexp/ 26 probes, wasmshow/show.js), git rm'd the one-off artifacts (backpack/, bisect/, oldemb/, queens_ladder/, the gen dumps), added scratch/ to .gitignore, documented the moved items in test/README.md (udfexp needs PICATPATH=.:./lib2). Committed 3d89ef9 + 74bf81f, pushed.
+
+## Entry 25 (Wed Oct 28 2026)
+
+"pull" - already up to date; only origin/main advanced (be45127..5bedd89).
+
+## Entry 26 (Wed Oct 28 2026)
+
+"pull the main branch in a temp dir and read about anonymous functions and predicates" - cloned main (4.0b13, 5bedd89) to scratch/mainpull; read doc/higher_order.tex (322 lines, a proposed chapter for the 4.0 guide), the grammar in syntax_grammar.tex, and updates.txt. Anonymous functions ([A1..An] -> Res, Body) and predicates ([A1..An] => Body) are a 4.0b12 feature; the chapter header claims parser-only (no compiler/runtime).
+
+## Entry 27 (Wed Oct 28 2026)
+
+"could we benefit from this new syntax instead of our lambdas?" - answered no: main's anonymous forms were believed parser-only, our branch lacks the parser, and udf.pi's constraint integration (solver-variable sharing, expansion across the four solvers) is out of scope for host closures; fp.pi's $lambda would migrate only after a 4.0 merge.
+
+## Entry 28 (Wed Oct 28 2026)
+
+"are you sure it doesn't run yet with the picat from main?" - challenged and REFUTED: built main's binary from scratch/mainpull/emu (zero errors, one pre-existing upstream warning in init.c) and verified all doc examples run: lambdas, anonymous predicates, capture-at-creation (15/25), currying (15), pattern params (a), foreach bodies (6), 0-arity (42), findall generators ([a,b,c]). The chapter header is STALE. Constraint test: main rejects a lambda after #= (syntax error) while udf's $apply($lambda(...)) works (X=10), so udf.pi stays; fp.pi is now replaceable in principle after a 4.0 merge (native lambdas verified working on main).
+## Entry 29 (Wed Oct 28 2026)
+
+"our experimental picat should already be based on 4.08b" - confirmed: the fork point is 81f4c83, two commits after the 4.0b8 bump (944c61f, Oct 15 2026); emu/build.h says VERSION "4.0.0". My earlier "3.9 lineage" claim was wrong (over-inferred from the missing updates.txt and the Picat 3.9#12 stock comparison binary). The lambda conclusion stands with the precise reason: anonymous defs landed in 4.0b12 (Oct 24), four betas after our fork. The branch-to-main gap is 4.0b9-4.0b13.
+## Entry 30 (Wed Oct 28 2026)
+
+"can you write in this syntax our lambda examples from exs (not the udf ones)" - wrote exs/fp/elegant_native.pi: exs/fp/elegant.pi rewritten in Picat 4.0's native anonymous-function syntax, no fp import, runs on a 4.0b12+ binary (not our 4.0b8-forked emu/picat). Found a real limitation by isolation: native closures CANNOT BE SELF-APPLIED - passing a closure as its own argument (F(F,...), the anonymous-recursion pattern) dies with "Undefined procedure: lam.../N" (the closure term is extended with itself, a circular term - the same class the fp README warns about for callv). The recursive lambdas were restructured as iterations (foreach + := + convergence guard). Output matches elegant.pi (sqrt(2)=1.41421356237469, d/dx=6.000001000927568, pipeline=[6,15,30]; the integral differs in the last digits: 2.664667000000001 vs 2.664666999999823, the summation order differs). exs/fp/README.md updated. Files uncommitted (commit on request).

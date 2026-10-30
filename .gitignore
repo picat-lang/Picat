@@ -34,6 +34,9 @@ aspic_runtime.pi
 aspic/out.pi
 aspic/test/tmp_*
 
+# solver temporary files (the "__tmp***" format, process-id based)
+__tmp*
+
 # local PDF rendering of the pvm README (personal, not to be committed)
 exs/parallel/pvm/README.pdf
 
