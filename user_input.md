@@ -202,3 +202,14 @@ aspic_instances instead of universe(). Battery 88/0, baseline comparison
 ## Entry 32 (Fri Oct 30 2026)
 
 "check also hakan and full examples list for divergences - make scripts for this, or are they already there and did you check them?" - the scripts were already there: exs/deviation_check.sh (exs, ran pre-question: 0 DIVERGES) and test/divergence_parallel.sh (Hakan tree). Ran the Hakan sweep (3137 examples, 08:12-10:44): 27 DIVERGES + 2 RC-DIFFERS, all timeout-based (30s default) or upstream. Wrote test/divergence_reverify.sh (the documented 120s sequential re-verification; fixed two script bugs en route: the sweep's root/ prefix means the tree root, and NFS .nfs* stale-file locks - unique per-invocation workdir now). Re-verified all 17 exp-timeout candidates at 120s: 6 same (no regression), 7 exp-slower, 2 both-fail, 2 _bv. Classification: 7 exp-slower are UPSTREAM (FDN=0 also times out; main's 4.0b13 binary also times out - 4.0b13 slower than 3.9#12 on going_to_church, how_many_routes, instant_insanity, movement_puzzle, no_three_in_line, tantalizer_45, utils_me_test); the 2 _bv (coins_grid_bv, send_most_money_bv) are an UPSTREAM 4.0 regression (sat_solve_minimize_bv_sub/6 undefined - fails on all 4.0 binaries incl. main, passes on stock 3.9#12); 4 stock-fails cases are 4.0 improvements (stock fails, we pass); 6 stock-timeouts are improvements. ZERO regressions from our merge. Harness gotcha found: FDN_*/SATEXT_* env leaks distort runs (unset before sweeps). README updated with the reverify script.
+## Entry 33 (Fri Oct 30 2026)
+
+"given the benchmarking you did for this version, how long will it need to solve 22 on 128 cores?" - asked for disambiguation of "22" (qall/qff/pigeon 22); the user answered "forget about this, it was not for you" - skipped.
+
+## Entry 34 (Fri Oct 30 2026)
+
+"write the divergences in div.txt" - wrote Picat-src/div.txt: the full divergence report for integrate-main (exs: 0 DIVERGES; Hakan 3137: 27 DIVERGES + 2 RC-DIFFERS, all classified - 2 upstream 4.0 regressions (the _bv sat-objective bug), 7 upstream 4.0b13-vs-3.9#12 slowdowns, 10 improvements, 6 sweep artifacts, 2 both-fail; zero regressions from the merge). Uncommitted.
+
+## Entry 35 (Fri Oct 30 2026)
+
+"where is coins_grid_bv?" - /home/jovyan/snapshotable/q38fokus/hakan_examples/coins_grid_bv.pi (the local Hakan tree, not the repo; a verification copy lives in scratch/hkverify/).
