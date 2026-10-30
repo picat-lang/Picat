@@ -659,7 +659,6 @@ int picatpath_try_resolve(CHAR *fname)
     return 1;
 }
 
-#ifdef PICAT
 char *get_file_name(BPLONG op) {
     CHAR s1[MAX_STR_LEN];
 
@@ -2748,7 +2747,7 @@ int c_get_cwd() {
     char f_name[MAX_STR_LEN];
 
     DEREF(dir);
-    getcwd(f_name, MAX_STR_LEN-1);
+    if (getcwd(f_name, MAX_STR_LEN-1) == NULL) return BP_ERROR;
     return unify(dir, ADDTAG(BP_NEW_SYM(f_name, 0), ATM));
 }
 
@@ -3873,7 +3872,7 @@ int c_PICAT_GET_CWD_f() {
     char f_name[MAX_STR_LEN];
 
     DEREF(dir);
-    getcwd(f_name, MAX_STR_LEN-1);
+    if (getcwd(f_name, MAX_STR_LEN-1) == NULL) return BP_ERROR;
 
     FOLLOW(local_top) = (BPLONG)local_top;  /* borrow this cell to store the tail */
     c_str_to_picat_str(f_name, dir, (BPLONG)local_top);

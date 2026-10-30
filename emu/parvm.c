@@ -1200,7 +1200,9 @@ static void pvm_watchdog(int sig)
                       (int)getpid(), pvm_diag_inwait, pvm_diag_p,
                       pvm_diag_n, (void *)pvm_shm);
     }
-    write(2, buf, (size_t)o);
+    if (write(2, buf, (size_t)o) < 0) {
+        /* best-effort diagnostic dump: nothing to recover */
+    }
 }
 
 /* Bump the shared waker word and wake parked (a) waiters. */
@@ -2804,8 +2806,8 @@ static void pvm_segv_dump(int sig, siginfo_t *si, void *uap)
                     (void *)heap_top, (void *)trail_top, (void *)sfreg,
                     (void *)local_top, (void *)hbreg, (void *)stack_up_addr);
             fprintf(fp, "PVM child=%d armed=%d lastst=%d mode=%d aval=%d\n",
-                    (int)pvm_is_fork_child, pvm.armed,
-                    pvm_last_deleg_status, pvm.mode, (int)pvm.aval);
+                    (int)pvm_is_fork_child, (int)pvm.armed,
+                    (int)pvm_last_deleg_status, (int)pvm.mode, (int)pvm.aval);
             {
                 FILE *mf = fopen("/proc/self/maps", "r");
                 char ml[512];
@@ -2901,7 +2903,7 @@ static void pvm_segv_dump(int sig, siginfo_t *si, void *uap)
             long off = (long)((BPULONG)si->si_addr & 4095L);
             volatile BPLONG *a = (BPLONG *)si->si_addr;
             int k, k0 = (int)(off % 8) == 0 ? -1 : (int)(-((off / 8) % 8));
-            for (k = k0; k < 0; k--)
+            for (k = k0; k < 0; k++)
                 fprintf(stderr, " M[%+d]=0x%lx\n", k,
                         (unsigned long)a[k]);
         }
