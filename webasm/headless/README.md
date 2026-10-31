@@ -6,7 +6,7 @@ browser required. This folder contains:
 
 - `run_pi.js` — one-shot runner: fresh interpreter module (like a page
   load), boots it, runs one `.pi` file, reports timing.
-- `compare.py` — drives all 100 packed examples on both the native build
+- `compare.py` — drives all 101 packed examples on both the native build
   (`emu/picat`) and the wasm build, and prints/CSV-dumps the comparison.
 
 ## Prerequisites
@@ -71,6 +71,28 @@ Notes:
 - the native binary exits non-zero (and in some FANN error paths segfaults)
   when a data file is missing; the wasm side reports a normal picat error.
   That asymmetry only bites outside the harness setup above.
+- both legs redirect stdin from /dev/null and kill runs at a 1800 s
+  timeout (the whole comparison then completes; timeouts become marker
+  rows, excluded from the statistics). Both matter: the planner family
+  (`planner_nomystery`/`ricochet`/`solitaire`/`treasure`) reads facts
+  from stdin, and before the stdin redirect the native leg of an
+  example could block a worker forever, stalling the whole suite with
+  all example names printed and zero results. Before the timeout,
+  `planner_treasure`'s native leg (>1800 s on the 4.0b13 base, another
+  upstream regression, `div.txt`) propagated `TimeoutExpired` and
+  killed the run.
+- programs embedding an ASP block (standalone `asp` token followed by
+  newline) run in two stages via `run_asp_pi.js` and are skipped on
+  the native side. Note the in-file `asp/1` fact helpers of the
+  planner family are NOT this (no standalone `asp` token) — they are
+  plain planner programs.
+- wasm32 limits: a few compute-heavy two-stage legs die at the
+  wasm32 toam stack ("Stack overflow in toam after 7 garbage
+  collections and 6 stack expansions" after ~144 s: `planner_ricochet`,
+  `cp_ppm`); `planner_treasure` OOMs at ~287 s. These rows fail on
+  the wasm side and are excluded from the statistics; on the native
+  side the planner family is broken on the 4.0b13 base itself (upstream,
+  `div.txt`), not by the snapshot's changes.
 
 ## Results (2026-08-21, x86_64, 384 cores, 32 workers, median of 3 runs)
 

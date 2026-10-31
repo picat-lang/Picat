@@ -72,3 +72,8 @@ native lambdas parse (elegant_native.pi runs).
 
 10 OUTPUT-DIFFERS in fdn_exs: nn/* training randomness, pb/parity random
 data, mip/bqueens solver nondeterminism, sat/marriage_roman_sat.
+
+## Planner-family programs: upstream 4.0b13 regressions (arrive with the 58ffb7a merge)
+- planner_treasure.pi: native >1800s on ours (FDN=0 too), main's binary >60s, stock 3.9#12 passes; wasm leg OOMs (287s, toam).
+- planner_nomystery/ricochet/solitaire.pi: native main's body NEVER runs on ours and main's 4.0b13 binaries (silent HALT0, 16ms, no output); stock 3.9#12 solves + prints answer sets; pre-merge our 4.0b8-based wasm solved them (wasm 10.7s, native 4977ms, ok=True). Instrumented probe (simplified asp/1 rules + the same 61-fact $-list in the call) runs FINE on ours, so the in-file asp/1 helper is not the interface; the breakage is in the planner import or the runtime solve path. Neither aspic nor picasp programs (plain planner with B Prolog heritage asp/1 fact helper).
+- Two-stage run_asp_pi.js on planner_ricochet/cp_ppm on the merged wasm: the real solve runs 144s then dies with "Stack overflow in toam after 7 garbage collections and 6 stack expansions" (wasm32 stack limit; pre-merge these legs were ok=True).

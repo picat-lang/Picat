@@ -216,3 +216,15 @@ aspic_instances instead of universe(). Battery 88/0, baseline comparison
 ## Entry 36 (Fri Oct 30 2026)
 
 "do it" - merged integrate-main (58ffb7a after committing user_input 33-35) into experimental (fast-forward); ran fdn_exs.sh as the final fdn-transparency check (20:52, clean env): RC-DIFFERS 0, 20 OUTPUT-DIFFERS all noise (nn training randomness, pb/parity random data, mip bqueens nondeterminism, plus a new trivial class: the pid in the echoed cbc command line from the 4.0 __tmp<pid> temp-file naming); rebuilt the release tgz (58ffb7a) - found and fixed two stale "based on Picat 4.0b8" strings en route (emu/main.c:114 startup banner, tools/release-README.md.in); README link updated. Pushed.
+
+## 37. "status"
+(Requested a status report on the wasm headless-testing task: compare.py debugging, the 7 failed rows, and the pending classification of the wasm32 stack-overflow examples.)
+
+## 38. "proceed"
+(Proceeded with the planned next steps: the is_asp()/one-shot-vs-two-stage reconciliation — compare.py identical pre/post merge, the planner family classified as upstream 4.0b13 regressions with instrumented probes — and the div.txt/README updates.)
+
+## 39. "planner_ricochest is no ASP program / also not a picasp program" (naming coincidence)
+(User corrected the framing: planner_ricochet is a plain planner program — neither aspic nor picasp; the in-file asp/1 helper is just a B Prolog heritage fact helper, not the aspic engine. The classification stands: upstream 4.0b13 regression, ours inherited via the merge.)
+
+## 40. "commit but don't pusg" (push)
+(Committed the phase's files — elegant_native.pi packed, compare.py harness fixes, README/div.txt/user_input.md docs, handover.md updated — as 9d53a5e on experimental; not pushed per instruction.)

@@ -1,0 +1,69 @@
+%% elegant_native.pi -- exs/fp/elegant.pi rewritten in Picat 4.0's NATIVE
+%% anonymous-function syntax: the lambda expressions that our fp module
+%% (lib2/fp.pi) emulates with function-terms.
+%%
+%% This file does NOT import fp.  The constructs are compiled Picat:
+%% anonymous functions ([A1,...,An] -> Res, Body) with capture-at-creation
+%% closures, added in Picat 4.0b12.
+%%
+%% Our experimental build forks Picat at 4.0b8, BEFORE the anonymous-def
+%% parser and preprocessor, so this file does NOT run on emu/picat.  Run
+%% it with a Picat 4.0b12+ binary (e.g. a build of the upstream main
+%% branch):
+%%
+%%     <picat-4.0b12+> exs/fp/elegant_native.pi
+%%
+%% One rewrite was needed: Picat 4.0b13 closures CANNOT BE SELF-APPLIED
+%% (passing a closure as its own argument extends the closure term with
+%% itself, a circular term, and the call dies with "Undefined procedure:
+%% lam.../N").  The self-passing anonymous-recursion pattern of
+%% elegant.pi (NEWTON taking itself as Me) therefore does not work in
+%% native syntax.  The two recursive lambdas are restructured as
+%% ITERATIONS (foreach + :=, the documented body pattern), which also
+%% run faster.
+%%
+%% The computation is the same as elegant.pi: sqrt(2) by Newton's method,
+%% the derivative operator, the definite integral, and a composition
+%% pipeline.  See exs/fp/README.md for how the fp module emulates these
+%% with no compiler changes, its performance notes, and the udf extension
+%% that takes lambdas INTO constraints (which native closures do not do).
+
+main =>
+    % Newton's method as an iterative anonymous function: solves F(X) = 0.
+    % The convergence guard is the foreach condition, re-tested with the
+    % updated Res each step; 60 steps bound the loop (Newton converges
+    % quadratically in ~6).
+    NEWTON = ([F, DF, X] -> Res,
+        Res = X,
+        foreach (K in 1..60, abs(F(Res)) >= 1.0e-10)
+            Res := Res - F(Res) / DF(Res)
+        end),
+    SQRT2 = NEWTON(([X] -> X * X - 2), ([X] -> 2 * X), 1.0),
+    println("sqrt(2)      = " ++ SQRT2.to_string),
+
+    % The derivative operator: D(F) returns a CLOSURE -- an anonymous
+    % function whose body calls the captured F.  D(SQ) is a function
+    % value.
+    D = ([F] -> ([X] -> (F(X + 1.0e-6) - F(X)) / 1.0e-6)),
+    SQ = ([X] -> X * X),
+    DSQ = D(SQ),
+    println("d/dx x^2 @3  = " ++ DSQ(3).to_string),
+
+    % The definite integral as an iterative anonymous function (left
+    % Riemann sum): N rectangles of width H starting at A.
+    INTEG = ([F, A, H, N] -> Total,
+        Total = 0.0,
+        foreach (I in 0..N-1)
+            Total := Total + F(A + I * H) * H
+        end),
+    I = INTEG(SQ, 0.0, 0.001, 2000),
+    println("int x^2 0..2 = " ++ I.to_string),
+
+    % A composition pipeline bound once and mapped: 3*(x^2 + 1).  The
+    % same left-to-right chain as the fp pipe example: square, add 1,
+    % multiply by 3.
+    F1 = SQ,
+    F2 = ([X] -> X + 1),
+    F3 = $'*'(3),
+    P = ([X] -> F3(F2(F1(X)))),
+    println("3*(x^2+1)    = " ++ map(P, [1,2,3]).to_string).

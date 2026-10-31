@@ -126,8 +126,11 @@ def native_once(path):
     try:
         t0 = time.monotonic()
         p = subprocess.run([NATIVE, path], stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL, env=env, cwd=cwd)
+                           stderr=subprocess.DEVNULL, env=env, cwd=cwd,
+                           stdin=subprocess.DEVNULL, timeout=1800)
         ms = int((time.monotonic() - t0) * 1000)
+    except subprocess.TimeoutExpired:
+        return 124, 1800000
     finally:
         shutil.rmtree(cwd, ignore_errors=True)
     return p.returncode, max(ms, 1)
@@ -145,9 +148,13 @@ def wasm_once(path, asp=False):
     """One wasm run: returns (rc, run_ms, boot_ms, instantiate_ms).
     For two-stage ASP examples run_ms is stage 1 (transpilation) +
     stage 2 (the run)."""
-    t = subprocess.run(['node', RUN_ASPPI if asp else RUN_PI, path],
-                       stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                       cwd=DIST, timeout=1800)
+    try:
+        t = subprocess.run(['node', RUN_ASPPI if asp else RUN_PI, path],
+                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                           stdin=subprocess.DEVNULL,
+                           cwd=DIST, timeout=1800)
+    except subprocess.TimeoutExpired:
+        return -1, 0, 0, 0
     line = t.stdout.decode('utf8', 'replace').strip()
     m = re.search(r'rc=([0-9_-]+)(\s+threw)?\s+instantiate_ms=(\d+)\s+'
                   r'boot_ms=(\d+)(\s+pre_ms=(\d+))?\s+run_ms=(\d+)', line)
