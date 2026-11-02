@@ -228,3 +228,12 @@ aspic_instances instead of universe(). Battery 88/0, baseline comparison
 
 ## 40. "commit but don't pusg" (push)
 (Committed the phase's files — elegant_native.pi packed, compare.py harness fixes, README/div.txt/user_input.md docs, handover.md updated — as 9d53a5e on experimental; not pushed per instruction.)
+
+## 41. "list the examples that no longer work in picat native, and the ones that no longer work with webasm"
+(Reported the regression lists: all 7 failed rows are broken on BOTH sides — planner_treasure, planner_nomystery, planner_ricochet, planner_solitaire, cp_ppm, sat_maxClique, sat_marriage_roman_sat — all upstream 4.0b13 regressions verified on main's binary too, stock 3.9#12 fine; plus the 7 upstream slowdowns (not broken) and the _bv class (not a merge regression). div.txt updated with the completed classification.)
+
+## 42. "the main branch should have fixed the bv by now, did it?"
+(Answered: no — verified coins_grid_bv on main's 4.0b13 binary still fails with "Undefined procedure: sat_solve_minimize_bv_sub/6" while stock 3.9#12 solves in 13ms; main's lib/sat.pi has no bv_sub/solve_minimize definitions, so the predicate was dropped between 3.9 and 4.0 and not restored through b13. div.txt updated.)
+
+## 43. "check online" / "just try it"
+(Checked online: upstream repo picat-lang/Picat is at 4.0b16, updates.txt documents 4.0b12 adding bit-vector objective support in solve/2; downloaded the 4.0b16 tarball, built it (rc=0, 17:23:43), and verified coins_grid_bv SOLVES on it ("Sum: {0,1,0,1,...}") along with sudoku_bv/send_more_money_bv/subset_sum2_bv/bit_patterns_bv (no sat_solve_minimize_bv_sub/6 existence error). So the bv fix landed upstream between 4.0b13 (our merge point) and 4.0b16; our tree needs another upstream merge.)
