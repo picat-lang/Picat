@@ -237,3 +237,6 @@ aspic_instances instead of universe(). Battery 88/0, baseline comparison
 
 ## 43. "check online" / "just try it"
 (Checked online: upstream repo picat-lang/Picat is at 4.0b16, updates.txt documents 4.0b12 adding bit-vector objective support in solve/2; downloaded the 4.0b16 tarball, built it (rc=0, 17:23:43), and verified coins_grid_bv SOLVES on it ("Sum: {0,1,0,1,...}") along with sudoku_bv/send_more_money_bv/subset_sum2_bv/bit_patterns_bv (no sat_solve_minimize_bv_sub/6 existence error). So the bv fix landed upstream between 4.0b13 (our merge point) and 4.0b16; our tree needs another upstream merge.)
+
+## 44. "merge the fixrs into experomental"
+(Merged origin/main -- 80f5b2b, 4.0b16 -- into experimental at 144d06f: the regenerated picat_bc.h is the bv objective fix, our side never touched it so it merged cleanly; both conflicts (README.md, init.c) were version strings. Rebuilt the fdn binary zero-warning (fixed fdn_solver.cpp:114 format and 4x ignored fread in init.c), corrected the stale 4.0b13 strings to 4.0b16 (emu/main.c banner, tools/release-README.md.in). Verified: coins_grid_bv and planner_ricochet SOLVE, all suites green (fp/udf/reif ALL PASS, ext_check 5/5, deviation_check 0 DIVERGES, pigeon_hole 720, fdn_exs RC-DIFFERS 0). Committed the merge, not pushed.)

@@ -111,7 +111,7 @@ struct fdn_net {
         if (LHIST) {
             int h[9] = {0}; int maxt = 0;
             for (auto &l : lins) { size_t t = l.xs.size(); if (t > (size_t)maxt) maxt = (int)t; int b = t <= 8 ? (int)t : 8; h[b]++; }
-            printf("fdn LHIST: lins=%zu maxterms=%d hist(1..8+)=%d %d %d %d %d %d %d %d %d\n", lins.size(), maxt, h[1], h[2], h[3], h[4], h[5], h[6], h[7], h[8]);
+            printf("fdn LHIST: lins=%zu maxterms=%d hist(1..8+)=%d %d %d %d %d %d %d %d\n", lins.size(), maxt, h[1], h[2], h[3], h[4], h[5], h[6], h[7], h[8]);
             fflush(stdout);
         }
         D0.assign((size_t)nv * nw, 0); SZ0.resize(nv); MN0.resize(nv); MX0.resize(nv); chg.assign(nv, 0); chx.assign(nv, 0);

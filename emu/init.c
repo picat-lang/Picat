@@ -411,17 +411,13 @@ int is_bc_file(CHAR_PTR main_arg)
         if (fp == NULL)
             return BP_FALSE;
 
-        fread(&magic, 1, 1, fp);
-        if (magic != 71) {fclose(fp); return BP_FALSE;}
+        if (fread(&magic, 1, 1, fp) != 1 || magic != 71) {fclose(fp); return BP_FALSE;}
 
-        fread(&magic, 1, 1, fp);
-        if (magic != 21) {fclose(fp); return BP_FALSE;}
+        if (fread(&magic, 1, 1, fp) != 1 || magic != 21) {fclose(fp); return BP_FALSE;}
 
-        fread(&magic, 1, 1, fp);
-        if (magic != 7) {fclose(fp); return BP_FALSE;}
+        if (fread(&magic, 1, 1, fp) != 1 || magic != 7) {fclose(fp); return BP_FALSE;}
 
-        fread(&magic, 1, 1, fp);
-        if (magic != 3) {fclose(fp); return BP_FALSE;}
+        if (fread(&magic, 1, 1, fp) != 1 || magic != 3) {fclose(fp); return BP_FALSE;}
 
         fclose(fp);
         return BP_TRUE;
