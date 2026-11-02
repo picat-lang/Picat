@@ -73,9 +73,19 @@
 #ifdef XCSP_PICAT
 #define XCSP_VX 20
 #endif
+#define NONASCII 21  /* byte >= 0x80 outside quotes: part of a UTF-8 char,
+                        which is not allowed in unquoted tokens */
 
 #define InType(c) (intab.chtype+1)[c]
 #define DigVal(c) (digval+1)[c]
+
+/* A '.' ends a clause when followed by layout, end of input, or a % comment. */
+#ifdef XCSP_PICAT
+#define EndFollows(d) (IsLayout(d) || InType(d) == EOFCH)
+#else
+#define EndFollows(d) (IsLayout(d) || InType(d) == EOFCH || \
+                       (eolcom_flag == 1 && (d) == intab.eolcom))
+#endif
 
 #define INC_LINE_NO curr_line_no++;
 
@@ -147,50 +157,25 @@ struct CHARS intab =  /* Special character table */
         LOWER, LOWER, LOWER, LOWER, LOWER, LOWER, LOWER, LOWER,
         /*  x       y       z       {       |       }       ~       ^?      */
         LOWER, LOWER, LOWER, PUNCT, PUNCT, PUNCT, SIGN, SPACE,
-        /*  128     129     130     131     132     133     134     135     */
-        SPACE, SPACE, SPACE, SPACE, SPACE, SPACE, SPACE, SPACE,
-        /*  136     137     138     139     140     141     142     143     */
-        SPACE, SPACE, SPACE, SPACE, SPACE, SPACE, SPACE, SPACE,
-        /*  144     145     146     147     148     149     150     151     */
-        SPACE, SPACE, SPACE, SPACE, SPACE, SPACE, SPACE, SPACE,
-        /*  152     153     154     155     156     157     158     159     */
-        SPACE, SPACE, SPACE, SPACE, SPACE, SPACE, SPACE, SPACE,
-        /*  NBSP    !-inv   cents   pounds  ching   yen     brobar  section */
-        SPACE, SIGN, SIGN, SIGN, SIGN, SIGN, SIGN, SIGN,
-        /*  "accent copyr   -a ord  <<      nothook SHY     (reg)   ovbar   */
-        SIGN, SIGN, LOWER, SIGN, SIGN, SIGN, SIGN, SIGN,
-        /*  degrees +/-     super 2 super 3 -       micron  pilcrow -       */
-        SIGN, SIGN, LOWER, LOWER, SIGN, SIGN, SIGN, SIGN,
-        /*  ,       super 1 -o ord  >>      1/4     1/2     3/4     ?-inv   */
-        SIGN, LOWER, LOWER, SIGN, SIGN, SIGN, SIGN, SIGN,
-        /*  `A      'A      ^A      ~A      "A      oA      AE      ,C      */
-        UPPER, UPPER, UPPER, UPPER, UPPER, UPPER, UPPER, UPPER,
-        /*  `E      'E      ^E      "E      `I      'I      ^I      "I      */
-        UPPER, UPPER, UPPER, UPPER, UPPER, UPPER, UPPER, UPPER,
-        /*  ETH     ~N      `O      'O      ^O      ~O      "O      x times */
-#ifdef vms
-        UPPER, UPPER, UPPER, UPPER, UPPER, UPPER, UPPER, UPPER,
-#else
-        UPPER, UPPER, UPPER, UPPER, UPPER, UPPER, UPPER, SIGN,
-#endif
-        /*  /O      `U      'U      ^U      "U      'Y      THORN   ,B      */
-        UPPER, UPPER, UPPER, UPPER, UPPER, UPPER, UPPER, LOWER,
-        /*  `a      'a      ^a      ~a      "a      oa      ae      ,c      */
-        LOWER, LOWER, LOWER, LOWER, LOWER, LOWER, LOWER, LOWER,
-        /*  `e      'e      ^e      "e      `i      'i      ^i      "i      */
-        LOWER, LOWER, LOWER, LOWER, LOWER, LOWER, LOWER, LOWER,
-        /*  eth     ~n      `o      'o      ^o      ~o      "o      -:-     */
-#ifdef vms
-        LOWER, LOWER, LOWER, LOWER, LOWER, LOWER, LOWER, LOWER,
-#else
-        LOWER, LOWER, LOWER, LOWER, LOWER, LOWER, LOWER, SIGN,
-#endif
-        /*  /o      `u      'u      ^u      "u      'y      thorn  "y       */
-#ifdef vms
-        LOWER, LOWER, LOWER, LOWER, LOWER, LOWER, LOWER, SPACE
-#else
-        LOWER, LOWER, LOWER, LOWER, LOWER, LOWER, LOWER, LOWER
-#endif
+        /*  128 .. 255: input is UTF-8, so these bytes are pieces of
+         *  multibyte characters.  They are only valid inside quotes and
+         *  comments, which do not consult this table. */
+        NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII,
+        NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII,
+        NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII,
+        NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII,
+        NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII,
+        NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII,
+        NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII,
+        NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII,
+        NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII,
+        NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII,
+        NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII,
+        NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII,
+        NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII,
+        NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII,
+        NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII,
+        NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII, NONASCII
     }
 };
 
@@ -242,9 +227,9 @@ CHAR digval[AlphabetSize+1] =
     /*  168     169     170(-a) 171     172     173     174     175     */
     99, 99, 99, 99, 99, 99, 99, 99,
     /*  176     177     178(2)  179(3)  180     181     182     183     */
-    99, 99, 2, 3, 99, 99, 99, 99,
+    99, 99, 99, 99, 99, 99, 99, 99,
     /*  184     185(1)  186(-o) 187     188     189     190     191     */
-    99, 1, 99, 99, 99, 99, 99, 99,
+    99, 99, 99, 99, 99, 99, 99, 99,
     /*  192     193     194     195     196     197     198     199     */
     99, 99, 99, 99, 99, 99, 99, 99,
     /*  200     201     202     203     204     205     206     207     */
@@ -315,7 +300,9 @@ int next_token_index = 0;
     }
 
 #define BP_UNGETC(c, card) {                    \
-        ungetc((char)c, card);                  \
+        if ((c) != EOF) {                       \
+            ungetc((unsigned char)(c), card);   \
+        }                                       \
     }
 #else
 #define BP_GETC_STRING(c) {                             \
@@ -346,9 +333,11 @@ int next_token_index = 0;
     }
 
 #define BP_UNGETC(c, card) {                            \
-        ungetc((char)c, card);                          \
-        chars_pool_index--;                             \
-        if (chars_pool_index < 0) chars_pool_index = 0; \
+        if ((c) != EOF) {                               \
+            ungetc((unsigned char)(c), card);           \
+            chars_pool_index--;                         \
+            if (chars_pool_index < 0) chars_pool_index = 0; \
+        }                                               \
     }
 #endif
 
@@ -425,6 +414,14 @@ static int unicode_character_error(void) {
         }                                                  \
         (value) = (value) * (base) + escape_digit;           \
     } while (0)
+
+/* Value of c as a digit in B'ddd radix notation (0-9, a-z, A-Z), else 99. */
+static int radix_digit_value(int c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'z') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'Z') return c - 'A' + 10;
+    return 99;
+}
 
 char *utf8_codepoint_to_str(int code, CHAR_PTR s) {
     /* Public callers cannot handle a NULL result; encode replacement on error. */
@@ -614,11 +611,13 @@ int read_utf8_character(FILE * card, int q) {
         clearerr(curr_in);
         lastc = EOF;
         return handleEndInQuoted();
-    case '\r':
+    case '\r':  /* line continuation: \ CR LF, or \ CR alone */
     {
-        char dummy;
-        BP_GETC(card, dummy);
+        int next;
+        BP_GETC(card, next);
+        if (next != '\n') {BP_UNGETC(next, card);}
     }
+    /* fall through */
     case '\n':
         INC_LINE_NO;
         return read_utf8_character(card, q);
@@ -641,49 +640,40 @@ int read_utf8_character(FILE * card, int q) {
     case '\'':
     case '`':
         return c;
-    case 'x': case 'X':  /* hexadecimal */
+    case 'x': case 'X':  /* hexadecimal: \xh..h\ with at least one digit */
     {BPLONG n;
+            int ndigits = 0;
             n = 0;
             BP_GETC(card, c);
             while (c != '\'' && c != '\\' && c != '\n' && c != -1) {
                 if (DigVal(c) <= 15) {
                     ESCAPE_ACCUMULATE(n, c, 16);
+                    ndigits++;
                     BP_GETC(card, c);
                 } else {
                     return unicode_character_error();
                 }
             }
-            if (c != '\\') {
+            if (c == '\n') {BP_UNGETC(c, card);}  /* keep line count right */
+            if (c != '\\' || ndigits == 0) {
                 return unicode_character_error();
             }
             if (!unicode_scalar_valid(n)) return unicode_character_error();
             return (int)n;
     }
 
-    case 'u': case 'U':  /* utf-8 escape */
-    {BPLONG n, i;
+    case 'u': case 'U':  /* \uhhhh (exactly 4 digits), \Uhhhhhhhh (exactly 8) */
+    {BPLONG n;
+        int i, ndigits = (c == 'u') ? 4 : 8;
         n = 0;
-        for (i = 1; i <= 4; i++) {  /* \uxxxx */
+        for (i = 0; i < ndigits; i++) {
             BP_GETC(card, c);
             if (DigVal(c) <= 15 && c != '_') {
                 ESCAPE_ACCUMULATE(n, c, 16);
             } else {
+                if (c == '\n') {BP_UNGETC(c, card);}  /* keep line count right */
                 return unicode_character_error();
             }
-        }
-        BP_GETC(card, c);
-        if (DigVal(c) <= 15 && c != '_') {  /* \uxxxxxxxx */
-            ESCAPE_ACCUMULATE(n, c, 16);
-            for (i = 1; i <= 3; i++) {
-                BP_GETC(card, c);
-                if (DigVal(c) <= 15 && c != '_') {
-                    ESCAPE_ACCUMULATE(n, c, 16);
-                } else {
-                    return unicode_character_error();
-                }
-            }
-        } else {
-            if (c != EOF) {BP_UNGETC(c, card);}
         }
         if (!unicode_scalar_valid(n)) return unicode_character_error();
         return (int)n;
@@ -702,6 +692,7 @@ int read_utf8_character(FILE * card, int q) {
                 return unicode_character_error();
             }
         }
+        if (c == '\n') {BP_UNGETC(c, card);}  /* keep line count right */
         if (c != '\\') {
             return unicode_character_error();
         }
@@ -759,9 +750,14 @@ int read_utf8_character_string(int q) {
 
     BP_GETC_STRING(c);
     switch (c) {
-    case '\n':
     case '\0':
         return handleEolInQuoted2();
+    case '\r':  /* line continuation: \ CR LF, or \ CR alone */
+        BP_GETC_STRING(c);
+        if (c != '\n' && c != '\0') {BP_UNGETC_STRING;}
+        /* fall through */
+    case '\n':
+        return read_utf8_character_string(q);
     case 'a':  /* alarm */
         return 7;
     case 'b':  /* backspace */
@@ -781,50 +777,39 @@ int read_utf8_character_string(int q) {
     case '`':
     case '\'':      
         return c;
-    case 'x':  /* hexadecimal */
+    case 'x': case 'X':  /* hexadecimal: \xh..h\ with at least one digit */
     {BPLONG n;
+            int ndigits = 0;
             n = 0;
             BP_GETC_STRING(c);
             while (c != '\0' && c != '\'' && c != '\\' && c != '\n') {
                 if (DigVal(c) <= 15) {
                     ESCAPE_ACCUMULATE(n, c, 16);
+                    ndigits++;
                     BP_GETC_STRING(c);
                 } else {
                     return unicode_character_error();
                 }
             }
             if (c == '\n') BP_UNGETC_STRING;
-            if (c != '\\') {
+            if (c != '\\' || ndigits == 0) {
                 return unicode_character_error();
             }
             if (!unicode_scalar_valid(n)) return unicode_character_error();
             return (int)n;
     }
 
-    case 'u': case 'U':  /* unicode (utf-8) escape */
-    {BPLONG n, i;
+    case 'u': case 'U':  /* \uhhhh (exactly 4 digits), \Uhhhhhhhh (exactly 8) */
+    {BPLONG n;
+        int i, ndigits = (c == 'u') ? 4 : 8;
         n = 0;
-        for (i = 1; i <= 4; i++) {  /* \uxxxx */
+        for (i = 0; i < ndigits; i++) {
             BP_GETC_STRING(c);
             if (DigVal(c) <= 15 && c != '_') {
                 ESCAPE_ACCUMULATE(n, c, 16);
             } else {
                 return unicode_character_error();
             }
-        }
-        BP_GETC_STRING(c);
-        if (DigVal(c) <= 15 && c != '_') {  /* \uxxxxxxxx */
-            ESCAPE_ACCUMULATE(n, c, 16);
-            for (i = 1; i <= 3; i++) {
-                BP_GETC_STRING(c);
-                if (DigVal(c) <= 15 && c != '_') {
-                    ESCAPE_ACCUMULATE(n, c, 16);
-                } else {
-                    return unicode_character_error();
-                }
-            }
-        } else {
-            if (c > 0) {BP_UNGETC_STRING;}
         }
         if (!unicode_scalar_valid(n)) return unicode_character_error();
         return (int)n;
@@ -896,10 +881,13 @@ int com0plain_string(int endeol) /* The closing character "!" */
 {
     int c;
 
-    while ((c = *string_in++) > 0 && c != '\n' && c != endeol)
-        ;
-    if (c > 0)
-        c = *string_in++;
+    /* BP_GETC_STRING reads bytes as unsigned (so UTF-8 text in the comment
+       is skipped like any other) and never advances past the final NUL. */
+    do {
+        BP_GETC_STRING(c);
+    } while (c != '\0' && c != '\n' && c != endeol);
+    if (c != '\0')
+        BP_GETC_STRING(c);
     return c;
 }
 
@@ -1059,13 +1047,19 @@ START:
             for (d = 0, s = AtomStr; (c = *s++); ) {
                 d = d*10-'0'+c;
                 if (d > 36) {
-                    bp_exception = et_INT_OVERFLOW;
+                    bp_exception = c_syntax_error(et_INTEGER);
                     return BP_ERROR;
                 }
             }
             if (d == 0) {  /*  0'c['] is a character code  */
                 d = read_utf8_character(card, '\'');
                 TOKEN_CHECK_EXCEPTION();
+                if (d == -1) {
+                    /* 0'' : the quote itself.  read_utf8_character has
+                       consumed both quotes and left the next char in lastc. */
+                    rad_int = '\'';
+                    return RDIGIT;
+                }
                 rad_int = d;
                 BP_GETC(card, d);
                 if (d == intab.radix) {
@@ -1077,28 +1071,34 @@ START:
             }
             BP_GETC(card, c);
             newv = 0;
-            while (DigVal(c) < 99) {
+            if (radix_digit_value(c) >= d) {  /* at least one digit */
+                bp_exception = c_syntax_error(et_INTEGER);
+                return BP_ERROR;
+            }
+            while (c == '_' || radix_digit_value(c) < 99) {
                 if (c != '_') {
+                    int dv = radix_digit_value(c);
                     oldv = newv;
-                    if (DigVal(c) >= d) {
-                        bp_exception = et_INT_OVERFLOW;
+                    if (dv >= d) {
+                        bp_exception = c_syntax_error(et_INTEGER);
                         return BP_ERROR;
                     }
-                    newv = newv*d + DigVal(c);
+                    newv = newv*d + dv;
 
                     if (newv < oldv || newv > BP_MAXINT_1W) {  /* begin read bigint */
                         BPLONG big_base = bp_int_to_bigint(d);
                         rad_int = bp_int_to_bigint(oldv);
-                        while (DigVal(c) < 99) {
+                        while (c == '_' || radix_digit_value(c) < 99) {
                             if (c != '_') {
-                                if (DigVal(c) >= d) {
-                                    bp_exception = et_INT_OVERFLOW;
+                                dv = radix_digit_value(c);
+                                if (dv >= d) {
+                                    bp_exception = c_syntax_error(et_INTEGER);
                                     return BP_ERROR;
                                 }
                                 rad_int = bp_mul_bigint_bigint(rad_int, big_base);
                                 if (rad_int == BP_ERROR) return BP_ERROR;
                                 if (ISINT(rad_int)) rad_int = bp_int_to_bigint(INTVAL(rad_int));
-                                rad_int = bp_add_bigint_bigint(rad_int, bp_int_to_bigint(DigVal(c)));
+                                rad_int = bp_add_bigint_bigint(rad_int, bp_int_to_bigint(dv));
                             }
                             BP_GETC(card, c);
                         }
@@ -1238,7 +1238,7 @@ START:
             BP_GETC(card, d);
         }
         *s = 0;
-        if (InType(d) >= SPACE && c == intab.termin && AtomStr[1] == 0) {
+        if (c == intab.termin && AtomStr[1] == 0 && EndFollows(d)) {
             lastc = d;
             return ENDCL;  /* i.e. '.' FOLLOWed by layout */
         }
@@ -1246,16 +1246,12 @@ START:
         goto SYMBOL;
 
     case NOBLE:
-        if (c == intab.termin) {
-            *s = 0;
-            lastc = ' ';
-            return ENDCL;
 #ifndef XCSP_PICAT
-        } else if (eolcom_flag == 1 && c == intab.eolcom) {
+        if (eolcom_flag == 1 && c == intab.eolcom) {
             c = com0plain(card, intab.endeol);
             goto START;
-#endif
         }
+#endif
         TOKEN_APPEND_BYTE(c);
         BP_GETC(card, d);
         if (d == '='){     // e.g., !=
@@ -1383,11 +1379,6 @@ START:
     /*
       fprintf(stderr, "Internal error: InType(%d)==%d\n", c, InType(c));
       abort();       */
-
-end_of_clause:
-    AtomStr[0] = '.'; AtomStr[1] = '\0'; lastc = ' '; return ENDCL;
-
-    /*NOTREACHED*/
 }
 
 void printAtomStr(char *message)
@@ -1482,13 +1473,18 @@ START:
             for (d = 0, s = AtomStr; (c = *s++); ) {
                 d = d*10-'0'+c;
                 if (d > 36) {
-                    bp_exception = et_INT_OVERFLOW;
+                    bp_exception = c_syntax_error(et_INTEGER);
                     return BP_ERROR;
                 }
             }
             if (d == 0) {  /*  0'c['] is a character code  */
                 d = read_utf8_character_string('\'');
                 TOKEN_CHECK_EXCEPTION_STRING();
+                if (d == -1) {
+                    /* 0'' : the quote itself (see GetToken) */
+                    rad_int = '\'';
+                    return RDIGIT;
+                }
                 rad_int = d;
                 BP_GETC_STRING(d);
                 if (d == intab.radix) {
@@ -1500,29 +1496,34 @@ START:
             }
             BP_GETC_STRING(c);
             newv = 0;
-            while (DigVal(c) < 99) {
+            if (radix_digit_value(c) >= d) {  /* at least one digit */
+                bp_exception = c_syntax_error(et_INTEGER);
+                return BP_ERROR;
+            }
+            while (c == '_' || radix_digit_value(c) < 99) {
                 if (c != '_') {
+                    int dv = radix_digit_value(c);
                     oldv = newv;
-                    if (DigVal(c) >= d) {
+                    if (dv >= d) {
                         bp_exception = c_syntax_error(et_INTEGER);
                         return BP_ERROR;
                     }
-                    newv = newv*d + DigVal(c);
+                    newv = newv*d + dv;
 
                     if (newv < oldv || newv > BP_MAXINT_1W) {  /* begin read bigint */
                         BPLONG big_base = bp_int_to_bigint(d);
                         rad_int = bp_int_to_bigint(oldv);
-                        while (DigVal(c) < 99) {
+                        while (c == '_' || radix_digit_value(c) < 99) {
                             if (c != '_') {
-                                if (DigVal(c) >= d) {
-                                    bp_exception = et_INT_OVERFLOW;
+                                dv = radix_digit_value(c);
+                                if (dv >= d) {
+                                    bp_exception = c_syntax_error(et_INTEGER);
                                     return BP_ERROR;
                                 }
                                 rad_int = bp_mul_bigint_bigint(rad_int, big_base);
                                 if (rad_int == BP_ERROR) return BP_ERROR;
                                 if (ISINT(rad_int)) rad_int = bp_int_to_bigint(INTVAL(rad_int));
-                                rad_int = bp_add_bigint_bigint(rad_int, bp_int_to_bigint(DigVal(c)));
-                                //              printf(" read bigint d=%d",DigVal(c)); write_term(rad_int); printf("\n");
+                                rad_int = bp_add_bigint_bigint(rad_int, bp_int_to_bigint(dv));
                             }
                             BP_GETC_STRING(c);
                         }
@@ -1653,7 +1654,7 @@ START:
             BP_GETC_STRING(d);
         }
         *s = 0;
-        if (InType(d) >= SPACE && c == intab.termin && AtomStr[1] == 0) {
+        if (c == intab.termin && AtomStr[1] == 0 && EndFollows(d)) {
             lastc = d;
             return ENDCL;  /* i.e. '.' FOLLOWed by layout */
         }
@@ -1661,15 +1662,12 @@ START:
         goto SYMBOL;
 
     case NOBLE:
-        if (c == intab.termin) {
-            *s = 0;
-            goto end_of_clause;
 #ifndef XCSP_PICAT
-        } else if (eolcom_flag == 1 && c == intab.eolcom) {
+        if (eolcom_flag == 1 && c == intab.eolcom) {
             c = com0plain_string(intab.endeol);
             goto START;
-#endif
         }
+#endif
         TOKEN_APPEND_BYTE(c);
         BP_GETC_STRING(d);
         if (d == '='){     // e.g., !=
@@ -1752,8 +1750,7 @@ START:
         }
         return LISQT;
 
-    case EOLN:
-        goto end_of_clause;
+    case EOLN:  /* a newline is layout; the end of the string ends the term */
     case SPACE:
         BP_GETC_STRING(c);
         lastc = ' ';
