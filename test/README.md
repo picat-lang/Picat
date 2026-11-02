@@ -76,6 +76,24 @@ workspace; override `HAKAN`/`TARGET` (the Hakan tree), `STOCK_PICAT`,
   through GNU parallel (`JOBS` in flight, default 32), plus the `pb`
   examples single-sided on this build. Needs GNU parallel and ≥90
   physical cores for the core pinning.
+- `integration_check.sh [JOBS] [flags]` — the full fdn-integration
+  verification in one command, at high parallelism (default `JOBS=128`):
+  rebuilds the fdn binary (fails on any warning or error from our
+  files; the vendored kis_/espresso/fann sources are exempt), runs the
+  quick checks in parallel (`fp_check.sh`, `udf_check.sh`,
+  `reif_globals_check.sh`), the inline checks in parallel (the smoke
+  test, the float formatting, the bv objective via
+  `test/integration/coins_grid_bv.pi`, the planner family via
+  `webasm/examples/planner_ricochet.pi`), then delegates to
+  `fdn_exs.sh JOBS` and `divergence_parallel.sh light JOBS`. Flags:
+  `--no-build`, `--skip-hakan`, `--skip-exs`, `--wasm` (also rebuilds
+  the wasm and runs the headless compare), `--outdir=DIR` (default
+  `scratch/integration`). The sweep sweeps run at the 30 s/side
+  timeout, so slow examples produce timeout candidates under load —
+  the script reports them and points at `divergence_reverify.sh`;
+  only the real-regression direction (this build errors while stock
+  succeeds, outside the timeouts) fails the check. Env: `PICAT` (the
+  build under test), `STOCK_PICAT`, `TARGET`, `TIMEOUT`.
 - `fdn_sweep.sh [JOBS]` — the fdn transparency sweep: every Hakan
   example (plus `pb`) runs twice on the SAME binary, with the fdn hook
   (default) and with `FDN=0` (exactly the stock behavior); compares
