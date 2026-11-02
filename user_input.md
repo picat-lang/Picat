@@ -246,3 +246,6 @@ aspic_instances instead of universe(). Battery 88/0, baseline comparison
 
 ## 46. "push"
 (Pushed the experimental branch to origin -- 9 commits, 366c7bb..2931c6e, including the 4.0b16 merge, the post-merge fixes, the compare.py harness fixes from the earlier phase, and the full test round.)
+
+## 47. "yes, but please write a script that tests the integration with parallelism 128, that I could run myself as well after I do changes. The check the divergence with that script. It is allowed and indicated it delegates work to other scripts, but each with high parallelism, such that this is checked faster."
+(Merged upstream 4.0b18 into experimental (c44355d: the bp_format_double float formatting, getline/token changes, the 4.0b18 bytecode; 3 conflicts resolved; a getline write_ignore warning class fixed; zero warnings). Wrote test/integration_check.sh -- the full integration verification in one command at parallelism 128, delegating to fp_check/udf_check/reif_globals_check, the inline checks (smoke, floatfmt, coins_grid_bv, planner_ricochet), fdn_exs.sh 128 and divergence_parallel.sh light 128; added test/integration/coins_grid_bv.pi + bv_utils.pi; documented in test/README.md. Ran it fully: ALL PASS in ~7 min -- zero real regressions, the one exp-fails candidate verified a load artifact standalone. Committed d56e684, not pushed.)
