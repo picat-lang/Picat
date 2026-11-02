@@ -78,21 +78,22 @@ Notes:
   from stdin, and before the stdin redirect the native leg of an
   example could block a worker forever, stalling the whole suite with
   all example names printed and zero results. Before the timeout,
-  `planner_treasure`'s native leg (>1800 s on the 4.0b13 base, another
-  upstream regression, `div.txt`) propagated `TimeoutExpired` and
-  killed the run.
+  `planner_treasure`'s native leg (>1800 s, a remaining upstream
+  regression, `div.txt`) propagated `TimeoutExpired` and killed the run.
 - programs embedding an ASP block (standalone `asp` token followed by
   newline) run in two stages via `run_asp_pi.js` and are skipped on
   the native side. Note the in-file `asp/1` fact helpers of the
   planner family are NOT this (no standalone `asp` token) — they are
   plain planner programs.
-- wasm32 limits: a few compute-heavy two-stage legs die at the
-  wasm32 toam stack ("Stack overflow in toam after 7 garbage
-  collections and 6 stack expansions" after ~144 s: `planner_ricochet`,
-  `cp_ppm`); `planner_treasure` OOMs at ~287 s. These rows fail on
-  the wasm side and are excluded from the statistics; on the native
-  side the planner family is broken on the 4.0b13 base itself (upstream,
-  `div.txt`), not by the snapshot's changes.
+- wasm32 limits: on the 4.0b13-era bytecode a few compute-heavy
+  two-stage legs died at the wasm32 toam stack ("Stack overflow in
+  toam" after ~144 s: `planner_ricochet`, `cp_ppm`) and
+  `planner_treasure` OOMed at ~287 s. The 4.0b16 bytecode (the
+  regenerated preloaded `picat_bc.h`) fixes all of those: on the
+  4.0b16 build the only failing row is `planner_treasure`, whose
+  native leg still times out (>1800 s) and whose wasm leg OOMs at
+  ~287 s -- a REMAINING upstream regression (it also hangs on the
+  official 4.0b16 binary; stock 3.9#12 solves it).
 
 ## Results (2026-08-21, x86_64, 384 cores, 32 workers, median of 3 runs)
 
