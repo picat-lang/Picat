@@ -1408,9 +1408,7 @@ int b_PUT_c(BPLONG op)
     op = res;
 b_put:
     op = INTVAL(op);
-    /* a character code: written as UTF-8, like put_code/1 */
-    if (b_put_char_code(curr_out, op) == BP_ERROR) return BP_ERROR;
-
+    putc(op, curr_out);
     return check_output_error(curr_out);
 }
 
