@@ -243,3 +243,6 @@ aspic_instances instead of universe(). Battery 88/0, baseline comparison
 
 ## 45. "I want you to run hakan's divergence check with parallelism 128" / "go" / "do it"
 (Ran the Hakan divergence sweep at -j 128 (3.7 min, 19:32:43), then the standalone re-verification of all 32 timeout candidates at 120s (17 min): zero real regressions -- 0 examples where exp errors and stock succeeds; the DIVERGES/RC-DIFFERS verdicts were all 30s/side load artifacts. Then rebuilt the wasm with the 4.0b16 bytecode and ran the full compare.py suite (35 min): failed rows down from 7 to 1 (planner_treasure only -- verified it also hangs on the official 4.0b16 binary; a remaining upstream regression). geomean 1.06, wasm faster 47/106, elegant_native green.)
+
+## 46. "push"
+(Pushed the experimental branch to origin -- 9 commits, 366c7bb..2931c6e, including the 4.0b16 merge, the post-merge fixes, the compare.py harness fixes from the earlier phase, and the full test round.)
