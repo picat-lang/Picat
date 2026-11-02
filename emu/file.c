@@ -367,17 +367,43 @@ void bp_write_insert_dot_zero_if_needed(char *loc_bp_buf)
     }
 }
 
+/* Format a float for output into buf (at least 400 bytes).
+ * Short values keep the familiar fixed-point form ("0.1", "1234567.5") as
+ * long as it denotes the same number as the 15-significant-digit form;
+ * otherwise the %.15g form is used ("123456.789", "1.0e-20").  15 digits is
+ * the most a double always carries, so representation noise such as
+ * 0.30000000000000004 still prints as 0.3. */
+static void bp_format_double(char *buf, double d)
+{
+    char fixed[400];
+
+    snprintf(fixed, sizeof(fixed), "%.15f", d);
+    bp_trim_trailing_zeros(fixed);
+    if (!isfinite(d)) {  /* inf, nan: unchanged */
+        strcpy(buf, fixed);
+        return;
+    }
+    snprintf(buf, 64, "%.15g", d);
+    if (strlen(fixed) < 10 && strtod(fixed, NULL) == strtod(buf, NULL)) {
+        strcpy(buf, fixed);
+        return;
+    }
+    bp_write_insert_dot_zero_if_needed(buf);
+}
+
+/* Number of characters in the first len bytes of a UTF-8 string. */
+static BPLONG utf8_char_count(const char *s, BPLONG len)
+{
+    BPLONG i, n = 0;
+    for (i = 0; i < len; i++) {
+        if (((unsigned char)s[i] & 0xc0) != 0x80) n++;
+    }
+    return n;
+}
+
 void bp_write_double(BPLONG op)
 {
-    double d;
-
-    d = floatval(op);
-    sprintf(bp_buf, "%.15lf", d);
-    bp_trim_trailing_zeros(bp_buf);
-    if (strlen(bp_buf) >= 10) {
-        sprintf(bp_buf, "%g", d);
-        bp_write_insert_dot_zero_if_needed(bp_buf);
-    }
+    bp_format_double(bp_buf, floatval(op));
     fprintf(curr_out, "%s", bp_buf);
 }
 
@@ -387,12 +413,7 @@ int bp_write_double_update_pos(BPLONG op)
     BPLONG len;
 
     d = floatval(op);
-    sprintf(bp_buf, "%.15lf", d);
-    bp_trim_trailing_zeros(bp_buf);
-    if (strlen(bp_buf) >= 10) {
-        sprintf(bp_buf, "%g", d);
-        bp_write_insert_dot_zero_if_needed(bp_buf);
-    }
+    bp_format_double(bp_buf, d);
     len = strlen(bp_buf);
     line_position += len;
     if (format_output_dest == 0) {
@@ -559,7 +580,7 @@ void bp_write_pname(CHAR_PTR name_ptr)
 
 int bp_write_pname_update_pos(CHAR_PTR name_ptr, BPLONG length)
 {
-    line_position += length;
+    line_position += utf8_char_count(name_ptr, length);  /* columns, not bytes */
     if (format_output_dest == 0) {
         fputs(name_ptr, curr_out);
         fflush(curr_out);
@@ -706,7 +727,7 @@ int bp_write_qname_update_pos(CHAR_PTR name_ptr, BPLONG length)
     }
     if (bp_write_qname_to_bp_buf(name_ptr, (UW16)length) == BP_ERROR) return BP_ERROR;
     len = strlen(bp_buf);
-    line_position += len;
+    line_position += utf8_char_count(bp_buf, len);  /* columns, not bytes */
     if (format_output_dest == 0) {
         fputs(bp_buf, curr_out);
     } else {
@@ -1027,23 +1048,47 @@ int c_format_get_line_pos() {
 }
 
 int c_format_retrieve_codes() {
-    BPLONG Codes, CodesR, i;
+    BPLONG Codes, CodesR;
 
     Codes = ARG(1, 2);
     CodesR = ARG(2, 2);
     if (chars_pool_index > 0) {
-        BPLONG lst0, lst;
-        lst = lst0 = ADDTAG(heap_top, LST);
-        for (i = 0; i < chars_pool_index-1; i++) {
-            NEW_HEAP_NODE(MAKEINT(chars_pool[i]));
-            lst = ADDTAG((heap_top+1), LST);
-            NEW_HEAP_NODE(lst);
+        /* chars_pool holds UTF-8 bytes; return character codes, not bytes */
+        BPLONG lst0 = ADDTAG(heap_top, LST);
+        BPLONG_PTR tail_ptr = NULL;
+        int i = 0, n = chars_pool_index;
+
+        while (i < n) {
+            int c = (unsigned char)chars_pool[i], len = 1, code = c, k;
+            if (c >= 0x80) {
+                len = (c >= 0xc2 && c <= 0xdf) ? 2 : (c >= 0xe0 && c <= 0xef) ? 3 :
+                    (c >= 0xf0 && c <= 0xf4) ? 4 : 0;
+                if (len == 0 || i + len > n) {
+                    len = 1;
+                    code = 0xfffd;
+                } else {
+                    code = c & (len == 2 ? 0x1f : len == 3 ? 0x0f : 0x07);
+                    for (k = 1; k < len; k++) {
+                        int next = (unsigned char)chars_pool[i+k];
+                        if ((next & 0xc0) != 0x80) break;
+                        code = (code << 6) | (next & 0x3f);
+                    }
+                    if (k < len) {  /* truncated sequence: replace one byte */
+                        len = 1;
+                        code = 0xfffd;
+                    }
+                }
+            }
+            i += len;
+            if (tail_ptr != NULL) FOLLOW(tail_ptr) = ADDTAG(heap_top, LST);
+            FOLLOW(heap_top) = MAKEINT(code);
+            tail_ptr = heap_top+1;
+            heap_top += 2;
+            LOCAL_OVERFLOW_CHECK("format_to_codes");
         }
-        NEW_HEAP_NODE(MAKEINT(chars_pool[chars_pool_index-1]));
-        lst = (BPLONG)heap_top;
-        NEW_HEAP_FREE;
+        FOLLOW(tail_ptr) = (BPLONG)tail_ptr;  /* open tail */
         unify(Codes, lst0);
-        unify(CodesR, lst);
+        unify(CodesR, (BPLONG)tail_ptr);
         return BP_TRUE;
     } else {
         return unify(Codes, CodesR);
@@ -1341,26 +1386,11 @@ int b_PUT_CODE_c(BPLONG op)
         return BP_ERROR;
     }
     op = INTVAL(op);
-    /*
-      if (op<0 || op>255){
-      bp_exception = c_representation_error(et_CHARACTER_CODE);
-      return BP_ERROR;
-      }
-    */
     if (file_table[out_file_i].type == STREAM_TYPE_BINARY) {
         bp_exception = c_permission_error(et_OUTPUT, et_BINARY_STREAM, c_stream_struct(out_file_i));
         return BP_ERROR;
     }
-    if (op <= 127) {
-        putc(op, curr_out);
-    } else {  /* unicode, write in utf8 format */
-        char s[5], *ch_ptr, *ch_ptr0;
-        ch_ptr = utf8_codepoint_to_str(op, s);
-        ch_ptr0 = s;
-        while (ch_ptr0 < ch_ptr) {
-            putc(*ch_ptr0++, curr_out);
-        }
-    }
+    if (b_put_char_code(curr_out, op) == BP_ERROR) return BP_ERROR;
     return check_output_error(curr_out);
 }
 
@@ -1378,7 +1408,8 @@ int b_PUT_c(BPLONG op)
     op = res;
 b_put:
     op = INTVAL(op);
-    putc(op, curr_out);
+    /* a character code: written as UTF-8, like put_code/1 */
+    if (b_put_char_code(curr_out, op) == BP_ERROR) return BP_ERROR;
 
     return check_output_error(curr_out);
 }
@@ -1398,16 +1429,22 @@ int c_put_update_pos() {
     op = res;
 b_put:
     op = INTVAL(op);
-    if ((char)op == '\n') {
+    if (op < 0 || op > 0x10ffff) {  /* not a character code */
+        bp_exception = c_representation_error(et_CHARACTER_CODE);
+        return BP_ERROR;
+    }
+    if (op == '\n') {
         line_position = 0;
     } else {
         line_position++;
     }
     if (format_output_dest == 0) {
         if (b_put_char_code(curr_out, op) == BP_ERROR) return BP_ERROR;
-    } else {
-        CHECK_CHARS_POOL_OVERFLOW(1);
-        chars_pool[chars_pool_index++] = (char)op;
+    } else {  /* store the code as UTF-8, like everything else in the pool */
+        char s[5], *end = utf8_codepoint_to_str((int)op, s);
+        CHECK_CHARS_POOL_OVERFLOW(end - s);
+        memcpy(chars_pool+chars_pool_index, s, end - s);
+        chars_pool_index += (int)(end - s);
     }
     return BP_TRUE;
 }
@@ -1522,6 +1559,20 @@ int c_GET0_terminal()
     return 1;  /* nothing is read */
 }
 
+/* Undo a peek of n bytes (bytes[0..n-1]) that started at file position pos.
+ * Seeking back restores the stream exactly, including malformed input, and
+ * avoids relying on more than one byte of ungetc() pushback, which C does
+ * not guarantee.  Streams that cannot seek (terminals, pipes) fall back to
+ * pushing the bytes back. */
+static void peek_restore(FILE *fp, long pos, const char *bytes, int n)
+{
+    if (pos >= 0 && fseek(fp, pos, SEEK_SET) == 0) return;
+    while (n > 0) {
+        n--;
+        ungetc((unsigned char)bytes[n], fp);
+    }
+}
+
 /* deprecated */
 int b_PEEK_BYTE_f(BPLONG op)
 {
@@ -1552,6 +1603,7 @@ int b_PEEK_BYTE_f(BPLONG op)
 int b_PEEK_CODE_f(BPLONG op)
 {
     BPLONG n;
+    long pos;
 
     if (file_table[in_file_i].eos == STREAM_PAST_EOS &&
         file_table[in_file_i].eof_action == STREAM_EOF_ACTION_ERROR) {
@@ -1563,6 +1615,7 @@ int b_PEEK_CODE_f(BPLONG op)
         return BP_ERROR;
     }
 
+    pos = ftell(curr_in);
     n = getc(curr_in);
 
     if (n == EOF) {
@@ -1572,15 +1625,12 @@ int b_PEEK_CODE_f(BPLONG op)
         return BP_ERROR;
     }
 
-    if (n & 0x80) {  /* leading byte of a utf8 char? */
+    if (n != EOF && (n & 0x80)) {  /* leading byte of a utf8 char? */
         char s[5], *ch_ptr;
         n = utf8_getc(curr_in, n);
         ch_ptr = utf8_codepoint_to_str(n, s);
-        while (ch_ptr > s) {
-            ch_ptr--;
-            ungetc(*ch_ptr, curr_in);
-        }
-    } else {
+        peek_restore(curr_in, pos, s, (int)(ch_ptr - s));
+    } else if (n != EOF) {
         ungetc(n, curr_in);
     }
     ASSIGN_f_atom(op, MAKEINT(n));
@@ -1965,11 +2015,7 @@ int get_socket_fd(int index) {
     printf("get_socket_fd not supported for non-Linux platforms\n");
     return 0;
 #else
-#if defined ANDROID || defined FREEBSD
-    return(file_table[index].fdes->_file);
-#else
-    return(file_table[index].fdes->_fileno);
-#endif
+    return fileno(file_table[index].fdes);
 #endif
 #endif
 #endif
@@ -2113,48 +2159,36 @@ int b_ACCESS_ccf(BPLONG op1, BPLONG op2, BPLONG op3)
     } else {
         bp_exception = c_type_error(et_INTEGER, op2); return BP_ERROR;
     };
-    if (socket_file_name(full_file_name))
-    {
-        r = 0;
-    }
-    else
-    {
-        r = sys_access(full_file_name, mode);
-    }
+    /* Ask the file system only: treating every IP-shaped name such as
+       "1.2.3.4" as an existing socket made exists/1 report files that
+       are not there, and nothing here opens sockets by such names. */
+    r = sys_access(full_file_name, mode);
     ASSIGN_f_atom(op3, MAKEINT(r));
     return 1;
 }
 
 /* this function is by Steve Branch */
+/* True if filename is a dotted-quad IPv4 address such as "127.0.0.1":
+   exactly four parts of 1-3 digits, each at most 255. */
 int socket_file_name(const char* filename)
 {
-    unsigned int address_node = 0;
-    int address_byte = 0;
-    int filename_len = strlen(filename);
-    int i, j;
+    const char *p = filename;
+    int parts = 0;
 
-    for (i = 0; i < filename_len; i++)
-    {
-        j = filename[i] - '0';
-        if (j >= 0 && j <= 9)
-        {
-            address_node = address_node * 10 + j;
+    while (1) {
+        int digits = 0, value = 0;
+        while (*p >= '0' && *p <= '9') {
+            if (++digits > 3) return 0;
+            value = value*10 + (*p++ - '0');
         }
-        else if (filename[i] == '.')
-        {
-            address_byte++;
-            if (address_node > 255 || address_byte > 3)
-            {
-                return(0);
-            }
-            address_node = 0;
+        if (digits == 0 || value > 255) return 0;
+        parts++;
+        if (*p == '.' && parts < 4) {
+            p++;
+            continue;
         }
-        else
-        {
-            return(0);
-        }
+        return *p == '\0' && parts == 4;
     }
-    return(address_node <= 255 && address_byte == 3);
 }
 
 /*
@@ -2172,6 +2206,21 @@ int socket_file_name(const char* filename)
 */
 
 #define STAT_SIZE 12
+
+/* An unsigned value as a Picat integer, using a bigint when it does not fit
+   in a small integer (e.g. 64-bit inode numbers). */
+static BPLONG stat_uint_to_term(BPULONG v)
+{
+    BPLONG hi, lo, shift;
+    if (v <= (BPULONG)BP_MAXINT_1W) return MAKEINT((BPLONG)v);
+    hi = bp_int_to_bigint((BPLONG)(v >> 32));
+    lo = bp_int_to_bigint((BPLONG)(v & 0xffffffffUL));
+    shift = bp_int_to_bigint((BPLONG)1 << 32);
+    hi = bp_mul_bigint_bigint(hi, shift);
+    if (ISINT(hi)) hi = bp_int_to_bigint(INTVAL(hi));
+    return bp_add_bigint_bigint(hi, lo);
+}
+
 int file_stat()
 {
     struct stat buf;
@@ -2187,18 +2236,26 @@ int file_stat()
         bp_exception = file_does_not_exist;
         return -1L;
     }
-    ptr = heap_top;
-    heap_top += STAT_SIZE;
-    bp_stat = ADDTAG(ptr, STR);
-    FOLLOW(ptr) = (BPLONG)BP_NEW_SYM("stat", STAT_SIZE-1);
-    FOLLOW(ptr+1) = MAKEINT(buf.st_dev);
-    FOLLOW(ptr+2) = MAKEINT(buf.st_ino);
-    FOLLOW(ptr+3) = MAKEINT(buf.st_mode);
-    FOLLOW(ptr+4) = MAKEINT(buf.st_nlink);
-    FOLLOW(ptr+5) = MAKEINT(buf.st_uid);
-    FOLLOW(ptr+6) = MAKEINT(buf.st_gid);
-    FOLLOW(ptr+7) = MAKEINT(buf.st_rdev);
-    FOLLOW(ptr+8) = MAKEINT(buf.st_size);
+    {
+        /* build any bigints first: they are allocated on the heap too */
+        BPLONG dev = stat_uint_to_term((BPULONG)buf.st_dev);
+        BPLONG ino = stat_uint_to_term((BPULONG)buf.st_ino);
+        BPLONG rdev = stat_uint_to_term((BPULONG)buf.st_rdev);
+        BPLONG size = stat_uint_to_term((BPULONG)buf.st_size);
+        ptr = heap_top;
+        heap_top += STAT_SIZE;
+        LOCAL_OVERFLOW_CHECK("file_stat");
+        bp_stat = ADDTAG(ptr, STR);
+        FOLLOW(ptr) = (BPLONG)BP_NEW_SYM("stat", STAT_SIZE-1);
+        FOLLOW(ptr+1) = dev;
+        FOLLOW(ptr+2) = ino;
+        FOLLOW(ptr+3) = MAKEINT(buf.st_mode);
+        FOLLOW(ptr+4) = MAKEINT(buf.st_nlink);
+        FOLLOW(ptr+5) = MAKEINT(buf.st_uid);
+        FOLLOW(ptr+6) = MAKEINT(buf.st_gid);
+        FOLLOW(ptr+7) = rdev;
+        FOLLOW(ptr+8) = size;
+    }
     FOLLOW(ptr+9) = time_t_2_prolog(&buf.st_atime);
     FOLLOW(ptr+10) = time_t_2_prolog(&buf.st_mtime);
     FOLLOW(ptr+11) = time_t_2_prolog(&buf.st_ctime);
@@ -2520,7 +2577,7 @@ int c_get_cwd() {
     char f_name[MAX_STR_LEN];
 
     DEREF(dir);
-    getcwd(f_name, MAX_STR_LEN-1);
+    if (getcwd(f_name, MAX_STR_LEN-1) == NULL) return file_io_error();
     return unify(dir, ADDTAG(BP_NEW_SYM(f_name, 0), ATM));
 }
 
@@ -3028,7 +3085,7 @@ static int output_formatted_buffer(int len) {
         memcpy(chars_pool+chars_pool_index, bp_buf, len+1);
         chars_pool_index += len;
     }
-    line_position += len;
+    line_position += utf8_char_count(bp_buf, len);  /* columns, not bytes */
     return BP_TRUE;
 }
 
@@ -3138,7 +3195,7 @@ int b_NAME0_cf(BPLONG op1, BPLONG op2)  /* op2 is made to be the string of the n
         name = GET_NAME(psc_ptr);
         return string2codes(name, op2);
     } else if (ISINT(op1)) {
-        sprintf(bp_buf, "%d", (int)INTVAL(op1));
+        sprintf(bp_buf, BPLONG_FMT_STR, INTVAL(op1));
         return string2codes(bp_buf, op2);
     } else if (IS_BIGINT(op1)) {
         int i = bp_write_bigint_to_str(op1, bp_buf, MAX_STR_LEN);
@@ -3148,8 +3205,7 @@ int b_NAME0_cf(BPLONG op1, BPLONG op2)  /* op2 is made to be the string of the n
         }
         return string2codes((bp_buf+i), op2);
     } else if (ISFLOAT(op1)) {
-        sprintf(bp_buf, "%.15lf", floatval(op1));
-        bp_trim_trailing_zeros(bp_buf);
+        bp_format_double(bp_buf, floatval(op1));
         return string2codes(bp_buf, op2);
     } else {
         bp_exception = illegal_arguments; return BP_ERROR;
@@ -3329,8 +3385,7 @@ int print_term_to_buf(BPLONG term) {
         if (IS_SUSP_VAR(term)) {
             sprintf(bp_buf, "_0" BPULONG_FMT_STR, (BPULONG)UNTAGGED_TOPON_ADDR(term)-(BPULONG)stack_low_addr);
         } else if (ISFLOAT(term)) {
-            sprintf(bp_buf, "%.15lf", floatval(term));
-            bp_trim_trailing_zeros(bp_buf);
+            bp_format_double(bp_buf, floatval(term));
         } else if (IS_BIGINT(term)) {
             int j, i = bp_write_bigint_to_str(term, bp_buf, MAX_STR_LEN);  /* stored in bp_buf from index i to MAX_STR_LEN-1 */
             if (i == BP_ERROR) return BP_ERROR;
@@ -3487,21 +3542,33 @@ int b_TO_CODES_cff(BPLONG term, BPLONG lst, BPLONG lstr) {
 
 /* print a primitive into FD, fails if term is not primitive */
 int b_PICAT_PRINT_PRIMITIVE_cc(BPLONG FDIndex, BPLONG term) {
-    DEREF(FDIndex);
-    out_file_i = INTVAL(FDIndex);
-    //  CHECK_FILE_INDEX(out_file_i);
-    curr_out = file_table[out_file_i].fdes;
-    return b_WRITE_QUICK_c(term);
+    BPLONG saved_out_file_i = out_file_i;
+    int res;
+
+    DEREF(FDIndex); FDIndex = INTVAL(FDIndex);
+    CHECK_FILE_INDEX(FDIndex);
+    if (FDIndex == out_file_i) return b_WRITE_QUICK_c(term);
+    /* Switch with cc_set_output so each stream keeps its own column, and
+       switch back afterwards: printing to FD must not make FD the current
+       output for later write/format calls. */
+    cc_set_output(FDIndex);
+    res = b_WRITE_QUICK_c(term);
+    cc_set_output(saved_out_file_i);
+    return res;
 }
 
 /* write a primitive into FD, fails if term is not primitive */
 int b_PICAT_WRITE_PRIMITIVE_cc(BPLONG FDIndex, BPLONG term) {
-    DEREF(FDIndex);
-    out_file_i = INTVAL(FDIndex);
-    //  CHECK_FILE_INDEX(out_file_i);
-    curr_out = file_table[out_file_i].fdes;
+    BPLONG saved_out_file_i = out_file_i;
+    int res;
 
-    return b_WRITEQ_QUICK_c(term);
+    DEREF(FDIndex); FDIndex = INTVAL(FDIndex);
+    CHECK_FILE_INDEX(FDIndex);
+    if (FDIndex == out_file_i) return b_WRITEQ_QUICK_c(term);
+    cc_set_output(FDIndex);  /* see b_PICAT_PRINT_PRIMITIVE_cc */
+    res = b_WRITEQ_QUICK_c(term);
+    cc_set_output(saved_out_file_i);
+    return res;
 }
 
 /* This primitive receives one conversion and one value from the formatter.
@@ -3622,14 +3689,17 @@ invalid:
 int c_PICAT_GETENV_cf() {
     BPLONG EnvVarName, EnvValStr;
     CHAR_PTR env_val;
+    char env_name[MAX_STR_LEN];
 
     EnvVarName = ARG(1, 2); DEREF(EnvVarName);
     EnvValStr = ARG(2, 2);
     if (!ISATOM(EnvVarName) && !b_IS_STRING_c(EnvVarName)) {
         bp_exception = illegal_arguments; return BP_ERROR;
     }
-    if (get_file_name(EnvVarName) == NULL) return BP_ERROR;
-    env_val = getenv(full_file_name);
+    /* Not get_file_name(): a variable name must not be tilde-expanded or
+       have a trailing '/' removed. */
+    if (pp_str_to_c_str(EnvVarName, env_name, sizeof(env_name)) == BP_ERROR) return BP_ERROR;
+    env_val = getenv(env_name);
     if (env_val == NULL) {
         return BP_FALSE;
     }
@@ -3645,7 +3715,7 @@ int c_PICAT_GET_CWD_f() {
     char f_name[MAX_STR_LEN];
 
     DEREF(dir);
-    getcwd(f_name, MAX_STR_LEN-1);
+    if (getcwd(f_name, MAX_STR_LEN-1) == NULL) return file_io_error();
 
     FOLLOW(local_top) = (BPLONG)local_top;  /* borrow this cell to store the tail */
     c_str_to_picat_str(f_name, dir, (BPLONG)local_top);
@@ -3654,32 +3724,26 @@ int c_PICAT_GET_CWD_f() {
 }
 
 int b_GET_NEXT_PICAT_TOKEN_cff(BPLONG FDIndex, BPLONG TokenType, BPLONG TokenVal) {
-    FILE *in_fptr;
-    CHAR tmp_lastc = ' ';
-    int tmp_line_no, res;
+    /* Saved state of the current input; lastc is a BPLONG and must not be
+       narrowed to a char.  Initialised here so every build restores it. */
+    FILE *in_fptr = curr_in;
+    BPLONG tmp_lastc = lastc;
+    BPLONG tmp_line_no = curr_line_no;
+    int res;
 
     DEREF(FDIndex); FDIndex = INTVAL(FDIndex);
-#ifdef BPSOLVER
-    if (FDIndex != in_file_i) {
-        curr_in = file_table[FDIndex].fdes;
-        lastc = file_table[FDIndex].lastc;
-    }
-#else
+#ifndef BPSOLVER
     CHECK_FILE_INDEX(FDIndex);
     if (file_table[FDIndex].mode != 0) {
         bp_exception = input_stream_expected;
         return BP_ERROR;
     }
+#endif
     if (FDIndex != in_file_i) {
-        in_fptr = curr_in;
-        tmp_lastc = lastc;
-        tmp_line_no = curr_line_no;
-
         curr_in = file_table[FDIndex].fdes;
         lastc = file_table[FDIndex].lastc;
         curr_line_no = file_table[FDIndex].line_no;
     }
-#endif
 
     res = b_NEXT_TOKEN_ff(TokenType, TokenVal);
 
@@ -3820,6 +3884,7 @@ int b_READ_CHAR_cf(BPLONG FDIndex, BPLONG Ch) {
 int b_PEEK_CHAR_cf(BPLONG FDIndex, BPLONG Ch) {
     FILE *in_fptr;
     BPLONG b;
+    long pos;
 
     DEREF(FDIndex); FDIndex = INTVAL(FDIndex);
     CHECK_FILE_INDEX(FDIndex);
@@ -3829,6 +3894,7 @@ int b_PEEK_CHAR_cf(BPLONG FDIndex, BPLONG Ch) {
     }
     in_fptr = file_table[FDIndex].fdes;
 
+    pos = ftell(in_fptr);
     b = getc(in_fptr);
     if (b == EOF) {
         if (ferror(in_fptr)) return file_io_error();
@@ -3841,10 +3907,7 @@ int b_PEEK_CHAR_cf(BPLONG FDIndex, BPLONG Ch) {
             ch_ptr = utf8_codepoint_to_str(b, s);
             *ch_ptr = '\0';
             b = ADDTAG(insert_sym(s, (ch_ptr-s), 0), ATM);
-            while (ch_ptr > s) {
-                ch_ptr--;
-                ungetc(*ch_ptr, in_fptr);
-            }
+            peek_restore(in_fptr, pos, s, (int)(ch_ptr - s));
         } else {
             ungetc((unsigned char)b, in_fptr);
             b = char_sym_table[(char)b];
@@ -3934,6 +3997,7 @@ int b_READ_CHAR_CODE_cf(BPLONG FDIndex, BPLONG Ch) {
 int b_PEEK_CHAR_CODE_cf(BPLONG FDIndex, BPLONG Ch) {
     FILE *in_fptr;
     BPLONG b;
+    long pos;
 
     DEREF(FDIndex); FDIndex = INTVAL(FDIndex);
     CHECK_FILE_INDEX(FDIndex);
@@ -3943,6 +4007,7 @@ int b_PEEK_CHAR_CODE_cf(BPLONG FDIndex, BPLONG Ch) {
     }
     in_fptr = file_table[FDIndex].fdes;
 
+    pos = ftell(in_fptr);
     b = getc(in_fptr);
     if (b == EOF) {
         if (ferror(in_fptr)) return file_io_error();
@@ -3953,10 +4018,7 @@ int b_PEEK_CHAR_CODE_cf(BPLONG FDIndex, BPLONG Ch) {
             char s[5], *ch_ptr;
             b = utf8_getc(in_fptr, b);
             ch_ptr = utf8_codepoint_to_str(b, s);
-            while (ch_ptr > s) {
-                ch_ptr--;
-                ungetc(*ch_ptr, in_fptr);
-            }
+            peek_restore(in_fptr, pos, s, (int)(ch_ptr - s));
         } else {
             ungetc((unsigned char)b, in_fptr);
         }
@@ -4140,10 +4202,13 @@ int b_READ_LINE_cf(BPLONG FDIndex, BPLONG Lst) {
     b = getc(in_fptr);
     ret_lst_ptr = &ret_lst;
     while (b != EOF && b != '\n') {
-        char c = (char)b;
-        if (c == '\r') {
-            b = getc(in_fptr);
-            continue;
+        if (b == '\r') {
+            int next = getc(in_fptr);
+            if (next == '\n' || next == EOF) {  /* CR LF, or CR at the end */
+                b = next;
+                continue;
+            }
+            ungetc(next, in_fptr);  /* a lone CR is part of the line */
         }
         if (b & 0x80) {  /* leading byte of a utf8 char? */
             char s[5], *ch_ptr;
@@ -4312,6 +4377,10 @@ int b_WRITE_CHAR_cc(BPLONG FDIndex, BPLONG op) {
 
 /* op is known to be an integer */
 int b_put_char_code(FILE *out_fptr, BPLONG op) {
+    if (op < 0 || op > 0x10ffff) {  /* not a character code */
+        bp_exception = c_representation_error(et_CHARACTER_CODE);
+        return BP_ERROR;
+    }
     if (op <= 127) {
         if (putc(op, out_fptr) == EOF) return file_io_error();
     } else {  /* unicode, write in utf8 format */
@@ -4420,11 +4489,21 @@ int b_SET_STRING_TO_PARSE_c(BPLONG Str) {
         c = FOLLOW(list_ptr); DEREF(c);
         if (!ISATOM(c)) return BP_FALSE;
         sym_ptr = (SYM_REC_PTR)GET_ATM_SYM_REC(c);
-        if (GET_LENGTH(sym_ptr) != 1) return BP_FALSE;
-        *ch_ptr++ = *GET_NAME(sym_ptr);
-        if (ch_ptr >= bp_buf + MAX_STR_LEN) {
-            bp_exception = et_STRING_TOO_LONG;
-            return BP_ERROR;
+        {
+            /* Each element must be one character: a single byte, or one
+               UTF-8 encoded character of 2-4 bytes such as 'é'. */
+            BPLONG len = GET_LENGTH(sym_ptr);
+            CHAR_PTR name = GET_NAME(sym_ptr);
+            int lead = (unsigned char)name[0];
+            int expected = (lead < 0x80) ? 1 : (lead >= 0xc2 && lead <= 0xdf) ? 2 :
+                (lead >= 0xe0 && lead <= 0xef) ? 3 : (lead >= 0xf0 && lead <= 0xf4) ? 4 : 0;
+            if (len < 1 || len != expected) return BP_FALSE;
+            if (ch_ptr + len >= bp_buf + MAX_STR_LEN) {
+                bp_exception = et_STRING_TOO_LONG;
+                return BP_ERROR;
+            }
+            memcpy(ch_ptr, name, len);
+            ch_ptr += len;
         }
     }
     if (Str != nil_sym) return BP_FALSE;
