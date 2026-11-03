@@ -207,6 +207,7 @@ if [ "$WITH_WASM" = 1 ]; then
     echo "== step 6: wasm rebuild + headless compare (slow)"
     if make -C webasm > "$OUTDIR/wasmbuild.log" 2>&1 \
        && timeout 3600 python3 -u webasm/headless/compare.py \
+            --workers "$JOBS" --timeout 120 \
             > "$OUTDIR/wasmcmp.log" 2>&1; then
         echo "   PASS (see $OUTDIR/wasmcmp.log for the statistics)"
         tail -5 "$OUTDIR/wasmcmp.log" | sed 's/^/     /'

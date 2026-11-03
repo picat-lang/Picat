@@ -35,7 +35,7 @@ node headless/run_pi.js ../examples/sat_bqueens.pi
 ## Native-vs-wasm comparison
 
 ```sh
-python3 headless/compare.py [--runs N] [--workers N] [--limit N] [--out FILE]
+python3 headless/compare.py [--runs N] [--workers N] [--timeout S] [--limit N] [--out FILE]
 ```
 
 - `--runs` (default 1): measurements per side per example; the median is
@@ -43,6 +43,14 @@ python3 headless/compare.py [--runs N] [--workers N] [--limit N] [--out FILE]
 - `--workers` (default 32): examples measured in parallel. Keep it ≤ 32:
   each measurement spawns one native + one node process in turn, and the
   machine we ran on has 384 cores; beyond ~32 the numbers just get noisier.
+  Note the wall time is dominated by the slowest leg, not the worker
+  count: with the default 1800 s timeout `planner_treasure`'s native
+  leg runs solo for ~30 min after the first burst, whatever the worker
+  count.
+- `--timeout S` (default 1800): per-run timeout in seconds for BOTH
+  legs. 120 keeps the whole suite at a few minutes at high parallelism
+  (the slow examples become marker rows); the ratios get noisier under
+  the full-machine load, so use ≥ 3 runs for stable numbers.
 - `--limit N`: only the first N examples (debugging).
 - writes `results.csv` beside the script (regenerated each run).
 

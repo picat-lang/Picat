@@ -111,7 +111,7 @@ def make_native_cwd():
     return d
 
 
-def native_once(path):
+def native_once(path, timeout=1800):
     """One native run: returns (rc, ms).
 
     Runs in a fresh private copy of NATIVE_CWD: some nn examples save
@@ -127,10 +127,10 @@ def native_once(path):
         t0 = time.monotonic()
         p = subprocess.run([NATIVE, path], stdout=subprocess.DEVNULL,
                            stderr=subprocess.DEVNULL, env=env, cwd=cwd,
-                           stdin=subprocess.DEVNULL, timeout=1800)
+                           stdin=subprocess.DEVNULL, timeout=timeout)
         ms = int((time.monotonic() - t0) * 1000)
     except subprocess.TimeoutExpired:
-        return 124, 1800000
+        return 124, timeout * 1000
     finally:
         shutil.rmtree(cwd, ignore_errors=True)
     return p.returncode, max(ms, 1)
@@ -144,7 +144,7 @@ def is_asp(path):
         return bool(re.search(r'(?<![A-Za-z0-9_])asp[ \t]*\n', f.read()))
 
 
-def wasm_once(path, asp=False):
+def wasm_once(path, asp=False, timeout=1800):
     """One wasm run: returns (rc, run_ms, boot_ms, instantiate_ms).
     For two-stage ASP examples run_ms is stage 1 (transpilation) +
     stage 2 (the run)."""
@@ -152,7 +152,7 @@ def wasm_once(path, asp=False):
         t = subprocess.run(['node', RUN_ASPPI if asp else RUN_PI, path],
                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                            stdin=subprocess.DEVNULL,
-                           cwd=DIST, timeout=1800)
+                           cwd=DIST, timeout=timeout)
     except subprocess.TimeoutExpired:
         return -1, 0, 0, 0
     line = t.stdout.decode('utf8', 'replace').strip()
@@ -165,14 +165,14 @@ def wasm_once(path, asp=False):
     return int(m.group(1)), run_ms, int(m.group(4)), int(m.group(3))
 
 
-def measure(example, runs):
+def measure(example, runs, timeout=1800):
     """All measurements for one example (native first, then wasm, each
     `runs` times, medians kept).  Runs sequentially, so with the outer
     pool at W workers at most W OS processes are running at once."""
     print(example)
     path = os.path.join(EXAMPLES, example)
     asp = is_asp(path)
-    was = [wasm_once(path, asp) for _ in range(runs)]
+    was = [wasm_once(path, asp, timeout) for _ in range(runs)]
     med = lambda xs: statistics.median(xs) if xs else 0
     res = {
         'wasm_ok': all(r == 1 for r, *_ in was),
@@ -184,7 +184,7 @@ def measure(example, runs):
         res.update(native_ran=False, native_ok=None, native_ms=0)
         return res
     nat_path = NATIVE_EQUIV.get(example, path)
-    nat = [native_once(nat_path) for _ in range(runs)]
+    nat = [native_once(nat_path, timeout) for _ in range(runs)]
     res['native_ran'] = True
     res['native_ok'] = all(rc == 0 for rc, _ in nat)
     res['native_ms'] = med([ms for _, ms in nat])
@@ -195,6 +195,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--runs', type=int, default=1)
     ap.add_argument('--workers', type=int, default=32)
+    ap.add_argument('--timeout', type=int, default=1800,
+                    help='per-run timeout in seconds for both legs')
     ap.add_argument('--limit', type=int, default=0,
                     help='only the first N examples (debugging)')
     ap.add_argument('--out', default=os.path.join(HERE, 'results.csv'))
@@ -215,12 +217,12 @@ def main():
     t0 = time.monotonic()
     results = {}
     with ThreadPoolExecutor(max_workers=args.workers) as ex:
-        futs = {ex.submit(measure, e, args.runs): e for e in first}
+        futs = {ex.submit(measure, e, args.runs, args.timeout): e for e in first}
         for fut in sorted(futs, key=lambda f: futs[f]):
             results[futs[fut]] = fut.result()
     # after the pool: these examples need files prepared by others
     for e in last:
-        results[e] = measure(e, args.runs)
+        results[e] = measure(e, args.runs, args.timeout)
     wall_s = time.monotonic() - t0
 
     rows = []
