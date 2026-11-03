@@ -153,7 +153,9 @@ static void search_addstr(const char *, int);  /* add one char to search */
 
 #ifdef WIN32
 #include <io.h>
-#include <conio.h>
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
 #endif
 
 #ifdef __GO32__
@@ -201,19 +203,81 @@ struct dsc$descriptor_s descrip;  /* VMS descriptor */
 #endif
 
 #ifdef WIN32
-/* declared here to avoid pulling <windows.h> into this file */
-__declspec(dllimport) int __stdcall SetConsoleOutputCP(unsigned int);
-__declspec(dllimport) unsigned int __stdcall GetConsoleOutputCP(void);
 static unsigned int gl_old_output_cp = 0;
+static DWORD gl_old_input_mode;
+static int gl_input_mode_saved = 0;
+
+static void gl_win_restore_output_cp(void)
+{
+    /* Flush UTF-8 output before returning the shared console to its owner. */
+    fflush(stdout);
+    fflush(stderr);
+    if (gl_old_output_cp != 0)
+        SetConsoleOutputCP(gl_old_output_cp);
+}
+
+/* Read Unicode text independently of the special-key encoding used by
+ * _getwch(), whose 0xE0 prefix collides with the character U+00E0 (à).
+ * Return UTF-16 code units, or the editor's ASCII navigation commands.
+ */
+static int gl_win_getc(void)
+{
+    static KEY_EVENT_RECORD key;
+    static WORD repeats = 0;
+    INPUT_RECORD record;
+    DWORD count;
+    int c;
+
+    for (;;) {
+        if (repeats != 0) {
+            repeats--;
+        } else {
+            if (!ReadConsoleInputW(GetStdHandle(STD_INPUT_HANDLE),
+                                   &record, 1, &count) || count == 0)
+                return -1;
+            if (record.EventType != KEY_EVENT || !record.Event.KeyEvent.bKeyDown)
+                continue;
+            key = record.Event.KeyEvent;
+            repeats = key.wRepeatCount > 0 ? key.wRepeatCount - 1 : 0;
+        }
+        /* Text takes precedence, including AltGr and Alt-code input. */
+        if (key.uChar.UnicodeChar != 0)
+            return key.uChar.UnicodeChar;
+        switch (key.wVirtualKeyCode) {
+        case VK_UP:     c = 16; break;
+        case VK_DOWN:   c = 14; break;
+        case VK_LEFT:   c = 2;  break;
+        case VK_RIGHT:  c = 6;  break;
+        case VK_DELETE: c = 4;  break;
+        case VK_HOME:   c = 1;  break;
+        case VK_END:    c = 5;  break;
+        case VK_INSERT: c = 15; break;
+        default: continue;  /* modifiers, function keys, non-text events */
+        }
+        return c;
+    }
+}
 #endif
 
 static void
 gl_char_init()  /* turn off input echo */
 {
 #ifdef WIN32
-    /* the buffer is UTF-8, so have the console render UTF-8 output */
-    gl_old_output_cp = GetConsoleOutputCP();
+    /* Query results are UTF-8 too. Keep UTF-8 active between prompts and
+     * restore the original code page only when Picat exits. */
+    if (gl_old_output_cp == 0) {
+        gl_old_output_cp = GetConsoleOutputCP();
+        if (gl_old_output_cp != 0)
+            atexit(gl_win_restore_output_cp);
+    }
+    fflush(stdout);
+    fflush(stderr);
     SetConsoleOutputCP(65001);  /* CP_UTF8 */
+    gl_input_mode_saved = GetConsoleMode(GetStdHandle(STD_INPUT_HANDLE),
+                                         &gl_old_input_mode);
+    if (gl_input_mode_saved)
+        SetConsoleMode(GetStdHandle(STD_INPUT_HANDLE), gl_old_input_mode &
+                       ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_PROCESSED_INPUT));
 #endif
 #ifdef __unix__
 #ifdef POSIX
@@ -277,8 +341,10 @@ static void
 gl_char_cleanup()  /* undo effects of gl_char_init */
 {
 #ifdef WIN32
-    if (gl_old_output_cp != 0)
-        SetConsoleOutputCP(gl_old_output_cp);
+    if (gl_input_mode_saved) {
+        SetConsoleMode(GetStdHandle(STD_INPUT_HANDLE), gl_old_input_mode);
+        gl_input_mode_saved = 0;
+    }
 #endif
 #ifdef __unix__
 #ifdef POSIX
@@ -339,6 +405,7 @@ gl_getc()
     /* UTF-8 bytes still to be returned for the last wide char read */
     static unsigned char pending[4];
     static int npending = 0, ipending = 0;
+    static int saved_wc = -1;
     int wc, wc2;
 
     if (ipending < npending)
@@ -380,23 +447,21 @@ gl_getc()
     }
 #endif
 #ifdef WIN32
-    /*
-     * _getch() returns bytes in the console's OEM code page, which cannot
-     * represent most of Unicode.  Read UTF-16 with _getwch() instead and
-     * hand the result back one UTF-8 byte at a time.
-     */
-    wc = _getwch();
-    if (wc == 224 || wc == 0) {
-        c = pc_keymap(_getwch());
-    } else if (wc < 0x80) {
+    /* Encode console UTF-16 as UTF-8, one byte per call. */
+    wc = saved_wc >= 0 ? saved_wc : gl_win_getc();
+    saved_wc = -1;
+    if (wc < 0x80) {
         c = wc;
     } else {
         if (wc >= 0xD800 && wc <= 0xDBFF) {  /* surrogate pair */
-            wc2 = _getwch();
+            wc2 = gl_win_getc();
             if (wc2 >= 0xDC00 && wc2 <= 0xDFFF)
                 wc = 0x10000 + ((wc - 0xD800) << 10) + (wc2 - 0xDC00);
-            else
+            else {
                 wc = 0xFFFD;
+                /* Do not lose the character following an unpaired surrogate. */
+                saved_wc = wc2;
+            }
         } else if (wc >= 0xDC00 && wc <= 0xDFFF) {
             wc = 0xFFFD;  /* unpaired low surrogate */
         }
