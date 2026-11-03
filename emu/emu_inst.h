@@ -5058,7 +5058,17 @@ lab_conc:
       ** iterate through elements in Y3 if Y1 is a plain variable.
       */
     /* if (!AR_IS_TOP(AR)){P++; CONTCASE;} */
-{BPLONG y1, y3;
+#define CONC_COPY_ONE                                                   \
+    if (!ISLIST(op1)) goto conc_copied;                                 \
+    sreg = (BPLONG_PTR)UNTAGGED_ADDR(op1);                              \
+    FOLLOW(op3) = ADDTAG(H, LST);                                       \
+    FOLLOW(H++) = FOLLOW(sreg);  /* car of the previous cons */         \
+    op3 = (BPLONG)H; H++;                                               \
+    op1 = FOLLOW(sreg+1);                                               \
+    DEREF(op1)
+
+    {BPLONG y1, y3;
+        BPLONG_PTR h_limit;
         y1 = *P++; y3 = *P++;
         op3 = YC(y3);
         DEREF2(op3, {goto r_conc;});
@@ -5067,16 +5077,22 @@ lab_conc:
 r_conc:
         op2 = op3;  /* make a copy here */
         op1 = YC(y1); DEREF(op1);
-        while (ISLIST(op1)) {
-            sreg = (BPLONG_PTR)UNTAGGED_ADDR(op1);
-            FOLLOW(op3) = ADDTAG(H, LST);
-            FOLLOW(H++) = FOLLOW(sreg);  /* car of the previous cons */
-            op3 = (BPLONG)H; H++;
-            op1 = FOLLOW(sreg+1);
-            DEREF(op1);
+        /* Copy the list in blocks of 4 elements (8 heap words), checking for
+           space once per block rather than once per element. When H reaches
+           LOCAL_TOP-MIN_AVAIL_WORDS, stop and leave the rest of the list to
+           the compiled clause that follows this instruction: its
+           tr_det_call0 goes through INVOKE_GC, which collects garbage or
+           expands the stacks at exactly this threshold. A block may run at
+           most 8 words past the limit, which is far inside LARGE_MARGIN. */
+        h_limit = LOCAL_TOP - MIN_AVAIL_WORDS;
+        while (H < h_limit) {
+            CONC_COPY_ONE;
+            CONC_COPY_ONE;
+            CONC_COPY_ONE;
+            CONC_COPY_ONE;
         }
+    conc_copied:
         if (op2 != op3) {  /* added at least one element into arg3 */
-            if (H >= LOCAL_TOP) quit("Stack overflow: conc\n");
             PUSHTRAIL(op2);
             YC(y3) = FOLLOW(op3) = op3;
             if (IS_SUSP_VAR(op1)) op1 = UNTAGGED_ADDR(op1);
@@ -5087,6 +5103,7 @@ r_conc:
         P++;  /* skip labNil */
         CONTCASE;
 }
+
 
 #ifndef GCC
 case leng:  /* y,y,l */
@@ -6220,7 +6237,7 @@ lab_divle:
     }
     op1 = INTVAL(op1); op2 = INTVAL(op2);
     if (op2 == 0) {
-        RAISE_ISO_EXCEPTION(et_ZERO_DIVISOR, "//>", 2);
+        RAISE_ISO_EXCEPTION(et_ZERO_DIVISOR, "/>", 2);
     }
     if (op2 < 0) { op1 = -op1; op2 = -op2;}
     LOW_DIV(tmp_op, op1, op2);
@@ -6267,6 +6284,7 @@ lab_mod:
     if (op1 == BP_ERROR) {
         RAISE_ISO_EXCEPTION(bp_exception, "mod", 2);
     }
+    PUSHTRAIL_s(sreg);
     FOLLOW(sreg) = op1;
     CONTCASE;
 
@@ -6405,12 +6423,10 @@ setarg_idd:
             CONTCASE;
         }
     } else {
-        bp_exception = et_INSTANTIATION_ERROR;
+        bp_exception = c_type_error(et_COMPOUND, op2);
     }
 error_setarg:
     RAISE_ISO_EXCEPTION(bp_exception, "setarg", 3);
-
-
 
 #ifndef GCC
 case setarg0:  /* i,y,z */
@@ -6485,7 +6501,7 @@ functor_vdd_aux:
             default:
                 if (op3 < 0) {
                     RAISE_ISO_EXCEPTION(c_domain_error(et_NOT_LESS_THAN_ZERO, MAKEINT(op3)), "functor", 3);
-                } else if (op3 > MAX_ARITY) {  /* 2^16 */
+                } else if (op3 > MAX_ARITY) {  /* 2^28-1 */
                     RAISE_ISO_EXCEPTION(c_representation_error(et_MAX_ARITY), "functor", 3);
                 }
                 FOLLOW(op1) = ADDTAG(H, STR);
@@ -6502,7 +6518,7 @@ functor_vdd_aux:
         } else {  /* op3 is not an integer */
             if (ISREF(op3)) {
                 RAISE_ISO_EXCEPTION(et_INSTANTIATION_ERROR, "functor", 3);
-            } if (IS_BIGINT(op3)) {
+            } else if (IS_BIGINT(op3)) {
                 RAISE_ISO_EXCEPTION(c_representation_error(et_MAX_ARITY), "functor", 3);
             } else {
                 RAISE_ISO_EXCEPTION(c_type_error(et_INTEGER, op3), "functor", 3);
@@ -6583,7 +6599,7 @@ lab_get_clause_copy:
     op1 = aux_copy_clause(op1, op2, op3);
     if (op1 == BP_TRUE) {
         CONTCASE;
-    } if (op1 == BP_FALSE) {
+    } else if (op1 == BP_FALSE) {
         BACKTRACK;
     } else {
         RAISE_ISO_EXCEPTION(bp_exception, "clause", 3);
@@ -6604,7 +6620,7 @@ lab_garbage_collect:
             goto interrupt_handler;
         }
         RESTORE_AR; RESTORE_TOP;
-        if (LOCAL_TOP - H < op1+LARGE_MARGIN) {
+        if (LOCAL_TOP - H <= op1+LARGE_MARGIN) {
             if (op1 != 0) {op1 = stack_size+op1+LARGE_MARGIN-(LOCAL_TOP - H);}
             gc_is_working = 1;
             if (expand_local_global_stacks(op1) == BP_ERROR) {
