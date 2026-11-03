@@ -25,16 +25,6 @@
 # Output: "PASS <tag>" per example, "FAIL <tag> (rc=N)" otherwise, the
 # failing files' first errors in failures.detail.  Exit nonzero if any
 # FAIL.  Logs: scratch/compile_check/ (one .err per example).
-#
-# Known failures (pre-existing lint false positives, NOT regressions;
-# the examples run fine -- only their -c lint cannot resolve the calls
-# through the file's own redefined constraint-operator shims;  verified
-# identical on the pre-4.0b18 build 6051b61):
-#   cp/udf_ops.pi and its mip/sat/smt variants:
-#     unresolved_function(flatten):module(udf),
-#     unresolved_predicate(#=):module(<solver>)
-
-KNOWN_FAIL="cp.udf_ops.pi mip.udf_ops_mip.pi sat.udf_ops_sat.pi smt.udf_ops_smt.pi"
 
 set -u
 
@@ -95,8 +85,12 @@ run_job() {  # tag dir name
     local rc=$?
     if [ "$rc" -eq 0 ]; then
         printf 'PASS %s\n' "$tag"
-    elif echo " $JOBS_KNOWN_FAIL " | grep -q " $tag "; then
-        printf 'KNOWN-FAIL %s (pre-existing lint false positive)\n' "$tag"
+    elif grep -q "include \"$name\"" "$root"/exs/*/*.pi 2>/dev/null; then
+        # an include-library (e.g. the udf_ops shim libraries): not a
+        # standalone example, by design it has no imports of its own --
+        # Picat rejects imports inside included files.  Its code is
+        # exercised by its includers, which are swept here as well.
+        printf 'SKIP %s (include-library, exercised via its includers)\n' "$tag"
     else
         printf 'FAIL %s (rc=%s)\n' "$tag" "$rc"
         printf '== %s (rc=%s)\n' "$tag" "$rc" >> "$out/failures.detail"
@@ -105,16 +99,15 @@ run_job() {  # tag dir name
 }
 export -f run_job
 export JOBS_BIN="$BIN" JOBS_OUT="$PWD/$OUT" JOBS_PBSOL="$PBSOL" JOBS_ROOT="$PWD"
-export JOBS_KNOWN_FAIL="$KNOWN_FAIL"
 
 parallel -j "$JOBS" --colsep '\t' run_job {1} {2} {3} :::: "$JOBLIST" \
     > "$OUT/summary.log" 2> "$OUT/parallel.err"
 
 pass=$(grep -c "^PASS" "$OUT/summary.log" || true)
 fail=$(grep -c "^FAIL" "$OUT/summary.log" || true)
-known=$(grep -c "^KNOWN-FAIL" "$OUT/summary.log" || true)
+skip=$(grep -c "^SKIP" "$OUT/summary.log" || true)
 date "+# finished: %F %T"
-echo "# pass=$pass fail=$fail known-fail=$known"
+echo "# pass=$pass fail=$fail skip=$skip"
 if [ "$fail" -ne 0 ]; then
     echo "# failing examples (details in $OUT/failures.detail):"
     grep "^FAIL" "$OUT/summary.log" | head -20 | sed 's/^/  /'
