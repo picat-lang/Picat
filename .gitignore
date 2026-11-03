@@ -46,3 +46,7 @@ scratch/
 
 __pycache__/
 smoke/.smoke
+
+# project log files, maintained locally only (never commit or push)
+user_input.md
+handover.md
