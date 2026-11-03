@@ -12,7 +12,11 @@ Version 4.0b12 (10/24/2026)
 
 + Updated the parser to allow terms of the form +(num) and -(num) (in early versions, +(num) and -(num) are always numbers).
 
-+ Add the ext(Command) solver option into the sat module to allow use of an extenal sat solver.
++ Added the ext(Command) solver option into the sat module to allow use of an extenal sat solver.
+
++ Updated "token.c" and "getline.c" to handle UTF-8 in data files, programs, and the REPL.
+
++ Updated "emu_inst.h" so make the optimization for append safe for concatenating large lists.
 
 + Removed the maxsat solver option in the sat module.
 
