@@ -1,0 +1,102 @@
+%% pipeline_planner.pi -- a build/pipeline planner that layers Picat's
+%% three strengths on one meaningful problem: given a task DAG (a
+%% software build with diamonds in it), analyse it, then schedule it.
+%%
+%%   1. TABLING     -- the critical-path analysis.  earliest(I, Mode) is
+%%      the longest prerequisite chain ending at task I, a recursion that
+%%      revisits shared prerequisites once per PATH on a diamond DAG;
+%%      tabling turns it into linear DP.  The transitive dependency
+%%      closure dep/2 is tabled too.  The tabled constants are then fed
+%%      into the constraint model as sound domain lower bounds.
+%%   2. FUNCTIONAL  -- the duration model is a function VALUE: one
+%%      scheduler, pluggable hardware profiles (a developer laptop with
+%%      cold caches vs. a warm CI farm), and the report is composed with
+%%      list comprehensions and findall over the tabled predicates.
+%%   3. CONSTRAINTS -- the cp scheduler: precedence arcs, a cumulative
+%%      pool of 2 workers, and the makespan minimization.
+%%
+%% Run from the repo root (cp is preloaded; nothing extra needed):
+%%
+%%     emu/picat exs/cp/pipeline_planner.pi
+
+import cp.
+
+%% ---- the task graph: a 14-task software build, diamond-heavy ----
+%% 1 lib_a  2 lib_b  3 obj_a  4 obj_b  5 obj_c  6 obj_d  7 obj_e
+%% 8 link   9 test_fast  10 test_slow  11 report  12 docs  13 pkg
+%% 14 upload
+
+prereqs(1) = [].
+prereqs(2) = [].
+prereqs(3) = [1].
+prereqs(4) = [1,2].     % diamond: needs both libs
+prereqs(5) = [2].
+prereqs(6) = [3,4].     % diamond
+prereqs(7) = [4,5].     % diamond
+prereqs(8) = [6,7].     % diamond closes
+prereqs(9) = [8].
+prereqs(10) = [8].
+prereqs(11) = [9,10].
+prereqs(12) = [8].
+prereqs(13) = [11,12].
+prereqs(14) = [13].
+
+base(1) = 5. base(2) = 3. base(3) = 4. base(4) = 6. base(5) = 2.
+base(6) = 3. base(7) = 4. base(8) = 2. base(9) = 3. base(10) = 8.
+base(11) = 1. base(12) = 5. base(13) = 2. base(14) = 1.
+
+%% ---- 1. FUNCTIONAL: pluggable duration profiles as function values ----
+
+profile(dev) = ([B] -> cond(B > 4, 2 * B, B + 1)).  % cold laptop
+profile(ci)  = ([B] -> B).                          % warm build farm
+
+dur(I, Mode) = D =>
+    P = profile(Mode),
+    D = P(base(I)).
+
+%% ---- 2. TABLING: the critical-path analysis ----
+
+% the earliest start by the critical path of the prerequisites.  On a
+% diamond DAG a plain recursion recomputes each shared prerequisite once
+% per path (exponentially many);  the table memoizes it into linear DP.
+table
+earliest(I, Mode) = T =>
+    T = max([dur(P, Mode) + earliest(P, Mode) : P in prereqs(I)] ++ [0]).
+
+% the transitive dependency closure: dep(I, J) iff task I depends on
+% task J through one or more arcs.
+table
+dep(I, J) ?=> J = I.
+dep(I, J) ?=> member(P, prereqs(I)), dep(P, J).
+
+%% ---- 3. CONSTRAINTS: the optimal 2-worker parallel schedule ----
+
+solve_plan(Mode) = (Makespan, Start) =>
+    Dur = [dur(I, Mode) : I in 1..14],
+    ES  = [earliest(I, Mode) : I in 1..14],
+    Start = new_array(14),
+    foreach (I in 1..14)
+        Start[I] :: ES[I]..sum(Dur)   % the tabling shapes the domains
+    end,
+    foreach (I in 1..14, P in prereqs(I))
+        Start[P] + Dur[P] #=< Start[I]
+    end,
+    Makespan :: 0..sum(Dur),
+    foreach (I in 1..14)
+        Makespan #>= Start[I] + Dur[I]
+    end,
+    cumulative(Start, Dur, new_list(14, 1), 2),  % every task needs a worker
+    solve($[min(Makespan)], Start.to_list() ++ [Makespan]).
+
+main =>
+    foreach (Mode in [ci, dev])
+        (Makespan, Start) = solve_plan(Mode),
+        LB = earliest(14, Mode) + dur(14, Mode),
+        printf("profile %w: critical-path makespan bound = %w,  2-worker optimum = %w%n",
+               Mode, LB, Makespan),
+        printf("  starts: %w%n", [S : I in 1..14, S in [Start[I]]])
+    end,
+    % the tabled closure in action: what does the upload task really wait for?
+    Blocks = findall(J, dep(14, J)),
+    printf("upload transitively depends on %w of the 13 other tasks%n",
+           Blocks.len - 1).
