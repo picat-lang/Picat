@@ -76,6 +76,20 @@ workspace; override `HAKAN`/`TARGET` (the Hakan tree), `STOCK_PICAT`,
   through GNU parallel (`JOBS` in flight, default 32), plus the `pb`
   examples single-sided on this build. Needs GNU parallel and ≥90
   physical cores for the core pinning.
+- `compile_check.sh [JOBS] [--bin PATH]` — compile+lint (`picat -c`)
+  every `exs` example at high parallelism (default `JOBS=128`),
+  verifying that the compiler/check mode still accepts all of them,
+  including the native lambda syntax (`$lambda(...)`). The check mode
+  compiles and lints without running and writes nothing, so the sweep
+  is read-only and needs no private copies. Environments mirror
+  `fdn_exs.sh` (the `pb`/`satext` dirs get their `PICATPATH`/`PBSOL`;
+  examples whose header documents `PICATPATH` compile from the repo
+  root with `PICATPATH=lib2`; the rest use the preloaded lib). Known
+  failures (reported as `KNOWN-FAIL`, not failing the exit code): the
+  `udf_ops` family — a pre-existing lint false positive (the lint
+  cannot resolve `udf.flatten` through the file's own redefined
+  constraint-operator shims; the examples run fine). Env: `BIN`,
+  `PBSOL`. Logs: `scratch/compile_check/`.
 - `integration_check.sh [JOBS] [flags]` — the full fdn-integration
   verification in one command, at high parallelism (default `JOBS=128`):
   rebuilds the fdn binary (fails on any warning or error from our
