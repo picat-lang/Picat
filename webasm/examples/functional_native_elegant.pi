@@ -1,0 +1,58 @@
+%% functional_native_elegant.pi -- the elegant functional-programming
+%% demo in Picat 4.0's NATIVE anonymous-function syntax: the lambda
+%% expressions that our fp module (lib2/fp.pi) emulates with
+%% function-terms.
+%%
+%% This file does NOT import fp.  The constructs are compiled Picat:
+%% anonymous functions ([A1,...,An] -> Res, Body) with capture-at-creation
+%% closures.  This snapshot is based on 4.0b18, so it runs both in the
+%% browser (pick it from the example list) and natively:
+%%
+%%     emu/picat webasm/examples/functional_native_elegant.pi
+%%
+%% The recursive lambdas use the SELF-REFERENCING anonymous-recursion
+%% pattern (the function taking itself as its first parameter and
+%% self-applying it on every recursive call), which the 4.0b13-era
+%% runtime rejected and which the 4.0b18 base allows.  Verified with
+%%
+%%     Gcd = ([F,X,Y] -> cond(Y == 0, X, F(F,Y,X mod Y))),
+%%     println(Gcd(Gcd,48,18))                % 6
+%%
+%% The computation mirrors exs/fp/elegant.pi (the fp module's version):
+%% sqrt(2) by Newton's method, the derivative operator, the definite
+%% integral, and a composition pipeline -- all four outputs identical.
+
+main =>
+    % Newton's method as a recursive anonymous function: solves F(X) = 0.
+    % NEWTON takes itself as its first parameter (Me) and self-applies it
+    % on every recursive call.
+    NEWTON = ([Me, F, DF, X] -> cond(abs(F(X)) < 1.0e-10,
+             X,
+             Me(Me, F, DF, X - F(X) / DF(X)))),
+    SQRT2 = NEWTON(NEWTON, ([X] -> X * X - 2), ([X] -> 2 * X), 1.0),
+    println("sqrt(2)      = " ++ SQRT2.to_string),
+
+    % The derivative operator: D(F) returns a CLOSURE -- an anonymous
+    % function whose body calls the captured F.  D(SQ) is a function
+    % value.
+    D = ([F] -> ([X] -> (F(X + 1.0e-6) - F(X)) / 1.0e-6)),
+    SQ = ([X] -> X * X),
+    DSQ = D(SQ),
+    println("d/dx x^2 @3  = " ++ DSQ(3).to_string),
+
+    % The definite integral as a recursive anonymous function (left
+    % Riemann sum).
+    INTEG = ([Me, F, A, H, N] -> cond(N == 0,
+             0,
+             F(A) * H + Me(Me, F, A + H, H, N - 1))),
+    I = INTEG(INTEG, SQ, 0.0, 0.001, 2000),
+    println("int x^2 0..2 = " ++ I.to_string),
+
+    % A composition pipeline bound once and mapped: 3*(x^2 + 1).  The
+    % same left-to-right chain as the fp pipe example: square, add 1,
+    % multiply by 3.
+    F1 = SQ,
+    F2 = ([X] -> X + 1),
+    F3 = $'*'(3),
+    P = ([X] -> F3(F2(F1(X)))),
+    println("3*(x^2+1)    = " ++ map(P, [1,2,3]).to_string).
