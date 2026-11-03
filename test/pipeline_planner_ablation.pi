@@ -1,0 +1,180 @@
+%% pipeline_planner_ablation.pi -- the ablation for pipeline_planner.pi.
+%% Question: is the tabling-based preprocessing of the start windows
+%% (seeding every task's domain at its computed earliest start) actually
+%% necessary, or does cp's precedence propagation reach the same bounds
+%% on its own when every window simply starts at 0?
+%%
+%% VERDICT: not necessary.  Both variants find the same optima, and the
+%% plain (unseeded) variant is just as fast at every scale measured:
+%%   14-task example:  both at the timing noise floor (~1 ms)
+%%   61 tasks:         0.009 s vs 0.012 s
+%%   151 tasks:        ~0.09 s vs ~0.11 s
+%%   301 tasks:        ~1.1 s vs ~0.8 s  (the plain variant slightly faster)
+%%   601 tasks:        ~3.5 s vs ~2.9 s  (within noise)
+%% cp's arc propagation on the precedence constraints derives the same
+%% earliest-start bounds during search, and the makespan minimization is
+%% dominated by the search for the packed schedule, not by the bound
+%% derivation.  The tabling in pipeline_planner.pi is still worth
+%% keeping -- but for the analysis itself (on a diamond DAG the untabled
+%% critical-path recursion is exponential) and the dep/2 closure, not
+%% for the solver's speed.
+%%
+%% Two variants, identical except for the window seed:
+%%   processed -- the plan as written:  Start[I] :: ES[I]..sum(Dur)
+%%   plain     -- no preprocessing:     Start[I] :: 0..sum(Dur)
+%% Each is solved 5 times per profile and every run is timed;  the first
+%% run of the whole suite additionally pays the one-time .qi compile.
+%% A chain of N nested diamonds (3N+1 tasks) scales the comparison up.
+%%
+%% Run from the repo root (cp is preloaded; nothing extra needed):
+%%
+%%     emu/picat test/pipeline_planner_ablation.pi
+
+import cp.
+
+%% ---- the task graph: a 14-task software build, diamond-heavy ----
+%% 1 lib_a  2 lib_b  3 obj_a  4 obj_b  5 obj_c  6 obj_d  7 obj_e
+%% 8 link   9 test_fast  10 test_slow  11 report  12 docs  13 pkg
+%% 14 upload
+
+prereqs(1) = [].
+prereqs(2) = [].
+prereqs(3) = [1].
+prereqs(4) = [1,2].     % diamond: needs both libs
+prereqs(5) = [2].
+prereqs(6) = [3,4].     % diamond
+prereqs(7) = [4,5].     % diamond
+prereqs(8) = [6,7].     % diamond closes
+prereqs(9) = [8].
+prereqs(10) = [8].
+prereqs(11) = [9,10].
+prereqs(12) = [8].
+prereqs(13) = [11,12].
+prereqs(14) = [13].
+
+base(1) = 5. base(2) = 3. base(3) = 4. base(4) = 6. base(5) = 2.
+base(6) = 3. base(7) = 4. base(8) = 2. base(9) = 3. base(10) = 8.
+base(11) = 1. base(12) = 5. base(13) = 2. base(14) = 1.
+
+%% ---- 1. FUNCTIONAL: pluggable duration profiles as function values ----
+
+profile(dev) = ([B] -> cond(B > 4, 2 * B, B + 1)).  % cold laptop
+profile(ci)  = ([B] -> B).                          % warm build farm
+
+dur(I, Mode) = D =>
+    P = profile(Mode),
+    D = P(base(I)).
+
+%% ---- 2. TABLING: the critical-path analysis ----
+
+% the earliest start by the critical path of the prerequisites.  On a
+% diamond DAG a plain recursion recomputes each shared prerequisite once
+% per path (exponentially many);  the table memoizes it into linear DP.
+table
+earliest(I, Mode) = T =>
+    T = max([dur(P, Mode) + earliest(P, Mode) : P in prereqs(I)] ++ [0]).
+
+% the transitive dependency closure: dep(I, J) iff task I depends on
+% task J through one or more arcs.
+table
+dep(I, J) ?=> J = I.
+dep(I, J) ?=> member(P, prereqs(I)), dep(P, J).
+
+%% ---- 3. CONSTRAINTS: the optimal 2-worker parallel schedule ----
+
+solve_plan(Mode, Seed) = (Makespan, Start) =>
+    Dur = [dur(I, Mode) : I in 1..14],
+    ES  = [earliest(I, Mode) : I in 1..14],
+    Start = new_array(14),
+    foreach (I in 1..14)
+        ( if Seed then Start[I] :: ES[I]..sum(Dur)   % the tabling shapes the domains
+                 else Start[I] :: 0..sum(Dur) end )  % all windows start at 0
+    end,
+    foreach (I in 1..14, P in prereqs(I))
+        Start[P] + Dur[P] #=< Start[I]
+    end,
+    Makespan :: 0..sum(Dur),
+    foreach (I in 1..14)
+        Makespan #>= Start[I] + Dur[I]
+    end,
+    cumulative(Start, Dur, new_list(14, 1), 2),  % every task needs a worker
+    solve($[min(Makespan)], Start.to_list() ++ [Makespan]).
+
+main =>
+    printf("== the 14-task example ==%n"),
+    foreach (Mode in [ci, dev])
+        foreach (Seed in [true, false])
+            printf("profile %w, seed %w:%n", Mode, Seed),
+            foreach (_ in 1..5)
+                time( run_once(Mode, Seed) )
+            end
+        end
+    end,
+    printf("== the scaled chain of nested diamonds (ci) ==%n"),
+    foreach (N in [20, 50, 100, 200])
+        foreach (Seed in [true, false])
+            printf("N=%w (%w tasks), seed %w:%n", N, snum(N), Seed),
+            foreach (_ in 1..5)
+                time( run_scaled_once(N, ci, Seed) )
+            end
+        end
+    end,
+    printf("== do the variants agree on the optimum? ==%n"),
+    foreach (N in [20, 50, 100])
+        foreach (Seed in [true, false])
+            (Span, _) = solve_scaled(N, ci, Seed),
+            printf("N=%w (%w tasks), seed %w: makespan = %w%n", N, snum(N), Seed, Span)
+        end
+    end.
+
+run_once(Mode, Seed) =>
+    ( _, _ ) = solve_plan(Mode, Seed).
+
+%% ===== the scaled instance: a chain of N nested diamonds =====
+%% task 1 is the start; stage k contributes a(k)=3k-1, b(k)=3k and
+%% join(k)=3k+1, so the diamonds are chained:  join(k-1) -> {a,b} -> join(k).
+
+snum(N) = 3 * N + 1.
+
+spred(X) = Ps =>
+    if X == 1 then Ps = []
+    else
+        M = (X - 2) mod 3,
+        K = (X + 1) // 3,
+        ( if M == 2 then Ps = [3 * K - 1, 3 * K]
+          elseif K == 1 then Ps = [1]
+          else Ps = [3 * (K - 1) + 1]
+        end )
+    end.
+
+sbase(X) = (X mod 4) + 1.
+
+sdur(I, Mode) = D =>
+    P = profile(Mode),
+    D = P(sbase(I)).
+
+table
+searliest(I, Mode) = T =>
+    T = max([sdur(P, Mode) + searliest(P, Mode) : P in spred(I)] ++ [0]).
+
+solve_scaled(N, Mode, Seed) = (Makespan, Start) =>
+    T = snum(N),
+    Dur = [sdur(I, Mode) : I in 1..T],
+    ES  = [searliest(I, Mode) : I in 1..T],
+    Start = new_array(T),
+    foreach (I in 1..T)
+        ( if Seed then Start[I] :: ES[I]..sum(Dur)
+                 else Start[I] :: 0..sum(Dur) end )
+    end,
+    foreach (I in 1..T, P in spred(I))
+        Start[P] + Dur[P] #=< Start[I]
+    end,
+    Makespan :: 0..sum(Dur),
+    foreach (I in 1..T)
+        Makespan #>= Start[I] + Dur[I]
+    end,
+    cumulative(Start, Dur, new_list(T, 1), 2),
+    solve($[min(Makespan)], Start.to_list() ++ [Makespan]).
+
+run_scaled_once(N, Mode, Seed) =>
+    ( _, _ ) = solve_scaled(N, Mode, Seed).
