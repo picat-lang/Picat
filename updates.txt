@@ -14,9 +14,13 @@ Version 4.0b19 (11/03/2026)
 
 + Added the ext(Command) solver option into the sat module to allow use of an extenal sat solver.
 
-+ Updated "token.c" and "getline.c" to handle UTF-8 in data files, programs, and the REPL.
++ Updated "token.c", "file.c", and "getline.c" to enable UTF-8 characters in data files, programs, and the REPL.
 
-+ Updated "emu_inst.h" so make the optimization for append safe for concatenating large lists.
++ Updated "emu_inst.h" to make the optimization for append safe for concatenating large lists.
+
++ Updated the loader so that it recompiles the source pi file if the existing qi bytecode is older.
+
++ Updated the compiler to issue an error when encountering cyclic imports of modules.
 
 + Removed the maxsat solver option in the sat module.
 
