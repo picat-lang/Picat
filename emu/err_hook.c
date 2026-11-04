@@ -262,15 +262,25 @@ static char *err_next_line(char *p, char *out, int outsize, int *lineno)
 /* strip strings, % comments, and quoted atoms from a line in place-ish.
    Multi-line double-quoted strings are tracked: an unterminated " carries
    to the following lines (err_instring), so prose inside a multi-line
-   string is not parsed as code.  Each pass resets err_instring to 0. */
+   string is not parsed as code.  Multi-line quoted atoms are tracked the
+   same way (err_inqatom): an unterminated ' carries to the following
+   lines, so parens inside a quoted atom that spans lines are not counted
+   (e.g. a multi-line error culprit).  Each pass resets both to 0. */
 #define ERR_LINEBUF 131072
 static int err_instring = 0;
+static int err_inqatom = 0;
 
 static void err_strip_noise(const char *line, char *out, int outsize)
 {
     int i = 0, o = 0;
     while (line[i] != '\0' && o < outsize - 1) {
         char c = line[i];
+        if (err_inqatom) {
+            if (c == '\\' && line[i+1] != '\0') { i += 2; continue; }
+            if (c == '\'') { err_inqatom = 0; i++; continue; }
+            i++;
+            continue;
+        }
         if (err_instring) {
             if (c == '\\' && line[i+1] != '\0') { i += 2; continue; }
             if (c == '"') { err_instring = 0; i++; continue; }
@@ -308,6 +318,7 @@ static void err_strip_noise(const char *line, char *out, int outsize)
                 i++;
             }
             if (line[i] == q) i++;
+            else err_inqatom = 1;  /* the atom continues on the next line */
             out[o++] = ' ';
             continue;
         }
@@ -490,6 +501,7 @@ static void err_report_undef(const char *name, int arity)
 
     if (name[0] == '\0' || name[0] == '$') return;
     err_instring = 0;
+    err_inqatom = 0;
     buf = err_read_file(err_main_file, &len);
     if (buf == NULL) {                    /* call is not in the main file */
         fprintf(stderr, "*** lint: '%s/%d' is undefined.\n", name, arity);
@@ -668,6 +680,7 @@ static void err_report_typed(int type, const char *culprit)
 
     if (culprit[0] == '\0' && type != 10) return;
     err_instring = 0;
+    err_inqatom = 0;
     buf = err_read_file(err_main_file, &len);
     if (buf == NULL) {
         if (type == 10)
@@ -791,6 +804,7 @@ static void err_report_singletons(const char *path)
     int i, shown = 0, total = 0;
 
     err_instring = 0;
+    err_inqatom = 0;
     buf = err_read_file(path, &len);
     if (buf == NULL) return;
     p = buf;
@@ -876,6 +890,7 @@ int err_lint_main_file(void)
     buf = err_read_file(err_main_file, &len);
     if (buf == NULL) return 0;
     err_instring = 0;
+    err_inqatom = 0;
     err_suppress_name = undef_name;
     err_nheads = 0; err_clause_seq = 0; err_ncontig = 0; err_nnamecontig = 0;
     err_expect_head = 1; err_in_head = 0; err_brack_bad = 0;

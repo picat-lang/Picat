@@ -43,9 +43,18 @@ static int gl_tab(char *buf, int offset, int *loc);  /* forward reference needed
 #define sys_write(a, b, c) _write(a, b, c)
 #define sys_isatty(t) _isatty(t)
 #else
+#include <unistd.h>
 #define sys_write(a, b, c) write(a, b, c)
 #define sys_isatty(t) isatty(t)
 #endif
+
+/* fire-and-forget console writes: the return value is deliberately not
+   used, which would otherwise trip -Wunused-result */
+static void write_ignore(int fd, const void *buf, size_t len)
+{
+    ssize_t w = sys_write(fd, buf, len);
+    (void)w;
+}
 
 
 
@@ -497,7 +506,7 @@ gl_putc(c)
 {
     char ch = c;
 
-    if (ch == '\r' || ch == '\n'); else sys_write(1, &ch, 1);
+    if (ch == '\r' || ch == '\n'); else write_ignore(1, &ch, 1);
 
     /*    if (ch == '\n') {
           ch = '\r'; 
@@ -516,7 +525,7 @@ gl_puts(buf)
 
     if (buf) {
         len = strlen(buf);
-        sys_write(1, buf, len);
+        write_ignore(1, buf, len);
     }
 }
 
@@ -527,7 +536,7 @@ gl_error(buf)
     int len = strlen(buf);
 
     gl_cleanup();
-    sys_write(2, buf, len);
+    write_ignore(2, buf, len);
     exit(1);
 }
 
@@ -1074,7 +1083,7 @@ gl_fixup(prompt, change, cursor)
                 off_right = 1;
                 break;
             }
-            sys_write(1, gl_buf + p, n);
+            write_ignore(1, gl_buf + p, n);
             col += w;
             p += n;
         }
@@ -1110,13 +1119,13 @@ gl_fixup(prompt, change, cursor)
             p += n;
         }
         if (i == scr_col) {
-            sys_write(1, gl_buf + p, cursor - p);
+            write_ignore(1, gl_buf + p, cursor - p);
         } else {  /* should not happen; redraw from the start */
             for (i = 0; i < scr_col; i++)
                 gl_putc('\b');
             if (off_left)
                 gl_putc('$');
-            sys_write(1, gl_buf + gl_shift, cursor - gl_shift);
+            write_ignore(1, gl_buf + gl_shift, cursor - gl_shift);
         }
     }
     scr_col = col;
