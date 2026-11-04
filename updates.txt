@@ -1,4 +1,4 @@
-Version 4.0b12 (10/24/2026)
+Version 4.0b19 (11/03/2026)
 =================================
 + Updated the parser to allow higher-order variable calls of the form S(A1,A2,...,An), where S is a variable at compile time and refers to a callable term at runtime. Picat translates this notation into a call or apply invocation, depending on the context. Higher-order calls can also be module-qualified: m.S(A1,A2,...,An) invokes the function or predicate defined in module m whose symbol is referenced by S.
 
@@ -12,7 +12,15 @@ Version 4.0b12 (10/24/2026)
 
 + Updated the parser to allow terms of the form +(num) and -(num) (in early versions, +(num) and -(num) are always numbers).
 
-+ Add the ext(Command) solver option into the sat module to allow use of an extenal sat solver.
++ Added the ext(Command) solver option into the sat module to allow use of an extenal sat solver.
+
++ Updated "token.c", "file.c", and "getline.c" to enable UTF-8 characters in data files, programs, and the REPL.
+
++ Updated "emu_inst.h" to make the optimization for append safe for concatenating large lists.
+
++ Updated the loader so that it recompiles the source pi file if the existing qi bytecode is older.
+
++ Updated the compiler to issue an error when encountering cyclic imports of modules.
 
 + Removed the maxsat solver option in the sat module.
 
