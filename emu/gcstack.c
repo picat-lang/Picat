@@ -218,12 +218,14 @@ int allocateCopyArea(BPLONG size)
         if (size <= (BPLONG)((BPULONG)copy_area_high-(BPULONG)copy_area_low)/sizeof(BPLONG)) {
             return BP_TRUE;
         } else {
+            BPLONG_PTR new_copy_area_low;
             /*      BPLONG doubleSize = 2*(((BPULONG)copy_area_high-(BPULONG)copy_area_low)/sizeof(BPLONG)); */
-            free(copy_area_low);
             /* size = size>doubleSize ? size : doubleSize; */
-            BP_MALLOC(copy_area_low, size);
-            if (copy_area_low == NULL) return BP_ERROR;
+            BP_MALLOC(new_copy_area_low, size);
+            if (new_copy_area_low == NULL) return BP_ERROR;
 
+            free(copy_area_low);
+            copy_area_low = new_copy_area_low;
             copy_area_high = copy_area_low+size-1;
         }
     }
