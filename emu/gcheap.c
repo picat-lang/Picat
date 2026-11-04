@@ -101,7 +101,7 @@ int eliminateDuplicatedTrailInTopSegmentLinear() {
     BPLONG_PTR last_checked_addr = 0;
 
     trail_top0 = trail_top;  /* original trail top */
-    mask_size = ((BPULONG)AR_H(breg)-(BPULONG)stack_low_addr)/NBITS_IN_LONG+2;  /* masking bits */
+    mask_size = ((BPULONG)AR_H(breg)-(BPULONG)stack_low_addr)/sizeof(BPLONG)/NBITS_IN_LONG+2;  /* one bit per BPLONG cell */
     /* printf("mask_size=%d\n",mask_size); */
 
     if (allocateMaskArea(mask_size) == BP_ERROR) return BP_ERROR;  /* mask bits*/

@@ -6624,6 +6624,7 @@ lab_garbage_collect:
             if (op1 != 0) {op1 = stack_size+op1+LARGE_MARGIN-(LOCAL_TOP - H);}
             gc_is_working = 1;
             if (expand_local_global_stacks(op1) == BP_ERROR) {
+                gc_is_working = 0;
                 bp_exception = et_OUT_OF_MEMORY_STACK;
                 goto interrupt_handler;
             }

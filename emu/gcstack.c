@@ -61,16 +61,16 @@ int garbage_collector()
     gc_initialize_ar_chain();
 
     if (sfreg < breg)
-        if (gc_globalize_sf_chain() == BP_ERROR) return BP_ERROR;
+        if (gc_globalize_sf_chain() == BP_ERROR) goto error;
     no_gcs++;
     /* printf("=>packTrail\n"); */
     packEntireTrail();
     /* printf("=>eliDup\n"); */
-    if (eliminateDuplicatedTrailInTopSegment() == BP_ERROR) return BP_ERROR;
+    if (eliminateDuplicatedTrailInTopSegment() == BP_ERROR) goto error;
     /* printf("=>stack\n"); */
-    if (gcStack() == BP_ERROR) return BP_ERROR;
+    if (gcStack() == BP_ERROR) goto error;
     /* printf("=>heap\n"); */
-    if (gcHeap() == BP_ERROR) return BP_ERROR;
+    if (gcHeap() == BP_ERROR) goto error;
 
     gc_is_working = 0;
     //  check_susp_frames_reep("<=GC");
@@ -79,6 +79,10 @@ int garbage_collector()
     //  show_ar_chain(arreg);
     gc_time += (cputime()-msec0);
     return BP_TRUE;
+
+error:
+    gc_is_working = 0;
+    return BP_ERROR;
 }
 
 void gc_initialize_ar_chain() {
@@ -115,7 +119,7 @@ int gc_globalize_sf_chain() {
     BPLONG_PTR f;
     BPLONG mask_size;
 
-    mask_size = ((BPULONG)breg-(BPULONG)local_top)/NBITS_IN_LONG+2;  /* masking bits */
+    mask_size = ((BPULONG)breg-(BPULONG)local_top)/sizeof(BPLONG)/NBITS_IN_LONG+2;  /* one bit per BPLONG cell */
     if (allocateMaskArea(mask_size) == BP_ERROR) return BP_ERROR;
 
     mark_stack_references_ar_chain();
@@ -215,7 +219,7 @@ int allocateCopyArea(BPLONG size)
         /*  printf("new block allocated %x %x words\n",copy_area_low,copy_area_high); */
         copy_area_allocated = 1;
     } else {  /* reuse already allocated copy area */
-        if (size <= (BPLONG)((BPULONG)copy_area_high-(BPULONG)copy_area_low)/sizeof(BPLONG)) {
+        if (size <= (BPLONG)(((BPULONG)copy_area_high-(BPULONG)copy_area_low)/sizeof(BPLONG)+1)) {
             return BP_TRUE;
         } else {
             BPLONG_PTR new_copy_area_low;
@@ -238,7 +242,7 @@ int gcStack()
 
     /* preparation */
     b_top = (BPLONG_PTR)AR_TOP(breg);
-    mask_size = ((BPULONG)heap_top-(BPULONG)stack_low_addr)/NBITS_IN_LONG+2;  /* masking bits */
+    mask_size = ((BPULONG)heap_top-(BPULONG)stack_low_addr)/sizeof(BPLONG)/NBITS_IN_LONG+2;  /* one bit per BPLONG cell */
 
     if (allocateMaskArea(mask_size) == BP_ERROR) return BP_ERROR;
 

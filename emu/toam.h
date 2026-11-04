@@ -704,6 +704,7 @@ extern BPLONG no_gcs;
         if (toam_signal_vec == 0 && in_critical_region == 0) {  \
             gc_is_working = 1;                                  \
             if (expand_local_global_stacks(0) == BP_ERROR) {    \
+                gc_is_working = 0;                              \
                 fprintf(stderr, "%% error: OUT OF MEMORY\n");   \
                 bp_exception = et_OUT_OF_MEMORY_STACK;          \
                 goto interrupt_handler;                         \
