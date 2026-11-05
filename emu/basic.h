@@ -410,6 +410,8 @@ extern SYM_REC_PTR findall_result2;
 extern SYM_REC_PTR interval_psc;
 extern SYM_REC_PTR call_cleanup_psc;
 extern SYM_REC_PTR plan_psc;
+extern SYM_REC_PTR plan_unbounded1_psc;
+extern SYM_REC_PTR plan_unbounded3_psc;
 extern SYM_REC_PTR set_constructor_psc;
 extern SYM_REC_PTR comma_psc;
 extern SYM_REC_PTR float_psc;

@@ -2668,7 +2668,7 @@ int resetPlannerSubgoals(){
     subgoal_entry = (BPLONG_PTR)FOLLOW(subgoalTable+i);
     while (subgoal_entry != NULL) {
       sym_ptr = (SYM_REC_PTR)GT_SYM(subgoal_entry);
-      if (sym_ptr == plan_psc){
+      if (sym_ptr == plan_psc || sym_ptr == plan_unbounded1_psc || sym_ptr == plan_unbounded3_psc){
         GT_TOP_AR(subgoal_entry) = (BPLONG)NULL;
         GT_SCC_ROOT(subgoal_entry) = (BPLONG)subgoal_entry;
         GT_SCC_ELMS(subgoal_entry) = (BPLONG)NULL;
