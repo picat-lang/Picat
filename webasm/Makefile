@@ -38,8 +38,13 @@ DIST    := dist
 # would otherwise relink nothing, so the file is regenerated whenever
 # HEAD changes and dist/picat.js depends on it.  '+': live dirty-tree
 # check, evaluated at link time, never part of the stamp.
+# The base Picat version (e.g. 4.0b20) is grepped from ../emu/main.c
+# (the single source of truth for the version strings) and appended to
+# the badge after a middle dot, so a base bump propagates to the page
+# without a manual edit here; the badge shows "<sha>+ · <base>".
 GIT_STAMP := $(BUILDDIR)/gitstamp
-BUILD_ID  = $(shell cat $(GIT_STAMP) 2>/dev/null || echo unknown)$(if $(shell git -C .. status --porcelain 2>/dev/null | head -c1),+)
+BASE_VER  = $(shell grep -oE 'based on Picat [0-9a-z.]+' ../emu/main.c 2>/dev/null | head -1 | cut -d' ' -f4)
+BUILD_ID  = $(shell cat $(GIT_STAMP) 2>/dev/null || echo unknown)$(if $(shell git -C .. status --porcelain 2>/dev/null | head -c1),+)$(if $(BASE_VER), · $(BASE_VER),)
 .DEFAULT_GOAL := all
 
 $(GIT_STAMP): FORCE

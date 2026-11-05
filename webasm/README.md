@@ -35,8 +35,11 @@ Prerequisites:
   editor (it does not run it),
 * the **terminal** title bar carries, at its right edge, a small badge
   with the build stamp: the 12-char commit id the `dist/` was built
-  from (`+` marks a dirty tree at build time) -- use it to identify a
-  deployed page against the git history,
+  from (`+` marks a dirty tree at build time), then the base Picat
+  release after a middle dot (e.g. `<sha>+ · Picat 4.0b20`) --
+  use it to identify a deployed page against the git history and
+  against the upstream base it was built from (hovering the badge
+  shows both in a tooltip),
 * the **File** menu opens a local `.pi` file into the editor, saves
   the editor contents as a download, or deals in share links:
   **Share as link…** base64url-encodes (utf-8) the editor text into
