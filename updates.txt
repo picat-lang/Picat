@@ -1,4 +1,4 @@
-Version 4.0b19 (11/03/2026)
+Version 4.0b21 (11/05/2026)
 =================================
 + Updated the parser to allow higher-order variable calls of the form S(A1,A2,...,An), where S is a variable at compile time and refers to a callable term at runtime. Picat translates this notation into a call or apply invocation, depending on the context. Higher-order calls can also be module-qualified: m.S(A1,A2,...,An) invokes the function or predicate defined in module m whose symbol is referenced by S.
 
