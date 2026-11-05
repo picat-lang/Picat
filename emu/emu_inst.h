@@ -6789,6 +6789,7 @@ lab_garbage_collect:
             gc_is_working = 1;
             __atomic_add_fetch(&gc_working_count, 1, __ATOMIC_SEQ_CST);
             if (expand_local_global_stacks(op1) == BP_ERROR) {
+                gc_is_working = 0;
                 bp_exception = et_OUT_OF_MEMORY_STACK;
                 gc_is_working = 0;
                 __atomic_sub_fetch(&gc_working_count, 1, __ATOMIC_SEQ_CST);
