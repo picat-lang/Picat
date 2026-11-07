@@ -48,6 +48,11 @@ flushTty(M);
   try { rc = M.ccall('browser_rerun', 'number'); } catch (e) { failed = true; }
   flushTty(M);
   const run_ms = Date.now() - r0;
+  // the lint runs after every run (like the page's doRun): it dumps
+  // the captured stderr (the run's error messages) and prints the
+  // *** lint: diagnostics; kept outside the measured run_ms window
+  try { M.ccall('browser_lint', 'null'); } catch (e2) { /* best effort */ }
+  flushTty(M);
   console.log('rc=' + rc + (failed ? ' threw' : '') +
               ' instantiate_ms=' + instantiate_ms +
               ' boot_ms=' + boot_ms +

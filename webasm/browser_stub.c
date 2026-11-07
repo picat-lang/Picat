@@ -7,6 +7,8 @@
 #include "bprolog.h"
 
 #include <stdio.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 /* thread.c (pthreads) is not available in the browser: the thread()
  * and friends predicates are simply not registered. */
@@ -39,6 +41,13 @@ void browser_boot(const char *picatpath)
     char *argv[5] = { (char *)"picatwasm", (char *)"-p",
                       (char *)picatpath, (char *)"/user_code.pi", 0 };
 
+    /* /tmp must exist for the lint's stderr capture (err_hook.c's
+       err_capture_stderr mkstemp()s a file under TMPDIR, default
+       /tmp): the MEMFS may not have it, and without the capture the
+       run's error messages would never reach browser_lint().  EEXIST
+       is fine. */
+    mkdir("/tmp", 0755);
+
     initialize_bprolog(4, argv);
 }
 
@@ -53,6 +62,24 @@ int browser_rerun(void)
        JS side (see flushRunOutput in browser/index.html). */
     fflush(stdout);
     return rc;
+}
+
+/*
+ * browser_lint() -- run the source-level lint (emu/err_hook.c) on
+ * /user_code.pi after a run, exactly like the native path does from
+ * main()'s tail: dump the captured stderr (the run's error messages,
+ * which the capture holds back from the terminal until here), then
+ * print the *** lint: line N: ... diagnostics.  The page calls this
+ * after every browser_rerun and drains the output afterwards; the
+ * lint resets itself for the next run.
+ */
+void browser_lint(void)
+{
+    extern int err_lint_main_file(void);
+    extern void err_lint_reset(void);
+
+    err_lint_main_file();
+    err_lint_reset();
 }
 
 #ifdef SAT

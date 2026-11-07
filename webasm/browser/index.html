@@ -211,6 +211,30 @@
     padding: 12px 14px;
     tab-size: 4;
   }
+  /* the lint gutter: a thin strip over the textarea's right edge that
+     flags the rows the *** lint: diagnostics point at (the textarea
+     cannot be marked up in place, so the strip overlays it instead) */
+  .editor-wrap { flex: 1; min-height: 0; position: relative; display: flex; }
+  #lintgutter {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 14px;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  #lintmarks { position: absolute; top: 0; left: 0; right: 0; will-change: transform; }
+  #lintmarks .mark {
+    position: absolute;
+    right: 3px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #e5534b;
+    cursor: pointer;
+    pointer-events: auto;
+  }
   #terminal {
     flex: 1;
     margin: 0;
@@ -263,7 +287,10 @@
       <div class="pane-title grow" id="srcname">source</div>
       <button type="button" class="run" id="run" disabled>&#9654; Run</button>
     </div>
-    <textarea id="editor" spellcheck="false"></textarea>
+    <div class="editor-wrap">
+      <textarea id="editor" spellcheck="false"></textarea>
+      <div id="lintgutter" hidden><div id="lintmarks"></div></div>
+    </div>
   </section>
   <section>
     <div class="pane-title" id="termttl"><span>terminal</span>
@@ -484,10 +511,20 @@ function doRun(code) {
        lingers. */
     failed = true;
   }
+  /* the lint runs after every run (like the native path's main()
+     tail): it dumps the captured stderr (the run's error messages,
+     which the capture holds back from the terminal until here) and
+     prints the *** lint: line N: ... diagnostics, then re-arms
+     itself for the next run */
+  try {
+    M.ccall('browser_lint', 'null');
+    flushRunOutput();
+  } catch (e2) { /* best effort: a lint failure must not kill the run */ }
   return { rc: rc, failed: failed, ms: Math.round(performance.now() - t0) };
 }
 
 function finishRun(res) {
+  renderLintMarks();
   appendOut('\n[finished in ' + res.ms + ' ms, status ' + res.rc + ']');
   lastrun.textContent = 'last run: ' + res.ms + ' ms';
   var ok = res.rc === 1 && !res.failed;
@@ -497,6 +534,80 @@ function finishRun(res) {
   $('run').disabled = false;
   $('run').innerHTML = '&#9654; Run';
 }
+
+/* ---- lint gutter: flag the rows the *** lint: diagnostics point at --
+   The editor is a plain textarea and cannot be marked up in place, so
+   a thin strip overlays its right edge and draws one red dot per line
+   a *** lint: line N: ... diagnostic mentions (the source-level lint
+   in emu/err_hook.c runs after every Run via browser_lint()).  A dot
+   is scroll-synced with the textarea, hovering it shows the message,
+   and clicking it moves the caret to the flagged line.  The dots
+   clear on an edit and are re-rendered after every run. */
+var lintgutter = $('lintgutter'), lintmarks = $('lintmarks');
+
+function editorLineHeight() {
+  var lh = parseFloat(getComputedStyle(editor).lineHeight);
+  return (lh > 0) ? lh : 21;
+}
+
+function offsetOfLine(n) {
+  var lines = editor.value.split('\n'), off = 0, i;
+  for (i = 0; i < n - 1 && i < lines.length; i++) off += lines[i].length + 1;
+  return off;
+}
+
+function jumpToLine(n) {
+  editor.focus();
+  var off = offsetOfLine(n);
+  editor.setSelectionRange(off, off);
+  editor.scrollTop = Math.max(0, (n - 1) * editorLineHeight() -
+                              editor.clientHeight / 2);
+}
+
+function placeLintMarks() {
+  var lh = editorLineHeight();
+  var pad = parseFloat(getComputedStyle(editor).paddingTop) || 0;
+  var marks = lintmarks.children, i;
+  for (i = 0; i < marks.length; i++) {
+    var n = parseInt(marks[i].dataset.line, 10);
+    marks[i].style.top = (pad + (n - 1) * lh + (lh - 8) / 2) + 'px';
+  }
+  lintmarks.style.transform = 'translateY(' + (-editor.scrollTop) + 'px)';
+}
+
+function renderLintMarks() {
+  /* the terminal holds this run's output (run() resets it): pick the
+     *** lint: lines out of it.  A diagnostic may mention several line
+     numbers (e.g. "not contiguous (previous group ended at line 8)")
+     -- the first one is always the flagged line. */
+  while (lintmarks.firstChild) lintmarks.removeChild(lintmarks.firstChild);
+  var seen = {}, lines = terminal.textContent.split('\n'), i;
+  for (i = 0; i < lines.length; i++) {
+    var m = lines[i].match(/^\*\*\* lint:.*?\bline (\d+)/);
+    if (!m) continue;
+    var n = parseInt(m[1], 10);
+    if (n < 1 || seen[n]) continue;
+    seen[n] = 1;
+    var b = document.createElement('div');
+    b.className = 'mark';
+    b.dataset.line = n;
+    b.title = lines[i].replace(/^\*\*\* lint:\s*/, '');
+    b.addEventListener('click', function (ev) {
+      jumpToLine(parseInt(ev.target.dataset.line, 10));
+    });
+    lintmarks.appendChild(b);
+  }
+  lintgutter.hidden = (lintmarks.children.length === 0);
+  placeLintMarks();
+}
+
+editor.addEventListener('scroll', function () {
+  lintmarks.style.transform = 'translateY(' + (-editor.scrollTop) + 'px)';
+});
+editor.addEventListener('input', function () {
+  while (lintmarks.firstChild) lintmarks.removeChild(lintmarks.firstChild);
+  lintgutter.hidden = true;
+});
 
 function run() {
   if (!M || running) return;

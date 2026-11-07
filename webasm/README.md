@@ -49,7 +49,20 @@ Prerequisites:
   in a small dialog: paste the full link (or the bare encoded text)
   and it is decoded locally — useful when a link is too long for the
   server to accept as a request.
-* the **terminal** (right) shows the program's stdout/stderr.
+ * the **terminal** (right) shows the program's stdout/stderr.
+ * the **lint gutter** (a thin strip at the editor's right edge) flags
+   the rows the source-level lint (emu/err_hook.c) points at: after
+   every Run the page calls `browser_lint()`, which dumps the run's
+   error messages and prints the `*** lint: line N: ...` diagnostics
+   in the terminal, and the page draws one red dot per flagged line in
+   the gutter.  A dot is scroll-synced with the editor, hovering it
+   shows the message, and clicking it moves the caret to the flagged
+   line; the dots clear on an edit.  The lint covers undefined
+   procedures (with did-you-mean suggestions), arity mismatches,
+   unbalanced brackets, non-contiguous clauses and singleton
+   variables -- the same diagnostics a native `picat file` prints.
+   The lint never runs when the source cannot be read (e.g. a
+   `PICAT_NO_ERRHOOK=1` runtime).
 
 How a Run works: the page starts a **fresh interpreter instance**
 (a new wasm module: a fresh `initialize_bprolog` and a fresh emulated

@@ -38,8 +38,10 @@
  * stdout instead of interleaved with it.  A temp file is used instead of a
  * pipe so that large stderr output can never deadlock the run.
  *
- * Compiled into the native build only (-DERRHOOK via Makefile.linux64); the
- * wasm build compiles the call sites out.
+ * Compiled into the native build (-DERRHOOK via Makefile.linux64) and
+ * the wasm build (-DERRHOOK via webasm/Makefile, where the page drives
+ * the lint through browser_lint()); the thread build compiles the call
+ * sites out.
  */
 
 #include <stdio.h>
@@ -55,6 +57,9 @@ static char err_main_file[4096] = "";
 static int err_real_stderr_fd = -1;
 static int err_misleading_seen = 0;
 static char err_stderr_path[512] = "";
+static int err_lint_ran = 0;   /* guards err_lint_main_file against a
+                                  double run (main + atexit); reset per
+                                  browser run by err_lint_reset() */
 int err_check_only = 0;   /* -c: compile + lint only, no run (set in init_loading) */
 
 static void err_capture_stderr(void);
@@ -870,7 +875,6 @@ int err_lint_main_file(void)
     int undef_arity = -1;
     int ttype = 0;
     char tculprit[128];
-    static int err_lint_ran = 0;
 
     if (err_lint_ran) return 0;   /* -c runs the lint explicitly; skip atexit */
     err_lint_ran = 1;
@@ -1109,4 +1113,19 @@ int err_lint_main_file(void)
     if (!err_brack_bad) err_report_singletons(err_main_file);
     free(buf);
     return errors;
+}
+
+/* ---------------------------------------------------------------- */
+/* Browser support: re-arm the lint for the next run.  The web page
+   (browser/browser_stub.c) calls err_lint_main_file() after every run
+   -- unlike the native path, which runs the lint from main()'s tail
+   and from atexit() -- so the guard must reset and the stderr capture
+   must re-arm: err_dump_stderr() consumed the temp file (and unlinked
+   it) at the previous lint, and without a fresh capture the next
+   run's error messages would stream to the real stderr instead of
+   surviving for the lint to read. */
+void err_lint_reset(void)
+{
+    err_lint_ran = 0;
+    err_capture_stderr();
 }

@@ -73,7 +73,8 @@ CORE_O := dis init init_sym loader inst_inf main toam unify file domain \
           cfd float1 arith token global builtins mic numbervars cpreds \
           univ assert_bp findall clause delay clpfd clpfd_libs event \
           toamprofile kapi getline table gcstack gcheap gcqueue debug par \
-          parvm expand_bp bigint picat_utilities kissat_picat espresso_bp
+          parvm expand_bp bigint picat_utilities kissat_picat espresso_bp \
+          err_hook
 # the native KISSAT_OBJ (emu/common.mak): kis_<name>.o <- kissat/src/<name>.c
 KISSAT_O := kis_allocate.o kis_analyze.o kis_ands.o kis_application.o \
             kis_arena.o kis_assign.o kis_autarky.o kis_averages.o \
@@ -118,6 +119,7 @@ FANN_CPP_O := $(STAGE)/fann/fann_interface.o
 # built-in kissat solver links in; the satext (fork/exec) layer is
 # stubbed out in browser_stub.c.
 CFLAGS := -O2 -DGC -DGCC -DPICAT -DSAT -Dunix -DPOSIX -DFANN_NO_DLL -DFANN \
+          -DERRHOOK \
           -I$(STAGE) -I$(STAGE)/espresso -I$(STAGE)/fann/src/include
 # glibc drags UINT_MAX/INT_MIN in implicitly (kissat's headers use them
 # without including <stdint.h>/<limits.h>); force the sysroot limits.h
@@ -219,7 +221,7 @@ EMFLAGS := -sMODULARIZE=1 -sEXPORT_NAME=PicatWasm \
             -sMAXIMUM_MEMORY=4294967296 \
             -sNO_EXIT_RUNTIME=1 \
             -sINVOKE_RUN=0 \
-            -sEXPORTED_FUNCTIONS='["_browser_boot","_browser_rerun"]' \
+            -sEXPORTED_FUNCTIONS='["_browser_boot","_browser_rerun","_browser_lint"]' \
             -sEXPORTED_RUNTIME_METHODS='["FS","ccall"]' \
             --preload-file $(LIB2)@/lib2 \
             --preload-file examples@/examples \
