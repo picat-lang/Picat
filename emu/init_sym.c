@@ -58,6 +58,8 @@ void init_sym() {
     uu_eq_c_arc = BP_NEW_SYM("uu_eq_c_ARC", 5);
     u_eq_uc_arc = BP_NEW_SYM("u_eq_uc_ARC", 5);
     plan_psc = BP_NEW_SYM("_$plan", 2);
+    plan_unbounded1_psc = BP_NEW_SYM("_$plan_unbounded1",4);
+    plan_unbounded3_psc = BP_NEW_SYM("_$plan_unbounded3",4);
     register_event_listener = BP_NEW_SYM("registerEventListener", 2);
     picat_log_psc = BP_NEW_SYM("_$picat_log", 0);
 
