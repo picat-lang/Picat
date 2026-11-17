@@ -148,7 +148,9 @@ smt_solve_aux(solve(Solver,TmpFile,_Fmt), _Report,Logic,_Obj,Vars), Solver == du
     not not smt_dump(TmpStream,Logic,AllVars,Constrs),
     close(TmpStream).
 smt_solve_aux(solve(Solver,TmpFile,_Fmt), Report,Logic,Obj,Vars) =>    % Solver = z3 or cvc4
-    smt_check_file(TmpFile,"__tmp.smt2",TmpFileStr),
+    bp.c_GET_PID_f(Pid),
+    append("__tmp", to_string(Pid), ".smt2",DefaultTmpFile),
+    smt_check_file(TmpFile,DefaultTmpFile,TmpFileStr),
     (append(MainName,".smt2", TmpFileStr) -> true; handle_exception($extension_name_expected(".smt2"), solve)),
     SolFileStr = MainName ++ ".sol",
     bp.abolish(smt_last_solution,1),
@@ -258,7 +260,10 @@ smt_call_smt(Solver,TmpFileStr,SolFileStr,Logic,Vars) =>
     Command = to_string(Solver) ++ " " ++ TmpFileStr ++ " > " ++ SolFileStr,
     _ = command(Command),
     bp.b_ACCESS_ccf(SolFileStr,0,0),
-    smt_retrieve_res(SolFileStr,AllVars).
+    smt_retrieve_res(SolFileStr,AllVars),
+    bp.delete_file(TmpFileStr),
+    (bp.b_ACCESS_ccf(SolFileStr,0, 0) -> bp.delete_file(SolFileStr); true).
+
 %    (bp.test_constrs(Constrs) -> true; println('FAILED')).
 
 %%
