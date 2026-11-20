@@ -4,7 +4,7 @@ CC     = x86_64-w64-mingw32-gcc -DGC -DGCC -DPICAT -DSAT -DM64BITS -DFANN_NO_DLL
 #CC     = gcc -DGC -pg  -DSAT -DNO_SEMI_OPT -DGLPK -DPICAT
 #CC     = gcc -DGCC -shared
 #CC     = cc
-CCC=$(CC) -c
+CCC=$(CC) -c -std=gnu17
 CPPC=$(CPP) -c
 
 CFLAGS = -O3 -fno-strict-aliasing #-Dunix -DLINUX -DPOSIX -DCYGWIN -Wno-error=unused-label #Linux,#HP
