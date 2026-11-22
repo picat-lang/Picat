@@ -473,6 +473,7 @@ function loadExample() {
     appendOut('cannot read example ' + sel.value + ': ' + e);
   }
   setSrcName();
+  clearLint();  /* the content was replaced: drop the old lint artifacts */
   renderHl();   /* programmatic .value assignment fires no input event */
 }
 $('examples').addEventListener('change', loadExample);
@@ -684,6 +685,17 @@ function hideLintTip() {
   linttip.hidden = true;
 }
 
+/* clear every lint artifact: the gutter dots, the row highlights, and
+   a possibly-shown tooltip.  Called when the editor content is
+   replaced (loading an example, opening a file, share links --
+   programmatic .value assignment fires no input event) and on input. */
+function clearLint() {
+  while (lintmarks.firstChild) lintmarks.removeChild(lintmarks.firstChild);
+  lintgutter.hidden = true;
+  while (lintrows.firstChild) lintrows.removeChild(lintrows.firstChild);
+  hideLintTip();
+}
+
 /* find the text node/offset in #hl for a char offset: the text content
    of #hl is exactly the editor's source plus a trailing newline, so
    char offsets map 1:1 onto it */
@@ -813,9 +825,7 @@ editor.addEventListener('scroll', function () {
 });
 editor.addEventListener('input', function () {
   renderHl();
-  while (lintmarks.firstChild) lintmarks.removeChild(lintmarks.firstChild);
-  lintgutter.hidden = true;
-  while (lintrows.firstChild) lintrows.removeChild(lintrows.firstChild);
+  clearLint();
 });
 
 function run() {
@@ -898,6 +908,7 @@ $('file-input').addEventListener('change', function () {
   var r = new FileReader();
   r.onload = function () {
     editor.value = r.result;
+    clearLint();  /* the content was replaced: drop the old lint artifacts */
     renderHl();  /* no input event */
     setSrcName();
   };
@@ -941,6 +952,7 @@ function applySharedLink() {
   if (!p) return;
   try {
     editor.value = b64decode(p);
+    clearLint();  /* the content was replaced: drop the old lint artifacts */
     renderHl();  /* no input event */
     setSrcName();
     setState('program loaded from share link');
@@ -984,6 +996,7 @@ function loadFromLinkText() {
   }
   try {
     editor.value = b64decode(p);
+    clearLint();  /* the content was replaced: drop the old lint artifacts */
     renderHl();  /* no input event */
     setSrcName();
     closeLinkDlg();
