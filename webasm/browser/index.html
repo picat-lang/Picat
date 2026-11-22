@@ -644,8 +644,11 @@ function hlEsc(s) {
    0'c character literals are consumed as numbers before a quote can
    start an atom; lowercase identifiers are consumed whole (as plain
    text) so an underscore inside them is not mistaken for the start of
-   a variable (all_different must not color as all + _different) */
-var HL_RE = /(\/\*[\s\S]*?(?:\*\/|$))|(%[^\n]*)|("(?:\\.|[^"\\\n])*"?)|('(?:\\.|[^'\\\n])*'?)|(0'[^\s]|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|(\b(?:if|then|else|elseif|end|foreach|while|do|in|once|cond)\b)|([A-Z_][A-Za-z0-9_]*)|(#[=<>\\!*~]+)|(\?=>|=>|-->|:-|->|::|\$)|([a-z][A-Za-z0-9_]*)/g;
+   a variable (all_different must not color as all + _different); the
+   asp KEYWORD (the embedded-ASP block opener) is a bare `asp` as the
+   final word of a line -- the same marker rule as aspic_prep.pi -- so
+   an asp(...) predicate call stays plain */
+var HL_RE = /(\/\*[\s\S]*?(?:\*\/|$))|(%[^\n]*)|("(?:\\.|[^"\\\n])*"?)|('(?:\\.|[^'\\\n])*'?)|(0'[^\s]|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|(\b(?:if|then|else|elseif|end|foreach|while|do|in|once|cond)\b)|(\basp\b[ \t\r]*(?=\n|$))|([A-Z_][A-Za-z0-9_]*)|(#[=<>\\!*~]+)|(\?=>|=>|-->|:-|->|::|\$)|([a-z][A-Za-z0-9_]*)/g;
 
 function highlightSrc(src) {
   var out = '', last = 0, m;
@@ -653,7 +656,7 @@ function highlightSrc(src) {
   while ((m = HL_RE.exec(src)) !== null) {
     out += hlEsc(src.slice(last, m.index));
     var cls = m[1] || m[2] ? 'c' : m[3] || m[4] ? 's' : m[5] ? 'n' :
-              m[6] ? 'k' : m[7] ? 'v' : m[8] ? 'x' : m[9] ? 'a' : '';
+              m[6] || m[7] ? 'k' : m[8] ? 'v' : m[9] ? 'x' : m[10] ? 'a' : '';
     if (cls) out += '<span class="' + cls + '">' + hlEsc(m[0]) + '</span>';
     else out += hlEsc(m[0]);   /* plain identifiers: the base color */
     last = m.index + m[0].length;
