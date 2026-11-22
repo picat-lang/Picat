@@ -403,6 +403,10 @@
 var M = null;
 var booted = false;
 var running = false;
+/* the two-stage ASP path (runAspStages): suppress the lint marker
+   display for these runs -- their lint line numbers refer to the
+   GENERATED stage files, not the editor's content */
+var aspRun = false;
 /* Every Run takes a fresh interpreter (startRun): a live instance
    keeps its compiled modules, and $bp_first_call re-runs an existing
    module user_code instead of a newly loaded module-less program —
@@ -538,6 +542,7 @@ function freshInterpreter(cont) {
    finishRun (no return). */
 function runAspStages(code) {
   var t0 = performance.now();
+  aspRun = true;
   M.FS.writeFile('/user_code_raw.pi', code);
   var r1 = doRun(ASPISTAGE1);
   if (r1.failed || r1.rc !== 1) {
@@ -605,7 +610,13 @@ function doRun(code) {
 }
 
 function finishRun(res) {
-  renderLintMarks();
+  /* the two-stage ASP path runs GENERATED stage files through
+     /user_code.pi, so its lint line numbers refer to files the editor
+     never shows -- the marker display is suppressed for these runs
+     (the terminal output stays: the browser_lint stderr dump is how
+     the run's error messages reach the terminal) */
+  if (aspRun) clearLint(); else renderLintMarks();
+  aspRun = false;
   appendOut('\n[finished in ' + res.ms + ' ms, status ' + res.rc + ']');
   lastrun.textContent = 'last run: ' + res.ms + ' ms';
   var ok = res.rc === 1 && !res.failed;
