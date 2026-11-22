@@ -271,20 +271,43 @@
     top: 0;
     right: 0;
     bottom: 0;
-    width: 14px;
+    width: 18px;
     overflow: hidden;
     pointer-events: none;
+    z-index: 2;   /* above the textarea (z-index: 1): the dots must
+                     receive the mouse, the strip still passes clicks
+                     through (pointer-events: none) */
   }
   #lintmarks { position: absolute; top: 0; left: 0; right: 0; will-change: transform; }
   #lintmarks .mark {
     position: absolute;
-    right: 3px;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
+    right: 0;
+    width: 12px;
+    height: 12px;
+    border: 3px solid transparent;   /* enlarges the mouse target to 18px */
     background: #e5534b;
+    background-clip: padding-box;
+    border-radius: 50%;
     cursor: pointer;
     pointer-events: auto;
+  }
+  /* the lint tooltip: the message of a flagged line, shown over the
+     gutter dot on hover (immediately, styled -- the native title
+     tooltip is delayed and unstyled) */
+  #linttip {
+    position: absolute;
+    max-width: 70%;
+    background: #141a26;
+    color: #e6edf7;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 9px;
+    font: 12px/1.5 var(--mono);
+    white-space: pre-wrap;
+    word-break: break-word;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+    z-index: 20;
+    pointer-events: none;
   }
   #terminal {
     flex: 1;
@@ -343,6 +366,7 @@
       <pre id="hl" aria-hidden="true"></pre>
       <textarea id="editor" spellcheck="false"></textarea>
       <div id="lintgutter" hidden><div id="lintmarks"></div></div>
+      <div id="linttip" hidden></div>
     </div>
   </section>
   <section>
@@ -637,7 +661,27 @@ function renderHl() {
    is scroll-synced with the textarea, hovering it shows the message,
    and clicking it moves the caret to the flagged line.  The dots
    clear on an edit and are re-rendered after every run. */
-var lintgutter = $('lintgutter'), lintmarks = $('lintmarks'), lintrows = $('lintrows');
+var lintgutter = $('lintgutter'), lintmarks = $('lintmarks'), lintrows = $('lintrows'),
+    linttip = $('linttip'), editorWrap = document.querySelector('.editor-wrap');
+
+/* the lint tooltip: show a dot's message near the dot (left of the
+   gutter, vertically centered on the row); positioned relative to
+   .editor-wrap, hidden again on mouseleave and on scroll */
+function showLintTip(dot) {
+  linttip.textContent = dot.dataset.msg;
+  linttip.hidden = false;
+  var dr = dot.getBoundingClientRect(), wr = editorWrap.getBoundingClientRect();
+  var left = dr.left - wr.left - linttip.offsetWidth - 8;
+  var top = dr.top - wr.top + dr.height / 2 - linttip.offsetHeight / 2;
+  if (left < 4) left = 4;
+  if (top < 4) top = 4;
+  linttip.style.left = left + 'px';
+  linttip.style.top = top + 'px';
+}
+
+function hideLintTip() {
+  linttip.hidden = true;
+}
 
 /* find the text node/offset in #hl for a char offset: the text content
    of #hl is exactly the editor's source plus a trailing newline, so
@@ -722,7 +766,9 @@ function placeLintMarks() {
   var marks = lintmarks.children, i;
   for (i = 0; i < marks.length; i++) {
     var n = parseInt(marks[i].dataset.line, 10);
-    marks[i].style.top = (pad + (n - 1) * lh + (lh - 8) / 2) + 'px';
+    /* the dot's hit box is 18px (a 12px dot + a transparent 3px border
+       on each side); its visible dot stays centered on the text row */
+    marks[i].style.top = (pad + (n - 1) * lh + (lh - 18) / 2) + 'px';
   }
   lintmarks.style.transform = 'translateY(' + (-editor.scrollTop) + 'px)';
 }
@@ -744,7 +790,9 @@ function renderLintMarks() {
     var b = document.createElement('div');
     b.className = 'mark';
     b.dataset.line = n;
-    b.title = lines[i].replace(/^\*\*\* lint:\s*/, '');
+    b.dataset.msg = lines[i].replace(/^\*\*\* lint:\s*/, '');
+    b.addEventListener('mouseenter', function (ev) { showLintTip(ev.target); });
+    b.addEventListener('mouseleave', hideLintTip);
     b.addEventListener('click', function (ev) {
       jumpToLine(parseInt(ev.target.dataset.line, 10));
     });
@@ -760,6 +808,7 @@ editor.addEventListener('scroll', function () {
   hl.scrollLeft = editor.scrollLeft;
   lintmarks.style.transform = 'translateY(' + (-editor.scrollTop) + 'px)';
   lintrows.style.transform = 'translateY(' + (-editor.scrollTop) + 'px)';
+  hideLintTip();   /* a stale tooltip would point at the wrong row */
 });
 editor.addEventListener('input', function () {
   renderHl();
