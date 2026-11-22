@@ -582,8 +582,10 @@ function hlEsc(s) {
 /* token order matters: comments, strings and quoted atoms must be
    consumed before the scanner can reach a % or a quote inside them;
    0'c character literals are consumed as numbers before a quote can
-   start an atom */
-var HL_RE = /(\/\*[\s\S]*?(?:\*\/|$))|(%[^\n]*)|("(?:\\.|[^"\\\n])*"?)|('(?:\\.|[^'\\\n])*'?)|(0'[^\s]|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|(\b(?:if|then|else|elseif|end|foreach|while|do|in|once|cond)\b)|([A-Z_][A-Za-z0-9_]*)|(#[=<>\\!*~]+)|(\?=>|=>|-->|:-|->|::|\$)/g;
+   start an atom; lowercase identifiers are consumed whole (as plain
+   text) so an underscore inside them is not mistaken for the start of
+   a variable (all_different must not color as all + _different) */
+var HL_RE = /(\/\*[\s\S]*?(?:\*\/|$))|(%[^\n]*)|("(?:\\.|[^"\\\n])*"?)|('(?:\\.|[^'\\\n])*'?)|(0'[^\s]|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|(\b(?:if|then|else|elseif|end|foreach|while|do|in|once|cond)\b)|([A-Z_][A-Za-z0-9_]*)|(#[=<>\\!*~]+)|(\?=>|=>|-->|:-|->|::|\$)|([a-z][A-Za-z0-9_]*)/g;
 
 function highlightSrc(src) {
   var out = '', last = 0, m;
@@ -591,8 +593,9 @@ function highlightSrc(src) {
   while ((m = HL_RE.exec(src)) !== null) {
     out += hlEsc(src.slice(last, m.index));
     var cls = m[1] || m[2] ? 'c' : m[3] || m[4] ? 's' : m[5] ? 'n' :
-              m[6] ? 'k' : m[7] ? 'v' : m[8] ? 'x' : 'a';
-    out += '<span class="' + cls + '">' + hlEsc(m[0]) + '</span>';
+              m[6] ? 'k' : m[7] ? 'v' : m[8] ? 'x' : m[9] ? 'a' : '';
+    if (cls) out += '<span class="' + cls + '">' + hlEsc(m[0]) + '</span>';
+    else out += hlEsc(m[0]);   /* plain identifiers: the base color */
     last = m.index + m[0].length;
   }
   out += hlEsc(src.slice(last));
