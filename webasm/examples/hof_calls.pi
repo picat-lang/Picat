@@ -1,0 +1,14 @@
+/* New in Picat 4.0b19-4.0b24: higher-order variable calls.
+   A variable at compile time can hold a function or predicate name
+   (or any callable term) and be called: S(A1,...,An).  The call can
+   also be module-qualified: m.S(...) invokes the function defined in
+   module m whose symbol is referenced by S. */
+
+main =>
+    F = sqrt,             % a builtin function name in a variable
+    writeln(F(16)),       % 4.0 -- called like any function
+    writeln(math.F(16)),  % module-qualified: math.sqrt(16)
+    G = length,
+    writeln(G("picat")),  % 5
+    H = abs,
+    writeln(H(-42)).      % 42
