@@ -205,16 +205,45 @@
     resize: none;
     border: 0;
     outline: none;
-    background: var(--pane);
-    color: #e6edf7;
+    background: transparent;
+    color: transparent;         /* the #hl overlay shows the colored text */
+    caret-color: #e6edf7;
     font: 13.5px/1.55 var(--mono);
     padding: 12px 14px;
     tab-size: 4;
+    position: relative;
+    z-index: 1;
   }
+  #editor::selection { background: rgba(86, 140, 245, 0.35); color: transparent; }
+  /* the syntax-colored text, layered under the transparent-text
+     textarea (the overlay recipe): same font metrics, padding and
+     wrapping as the textarea, scrolled only via JS sync, never
+     interactive itself */
+  #hl {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    padding: 12px 14px;
+    font: 13.5px/1.55 var(--mono);
+    tab-size: 4;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: #e6edf7;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 0;
+  }
+  #hl .c { color: #8b949e; font-style: italic; }   /* comments */
+  #hl .s { color: #7ee787; }                       /* strings, quoted atoms */
+  #hl .n { color: #f2cc60; }                       /* numbers */
+  #hl .v { color: #79c0ff; }                       /* variables */
+  #hl .k { color: #ff7b72; }                       /* keywords */
+  #hl .x { color: #d2a8ff; }                       /* constraint operators */
+  #hl .a { color: #d2a8ff; }                       /* rule arrows, :-, $ */
   /* the lint gutter: a thin strip over the textarea's right edge that
      flags the rows the *** lint: diagnostics point at (the textarea
      cannot be marked up in place, so the strip overlays it instead) */
-  .editor-wrap { flex: 1; min-height: 0; position: relative; display: flex; }
+  .editor-wrap { flex: 1; min-height: 0; position: relative; display: flex; background: var(--pane); }
   #lintgutter {
     position: absolute;
     top: 0;
@@ -288,6 +317,7 @@
       <button type="button" class="run" id="run" disabled>&#9654; Run</button>
     </div>
     <div class="editor-wrap">
+      <pre id="hl" aria-hidden="true"></pre>
       <textarea id="editor" spellcheck="false"></textarea>
       <div id="lintgutter" hidden><div id="lintmarks"></div></div>
     </div>
@@ -379,6 +409,7 @@ editor.addEventListener('keydown', function (e) {
     var s = editor.selectionStart, t = editor.selectionEnd;
     editor.value = editor.value.slice(0, s) + '    ' + editor.value.slice(t);
     editor.selectionStart = editor.selectionEnd = s + 4;
+    renderHl();  /* programmatic .value assignment fires no input event */
   }
   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); run(); }
 });
@@ -394,6 +425,7 @@ function loadExample() {
     appendOut('cannot read example ' + sel.value + ': ' + e);
   }
   setSrcName();
+  renderHl();   /* programmatic .value assignment fires no input event */
 }
 $('examples').addEventListener('change', loadExample);
 
@@ -535,6 +567,42 @@ function finishRun(res) {
   $('run').innerHTML = '&#9654; Run';
 }
 
+/* ---- syntax coloring: a small Picat tokenizer, rendered by the #hl
+   overlay under the (transparent-text) textarea.  Classes: c comments,
+   s strings/quoted atoms, n numbers, v variables, k keywords,
+   x constraint operators, a rule arrows/:-/$.  The overlay is scrolled
+   only via JS sync (see the editor's scroll listener) and never
+   interactive. */
+var hl = $('hl');
+
+function hlEsc(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/* token order matters: comments, strings and quoted atoms must be
+   consumed before the scanner can reach a % or a quote inside them;
+   0'c character literals are consumed as numbers before a quote can
+   start an atom */
+var HL_RE = /(\/\*[\s\S]*?(?:\*\/|$))|(%[^\n]*)|("(?:\\.|[^"\\\n])*"?)|('(?:\\.|[^'\\\n])*'?)|(0'[^\s]|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|(\b(?:if|then|else|elseif|end|foreach|while|do|in|once|cond)\b)|([A-Z_][A-Za-z0-9_]*)|(#[=<>\\!*~]+)|(\?=>|=>|-->|:-|->|::|\$)/g;
+
+function highlightSrc(src) {
+  var out = '', last = 0, m;
+  HL_RE.lastIndex = 0;
+  while ((m = HL_RE.exec(src)) !== null) {
+    out += hlEsc(src.slice(last, m.index));
+    var cls = m[1] || m[2] ? 'c' : m[3] || m[4] ? 's' : m[5] ? 'n' :
+              m[6] ? 'k' : m[7] ? 'v' : m[8] ? 'x' : 'a';
+    out += '<span class="' + cls + '">' + hlEsc(m[0]) + '</span>';
+    last = m.index + m[0].length;
+  }
+  out += hlEsc(src.slice(last));
+  return out + '\n';   /* a trailing newline: the last line must scroll */
+}
+
+function renderHl() {
+  hl.innerHTML = highlightSrc(editor.value);
+}
+
 /* ---- lint gutter: flag the rows the *** lint: diagnostics point at --
    The editor is a plain textarea and cannot be marked up in place, so
    a thin strip overlays its right edge and draws one red dot per line
@@ -602,9 +670,12 @@ function renderLintMarks() {
 }
 
 editor.addEventListener('scroll', function () {
+  hl.scrollTop = editor.scrollTop;
+  hl.scrollLeft = editor.scrollLeft;
   lintmarks.style.transform = 'translateY(' + (-editor.scrollTop) + 'px)';
 });
 editor.addEventListener('input', function () {
+  renderHl();
   while (lintmarks.firstChild) lintmarks.removeChild(lintmarks.firstChild);
   lintgutter.hidden = true;
 });
@@ -689,6 +760,7 @@ $('file-input').addEventListener('change', function () {
   var r = new FileReader();
   r.onload = function () {
     editor.value = r.result;
+    renderHl();  /* no input event */
     setSrcName();
   };
   r.readAsText(f);
@@ -731,6 +803,7 @@ function applySharedLink() {
   if (!p) return;
   try {
     editor.value = b64decode(p);
+    renderHl();  /* no input event */
     setSrcName();
     setState('program loaded from share link');
   } catch (e) {
@@ -773,6 +846,7 @@ function loadFromLinkText() {
   }
   try {
     editor.value = b64decode(p);
+    renderHl();  /* no input event */
     setSrcName();
     closeLinkDlg();
     setState('program loaded from link');
