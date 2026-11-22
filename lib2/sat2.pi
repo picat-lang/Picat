@@ -203,7 +203,7 @@ solve(Options,Vars) =>
         )
     ),
     (select($report(Call), Options,Options1) ->
-        Options2 = [$report('$dyna_eval_pred'(['$picat_top_level'],Call))|Options1]
+        Options2 = [$report('$dyna_eval_pred'('$picat_top_level',Call))|Options1]
     ;
         Options2 = Options
     ),

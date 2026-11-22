@@ -145,14 +145,14 @@ solve(Vars) =>
 solve(Options,Vars) =>
     (bp.dvar_or_int_list(Vars) -> VList = Vars; vars(Vars) = VList),
     (select($report(ReportCall), Options,Options1) ->
-        MetaCalls = [$report('$dyna_eval_pred'(['$picat_top_level'],ReportCall))]
+        MetaCalls = [$report('$dyna_eval_pred'('$picat_top_level',ReportCall))]
     ;
         Options1 = Options,
         MetaCalls = []
     ),
     (select($label(LabelPred), Options1,Options2) ->
         (atom(LabelPred) -> true; handle_exception($atom_expected(LabelPred), solve)),
-        (bp.'$dyna_resolve_name'(['$picat_top_level'],LabelPred,1,pred,MLabelPred) ->
+        (bp.'$dyna_resolve_name'('$picat_top_level',LabelPred,1,pred,MLabelPred) ->
             true
         ;
             bp.c_module_qualified_pred_name(glb,LabelPred,MLabelPred)
