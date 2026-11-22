@@ -7,7 +7,13 @@
      is referenced by S.
 
    - Anonymous functions and predicates: ([A1,...,An] -> Body) and
-     ([A1,...,An] => Body), with capture at creation. */
+     ([A1,...,An] => Body), with capture at creation.
+
+   - Anonymous functions can also be applied to SOLVER VARIABLES
+     inside constraint expressions when the body is written as a term
+     (prefix $): Inc(X) #= 6 with Inc = ([X] -> $X+1) posts X+1 #= 6. */
+
+import cp.
 
 main =>
     % higher-order variable calls
@@ -25,4 +31,13 @@ main =>
     AddK = ([X] -> X+K),  % K is captured when AddK is created
     writeln(AddK(5)),     % 15
     Pr = ([X] => writeln(X)),
-    Pr(42).               % 42
+    Pr(42),               % 42
+    % anonymous functions applied to solver variables inside
+    % constraints (the body must be a term, prefix $)
+    Inc = ([X] -> $X+1),
+    Sq2 = ([U] -> $(U*U)),
+    X :: 0..10,
+    Inc(X) #= 6,
+    Y #= Sq2(X),
+    solve([X,Y]),
+    println([X,Y]).       % [5,25]
