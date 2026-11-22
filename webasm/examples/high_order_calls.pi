@@ -11,7 +11,9 @@
 
    - Anonymous functions can also be applied to SOLVER VARIABLES
      inside constraint expressions when the body is written as a term
-     (prefix $): Inc(X) #= 6 with Inc = ([X] -> $X+1) posts X+1 #= 6. */
+     (prefix $): Inc(X) #= 6 with Inc = ([X] -> $X+1) posts X+1 #= 1.
+     Such a call returns the term unevaluated; apply/1 evaluates it
+     (apply(Inc(7)) -> 8). */
 
 import cp.
 
@@ -40,4 +42,6 @@ main =>
     Inc(X) #= 6,
     Y #= Sq2(X),
     solve([X,Y]),
-    println([X,Y]).       % [5,25]
+    println([X,Y]),       % [5,25]
+    % apply/1 evaluates the term returned by a term-bodied call:
+    println(apply(Inc(7))).  % 8
