@@ -271,7 +271,7 @@
     top: 0;
     right: 0;
     bottom: 0;
-    width: 18px;
+    width: 20px;
     overflow: hidden;
     pointer-events: none;
     z-index: 2;   /* above the textarea (z-index: 1): the dots must
@@ -282,12 +282,13 @@
   #lintmarks .mark {
     position: absolute;
     right: 0;
-    width: 12px;
-    height: 12px;
-    border: 3px solid transparent;   /* enlarges the mouse target to 18px */
-    background: #e5534b;
+    width: 14px;
+    height: 14px;
+    border: 3px solid transparent;   /* enlarges the mouse target to 20px */
+    background: #ff9d2e;
     background-clip: padding-box;
     border-radius: 50%;
+    box-shadow: 0 0 5px rgba(255, 157, 46, 0.75);
     cursor: pointer;
     pointer-events: auto;
   }
@@ -766,9 +767,9 @@ function placeLintMarks() {
   var marks = lintmarks.children, i;
   for (i = 0; i < marks.length; i++) {
     var n = parseInt(marks[i].dataset.line, 10);
-    /* the dot's hit box is 18px (a 12px dot + a transparent 3px border
+    /* the dot's hit box is 20px (a 14px dot + a transparent 3px border
        on each side); its visible dot stays centered on the text row */
-    marks[i].style.top = (pad + (n - 1) * lh + (lh - 18) / 2) + 'px';
+    marks[i].style.top = (pad + (n - 1) * lh + (lh - 20) / 2) + 'px';
   }
   lintmarks.style.transform = 'translateY(' + (-editor.scrollTop) + 'px)';
 }
