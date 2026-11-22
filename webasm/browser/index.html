@@ -240,6 +240,28 @@
   #hl .k { color: #ff7b72; }                       /* keywords */
   #hl .x { color: #d2a8ff; }                       /* constraint operators */
   #hl .a { color: #d2a8ff; }                       /* rule arrows, :-, $ */
+  /* full-line row highlights for the lint-flagged lines: translucent
+     strips painted UNDER the colored text, one per VISUAL row (a
+     wrapped logical line gets one strip per row, measured from the
+     #hl overlay's rendered rows) */
+  #lintrows {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    padding: 12px 14px;
+    font: 13.5px/1.55 var(--mono);
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 0;
+  }
+  #lintrows .row {
+    position: absolute;
+    left: 0;
+    right: 0;
+    background: rgba(229, 83, 75, 0.16);
+    border-left: 3px solid rgba(229, 83, 75, 0.75);
+    border-radius: 2px;
+  }
   /* the lint gutter: a thin strip over the textarea's right edge that
      flags the rows the *** lint: diagnostics point at (the textarea
      cannot be marked up in place, so the strip overlays it instead) */
@@ -317,6 +339,7 @@
       <button type="button" class="run" id="run" disabled>&#9654; Run</button>
     </div>
     <div class="editor-wrap">
+      <div id="lintrows"></div>
       <pre id="hl" aria-hidden="true"></pre>
       <textarea id="editor" spellcheck="false"></textarea>
       <div id="lintgutter" hidden><div id="lintmarks"></div></div>
@@ -614,7 +637,65 @@ function renderHl() {
    is scroll-synced with the textarea, hovering it shows the message,
    and clicking it moves the caret to the flagged line.  The dots
    clear on an edit and are re-rendered after every run. */
-var lintgutter = $('lintgutter'), lintmarks = $('lintmarks');
+var lintgutter = $('lintgutter'), lintmarks = $('lintmarks'), lintrows = $('lintrows');
+
+/* find the text node/offset in #hl for a char offset: the text content
+   of #hl is exactly the editor's source plus a trailing newline, so
+   char offsets map 1:1 onto it */
+function hlTextPos(offset) {
+  var walker = document.createTreeWalker(hl, NodeFilter.SHOW_TEXT),
+      n, len = 0;
+  while ((n = walker.nextNode())) {
+    if (len + n.textContent.length >= offset) {
+      return { node: n, offset: offset - len };
+    }
+    len += n.textContent.length;
+  }
+  return null;
+}
+
+/* paint full-width translucent strips behind the flagged lines, one
+   per VISUAL row (measured from the rendered #hl rows, so a wrapped
+   logical line is fully covered).  The strip positions are computed
+   in the content coordinate space and the layer is scroll-synced like
+   the gutter dots. */
+function renderLintRows(lines) {
+  while (lintrows.firstChild) lintrows.removeChild(lintrows.firstChild);
+  if (!lines.length) return;
+  var hlTop = hl.getBoundingClientRect().top + hl.scrollTop;
+  var pad = parseFloat(getComputedStyle(hl).paddingTop) || 0;
+  var lh = editorLineHeight();
+  lines.forEach(function (n) {
+    var from = hlTextPos(offsetOfLine(n)), to = hlTextPos(offsetOfLine(n + 1)),
+        r = document.createRange(), rects, saw = {}, any = false, i;
+    if (from && to) {
+      try {
+        r.setStart(from.node, from.offset);
+        r.setEnd(to.node, to.offset);
+        rects = r.getClientRects();
+        for (i = 0; i < rects.length; i++) {
+          var top = Math.round(rects[i].top - hlTop);
+          if (rects[i].height < 1 || saw[top]) continue;
+          saw[top] = 1;
+          var b = document.createElement('div');
+          b.className = 'row';
+          b.style.top = top + 'px';
+          b.style.height = Math.ceil(rects[i].height) + 'px';
+          lintrows.appendChild(b);
+          any = true;
+        }
+      } catch (e) { /* fall through to the single-row fallback */ }
+    }
+    if (!any) {   /* e.g. an empty flagged line: one strip, first row */
+      var b2 = document.createElement('div');
+      b2.className = 'row';
+      b2.style.top = (pad + (n - 1) * lh) + 'px';
+      b2.style.height = lh + 'px';
+      lintrows.appendChild(b2);
+    }
+  });
+  lintrows.style.transform = 'translateY(' + (-editor.scrollTop) + 'px)';
+}
 
 function editorLineHeight() {
   var lh = parseFloat(getComputedStyle(editor).lineHeight);
@@ -652,13 +733,14 @@ function renderLintMarks() {
      numbers (e.g. "not contiguous (previous group ended at line 8)")
      -- the first one is always the flagged line. */
   while (lintmarks.firstChild) lintmarks.removeChild(lintmarks.firstChild);
-  var seen = {}, lines = terminal.textContent.split('\n'), i;
+  var seen = {}, flagged = [], lines = terminal.textContent.split('\n'), i;
   for (i = 0; i < lines.length; i++) {
     var m = lines[i].match(/^\*\*\* lint:.*?\bline (\d+)/);
     if (!m) continue;
     var n = parseInt(m[1], 10);
     if (n < 1 || seen[n]) continue;
     seen[n] = 1;
+    flagged.push(n);
     var b = document.createElement('div');
     b.className = 'mark';
     b.dataset.line = n;
@@ -670,17 +752,20 @@ function renderLintMarks() {
   }
   lintgutter.hidden = (lintmarks.children.length === 0);
   placeLintMarks();
+  renderLintRows(flagged);
 }
 
 editor.addEventListener('scroll', function () {
   hl.scrollTop = editor.scrollTop;
   hl.scrollLeft = editor.scrollLeft;
   lintmarks.style.transform = 'translateY(' + (-editor.scrollTop) + 'px)';
+  lintrows.style.transform = 'translateY(' + (-editor.scrollTop) + 'px)';
 });
 editor.addEventListener('input', function () {
   renderHl();
   while (lintmarks.firstChild) lintmarks.removeChild(lintmarks.firstChild);
   lintgutter.hidden = true;
+  while (lintrows.firstChild) lintrows.removeChild(lintrows.firstChild);
 });
 
 function run() {
