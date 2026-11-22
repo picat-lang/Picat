@@ -781,6 +781,32 @@ int bp_sign_bigint(BPLONG op) {
     return sign;
 }
 
+/* Number of bits in a nonnegative bigint's magnitude, returned as an
+ * untagged integer. Zero has bit width 0. Digit lists are least-significant
+ * first, so only the last limb needs to be examined bit by bit.
+ */
+BPLONG bp_bigint_bit_width(BPLONG op) {
+    BPLONG_PTR ptr = (BPLONG_PTR)UNTAGGED_ADDR(op);
+    BPLONG size = INTVAL(FOLLOW(ptr+1));
+    BPLONG digits = FOLLOW(ptr+2);
+    BPLONG width, i;
+    BPULONG top;
+
+    if (size == 0) return 1;
+    for (i = 1; i < size; i++) {
+        ptr = (BPLONG_PTR)UNTAGGED_ADDR(digits);
+        digits = FOLLOW(ptr+1);
+    }
+    ptr = (BPLONG_PTR)UNTAGGED_ADDR(digits);
+    top = (BPULONG)INTVAL(FOLLOW(ptr));
+    width = 28 * (size-1);
+    while (top != 0) {
+        width++;
+        top >>= 1;
+    }
+    return width;
+}
+
 /* number of "digits" in op */
 int c_bigint_sign_size() {
     BPLONG size, sign, DLst;

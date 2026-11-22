@@ -28,7 +28,7 @@
 
 #include <string.h>
 #include <stdlib.h>
-
+#include <stdint.h>
 #include "inst.h"
 
 #include "basic.h"
@@ -803,8 +803,6 @@ int b_BLDNUM_fc(BPLONG op1, BPLONG op2)
 
 int b_SYSTEM0_cf(BPLONG op1, BPLONG op2)  /* op1: a list of int (string) for CShell commands */
 {
-    BPLONG_PTR top;
-    SYM_REC_PTR sym_ptr;
     CHAR s[MAX_STR_LEN];
 
     if (pp_str_to_c_str(op1, s, MAX_STR_LEN) == BP_ERROR) return BP_ERROR;
@@ -2775,6 +2773,31 @@ int c_GET_PID_f(){
     return BP_TRUE;
 }
 
+/* Precondition: N is a nonnegative integer */
+int c_BIT_WIDTH_cf(){
+    BPLONG N, W, width;
+    N = ARG(1, 2);
+    W = ARG(2, 2);
+    
+    DEREF(N);
+    if (ISINT(N)) {
+        uint64_t n = INTVAL(N);
+        if (n == 0) { return unify(W, BP_ONE);}
+#ifdef GCC        
+        width = 64 - __builtin_clzll(n | 1);
+#else
+        width = 0;
+        while (n != 0) {
+            width++;
+            n >>= 1;
+        }
+#endif
+    } else {
+        width = bp_bigint_bit_width(N);
+    }
+    return unify(W, MAKEINT(width));
+}
+
 void Cboot_mic()
 {
     greater_than_sym = ADDTAG(BP_NEW_SYM(">", 0), ATM);
@@ -2844,6 +2867,7 @@ void Cboot_mic()
     insert_cpred("c_is_picat_public_name", 1, c_is_picat_public_name);
     insert_cpred("c_fetch_stacktrace", 1, c_fetch_stacktrace);
     insert_cpred("c_GET_PID_f", 1, c_GET_PID_f);
+    insert_cpred("c_BIT_WIDTH_cf", 2, c_BIT_WIDTH_cf);
 }
 
 #if defined(_MSC_VER)
@@ -3220,6 +3244,9 @@ real_insert_elm:
     ASSIGN_v_heap_term(ret_lst, lst_cp);
     return BP_TRUE;
 }
+
+    
+
 
 
 

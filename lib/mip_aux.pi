@@ -123,7 +123,9 @@ mip_solve_aux(solve(Solver,TmpFile,Fmt), ObjExp,Sense,Vars), Solver == dump =>
     not not mip_dump(TmpStream,Fmt,Sense,ObjTerms,AllVars,Constrs),
     close(TmpStream).
 mip_solve_aux(solve(Solver,TmpFile,_Fmt), ObjExp,Sense,Vars) =>    % Solver = gurobi, cbc, scip, or glpk
-    mip_check_file(TmpFile,"__tmp.lp",TmpFileStr),
+    bp.c_GET_PID_f(Pid),
+    append("__tmp", to_string(Pid), ".lp",DefaultTmpFile),
+    mip_check_file(TmpFile,DefaultTmpFile,TmpFileStr),
     (append(MainName,".lp", TmpFileStr) -> true; handle_exception($extension_name_expected(".lp"), solve)),
     SolFileStr = MainName ++ ".sol",
     bp.abolish(mip_last_solution,1),
@@ -166,7 +168,10 @@ mip_call_mip(Solver,TmpFileStr,SolFileStr,ObjExp,Sense,Vars) =>
     (bp.b_ACCESS_ccf(SolFileStr,0, 0) -> bp.delete_file(SolFileStr); true),
     mip_create_command(Solver,TmpFileStr,SolFileStr,Command),
     _ = command(Command),
-    mip_retrive_res(Solver,SolFileStr,AllVars).
+    mip_retrive_res(Solver,SolFileStr,AllVars),
+    bp.delete_file(TmpFileStr),
+    (bp.b_ACCESS_ccf(SolFileStr,0, 0) -> bp.delete_file(SolFileStr); true).
+
 %    bp.global_heap_get('$all_constrs',AllConstrs),
 %    (bp.test_constrs(AllConstrs) -> true; writeln('FAILED')).
 

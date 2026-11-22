@@ -231,10 +231,10 @@ extern void bp_twoscomplement_ubig(BPLONG xsize, UBIGINT x);
 extern void bp_twoscomplement_magnitude(BPLONG_PTR zsize_ptr, UBIGINT z);
 extern void bp_shiftr_twoscomplement_int(BPLONG xsize, UBIGINT x, BPLONG y, BPLONG_PTR zsize_ptr, UBIGINT z);
 extern void bp_copy_ubig(BPLONG xsize, UBIGINT x, BPLONG ysize, UBIGINT y);
-
 extern BPLONG bp_abs_bigint(BPLONG op);
 extern BPLONG bp_neg_bigint(BPLONG op);
 extern int bp_sign_bigint(BPLONG op);
+extern BPLONG bp_bigint_bit_width(BPLONG op);
 extern int c_bigint_sign_size();
 extern int bp_compare_mag_mag(BPLONG size, UBIGINT x, UBIGINT y);
 extern BPLONG bp_add_bigint_bigint(BPLONG op1, BPLONG op2);

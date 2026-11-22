@@ -87,23 +87,26 @@ plan(_S,Limit,Plan,PlanCost,_FinS) =>
 
 %%%
 plan_unbounded(S,Plan), var(Plan) =>
-    bp.picat_best_plan_unbounded(S,Plan,_PlanCost).
+    picat_plan_unbounded_aux(S,268435455,Plan,_).    % the limit is assumed to be 268435455
 plan_unbounded(_S,Plan) =>
     throw_plan_arg_error(1,Plan,_,plan_unbounded).
 
 plan_unbounded(S,Limit,Plan), var(Plan), integer(Limit), Limit >= 0 =>
-    bp.picat_best_plan_unbounded(S,Plan,PlanCost),
-    PlanCost =< Limit.
+    picat_plan_unbounded_aux(S,Limit,Plan,_).
+
 plan_unbounded(S,Plan,PlanCost), var(Plan), var(PlanCost) =>
-    bp.picat_best_plan_unbounded(S,Plan,PlanCost).
+    picat_plan_unbounded_aux(S,268435455,Plan,PlanCost). 
 plan_unbounded(_S,Limit,Plan) =>
     throw_plan_arg_error(Limit,Plan,_,plan_unbounded).
 
 plan_unbounded(S,Limit,Plan,PlanCost), var(Plan), var(PlanCost), integer(Limit), Limit >= 0 =>
-    bp.picat_best_plan_unbounded(S,Plan,PlanCost),
-    PlanCost =< Limit.
+    picat_plan_unbounded_aux(S,Limit,Plan,PlanCost). 
 plan_unbounded(_S,Limit,Plan,PlanCost) =>
     throw_plan_arg_error(Limit,Plan,PlanCost,plan_unbounded).
+
+picat_plan_unbounded_aux(S,Limit,Plan,Cost) =>
+    bp.picat_plan_unbounded(S,Limit,Plan,Cost),
+    bp.c_RESET_PLANNER_SUBGOALS.
 
 %%%
 %%% iterative deepening
