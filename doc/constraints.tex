@@ -476,7 +476,7 @@ The \texttt{cp} module also accepts the following options:
 \begin{itemize}
 \item \texttt{dump}: Dump the CNF code to \texttt{stdout}.\index{\texttt{dump}}
 \item \texttt{dump($File$)}: Dump the CNF code to $File$.
-\item \texttt{ext($Command$)}:  Save the CNF code to a temporary file, then solve it using the external solver specified by the OS command $Command$. For example, \texttt{ext("cadical --quiet --factor=true")}.\index{\texttt{ext}}
+\item \texttt{ext($Command$)}:  Save the CNF code to a temporary file, then solve it using the external solver specified by the OS command $Command$. For example, \texttt{ext("cadical --quiet")}.\index{\texttt{ext}}
 \item \texttt{seq}: Use sequential search to find an optimal answer.
 \item \texttt{split}: Use binary search to find an optimal answer (default).
 \item \texttt{\$nvars$(NVars)$}: The number of variables in the CNF code is $NVars$.
@@ -528,7 +528,7 @@ where $TmpFile$ is a file that stores the SMT-LIB2-format constraints, and $SolF
 \item \texttt{dump}: Dump the constraints in SMT-LIB2 format to \texttt{stdout}.
 \item \texttt{dump($File$)}: Dump the SMT-LIB2 format to $File$.
 \item \texttt{logic($Logic$)}: Instruct the SMT solver to use $Logic$ when solving, where $Logic$ must be an atom or a string, and the specified logic must be available in the SMT solver. The default logic for z3 is ``LIA'', and the default logic for CVC4 is ``NIA''.
-\item \texttt{tmp($File$)}: Dump the SMT-LIB2 format to $File$ rather than the default file ``\_\_tmp.smt2'', before calling the smt solver. The name $File$  must be a string or an atom that has the extension name ``.smt2''. When this file name is specified, the smt solver will save the solution into a file name that has the same main name as $File$ but the extension name ``.sol''.
+\item \texttt{tmp($File$)}: Dump the SMT-LIB2 format to $File$ rather than the default file ``\_\_tmp<pid>.smt2'', before calling the smt solver. The name $File$  must be a string or an atom that has the extension name ``.smt2''. When this file name is specified, the smt solver will save the solution into a file name that has the same main name as $File$ but the extension name ``.sol''.
 \item \texttt{z3}: \index{\texttt{z3}}Instruct Picat to use the z3 SMT solver. When no SMT solver is specified, Picat first searches for the command \texttt{z3}, and when \texttt{z3} cannot be found it continues to search for the command \texttt{cvc4}.
 \end{itemize}
 \ignore{
