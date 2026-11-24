@@ -417,7 +417,7 @@ The \texttt{sat} module supports bit-vector constraints, which enhance modeling 
 \item \texttt{bv\_neq($A$, $B$)}\index{\texttt{bv\_neq/2}}: Forces inequality between bit-vector $A$ and bit-vector $B$ ($A\ \neq\ B$).
 \item \texttt{bv\_or($A$, $B$, $C$)}\index{\texttt{bv\_or/3}}: Forces bit-vector $C$ to be the bitwise \textit{or} of bit-vectors $A$ and $B$.
 \item \texttt{bv\_pow($A$, $B$, $C$)}\index{\texttt{bv\_pow/3}}: Forces bit-vector $C$ to be $A$ raised to the power of $B$ ($C\ =\ A^B$).
-\item \texttt{bv\_sum($As$, $B$)}\index{\texttt{bv\_sum/2}}: Forces the sum of bit-vectors in $As$ to be equal to bit-vector $B$, where $As$ is a list of bit vectors.
+\item \texttt{bv\_sum($As$, $B$)}\index{\texttt{bv\_sum/2}}: Constrains the sum of the terms in the list $As$ to equal the bit vector $B$. Each term in $A$ is either a bit vector or a pair \texttt{($Coe$, $V$)} representing $Coe \cdot V$, where $Coe$ is a non-negative integer and $V$ is a bit vector.
 \item \texttt{bv\_take($A$, $N$) = $Res$}\index{\texttt{bv\_take/2}}: Returns a bit vector containing the lowest $N$ bits of bit-vector $A$.
 \item \texttt{bv\_to\_int($A$)  = $Res$}\index{\texttt{bv\_to\_int/1}}: Returns an integer represented by bit-vector $A$. This function throws an exception if $A$ is not ground.
 \item \texttt{bv\_xor($A$, $B$, $C$)}\index{\texttt{bv\_xor/3}}: Forces bit-vector $C$ to be the bitwise \textit{xor} of bit-vectors $A$ and $B$.
