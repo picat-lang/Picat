@@ -156,6 +156,20 @@
   #linkurl:focus { border-color: var(--accent); }
   #linkdlg-btns { display: flex; justify-content: flex-end; gap: 8px; }
 
+  /* ---- arguments box (in front of the Run button) -------------------- */
+  #argsbox {
+    width: 240px;
+    font: 12.5px/1.4 var(--mono);
+    color: var(--text);
+    background: var(--pane);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 10px;
+    outline: none;
+  }
+  #argsbox:focus { border-color: var(--accent); }
+  #argsbox::placeholder { color: var(--dim); }
+
   /* ---- main split --------------------------------------------------- */
   main {
     flex: 1;
@@ -360,6 +374,8 @@
         </div>
       </div>
       <div class="pane-title grow" id="srcname">source</div>
+      <input type="text" id="argsbox" spellcheck="false"
+             placeholder="arguments, e.g. -g goal2(2)">
       <button type="button" class="run" id="run" disabled>&#9654; Run</button>
     </div>
     <div class="editor-wrap">
@@ -495,8 +511,10 @@ $('examples').addEventListener('change', loadExample);
                     writes /user_code_final.pi plus /aspic_runtime.pi;
                     stage 2 runs that result in another fresh
                     interpreter.  Ordinary programs run one stage.
-  doRun(code)   -- write /user_code.pi and run it once, returning the
-                    result.
+  doRun(code, args) -- write /user_code.pi and run it once, passing
+                     args (the native command line after the fixed
+                     file name: -g Goal, positionals, ...), returning
+                     the result.
   freshInterpreter -- build a fresh wasm module (a clean "restart
                     picat") and run a continuation on it.
   */
@@ -540,11 +558,12 @@ function freshInterpreter(cont) {
    A fresh interpreter also re-creates the FS from the preload image,
    so the stage-1 outputs are carried over explicitly.  Reports via
    finishRun (no return). */
-function runAspStages(code) {
+function runAspStages(code, args) {
   var t0 = performance.now();
   aspRun = true;
   M.FS.writeFile('/user_code_raw.pi', code);
-  var r1 = doRun(ASPISTAGE1);
+  /* stage 1 is the fixed aspic_prep wrapper: it takes no arguments */
+  var r1 = doRun(ASPISTAGE1, '');
   if (r1.failed || r1.rc !== 1) {
     appendOut('\n[asp pre-translation failed]');
     finishRun(r1);
@@ -558,7 +577,7 @@ function runAspStages(code) {
   setState('compiled the ASP program — running…');
   freshInterpreter(function () {
     if (runtime) M.FS.writeFile('/aspic_runtime.pi', runtime);
-    var r2 = doRun(fin);
+    var r2 = doRun(fin, args);   /* the user's args apply to the final run */
     r2.ms = Math.round(performance.now() - t0);
     finishRun(r2);
   });
@@ -578,7 +597,7 @@ function flushRunOutput() {
   } catch (e) { /* best effort only */ }
 }
 
-function doRun(code) {
+function doRun(code, args) {
   var t0 = performance.now();
   M.FS.writeFile('/user_code.pi', code);
   var rc = -1, failed = false;
@@ -588,7 +607,10 @@ function doRun(code) {
       flushRunOutput();
       booted = true;
     }
-    rc = M.ccall('browser_rerun', 'number');
+    /* args is the native command line after the fixed file name
+       (-g Goal, positionals, ...); browser_rerun tokenizes it and
+       re-scans the command line before running */
+    rc = M.ccall('browser_rerun', 'number', ['string'], [args || '']);
     flushRunOutput();
   } catch (e) {
     /* picat calls exit(1) on uncaught errors; with NO_EXIT_RUNTIME the
@@ -857,6 +879,8 @@ function run() {
      break the program */
   var code = editor.value.replace(
     /^\s*module\s+[A-Za-z_]\w*\s*\./m, 'module user_code.');
+  /* the arguments box is read once per Run and carried through */
+  var args = $('argsbox') ? $('argsbox').value : '';
   /* doRun runs synchronously in wasm and blocks the main thread for
      the whole program: the browser cannot repaint while it is
      running, so an immediately-started run would grey the button and
@@ -865,12 +889,12 @@ function run() {
      running state actually visible for the duration of the run. */
   requestAnimationFrame(function () {
     requestAnimationFrame(function () {
-      setTimeout(function () { startRun(code); }, 0);
+      setTimeout(function () { startRun(code, args); }, 0);
     });
   });
 }
 
-function startRun(code) {
+function startRun(code, args) {
   /* Every Run takes a fresh interpreter: a live instance keeps its
      compiled modules, and $bp_first_call re-runs an existing module
      user_code in place of a newly loaded module-less program (so
@@ -878,16 +902,16 @@ function startRun(code) {
      instance also re-creates the emulated FS from the preload image
      and starts with a clean VM, so a Run behaves exactly like a
      native `picat file` call. */
-  freshInterpreter(function () { startRunFresh(code); });
+   freshInterpreter(function () { startRunFresh(code, args); });
 }
 
-function startRunFresh(code) {
+function startRunFresh(code, args) {
   try {
     if (hasAspBlock(code)) {
-      runAspStages(code);   // reports itself
+      runAspStages(code, args);   // reports itself
       return;
     }
-    finishRun(doRun(code));
+    finishRun(doRun(code, args));
   } catch (e) {
     /* e.g. a failed FS write: never leave the button stuck disabled */
     appendOut('\ninternal error: ' + e);
@@ -895,6 +919,10 @@ function startRunFresh(code) {
   }
 }
 $('run').addEventListener('click', run);
+/* Enter in the arguments box runs, like clicking the Run button */
+$('argsbox').addEventListener('keydown', function (e) {
+  if (e.key === 'Enter') run();
+});
 
 /* ---- file menu ------------------------------------------------------- */
 var menu = $('filemenu');

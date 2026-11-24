@@ -120,6 +120,8 @@ FANN_CPP_O := $(STAGE)/fann/fann_interface.o
 # stubbed out in browser_stub.c.
 CFLAGS := -O2 -DGC -DGCC -DPICAT -DSAT -Dunix -DPOSIX -DFANN_NO_DLL -DFANN \
           -DERRHOOK \
+          -DPICAT_BUILD_COMMIT='"$(shell cat $(GIT_STAMP) 2>/dev/null || echo unknown)"' \
+          -DPICAT_BUILD_DATE='"$(shell date +%Y/%m/%d)"' \
           -I$(STAGE) -I$(STAGE)/espresso -I$(STAGE)/fann/src/include
 # glibc drags UINT_MAX/INT_MIN in implicitly (kissat's headers use them
 # without including <stdint.h>/<limits.h>); force the sysroot limits.h

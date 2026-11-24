@@ -45,7 +45,11 @@ flushTty(M);
   const boot_ms = Date.now() - b0;
   const r0 = Date.now();
   let rc = -1, failed = false;
-  try { rc = M.ccall('browser_rerun', 'number'); } catch (e) { failed = true; }
+  // PI_ARGS carries the rest of the command line (e.g. "-g goal2(2)"),
+  // exactly like the page's arguments box
+  try { rc = M.ccall('browser_rerun', 'number', ['string'],
+                     [process.env.PI_ARGS || '']); }
+  catch (e) { failed = true; }
   flushTty(M);
   const run_ms = Date.now() - r0;
   // the lint runs after every run (like the page's doRun): it dumps

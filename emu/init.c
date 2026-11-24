@@ -369,7 +369,9 @@ int init_loading(int argc, char *argv[])
       i = 1;
       while (i < argc) {
           if (argv[i][0] != '-') { err_save_main_file(argv[i]); break; }
-          if (argv[i][0] == '-' && strchr("psbtm", argv[i][1]) && argv[i][1] != '\0') i++;
+          /* 'g' is in the skip set so that with -g Goal File the Goal
+             token is skipped and File is remembered for the lint */
+          if (argv[i][0] == '-' && strchr("psbtmg", argv[i][1]) && argv[i][1] != '\0') i++;
           i++;
       }
     }
