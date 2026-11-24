@@ -187,6 +187,12 @@ The \texttt{io} module also provides the \texttt{print}, \texttt{printf}, and \t
 \item \texttt{println($Term$)}\index{\texttt{println/1}}: This predicate is the same as \texttt{println(stdout, $Term$)}.
 \end{itemize}
 
+In addition to the above built-ins, the \texttt{io} module also provides the following:
+\begin{itemize}
+   \item \texttt{nl($FD$)}\index{\texttt{nl/1}}: This predicate prints a newline to $FD$.
+   \item \texttt{nl()}\index{\texttt{nl/0}}: This predicate prints a newline to \texttt{stdout}.
+\end{itemize}
+
 The following example demonstrates the differences between the \texttt{write}\index{\texttt{write/1}} and \texttt{print}\index{\texttt{print/1}} predicates.  
 \subsection*{Example}
 \begin{verbatim}

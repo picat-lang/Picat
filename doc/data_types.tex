@@ -56,7 +56,7 @@ An \emph{attributed variable}\index{attributed variable} is a variable that has 
 \item \texttt{dvar\_or\_int($Term$)}\index{\texttt{dvar\_or\_int/1}}: This predicate is true if $Term$ is an attributed domain variable or an integer.
 \item \texttt{get\_attr($X$, $Key$) = $Val$}\index{\texttt{get\_attr/2}}: This function returns the \texttt{$Val$} of the pair \texttt{$Key$$=$$Val$} that is attached to \texttt{$X$}. It throws an error if \texttt{$X$} has no attribute named $Key$.
 \item \texttt{get\_attr($X$, $Key$, $DefaultVal$) = $Val$}\index{\texttt{get\_attr/3}}: This function returns \texttt{$Val$} of the pair \texttt{$Key$$=$$Val$} that is attached to \texttt{$X$}. It returns $DefaultVal$ if $X$ does not have the attribute named $Key$.
-\item \texttt{put\_attr($X$, $Key$)}\index{\texttt{put/2}}: This is the same as \texttt{put\_attr($X$, $Key$, not\_a\_value)}.
+\item \texttt{put\_attr($X$, $Key$)}\index{\texttt{put\_attr/2}}: This is the same as \texttt{put\_attr($X$, $Key$, not\_a\_value)}.
 \item \texttt{put\_attr($X$, $Key$, $Val$)}\index{\texttt{put\_attr/3}}: This predicate attaches the pair \texttt{$Key$$=$$Val$} to \texttt{$X$}, where \texttt{$Key$} is a non-variable term, and \texttt{$Val$} is any term. 
 \end{itemize}
 
@@ -86,7 +86,7 @@ The following built-ins are provided for atoms\index{atom}:
 \item \texttt{lowercase($Term$)}\index{\texttt{lowercase/1}}: This predicate checks if $Term$ is a lowercase character atom.
 \item \texttt{ord($Char$) = $Int$}\index{\texttt{ord/1}}: This function returns the code point of the UTF-8 character $Char$.  \newline It throws an error if $Char$ is not a single-character atom.
 \item \texttt{to\_atom($String$) = $Atom$}\index{\texttt{to\_atom/1}}: This function converts $String$ to an atom.
-\item \texttt{uppercase($Term$)}\index{\texttt{lowercase/1}}: This predicate checks if $Term$ is an uppercase character atom.
+\item \texttt{uppercase($Term$)}\index{\texttt{uppercase/1}}: This predicate checks if $Term$ is an uppercase character atom.
 \end{itemize}
 
 \section{Numbers}
@@ -359,7 +359,7 @@ The following built-ins, which are originally provided for lists (see \ref{subse
 \item \texttt{sort\_remove\_dups($Array$, $KeyIndex$) = $SArray$}\index{\texttt{sort\_remove\_dups/2}}
 \item \texttt{sorted($Array$)}\index{\texttt{sorted/1}}
 \item \texttt{sorted\_down($Array$)}\index{\texttt{sorted\_down/1}}
-\item \texttt{sum($Array$) = $Val$}\index{\texttt{max/1}}
+\item \texttt{sum($Array$) = $Val$}\index{\texttt{sum/1}}
 \end{itemize}
 Note that many of the overloaded built-ins for arrays are not implemented efficiently, but are provided for convenience. For example, \texttt{sort(Array)} is implemented as follows:
 \begin{verbatim}
