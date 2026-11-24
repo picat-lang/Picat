@@ -514,7 +514,7 @@ aa \= aaa \= aaa \= aaa \= aaa \= aaa \= aaa \kill
 \> \texttt{scip -q -c 'read $TmpFile$' -c optimize} \\
 \> \> \texttt{-c 'write solution $SolFileStr$' -c quit}
 \end{tabbing}
-where $SolFile$ is a file for the solution, and $TmpFile$ is a file that stores the CPLEX-format constraints. Picat throws \texttt{existence\_error} if the command \texttt{scip} is not available. Note that, unlike other linear programming solvers, SCIP only returns integer solutions although it allows real coefficients and continuous-domain variables.
+where $SolFile$ is a file for the solution, and $TmpFile$ is a file that stores the CPLEX-format constraints. Picat throws \texttt{existence\_error} if the command \texttt{scip} is not available.
 \end{itemize}
 
 \subsection{Solving Options for \texttt{smt}}
