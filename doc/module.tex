@@ -25,7 +25,7 @@ In order to use symbols that are defined in another module, users must explicitl
 aa \= aaa \= aaa \= aaa \= aaa \= aaa \= aaa \kill
 \> \texttt{import $Name_1$, $\ldots$, $Name_n$}\index{\texttt{import}}.
 \end{tabbing}
-where each imported $Name_i$ is a module name. For each imported module, the compiler searches for it first in the importing source file’s directory and then in the search path that is specified by the environment variable PICATPATH. If no module is found, the compiler gives an error message. Several modules are imported by default, including  \texttt{basic}, \texttt{io}, \texttt{math},  and \texttt{sys}.
+where each imported $Name_i$ is a module name. For each imported module, the compiler searches for it first in the importing source file’s directory and then in the search path that is specified by the environment variable PICATPATH. If no module is found, the compiler gives an error message. Several modules are imported by default, including  \texttt{basic}, \texttt{math}, \texttt{io},  and \texttt{sys}.
 
 The import relation is not transitive. Suppose that there are three modules: $A$, $B$, and $C$. If $A$ imports $B$ and $B$ imports $C$, then $A$ still needs to import $C$ in order to reference $C$'s symbols.
 
@@ -89,7 +89,7 @@ generic_sort(isort, L) = isort.sort(L).
 \section{Binding Higher-order Calls}\index{higher-order call}
 Because Picat forbids variable module qualifiers and terms in dot notations, it is impossible to create module-qualified higher-order terms. For a higher-order call, if the compiler knows the name of the higher-order term, as in \texttt{findall(X, $member(X, L)$)}\index{\texttt{findall}}\index{\texttt{member/2}}, then it searches for a definition for the name, just like it does for a normal call. However, if the name is unknown, as in \texttt{F(X, Y)}, then the compiler generates code to search for a definition. For a higher-order call, the runtime system searches modules in the following order:
 \begin{enumerate}
-\item The implicitly imported built-in modules \texttt{basic}, \texttt{io}, \texttt{math},  and \texttt{sys}.
+\item The implicitly imported built-in modules \texttt{basic}, \texttt{math}, \texttt{io}, and \texttt{sys}.
 \item The current list of loaded modules that is returned by the built-in \texttt{loaded\_modules()}, excluding the pre-imported built-in modules.
 \item The global module.
 \end{enumerate}

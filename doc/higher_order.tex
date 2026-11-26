@@ -241,7 +241,7 @@ named callable or an anonymous definition.
 \index{higher-order call!module resolution}
 For an ordinary named higher-order call whose target is not known at compile
 time, the runtime system searches the implicitly imported built-in modules
-\texttt{basic}, \texttt{io}, \texttt{math}, and \texttt{sys}, followed by the
+\texttt{basic}, \texttt{math}, \texttt{io}, and \texttt{sys}, followed by the
 other loaded modules in the order returned by \texttt{loaded\_modules()}, and
 then the global module. If the compiler knows the callable name, it binds the
 call using the ordinary compile-time resolution conventions.
