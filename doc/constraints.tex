@@ -417,7 +417,7 @@ The \texttt{sat} module supports bit-vector constraints, which enhance modeling 
 \item \texttt{bv\_neq($A$, $B$)}\index{\texttt{bv\_neq/2}}: Forces inequality between bit-vector $A$ and bit-vector $B$ ($A\ \neq\ B$).
 \item \texttt{bv\_or($A$, $B$, $C$)}\index{\texttt{bv\_or/3}}: Forces bit-vector $C$ to be the bitwise \textit{or} of bit-vectors $A$ and $B$.
 \item \texttt{bv\_pow($A$, $B$, $C$)}\index{\texttt{bv\_pow/3}}: Forces bit-vector $C$ to be $A$ raised to the power of $B$ ($C\ =\ A^B$).
-\item \texttt{bv\_sum($As$, $B$)}\index{\texttt{bv\_sum/2}}: Constrains the sum of the terms in the list $As$ to equal the bit vector $B$. Each term in $As$ is either a bit vector or a pair \texttt{($Coe$, $V$)} representing $Coe \cdot V$, where $Coe$ is a non-negative integer and $V$ is a bit vector.
+\item \texttt{bv\_sum($As$, $B$)}\index{\texttt{bv\_sum/2}}: Constrains the sum of the terms in the list $As$ to equal the bit vector $B$. Each term in $As$ is either a bit vector or a pair \texttt{($Coe$, $V$)} representing $Coe \cdot V$, where $Coe$ is a non-negative integer and $V$ is an integer, a binary variable, or a bit vector.
 \item \texttt{bv\_take($A$, $N$) = $Res$}\index{\texttt{bv\_take/2}}: Returns a bit vector containing the lowest $N$ bits of bit-vector $A$.
 \item \texttt{bv\_to\_int($A$)  = $Res$}\index{\texttt{bv\_to\_int/1}}: Returns an integer represented by bit-vector $A$. This function throws an exception if $A$ is not ground.
 \item \texttt{bv\_xor($A$, $B$, $C$)}\index{\texttt{bv\_xor/3}}: Forces bit-vector $C$ to be the bitwise \textit{xor} of bit-vectors $A$ and $B$.
@@ -460,7 +460,7 @@ The \texttt{cp} module also accepts the following options:
 \item \texttt{ffd}: The same as with the two options: \texttt{ff} and \texttt{degree}.
 \item \texttt{forward}: Choose variables in the given order, from left to right.
 \item \texttt{inout}: The variables are reordered in an inside-out fashion. For example, the variable list \texttt{[X1,X2,X3,X4,X5]} is rearranged into the list \texttt{[X3,X2,X4,X1,X5]}.
-\item \texttt{label($CallName$)}: This option informs the CP solver that once a variable $V$ is selected, the user-defined call \texttt{$CallName$($V$)} is used to label $V$, where $CallName$ must be defined in the same module, an imported module, or the global module.
+\item \texttt{\$label($CallName$)}: This option informs the CP solver that once a variable $V$ is selected, the user-defined call \texttt{$CallName$($V$)} is used to label $V$, where $CallName$ must be defined in the same module, an imported module, or the global module.
 \item \texttt{leftmost}: The same as \texttt{forward}.
 \item \texttt{max}: First, select a variable whose domain has the largest upper bound, breaking ties by selecting a variable with the smallest domain.
 \item \texttt{min}: First, select a variable whose domain has the smallest lower bound, breaking ties by selecting a variable with the smallest domain.
@@ -494,7 +494,7 @@ aa \= aaa \= aaa \= aaa \= aaa \= aaa \= aaa \kill
 \end{tabbing}
 where $SolFile$ is a file for the solution, and $TmpFile$ is a file that stores the CPLEX-format constraints. Picat throws \texttt{existence\_error} if the command \texttt{cbc} is not available.
 \item \texttt{dump}: Dump the constraints in CPLEX format to \texttt{stdout}.
-\item \texttt{dump($File$)}: Dump the CPLEX format to $File$.
+\item \texttt{\$dump($File$)}: Dump the CPLEX format to $File$.
 \item \texttt{glpk}: \index{\texttt{glpk}}Instruct Picat to use the GLPK MIP solver. Picat uses the following command to call the GLPK solver:
 \begin{tabbing}
 aa \= aaa \= aaa \= aaa \= aaa \= aaa \= aaa \kill
@@ -526,9 +526,9 @@ aa \= aaa \= aaa \= aaa \= aaa \= aaa \= aaa \kill
 \end{tabbing}
 where $TmpFile$ is a file that stores the SMT-LIB2-format constraints, and $SolFile$ is a solution file. Picat throws \texttt{existence\_error} if the command \texttt{cvc4} is not available in the path.
 \item \texttt{dump}: Dump the constraints in SMT-LIB2 format to \texttt{stdout}.
-\item \texttt{dump($File$)}: Dump the SMT-LIB2 format to $File$.
-\item \texttt{logic($Logic$)}: Instruct the SMT solver to use $Logic$ when solving, where $Logic$ must be an atom or a string, and the specified logic must be available in the SMT solver. The default logic for z3 is ``LIA'', and the default logic for CVC4 is ``NIA''.
-\item \texttt{tmp($File$)}: Dump the SMT-LIB2 format to $File$ rather than the default file ``\_\_tmp<pid>.smt2'', before calling the smt solver. The name $File$  must be a string or an atom that has the extension name ``.smt2''. When this file name is specified, the smt solver will save the solution into a file name that has the same main name as $File$ but the extension name ``.sol''.
+\item \texttt{\$dump($File$)}: Dump the SMT-LIB2 format to $File$.
+\item \texttt{\$logic($Logic$)}: Instruct the SMT solver to use $Logic$ when solving, where $Logic$ must be an atom or a string, and the specified logic must be available in the SMT solver. The default logic for z3 is ``LIA'', and the default logic for CVC4 is ``NIA''.
+\item \texttt{\$tmp($File$)}: Dump the SMT-LIB2 format to $File$ rather than the default file ``\_\_tmp<pid>.smt2'', before calling the smt solver. The name $File$  must be a string or an atom that has the extension name ``.smt2''. When this file name is specified, the smt solver will save the solution into a file name that has the same main name as $File$ but the extension name ``.sol''.
 \item \texttt{z3}: \index{\texttt{z3}}Instruct Picat to use the z3 SMT solver. When no SMT solver is specified, Picat first searches for the command \texttt{z3}, and when \texttt{z3} cannot be found it continues to search for the command \texttt{cvc4}.
 \end{itemize}
 \ignore{
