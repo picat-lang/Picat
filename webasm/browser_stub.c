@@ -121,7 +121,7 @@ int browser_rerun(const char *args)
     }
     if (show_help) {   /* the native CLI prints and exits here */
         printf("Picat experimental, built on %s (commit %s), "
-               "based on Picat 4.0b24\n", PICAT_BUILD_DATE,
+               "based on Picat 4.0\n", PICAT_BUILD_DATE,
                PICAT_BUILD_COMMIT);
         if (show_help == 2)
             printf("usage: picat [[-path Path] | [-p P] | [-s S] | [-b B] | "

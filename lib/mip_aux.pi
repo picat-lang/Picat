@@ -183,7 +183,8 @@ mip_create_command(gurobi,TmpFileStr,SolFileStr,Command) =>
 mip_create_command(glpk,TmpFileStr,SolFileStr,Command) =>
     Command = "glpsol --cpxlp -o " ++ SolFileStr ++ [' '|TmpFileStr].
 mip_create_command(scip,TmpFileStr,SolFileStr,Command) =>
-    Command = "scip -q -c \" read " ++ TmpFileStr ++ " set limits solutions 1 set write printzeros TRUE optimize write solution " ++ SolFileStr ++ " quit \"".
+    Command = "scip -q -c 'read " ++ TmpFileStr ++ "' -c optimize -c 'write solution " ++ SolFileStr ++ "' -c quit".
+
 
 mip_retrive_res(Solver,SolFileStr,Vars),
     bp.b_ACCESS_ccf(SolFileStr,0,0)
@@ -356,7 +357,7 @@ mip_booleanize_var(ColNo,0,1,PBCoeCls,TmpConstrs,TmpConstrsR) =>   % already boo
     TmpConstrs = TmpConstrsR.
 mip_booleanize_var(ColNo,L,U,PBCoeCls,TmpConstrs,TmpConstrsR) =>
     ColNoStr = to_string(ColNo),
-    K is round(log(2,U+0.5)),   %% log encoding, K bits used for this domain
+    bp.c_BIT_WIDTH_cf(U,K),   %% log encoding, K bits used for this domain
     PBCoeCls = [(2**P,ColNoP) : P in 0..K, ColNoP = ColNoStr ++ ['_'|to_string(P)]],
     (L == 0 ->
         TmpConstrs = TmpConstrs1
@@ -577,7 +578,6 @@ scip_read_result(IStream,_,HTab) =>
 %%%
 mip_bind_vars(Vars,HTab) =>
     Vs = [V : V in Vars, var(V)],
-    (Vs == [] -> true; size(HTab) > 0),
     mip_bind_vars_aux(Vs,HTab).
 
 mip_bind_vars_aux([],_HTab) => true.

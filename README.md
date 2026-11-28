@@ -1,7 +1,7 @@
 # Experimental branch — what is new versus `main`
 
 This branch (`experimental`) adds features on top of `main` (currently
-4.0b18). Each area
+4.0). Each area
 has its own README where noted.
 
 [Download the Picat experimental version for Linux](https://github.com/picat-lang/Picat/raw/refs/heads/experimental/releases/picat-experimental-linux64-58ffb7a.tgz)
