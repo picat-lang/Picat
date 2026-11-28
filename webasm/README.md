@@ -29,14 +29,14 @@ Prerequisites:
  The page is a split editor/terminal:
 
 * the **editor** (left) holds the source; its toolbar carries the
-  **File** menu at the left edge and **Run** (or Ctrl/Cmd-Enter) at the
-  right corner,
+  **File** menu at the left edge, an **arguments box** (see below) and
+  **Run** (or Ctrl/Cmd-Enter) at the right corner,
 * the **example** select (top right) loads a preloaded program into the
   editor (it does not run it),
 * the **terminal** title bar carries, at its right edge, a small badge
   with the build stamp: the 12-char commit id the `dist/` was built
   from (`+` marks a dirty tree at build time), then the base Picat
-  release after a middle dot (e.g. `<sha>+ · Picat 4.0b20`) --
+  release after a middle dot (e.g. `<sha>+ · Picat 4.0`) --
   use it to identify a deployed page against the git history and
   against the upstream base it was built from (hovering the badge
   shows both in a tooltip),
@@ -63,6 +63,23 @@ Prerequisites:
    variables -- the same diagnostics a native `picat file` prints.
    The lint never runs when the source cannot be read (e.g. a
    `PICAT_NO_ERRHOOK=1` runtime).
+
+**The arguments box.** A text input sits in front of the Run button
+(Enter in it runs). Its content is passed to `browser_rerun(args)`,
+which rebuilds the native command line exactly like the CLI
+`picat [[-path Path] | [-p P] | [-s S] | [-b B] | [-g Goal] | [-c] |
+[-d] | [-log] | [--help] | [--version]]* File A1 A2 ...`: the flags
+and their values are positioned BEFORE the fixed main file
+(`/user_code.pi`), the remaining non-flag tokens after it, so
+`-g Goal` runs Goal instead of `main` (quote multi-token goals, e.g.
+`-g 'goal2(2)'`), trailing tokens reach `main(A1,...,An)` via
+`command_line`, `-c` skips the run (lint only), `--help`/`--version`
+print and stop, and the memory-size flags `-p/-s/-b/-path` are
+accepted and positioned but stay boot-time only. Tokens are
+whitespace-separated with `'` and `"` grouping. For the two-stage ASP
+runs the final stage gets the arguments (the stage-1 wrapper takes
+none). The headless runner accepts the same string as the `PI_ARGS`
+environment variable.
 
 How a Run works: the page starts a **fresh interpreter instance**
 (a new wasm module: a fresh `initialize_bprolog` and a fresh emulated

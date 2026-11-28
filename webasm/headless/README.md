@@ -44,9 +44,10 @@ python3 headless/compare.py [--runs N] [--workers N] [--timeout S] [--limit N] [
   each measurement spawns one native + one node process in turn, and the
   machine we ran on has 384 cores; beyond ~32 the numbers just get noisier.
   Note the wall time is dominated by the slowest leg, not the worker
-  count: with the default 1800 s timeout `planner_treasure`'s native
-  leg runs solo for ~30 min after the first burst, whatever the worker
-  count.
+  count: with the default 1800 s timeout a slow native leg would run
+  solo for ~30 min after the first burst, whatever the worker count
+  (no example is that slow today: the planner family solves in
+  seconds since the 4.0b21 planner fix).
 - `--timeout S` (default 1800): per-run timeout in seconds for BOTH
   legs. 120 keeps the whole suite at a few minutes at high parallelism
   (the slow examples become marker rows); the ratios get noisier under
@@ -85,9 +86,10 @@ Notes:
   (`planner_nomystery`/`ricochet`/`solitaire`/`treasure`) reads facts
   from stdin, and before the stdin redirect the native leg of an
   example could block a worker forever, stalling the whole suite with
-  all example names printed and zero results. Before the timeout,
-  `planner_treasure`'s native leg (>1800 s, a remaining upstream
-  regression, `div.txt`) propagated `TimeoutExpired` and killed the run.
+  all example names printed and zero results. Before the stdin
+  redirect was added, `planner_treasure`'s native leg (>1800 s at the
+  time, an upstream regression that 4.0b21 fixed) propagated
+  `TimeoutExpired` and killed the run.
 - programs embedding an ASP block (standalone `asp` token followed by
   newline) run in two stages via `run_asp_pi.js` and are skipped on
   the native side. Note the in-file `asp/1` fact helpers of the
@@ -97,11 +99,10 @@ Notes:
   two-stage legs died at the wasm32 toam stack ("Stack overflow in
   toam" after ~144 s: `planner_ricochet`, `cp_ppm`) and
   `planner_treasure` OOMed at ~287 s. The 4.0b16 bytecode (the
-  regenerated preloaded `picat_bc.h`) fixes all of those: on the
-  4.0b16 build the only failing row is `planner_treasure`, whose
-  native leg still times out (>1800 s) and whose wasm leg OOMs at
-  ~287 s -- a REMAINING upstream regression (it also hangs on the
-  official 4.0b16 binary; stock 3.9#12 solves it).
+  regenerated preloaded `picat_bc.h`) fixed the stack deaths, and the
+  4.0b21 planner fix resolved `planner_treasure` (its native leg
+  solves in ~15 ms; stock 3.9#12 still solves it too). Today NO row
+  fails: the compare has zero failed rows on the current build.
 
 ## Results (2026-08-21, x86_64, 384 cores, 32 workers, median of 3 runs)
 

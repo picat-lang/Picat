@@ -36,6 +36,8 @@ project). Nothing here is vendored code; the project builds on the Picat
 
 ## External tools used for verification
 
-- Picat binary 4.0b8 (commit 9796071), installed at /home/jovyan/bin/picat
+- Picat binary (the stock release 3.9#12), installed at /home/jovyan/bin/picat312;
+  note /home/jovyan/bin/picat is a SYMLINK to this project's own
+  emu/picat build, not an external binary
 - clingo 5.8.2 (available in the environment; used by
   `aspic/test/clingo_examples.py` as a cross-check of example solutions)

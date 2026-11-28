@@ -4,8 +4,10 @@ This branch (`experimental`) adds features on top of `main` (currently
 4.0). Each area
 has its own README where noted.
 
-[Download the Picat experimental version for Linux](https://github.com/picat-lang/Picat/raw/refs/heads/experimental/releases/picat-experimental-linux64-58ffb7a.tgz)
-(a self-contained, statically linked tgz; see below for what it adds).
+[Download the Picat experimental version for Linux](https://github.com/picat-lang/Picat/raw/refs/heads/experimental/releases/picat-experimental-linux64-da56a71.tgz)
+(a self-contained, statically linked tgz; see below for what it adds.
+Note the packaged releases predate the Picat 4.0 merge — build from
+source for the current state).
 
 ## 1. External SAT solvers and the SAT solver portfolio (satext)
 
@@ -492,6 +494,6 @@ the lint finds errors, which makes the flag usable in editors, scripts
 and CI as a syntax/style check.
 
 
-__Current version 4.0b16__ (the experimental branch carries the upstream 4.0b16
+__Current version 4.0__ (the experimental branch carries the upstream 4.0
 standard-library blob and the 4.0 C sources, merged from `main`; the interpreter
 banner reports the build commit and the base version).

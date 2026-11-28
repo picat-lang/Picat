@@ -15,9 +15,9 @@ lambda extension, see the end of this file).
 
 [elegant_native.pi](elegant_native.pi) is the same program rewritten in
 Picat 4.0's NATIVE anonymous-function syntax (`([X] -> ...)`, added in
-4.0b12): it does not import `fp` and runs only on a Picat 4.0b12+ binary
-(our build forks at 4.0b8, before the anonymous-def parser, so
-`emu/picat` rejects it).  Two of its lambdas are restructured as
+4.0b12): it does not import `fp` and runs on any Picat 4.0b12+ binary,
+including this branch's build (which carries the upstream 4.0
+standard library and runs it unchanged).  Two of its lambdas are restructured as
 iterations, because native closures CANNOT BE SELF-APPLIED: passing a
 closure as its own argument (the anonymous-recursion pattern,
 `NEWTON(NEWTON, ...)`) extends the closure term with itself and dies
@@ -92,7 +92,8 @@ value throws `$lambda_free_variable(V)`.
 Applying `F(A1,...,An)` to `F = $lambda(VList, Exp)` appends the
 arguments to the term and calls `lambda(VList, Exp, A1,...,An)`,
 which binds the VList and evaluates the body.  (The doc-only,
-unimplemented compiler `lambda` of overview.tex is *implemented* here.)
+unimplemented compiler `lambda` form of the old LaTeX manual is
+*implemented* here.)
 
 **`cond(Boolean, TrueExp, FalseExp)`** -- Picat's built-in conditional
 function; `fp` evaluates it short-circuiting at any nesting depth
